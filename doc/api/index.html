@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, user-scalable=no">
+  <meta name="description" content="miniaudiodart API docs, for the Dart programming language.">
+  <title>miniaudiodart - Dart API docs</title>
+
+
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+  
+  <link rel="stylesheet" href="static-assets/github.css?v1">
+  <link rel="stylesheet" href="static-assets/styles.css?v1">
+  <link rel="icon" href="static-assets/favicon.png?v1">
+  
+</head>
+
+<body data-base-href="" data-using-base-href="false" class="light-theme">
+<div id="overlay-under-drawer"></div>
+<header id="title">
+  <span id="sidenav-left-toggle" class="material-symbols-outlined" role="button" tabindex="0">menu</span>
+  <ol class="breadcrumbs gt-separated dark hidden-xs">
+    <li><a href="https://example.com">miniaudiodart package</a></li>
+  </ol>
+  <div class="self-name">miniaudiodart</div>
+  <form class="search navbar-right" role="search">
+    <input type="text" id="search-box" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+  <button class="toggle" id="theme-button" title="Toggle between light and dark mode" aria-label="Light and dark mode toggle">
+    <span id="dark-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      dark_mode
+    </span>
+    <span id="light-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      light_mode
+    </span>
+  </button>
+</header>
+<main>
+  <div id="dartdoc-main-content" class="main-content">
+      
+<section class="desc markdown">
+  <h1 id="miniaudiodart">miniaudiodart</h1>
+<p>Cross-platform Dart audio package backed by a C++ miniaudio engine.</p>
+<h2 id="features">Features</h2>
+<ul>
+<li>Playlist engine (set/add/insert/remove/move)</li>
+<li>Gapless transitions between tracks</li>
+<li>Play/pause/stop/seek/next/previous/jump</li>
+<li>Shuffle + loop modes (<code>off</code>, <code>all</code>, <code>one</code>)</li>
+<li>FX chain: gain, pan, EQ (3-band), reverb, low-pass, high-pass, delay</li>
+<li>Pollable player status and stream updates</li>
+<li>Native targets: Windows, Linux, Android, iOS/macOS</li>
+</ul>
+<h2 id="public-dart-api">Public Dart API</h2>
+<p>Import:</p>
+<pre class="language-dart"><code class="language-dart">import 'package:miniaudiodart/miniaudiodart.dart';
+</code></pre>
+<h3 id="example-playlist--controls">Example (playlist + controls)</h3>
+<pre class="language-dart"><code class="language-dart">final player = MiniAudioPlayer();
+player.init();
+
+final playlist = &lt;AudioSource&gt;[
+  AudioSource.uri(Uri.parse('https://example.com/track1.mp3')),
+  AudioSource.uri(Uri.parse('https://example.com/track2.mp3')),
+  AudioSource.uri(Uri.parse('https://example.com/track3.mp3')),
+];
+
+player.setAudioSources(
+  playlist,
+  initialIndex: 0,
+  initialPosition: Duration.zero,
+  useLazyPreparation: true,
+);
+
+player.play();
+player.seekToNext();
+player.seekToPrevious();
+player.seekTo(const Duration(seconds: 0), index: 2);
+player.setLoopMode(LoopMode.all);
+player.setShuffleModeEnabled(true);
+
+player.addAudioSource(AudioSource.uri(Uri.parse('https://example.com/new.mp3')));
+player.insertAudioSource(1, AudioSource.uri(Uri.parse('https://example.com/ins.mp3')));
+player.removeAudioSourceAt(3);
+player.moveAudioSource(2, 1);
+
+player.setEqEnabled(true);
+player.setEq(low: 1.2, mid: 1.0, high: 1.1);
+player.setReverbEnabled(true);
+player.setReverb(mix: 0.2, feedback: 0.6, delayMs: 100);
+</code></pre>
+<h2 id="native-build-outputs">Native build outputs</h2>
+<p>Expected library names by platform:</p>
+<ul>
+<li>Windows: <code>audio_engine.dll</code></li>
+<li>Linux/Android: <code>libaudio_engine.so</code></li>
+<li>macOS: <code>libaudio_engine.dylib</code></li>
+<li>iOS: statically linked (<code>DynamicLibrary.process()</code>)</li>
+</ul>
+<h2 id="flutter-plugin-structure">Flutter plugin structure</h2>
+<p>This package is configured as a Flutter FFI plugin in <a href="pubspec.yaml">pubspec.yaml</a> with:</p>
+<ul>
+<li>Android (<code>ffiPlugin: true</code>)</li>
+<li>iOS (<code>ffiPlugin: true</code>)</li>
+<li>Linux (<code>ffiPlugin: true</code>)</li>
+<li>Windows (<code>ffiPlugin: true</code>)</li>
+</ul>
+<p>Platform native build configs are included:</p>
+<ul>
+<li><a href="android/src/main/cpp/CMakeLists.txt">android/src/main/cpp/CMakeLists.txt</a></li>
+<li><a href="ios/miniaudiodart.podspec">ios/miniaudiodart.podspec</a></li>
+<li><a href="linux/CMakeLists.txt">linux/CMakeLists.txt</a></li>
+<li><a href="windows/CMakeLists.txt">windows/CMakeLists.txt</a></li>
+</ul>
+<h2 id="build-scripts">Build scripts</h2>
+<ul>
+<li>Windows: <a href="tool/build_windows.ps1">tool/build_windows.ps1</a></li>
+<li>Linux: <a href="tool/build_linux.sh">tool/build_linux.sh</a></li>
+<li>Android (NDK): <a href="tool/build_android.sh">tool/build_android.sh</a></li>
+<li>Android (NDK, PowerShell): <a href="tool/build_android.ps1">tool/build_android.ps1</a></li>
+<li>Apple (iOS + macOS): <a href="tool/build_apple.sh">tool/build_apple.sh</a></li>
+</ul>
+<h2 id="packaging-notes">Packaging notes</h2>
+<p>For Flutter app integration, keep native artifacts available in app/plugin output:</p>
+<ul>
+<li>Android: <code>android/src/main/jniLibs/&lt;abi&gt;/libaudio_engine.so</code></li>
+<li>iOS: link <code>audio_engine.xcframework</code> in Xcode/Podspec</li>
+<li>Windows: place <code>audio_engine.dll</code> next to executable</li>
+<li>Linux: ship <code>libaudio_engine.so</code> with app bundle and ensure loader path</li>
+</ul>
+<h2 id="example">Example</h2>
+<p>See <a href="example/main.dart">example/main.dart</a> for a complete usage sample.</p>
+</section>
+
+
+      <section class="summary">
+          <h2>Libraries</h2>
+        <dl>
+          <dt id="audio_engine_ffi">
+  <span class="name"><a href="audio_engine_ffi/">audio_engine_ffi</a></span> 
+
+</dt>
+<dd>
+</dd>
+
+          <dt id="miniaudiodart">
+  <span class="name"><a href="miniaudiodart/">miniaudiodart</a></span> 
+
+</dt>
+<dd>
+</dd>
+
+        </dl>
+      </section>
+  </div> <!-- /.main-content -->
+  <div id="dartdoc-sidebar-left" class="sidebar sidebar-offcanvas-left">
+    <!-- The search input and breadcrumbs below are only responsively visible at low resolutions. -->
+<header id="header-search-sidebar" class="hidden-l">
+  <form class="search-sidebar" role="search">
+    <input type="text" id="search-sidebar" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+</header>
+<ol class="breadcrumbs gt-separated dark hidden-l" id="sidebar-nav">
+    <li><a href="https://example.com">miniaudiodart package</a></li>
+</ol>
+
+    <h5 class="hidden-xs"><span class="package-name">miniaudiodart</span> <span class="package-kind">package</span></h5>
+    <ol>
+      <li class="section-title">Libraries</li>
+      <li><a href="audio_engine_ffi/">audio_engine_ffi</a></li>
+      <li><a href="miniaudiodart/">miniaudiodart</a></li>
+</ol>
+
+  </div>
+  <div id="dartdoc-sidebar-right" class="sidebar sidebar-offcanvas-right">
+  </div>
+</main>
+<footer>
+  <span class="no-break">
+    miniaudiodart
+      0.1.0
+  </span>
+  
+</footer>
+
+
+<script src="static-assets/highlight.pack.js?v1"></script>
+<script src="static-assets/docs.dart.js"></script>
+
+</body>
+</html>
+

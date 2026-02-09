@@ -1,0 +1,7 @@
+[
+{
+  "directory": "C:/Users/wambugukinyua/miniaudiodart/android/.cxx/RelWithDebInfo/6oc1y112/x86",
+  "command": "C:\\androidsdk\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=i686-none-linux-android21 --sysroot=C:/androidsdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Daudio_engine_EXPORTS -IC:/Users/wambugukinyua/miniaudiodart/android/src/main/cpp/../../../.. -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -mstackrealign -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O2 -O2 -g -DNDEBUG -fPIC -std=gnu++17 -o CMakeFiles\\audio_engine.dir\\C_\\Users\\wambugukinyua\\miniaudiodart\\audio_engine.cpp.o -c C:\\Users\\wambugukinyua\\miniaudiodart\\audio_engine.cpp",
+  "file": "C:\\Users\\wambugukinyua\\miniaudiodart\\audio_engine.cpp"
+}
+]

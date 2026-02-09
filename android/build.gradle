@@ -1,0 +1,41 @@
+group 'com.wambugu.miniaudiodart'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.wambugu.miniaudiodart'
+    compileSdkVersion 34
+    ndkVersion "28.2.13676358"
+
+    defaultConfig {
+        minSdkVersion 21
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17 -O2"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
