@@ -82,6 +82,16 @@ extern "C"
     AE_API void ae_set_highpass_cutoff(AudioEngineHandle *engine, float hz);
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
+    AE_API void ae_set_bandpass_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_bandpass_params(AudioEngineHandle *engine, float cutoff_hz, float q);
+    AE_API void ae_set_peak_eq_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_peak_eq_params(AudioEngineHandle *engine, float gain_db, float q, float frequency_hz);
+    AE_API void ae_set_notch_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_notch_params(AudioEngineHandle *engine, float q, float frequency_hz);
+    AE_API void ae_set_lowshelf_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_lowshelf_params(AudioEngineHandle *engine, float gain_db, float slope, float frequency_hz);
+    AE_API void ae_set_highshelf_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_highshelf_params(AudioEngineHandle *engine, float gain_db, float slope, float frequency_hz);
 
     // Advanced Audio Controls
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);

@@ -169,6 +169,69 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setBandpass({bool? enabled, double? cutoffHz, double? q}) {
+    _send({
+      'cmd': 'setBandpass',
+      'enabled': enabled,
+      'cutoffHz': cutoffHz,
+      'q': q,
+    });
+  }
+
+  void setPeakEq({
+    bool? enabled,
+    double? gainDb,
+    double? q,
+    double? frequencyHz,
+  }) {
+    _send({
+      'cmd': 'setPeakEq',
+      'enabled': enabled,
+      'gainDb': gainDb,
+      'q': q,
+      'frequencyHz': frequencyHz,
+    });
+  }
+
+  void setNotch({bool? enabled, double? q, double? frequencyHz}) {
+    _send({
+      'cmd': 'setNotch',
+      'enabled': enabled,
+      'q': q,
+      'frequencyHz': frequencyHz,
+    });
+  }
+
+  void setLowshelf({
+    bool? enabled,
+    double? gainDb,
+    double? slope,
+    double? frequencyHz,
+  }) {
+    _send({
+      'cmd': 'setLowshelf',
+      'enabled': enabled,
+      'gainDb': gainDb,
+      'slope': slope,
+      'frequencyHz': frequencyHz,
+    });
+  }
+
+  void setHighshelf({
+    bool? enabled,
+    double? gainDb,
+    double? slope,
+    double? frequencyHz,
+  }) {
+    _send({
+      'cmd': 'setHighshelf',
+      'enabled': enabled,
+      'gainDb': gainDb,
+      'slope': slope,
+      'frequencyHz': frequencyHz,
+    });
+  }
+
   void setMultibandEqEnabled(bool enabled) =>
       _send({'cmd': 'setMultibandEqEnabled', 'enabled': enabled});
 
@@ -327,6 +390,44 @@ void _isolateEntry(_IsolateInitData initData) {
               mix: message['mix'],
               feedback: message['feedback'],
               delayMs: message['delayMs']);
+          break;
+        case 'setBandpass':
+          player.setBandpass(
+            enabled: message['enabled'] ?? false,
+            cutoffHz: message['cutoffHz'] ?? 1000.0,
+            q: message['q'] ?? 0.707,
+          );
+          break;
+        case 'setPeakEq':
+          player.setPeakEq(
+            enabled: message['enabled'] ?? false,
+            gainDb: message['gainDb'] ?? 0.0,
+            q: message['q'] ?? 1.0,
+            frequencyHz: message['frequencyHz'] ?? 1000.0,
+          );
+          break;
+        case 'setNotch':
+          player.setNotch(
+            enabled: message['enabled'] ?? false,
+            q: message['q'] ?? 1.0,
+            frequencyHz: message['frequencyHz'] ?? 1000.0,
+          );
+          break;
+        case 'setLowshelf':
+          player.setLowshelf(
+            enabled: message['enabled'] ?? false,
+            gainDb: message['gainDb'] ?? 0.0,
+            slope: message['slope'] ?? 1.0,
+            frequencyHz: message['frequencyHz'] ?? 200.0,
+          );
+          break;
+        case 'setHighshelf':
+          player.setHighshelf(
+            enabled: message['enabled'] ?? false,
+            gainDb: message['gainDb'] ?? 0.0,
+            slope: message['slope'] ?? 1.0,
+            frequencyHz: message['frequencyHz'] ?? 4000.0,
+          );
           break;
         case 'setLowpass':
           player.setLowpass(

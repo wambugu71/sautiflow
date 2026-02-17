@@ -1,3 +1,3 @@
-library miniaudiodart;
+library;
 
 export 'sautiflow.dart';

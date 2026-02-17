@@ -130,6 +130,10 @@ typedef _SetEqGainsDart = void Function(
 typedef _SetSingleFloatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float);
 typedef _SetSingleFloatDart = void Function(ffi.Pointer<ffi.Void>, double);
+typedef _SetTwoFloatsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _SetTwoFloatsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
 typedef _SetOutputFormatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetOutputFormatDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -323,6 +327,46 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
       'ae_set_delay_params',
     );
+    _setBandpassEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_bandpass_enabled',
+    );
+    _setBandpassParams =
+        _lib.lookupFunction<_SetTwoFloatsNative, _SetTwoFloatsDart>(
+      'ae_set_bandpass_params',
+    );
+    _setPeakEqEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_peak_eq_enabled',
+    );
+    _setPeakEqParams =
+        _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
+      'ae_set_peak_eq_params',
+    );
+    _setNotchEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_notch_enabled',
+    );
+    _setNotchParams =
+        _lib.lookupFunction<_SetTwoFloatsNative, _SetTwoFloatsDart>(
+      'ae_set_notch_params',
+    );
+    _setLowshelfEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_lowshelf_enabled',
+    );
+    _setLowshelfParams =
+        _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
+      'ae_set_lowshelf_params',
+    );
+    _setHighshelfEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_highshelf_enabled',
+    );
+    _setHighshelfParams =
+        _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
+      'ae_set_highshelf_params',
+    );
 
     // Advanced Audio Features Bindings
     _setOutputFormat =
@@ -426,6 +470,16 @@ class AudioEngineFFI {
   late final _SetSingleFloatDart _setHighpassCutoff;
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
+  late final _SetFxEnabledDart _setBandpassEnabled;
+  late final _SetTwoFloatsDart _setBandpassParams;
+  late final _SetFxEnabledDart _setPeakEqEnabled;
+  late final _SetReverbParamsDart _setPeakEqParams;
+  late final _SetFxEnabledDart _setNotchEnabled;
+  late final _SetTwoFloatsDart _setNotchParams;
+  late final _SetFxEnabledDart _setLowshelfEnabled;
+  late final _SetReverbParamsDart _setLowshelfParams;
+  late final _SetFxEnabledDart _setHighshelfEnabled;
+  late final _SetReverbParamsDart _setHighshelfParams;
 
   // Advanced Audio Features
   late final _SetOutputFormatDart _setOutputFormat;
@@ -795,6 +849,74 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setDelayParams(_engine, mix, feedback, delayMs);
+  }
+
+  void setBandpassEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setBandpassEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setBandpassParams({
+    required double cutoffHz,
+    required double q,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setBandpassParams(_engine, cutoffHz, q);
+  }
+
+  void setPeakEqEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setPeakEqEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setPeakEqParams({
+    required double gainDb,
+    required double q,
+    required double frequencyHz,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setPeakEqParams(_engine, gainDb, q, frequencyHz);
+  }
+
+  void setNotchEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setNotchEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setNotchParams({
+    required double q,
+    required double frequencyHz,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setNotchParams(_engine, q, frequencyHz);
+  }
+
+  void setLowshelfEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setLowshelfEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setLowshelfParams({
+    required double gainDb,
+    required double slope,
+    required double frequencyHz,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setLowshelfParams(_engine, gainDb, slope, frequencyHz);
+  }
+
+  void setHighshelfEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setHighshelfEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setHighshelfParams({
+    required double gainDb,
+    required double slope,
+    required double frequencyHz,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setHighshelfParams(_engine, gainDb, slope, frequencyHz);
   }
 
   // Advanced Audio Features Helpers

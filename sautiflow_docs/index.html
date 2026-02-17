@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sautiflow - High-Performance Dart Audio Engine</title>
+    <meta name="description"
+        content="Cross-platform Dart audio package backed by a C++ miniaudio engine. Zero latency, high fidelity, and advanced FX.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Highlight.js (Atom One Dark) -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dart.min.js"></script>
+</head>
+
+<body>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-wave-square"></i>
+                Sautiflow <span>Docs</span>
+            </div>
+
+            <div class="nav-group">
+                <input type="text" id="search-input" placeholder="Search docs..."
+                    style="width: 100%; padding: 0.5rem; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 6px; margin-bottom: 1rem;">
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-title">Getting Started</div>
+                <a href="#introduction" class="nav-item">Introduction</a>
+                <a href="#installation" class="nav-item">Installation</a>
+                <a href="#quick-start" class="nav-item">Quick Start</a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-title">Core API</div>
+                <a href="#player-initialization" class="nav-item">Initialization</a>
+                <a href="#playback-controls" class="nav-item">Playback Controls</a>
+                <a href="#playlist-management" class="nav-item">Playlist Management</a>
+                <a href="#player-status" class="nav-item">Player Status</a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-title">Audio FX</div>
+                <a href="#equalizer" class="nav-item">Equalizer (EQ)</a>
+                <a href="#reverb" class="nav-item">Reverb</a>
+                <a href="#delay" class="nav-item">Delay</a>
+                <a href="#filters" class="nav-item">Filters</a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-title">Advanced</div>
+                <a href="#output-format" class="nav-item">Output Format</a>
+                <a href="#stream-pushing" class="nav-item">Stream Pushing</a>
+                <a href="#android-setup" class="nav-item">Android Setup</a>
+                <a href="#platform-specifics" class="nav-item">Platform Specifics</a>
+            </div>
+        </nav>
+
+        <!-- Mobile Toggle -->
+        <div class="menu-toggle">
+            <i class="fa-solid fa-bars"></i>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- Hero Section -->
+            <section id="introduction" class="hero">
+                <h1>Sautiflow</h1>
+                <p class="hero-subtitle">
+                    High-fidelity, cross-platform Dart/Flutter audio engine for audiophiles.
+                    Powered by <strong>miniaudio</strong> and native C++ FFI.
+                </p>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon"><i class="fa-solid fa-bolt"></i></div>
+                        <h4>Zero Latency</h4>
+                        <p>Native C++ binding ensures instant playback and response times.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i class="fa-solid fa-layer-group"></i></div>
+                        <h4>Gapless Playlist</h4>
+                        <p>Seamless transitions between tracks with advanced queue management.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i class="fa-solid fa-sliders"></i></div>
+                        <h4>Pro FX Chain</h4>
+                        <p>Built-in EQ suite, reverb, delay, low/high/band-pass, notch, peak EQ, and shelf filters.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i class="fa-brands fa-android"></i></div>
+                        <h4>Cross-Platform</h4>
+                        <p>Support for Windows, Linux, Android, iOS, and macOS.</p>
+                    </div>
+                </div>
+
+                <div class="cta-group">
+                    <a href="https://github.com/wambugukinyua/miniaudiodart" target="_blank" class="btn btn-primary">
+                        <i class="fa-brands fa-github"></i> View on GitHub
+                    </a>
+                    <a href="https://pub.dev/packages/sautiflow" target="_blank" class="btn btn-secondary">
+                        <i class="fa-solid fa-box-open"></i> Pub.dev
+                    </a>
+                </div>
+            </section>
+
+            <section id="installation">
+                <h2>Installation</h2>
+                <p>Add sautiflow to your <code>pubspec.yaml</code>:</p>
+                <pre><code class="language-bash">flutter pub add sautiflow</code></pre>
+                <p>Or manually:</p>
+                <pre><code class="language-yaml">dependencies:
+    sautiflow: ^0.2.0</code></pre>
+
+                <div
+                    style="background: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; padding: 1rem; margin-top: 1rem; border-radius: 4px;">
+                    <strong>Note:</strong> On Android, network streaming support depends on the build configuration. See
+                    <a href="#platform-specifics">Platform Specifics</a>.
+                </div>
+            </section>
+
+            <section id="quick-start">
+                <h2>Quick Start</h2>
+                <p>Initialize the player, set a playlist, and start playing.</p>
+                <pre><code class="language-dart">import 'package:sautiflow/sautiflow.dart';
+
+void main() async {
+  final player = MiniAudioPlayer();
+  
+  // 1. Initialize the engine
+  player.init();
+
+  // 2. Define playlist
+  final playlist = [
+    AudioSource.network('https://example.com/track1.mp3'),
+    AudioSource.file('/path/to/local/track2.mp3'),
+  ];
+
+  // 3. Load and play
+  player.setAudioSources(playlist);
+  player.play();
+
+  // 4. Control playback
+  await Future.delayed(Duration(seconds: 5));
+  player.seekToNext();
+}</code></pre>
+            </section>
+
+            <!-- API SECTION -->
+            <section id="player-initialization">
+                <h2>Initialization</h2>
+                <p>The <code>MiniAudioPlayer</code> is the main entry point.</p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>init</h3>
+                        <span class="api-signature">bool init({int sampleRate, int channels, bool
+                            enableSystemAudio})</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Initializes the underlying C++ audio engine. Must be called before any other operation.</p>
+                        <table class="param-table">
+                            <tr>
+                                <th>Parameter</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                            </tr>
+                            <tr>
+                                <td class="param-name">sampleRate</td>
+                                <td class="param-type">int</td>
+                                <td>Output sample rate (default: 48000)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">channels</td>
+                                <td class="param-type">int</td>
+                                <td>Output channels (default: 2)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">enableSystemAudio</td>
+                                <td class="param-type">bool</td>
+                                <td>Integrate with OS media controls (Android/iOS)</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>dispose</h3>
+                        <span class="api-signature">void dispose()</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Releases all native resources and stops the audio engine. Always call this when the player is
+                            no longer needed.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="playback-controls">
+                <h2>Playback Controls</h2>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>play / pause / stop</h3>
+                        <span class="api-signature">bool play() / bool pause() / bool stop()</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Basic transport controls. Returns <code>true</code> if the operation was successful.</p>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>seek</h3>
+                        <span class="api-signature">bool seek(Duration position, {int? index})</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Seeks to a specific position. If <code>index</code> is provided, it jumps to that track in
+                            the playlist first.</p>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>seekToNext / seekToPrevious</h3>
+                        <span class="api-signature">bool seekToNext() / bool seekToPrevious()</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Skips to the next or previous track in the playlist.</p>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>setVolume / setGain</h3>
+                        <span class="api-signature">void setVolume(double volume)</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Sets the master volume gain. <code>1.0</code> is unity gain.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="playlist-management">
+                <h2>Playlist Management</h2>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>setAudioSources</h3>
+                        <span class="api-signature">bool setAudioSources(List&lt;AudioSource&gt; sources, ...)</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Replaces the current playlist with a new list of sources.</p>
+                        <pre><code class="language-dart">player.setAudioSources([
+  AudioSource.network('https://stream.url/audio.mp3'),
+  AudioSource.file('assets/music.mp3')
+]);</code></pre>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Playlist Mutation</h3>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>addAudioSource(AudioSource source)</code>: Append a track.</li>
+                            <li><code>insertAudioSource(int index, AudioSource source)</code>: Insert at position.</li>
+                            <li><code>removeAudioSourceAt(int index)</code>: Remove track.</li>
+                            <li><code>moveAudioSource(int from, int to)</code>: Reorder playback.</li>
+                            <li><code>clearAudioSources()</code>: Clear playlist.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Modes</h3>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setLoopMode(LoopMode mode)</code>: <code>off</code>, <code>all</code>,
+                                <code>one</code>.
+                            </li>
+                            <li><code>setShuffleModeEnabled(bool enabled)</code>: Toggles shuffle.</li>
+                            <li><code>reshuffle()</code>: Re-randomizes the shuffle order.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="player-status">
+                <h2>Player Status</h2>
+                <p>You can listen to the player status stream for real-time UI updates.</p>
+                <pre><code class="language-dart">StreamBuilder&lt;PlayerStatus&gt;(
+  stream: player.statusStream,
+  builder: (context, snapshot) {
+    final status = snapshot.data;
+    if (status == null) return CircularProgressIndicator();
+    
+    return Column(
+      children: [
+        Text("Time: ${status.positionSeconds} / ${status.durationSeconds}"),
+        LinearProgressIndicator(
+          value: status.positionSeconds / status.durationSeconds
+        ),
+      ],
+    );
+  },
+);</code></pre>
+            </section>
+
+            <section id="equalizer">
+                <h2>Equalizer (EQ)</h2>
+                <p>Sautiflow includes a 3-band parametric EQ and a multiband equalizer.</p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>3-Band EQ</h3>
+                    </div>
+                    <div class="api-body">
+                        <pre><code class="language-dart">player.setEqEnabled(true);
+player.setEq(low: 1.2, mid: 0.8, high: 1.1);</code></pre>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Multiband EQ</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Initialize with custom frequencies.</p>
+                        <pre><code class="language-dart">player.initMultibandEq([32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]);
+player.setMultibandEqEnabled(true);
+player.setMultibandEqBandGain(0, 2.0); // Boost 32Hz by 2dB</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <section id="reverb">
+                <h2>Reverb</h2>
+                <p>Add spatial depth to your audio.</p>
+                <pre><code class="language-dart">player.setReverbEnabled(true);
+player.setReverb(
+  mix: 0.3,       // Wet/Dry mix (0.0 - 1.0)
+  feedback: 0.5,  // Decay tail
+  delayMs: 50.0   // Pre-delay
+);</code></pre>
+            </section>
+
+            <section id="delay">
+                <h2>Delay (Echo)</h2>
+                <pre><code class="language-dart">player.setDelay(
+  enabled: true,
+  mix: 0.4,
+  feedback: 0.6,
+  delayMs: 250.0 // Quarter second echo
+);</code></pre>
+            </section>
+
+            <section id="filters">
+                <h2>Filters & Advanced EQ</h2>
+                <p>Sautiflow provides a suite of professional filters for sound design and mixing.</p>
+
+                <pre><code class="language-dart">// High-pass (Remove rumble)
+player.setHighpass(enabled: true, cutoffHz: 120.0);
+
+// Low-pass (Lo-fi effect)
+player.setLowpass(enabled: true, cutoffHz: 3000.0);
+
+// Band-pass (Telephone effect / Focus)
+player.setBandpass(
+  enabled: true,
+  cutoffHz: 1000.0,
+  q: 1.0 // Q-factor (width)
+);
+
+// Notch Filter (Remove specific frequency)
+player.setNotch(
+  enabled: true,
+  frequencyHz: 60.0, // Remove 60Hz hum
+  q: 10.0
+);
+
+// Peak EQ (Parametric Boost/Cut)
+player.setPeakEq(
+  enabled: true,
+  frequencyHz: 2500.0,
+  gainDb: 3.0,
+  q: 1.0
+);
+
+// Low Shelf (Bass Boost)
+player.setLowshelf(
+  enabled: true,
+  frequencyHz: 100.0,
+  gainDb: 4.0,
+  slope: 1.0
+);
+
+// High Shelf (Treble Boost)
+player.setHighshelf(
+  enabled: true,
+  frequencyHz: 10000.0,
+  gainDb: 2.0,
+  slope: 1.0
+);</code></pre>
+            </section>
+
+            <section id="output-format">
+                <h2>Output Format</h2>
+                <p>Configure the audio engine output format.</p>
+                <pre><code class="language-dart">
+// Set to Floating Point 32-bit (highest quality)
+player.setOutputFormat(AudioFormat.f32);
+
+// Set Sample Rate to 44.1kHz
+player.setOutputSampleRate(44100);
+
+// Set to Mono
+player.setOutputChannels(1);
+          </code></pre>
+            </section>
+
+            <section id="stream-pushing">
+                <h2>Stream Pushing</h2>
+                <p>For custom streaming implementations or raw data handling.</p>
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>pushStream</h3>
+                        <span class="api-signature">Future&lt;void&gt; pushStream({required String url})</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Manually fetches chunks from a URL and pushes them to the engine. Useful for environments
+                            where native networking is restricted.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="android-setup">
+                <h2>Android Full Setup</h2>
+                <p>For a production-ready app with background playback, lockscreen controls, and notifications, follow
+                    this checklist.</p>
+
+                <h3>1. Dependencies</h3>
+                <p>Ensure your <code>pubspec.yaml</code> includes:</p>
+                <pre><code class="language-yaml">dependencies:
+    sautiflow: ^0.2.0
+  audio_session: ^0.1.21
+  audio_service: ^0.18.18</code></pre>
+
+                <h3>2. AndroidManifest.xml</h3>
+                <p>Add the following permissions and components to
+                    <code>android/app/src/main/AndroidManifest.xml</code>.
+                </p>
+
+                <div
+                    style="background: rgba(255, 0, 0, 0.1); border-left: 4px solid #ff4444; padding: 1rem; margin: 1rem 0; border-radius: 4px;">
+                    <strong>Critical:</strong> You must replace the default <code>FlutterActivity</code> with
+                    <code>AudioServiceActivity</code> or Ensure your MainActivity extends it.
+                </div>
+
+                <pre><code class="language-xml">&lt;manifest ...&gt;
+    &lt;!-- Required Permissions --&gt;
+    &lt;uses-permission android:name="android.permission.WAKE_LOCK"/&gt;
+    &lt;uses-permission android:name="android.permission.FOREGROUND_SERVICE"/&gt;
+    &lt;uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/&gt;
+    &lt;!-- Android 13+ Notifications --&gt;
+    &lt;uses-permission android:name="android.permission.POST_NOTIFICATIONS"/&gt;
+
+    &lt;application ...&gt;
+        
+        &lt;!-- Main Activity (Must use AudioServiceActivity) --&gt;
+        &lt;activity
+            android:name="com.ryanheise.audioservice.AudioServiceActivity"
+            android:exported="true"
+            android:launchMode="singleTask"&gt;
+            &lt;intent-filter&gt;
+                &lt;action android:name="android.intent.action.MAIN"/&gt;
+                &lt;category android:name="android.intent.category.LAUNCHER"/&gt;
+            &lt;/intent-filter&gt;
+        &lt;/activity&gt;
+
+        &lt;!-- Audio Service --&gt;
+        &lt;service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"&gt;
+            &lt;intent-filter&gt;
+                &lt;action android:name="android.media.browse.MediaBrowserService" /&gt;
+            &lt;/intent-filter&gt;
+        &lt;/service&gt;
+
+        &lt;!-- Media Button Receiver --&gt;
+        &lt;receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"&gt;
+            &lt;intent-filter&gt;
+                &lt;action android:name="android.intent.action.MEDIA_BUTTON" /&gt;
+            &lt;/intent-filter&gt;
+        &lt;/receiver&gt;
+
+    &lt;/application&gt;
+&lt;/manifest&gt;</code></pre>
+
+                <h3>3. Dart Initialization</h3>
+                <p>Initialize the audio session and system integration in your <code>main()</code> function.</p>
+                <pre><code class="language-dart">void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. Configure Audio Session
+  final session = await AudioSession.instance;
+  await session.configure(const AudioSessionConfiguration.music());
+
+  // 2. Initialize Player with System Audio
+  final player = MiniAudioPlayer();
+  await player.init(enableSystemAudio: true);
+
+  runApp(const MyApp());
+}</code></pre>
+
+                <h3>4. Update Metadata & State</h3>
+                <p>For the notification to show correct info, update the now playing info whenever the track changes.
+                </p>
+                <pre><code class="language-dart">await player.updateNowPlaying(
+  title: "Song Title",
+  artist: "Artist Name",
+  album: "Album Name",
+  duration: Duration(minutes: 3, seconds: 45),
+  // id, artwork can also be added if supported
+);</code></pre>
+            </section>
+
+            <section id="platform-specifics">
+                <h2>Platform Specifics</h2>
+
+                <h3>Android Network Streaming</h3>
+                <p>Native properties can be overridden in your `android/gradle.properties`:</p>
+                <pre><code class="language-properties">MINIAUDIODART_ENABLE_CURL=ON
+MINIAUDIODART_CURL_INCLUDE_DIR=/path/to/curl/include
+MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
+
+                <h3>iOS / macOS</h3>
+                <p>Linked statically. Ensure `ffiPlugin` is enabled in your `pubspec.yaml`.</p>
+            </section>
+
+            <footer>
+                <p>&copy; 2024 Sautiflow. Built with <i class="fa-solid fa-heart"
+                        style="color: var(--accent-primary)"></i> and Dart.</p>
+            </footer>
+
+        </main>
+
+        <!-- Table of Contents (Right Sidebar) -->
+        <aside class="toc">
+            <div class="toc-title">ON THIS PAGE</div>
+            <a href="#introduction" class="toc-link">Introduction</a>
+            <a href="#installation" class="toc-link">Installation</a>
+            <a href="#quick-start" class="toc-link">Quick Start</a>
+            <a href="#player-initialization" class="toc-link">Initialization</a>
+            <a href="#playback-controls" class="toc-link">Playback Controls</a>
+            <a href="#playlist-management" class="toc-link">Playlist Management</a>
+            <a href="#player-status" class="toc-link">Player Status</a>
+            <a href="#equalizer" class="toc-link">Equalizer</a>
+            <a href="#reverb" class="toc-link">Reverb</a>
+            <a href="#delay" class="toc-link">Delay</a>
+            <a href="#filters" class="toc-link">Filters</a>
+            <a href="#output-format" class="toc-link">Output Format</a>
+            <a href="#android-setup" class="toc-link">Android Setup</a>
+            <a href="#platform-specifics" class="toc-link">Platform Specifics</a>
+        </aside>
+
+    </div>
+
+    <script src="js/script.js"></script>
+</body>
+
+</html>

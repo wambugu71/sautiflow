@@ -535,6 +535,11 @@ struct AudioEngineHandle
     bool lowpassEnabled = false;
     bool highpassEnabled = false;
     bool delayEnabled = false;
+    bool bandpassEnabled = false;
+    bool peakEqEnabled = false;
+    bool notchEnabled = false;
+    bool lowshelfEnabled = false;
+    bool highshelfEnabled = false;
     float gain = 1.0f;
     float pan = 0.0f;
     EqState eq;
@@ -542,6 +547,29 @@ struct AudioEngineHandle
     OnePoleState lowpass;
     OnePoleState highpass;
     DelayState delay;
+
+    float bandpassCutoffHz = 1000.0f;
+    float bandpassQ = 0.707f;
+    ma_bpf2 bandpass{};
+
+    float peakGainDb = 0.0f;
+    float peakQ = 1.0f;
+    float peakFrequencyHz = 1000.0f;
+    ma_peak2 peakEq{};
+
+    float notchQ = 1.0f;
+    float notchFrequencyHz = 1000.0f;
+    ma_notch2 notch{};
+
+    float lowshelfGainDb = 0.0f;
+    float lowshelfSlope = 1.0f;
+    float lowshelfFrequencyHz = 200.0f;
+    ma_loshelf2 lowshelf{};
+
+    float highshelfGainDb = 0.0f;
+    float highshelfSlope = 1.0f;
+    float highshelfFrequencyHz = 4000.0f;
+    ma_hishelf2 highshelf{};
 
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
@@ -599,6 +627,58 @@ struct AudioEngineHandle
     PushStreamContext pushStreamForCurrent; // Single slot for now, for simplicity
     bool isPushStreamMode = false;
 };
+
+static void reinit_advanced_fx_filters(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+
+    const ma_uint32 sampleRate = (ma_uint32)((e->sampleRate > 0) ? e->sampleRate : 48000);
+    const ma_uint32 channels = (ma_uint32)((e->outputChannels > 0) ? e->outputChannels : 2);
+
+    ma_bpf2_config bpfConfig = ma_bpf2_config_init(
+        ma_format_f32,
+        channels,
+        sampleRate,
+        clampf(e->bandpassCutoffHz, 20.0f, (float)sampleRate * 0.45f),
+        clampf(e->bandpassQ, 0.1f, 18.0f));
+    (void)ma_bpf2_init(&bpfConfig, nullptr, &e->bandpass);
+
+    ma_peak2_config peakConfig = ma_peak2_config_init(
+        ma_format_f32,
+        channels,
+        sampleRate,
+        clampf(e->peakGainDb, -24.0f, 24.0f),
+        clampf(e->peakQ, 0.1f, 18.0f),
+        clampf(e->peakFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
+    (void)ma_peak2_init(&peakConfig, nullptr, &e->peakEq);
+
+    ma_notch2_config notchConfig = ma_notch2_config_init(
+        ma_format_f32,
+        channels,
+        sampleRate,
+        clampf(e->notchQ, 0.1f, 18.0f),
+        clampf(e->notchFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
+    (void)ma_notch2_init(&notchConfig, nullptr, &e->notch);
+
+    ma_loshelf2_config lowshelfConfig = ma_loshelf2_config_init(
+        ma_format_f32,
+        channels,
+        sampleRate,
+        clampf(e->lowshelfGainDb, -24.0f, 24.0f),
+        clampf(e->lowshelfSlope, 0.1f, 2.0f),
+        clampf(e->lowshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
+    (void)ma_loshelf2_init(&lowshelfConfig, nullptr, &e->lowshelf);
+
+    ma_hishelf2_config highshelfConfig = ma_hishelf2_config_init(
+        ma_format_f32,
+        channels,
+        sampleRate,
+        clampf(e->highshelfGainDb, -24.0f, 24.0f),
+        clampf(e->highshelfSlope, 0.1f, 2.0f),
+        clampf(e->highshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
+    (void)ma_hishelf2_init(&highshelfConfig, nullptr, &e->highshelf);
+}
 
 static void set_last_error(AudioEngineHandle *e, const std::string &message)
 {
@@ -1233,9 +1313,19 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             e->lowpass.processLowpass(processBuffer, produced, e->outputChannels);
         if (e->highpassEnabled)
             e->highpass.processHighpass(processBuffer, produced, e->outputChannels);
+        if (e->bandpassEnabled)
+            (void)ma_bpf2_process_pcm_frames(&e->bandpass, processBuffer, processBuffer, (ma_uint64)produced);
         // Delay (Check channel layout support in DelayState - assumes stereo?)
         if (e->delayEnabled)
             e->delay.process(processBuffer, produced, e->outputChannels);
+        if (e->peakEqEnabled)
+            (void)ma_peak2_process_pcm_frames(&e->peakEq, processBuffer, processBuffer, (ma_uint64)produced);
+        if (e->notchEnabled)
+            (void)ma_notch2_process_pcm_frames(&e->notch, processBuffer, processBuffer, (ma_uint64)produced);
+        if (e->lowshelfEnabled)
+            (void)ma_loshelf2_process_pcm_frames(&e->lowshelf, processBuffer, processBuffer, (ma_uint64)produced);
+        if (e->highshelfEnabled)
+            (void)ma_hishelf2_process_pcm_frames(&e->highshelf, processBuffer, processBuffer, (ma_uint64)produced);
         // Old 3-band EQ
         if (e->eqEnabled)
             e->eq.process(processBuffer, produced, e->outputChannels);
@@ -1285,6 +1375,7 @@ extern "C"
         e->lowpass.setLowpassCutoff(12000.0f, sample_rate);
         e->highpass.setHighpassCutoff(80.0f, sample_rate);
         e->delay.reset(sample_rate, channels);
+        reinit_advanced_fx_filters(e);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -2023,6 +2114,99 @@ extern "C"
         e->delay.updateParams(e->sampleRate, e->channels, mix, feedback, delay_ms);
     }
 
+    AE_API void ae_set_bandpass_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->bandpassEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_bandpass_params(AudioEngineHandle *e, float cutoff_hz, float q)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->bandpassCutoffHz = clampf(cutoff_hz, 20.0f, (float)e->sampleRate * 0.45f);
+        e->bandpassQ = clampf(q, 0.1f, 18.0f);
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_peak_eq_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->peakEqEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_peak_eq_params(AudioEngineHandle *e, float gain_db, float q, float frequency_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->peakGainDb = clampf(gain_db, -24.0f, 24.0f);
+        e->peakQ = clampf(q, 0.1f, 18.0f);
+        e->peakFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_notch_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->notchEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_notch_params(AudioEngineHandle *e, float q, float frequency_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->notchQ = clampf(q, 0.1f, 18.0f);
+        e->notchFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_lowshelf_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->lowshelfEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_lowshelf_params(AudioEngineHandle *e, float gain_db, float slope, float frequency_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->lowshelfGainDb = clampf(gain_db, -24.0f, 24.0f);
+        e->lowshelfSlope = clampf(slope, 0.1f, 2.0f);
+        e->lowshelfFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_highshelf_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->highshelfEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_highshelf_params(AudioEngineHandle *e, float gain_db, float slope, float frequency_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->highshelfGainDb = clampf(gain_db, -24.0f, 24.0f);
+        e->highshelfSlope = clampf(slope, 0.1f, 2.0f);
+        e->highshelfFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
+        reinit_advanced_fx_filters(e);
+    }
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -2043,6 +2227,10 @@ extern "C"
         e->channels = newCh;
 
         e->update_eq_filters();
+        {
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+            reinit_advanced_fx_filters(e);
+        }
 
         ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
         switch (e->outputFormat)

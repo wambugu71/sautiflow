@@ -1,4 +1,4 @@
-library sautiflow;
+library;
 
 export 'audio_engine_ffi.dart'
     show AudioSource, AudioFormat, LoopMode, PlayerStatus;

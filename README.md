@@ -2,13 +2,15 @@
 
 Cross-platform Dart audio package backed by a C++ miniaudio engine.
 
+Current release: `0.2.0`
+
 ## Features
 
 - Playlist engine (set/add/insert/remove/move)
 - Gapless transitions between tracks
 - Play/pause/stop/seek/next/previous/jump
 - Shuffle + loop modes (`off`, `all`, `one`)
-- FX chain: gain, pan, EQ (3-band), reverb, low-pass, high-pass, delay
+- FX chain: gain, pan, EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
 - Pollable player status and stream updates
 - Native targets: Windows, Linux, Android, iOS/macOS
 
@@ -55,6 +57,13 @@ player.setEqEnabled(true);
 player.setEq(low: 1.2, mid: 1.0, high: 1.1);
 player.setReverbEnabled(true);
 player.setReverb(mix: 0.2, feedback: 0.6, delayMs: 100);
+
+// Advanced filters / parametric shaping
+player.setBandpass(enabled: true, cutoffHz: 1000, q: 0.8);
+player.setPeakEq(enabled: true, gainDb: 3.0, q: 1.0, frequencyHz: 2500);
+player.setNotch(enabled: true, q: 10.0, frequencyHz: 60);
+player.setLowshelf(enabled: true, gainDb: 4.0, slope: 1.0, frequencyHz: 100);
+player.setHighshelf(enabled: true, gainDb: 2.5, slope: 1.0, frequencyHz: 10000);
 ```
 
 ## Native build outputs

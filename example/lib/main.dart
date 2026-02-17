@@ -73,13 +73,18 @@ class _PlayerShellState extends State<PlayerShell> {
   int _lazyLoadSession = 0;
   bool _nativeNetworkStreamingSupported = false;
   bool _allowInvalidTlsForDownloads = false;
-  bool _systemMediaControlsEnabled = false;
+  final bool _systemMediaControlsEnabled = false;
   int _lastPublishedNowPlayingIndex = -1;
 
   bool _eqEnabled = false;
   bool _reverbEnabled = false;
   bool _lowpassEnabled = false;
   bool _highpassEnabled = false;
+  bool _bandpassEnabled = false;
+  bool _peakEqEnabled = false;
+  bool _notchEnabled = false;
+  bool _lowshelfEnabled = false;
+  bool _highshelfEnabled = false;
   bool _delayEnabled = false;
 
   // Advanced Audio State
@@ -108,6 +113,19 @@ class _PlayerShellState extends State<PlayerShell> {
   double _pan = 0.0;
   double _lpCutoff = 12000;
   double _hpCutoff = 80;
+  double _bpCutoff = 1000;
+  double _bpQ = 0.707;
+  double _peakFreq = 1000;
+  double _peakQ = 1.0;
+  double _peakGainDb = 0.0;
+  double _notchFreq = 1000;
+  double _notchQ = 1.0;
+  double _lowshelfFreq = 200;
+  double _lowshelfSlope = 1.0;
+  double _lowshelfGainDb = 0.0;
+  double _highshelfFreq = 4000;
+  double _highshelfSlope = 1.0;
+  double _highshelfGainDb = 0.0;
   double _rvMix = 0.15;
   double _rvFeedback = 0.65;
   double _rvDelay = 95;
@@ -144,8 +162,9 @@ class _PlayerShellState extends State<PlayerShell> {
       if (_logs.length > 200) {
         _logs.removeRange(200, _logs.length);
       }
-      if (mounted && _tabIndex == 2)
+      if (mounted && _tabIndex == 2) {
         setState(() {}); // Only rebuild if Logs tab is active
+      }
     });
 
     if (Platform.isAndroid) {
@@ -1075,7 +1094,7 @@ class _PlayerShellState extends State<PlayerShell> {
             children: [
               // Output Format
               DropdownButtonFormField<AudioFormat>(
-                value: _outputFormat,
+                initialValue: _outputFormat,
                 decoration: const InputDecoration(labelText: 'Audio Format'),
                 items: AudioFormat.values.map((f) {
                   return DropdownMenuItem(value: f, child: Text(f.name));
@@ -1089,7 +1108,7 @@ class _PlayerShellState extends State<PlayerShell> {
               const SizedBox(height: 8),
               // Sample Rate
               DropdownButtonFormField<int>(
-                value: _outputSampleRate,
+                initialValue: _outputSampleRate,
                 decoration: const InputDecoration(labelText: 'Sample Rate'),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text('Native')),
@@ -1267,6 +1286,179 @@ class _PlayerShellState extends State<PlayerShell> {
         _slider('High-pass cutoff (Hz)', _hpCutoff, 10, 5000, (v) {
           setState(() => _hpCutoff = v);
           _player.setHighpass(enabled: _highpassEnabled, cutoffHz: _hpCutoff);
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Band-pass'),
+          value: _bandpassEnabled,
+          onChanged: (v) {
+            setState(() => _bandpassEnabled = v);
+            _player.setBandpass(enabled: v, cutoffHz: _bpCutoff, q: _bpQ);
+          },
+        ),
+        _slider('Band-pass cutoff (Hz)', _bpCutoff, 20, 18000, (v) {
+          setState(() => _bpCutoff = v);
+          _player.setBandpass(
+            enabled: _bandpassEnabled,
+            cutoffHz: _bpCutoff,
+            q: _bpQ,
+          );
+        }),
+        _slider('Band-pass Q', _bpQ, 0.1, 10.0, (v) {
+          setState(() => _bpQ = v);
+          _player.setBandpass(
+            enabled: _bandpassEnabled,
+            cutoffHz: _bpCutoff,
+            q: _bpQ,
+          );
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Peak EQ'),
+          value: _peakEqEnabled,
+          onChanged: (v) {
+            setState(() => _peakEqEnabled = v);
+            _player.setPeakEq(
+              enabled: v,
+              gainDb: _peakGainDb,
+              q: _peakQ,
+              frequencyHz: _peakFreq,
+            );
+          },
+        ),
+        _slider('Peak EQ Frequency (Hz)', _peakFreq, 20, 18000, (v) {
+          setState(() => _peakFreq = v);
+          _player.setPeakEq(
+            enabled: _peakEqEnabled,
+            gainDb: _peakGainDb,
+            q: _peakQ,
+            frequencyHz: _peakFreq,
+          );
+        }),
+        _slider('Peak EQ Gain (dB)', _peakGainDb, -24, 24, (v) {
+          setState(() => _peakGainDb = v);
+          _player.setPeakEq(
+            enabled: _peakEqEnabled,
+            gainDb: _peakGainDb,
+            q: _peakQ,
+            frequencyHz: _peakFreq,
+          );
+        }),
+        _slider('Peak EQ Q', _peakQ, 0.1, 10.0, (v) {
+          setState(() => _peakQ = v);
+          _player.setPeakEq(
+            enabled: _peakEqEnabled,
+            gainDb: _peakGainDb,
+            q: _peakQ,
+            frequencyHz: _peakFreq,
+          );
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Notch'),
+          value: _notchEnabled,
+          onChanged: (v) {
+            setState(() => _notchEnabled = v);
+            _player.setNotch(enabled: v, q: _notchQ, frequencyHz: _notchFreq);
+          },
+        ),
+        _slider('Notch Frequency (Hz)', _notchFreq, 20, 18000, (v) {
+          setState(() => _notchFreq = v);
+          _player.setNotch(
+            enabled: _notchEnabled,
+            q: _notchQ,
+            frequencyHz: _notchFreq,
+          );
+        }),
+        _slider('Notch Q', _notchQ, 0.1, 10.0, (v) {
+          setState(() => _notchQ = v);
+          _player.setNotch(
+            enabled: _notchEnabled,
+            q: _notchQ,
+            frequencyHz: _notchFreq,
+          );
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Low Shelf'),
+          value: _lowshelfEnabled,
+          onChanged: (v) {
+            setState(() => _lowshelfEnabled = v);
+            _player.setLowshelf(
+              enabled: v,
+              gainDb: _lowshelfGainDb,
+              slope: _lowshelfSlope,
+              frequencyHz: _lowshelfFreq,
+            );
+          },
+        ),
+        _slider('Low Shelf Frequency (Hz)', _lowshelfFreq, 20, 2000, (v) {
+          setState(() => _lowshelfFreq = v);
+          _player.setLowshelf(
+            enabled: _lowshelfEnabled,
+            gainDb: _lowshelfGainDb,
+            slope: _lowshelfSlope,
+            frequencyHz: _lowshelfFreq,
+          );
+        }),
+        _slider('Low Shelf Gain (dB)', _lowshelfGainDb, -24, 24, (v) {
+          setState(() => _lowshelfGainDb = v);
+          _player.setLowshelf(
+            enabled: _lowshelfEnabled,
+            gainDb: _lowshelfGainDb,
+            slope: _lowshelfSlope,
+            frequencyHz: _lowshelfFreq,
+          );
+        }),
+        _slider('Low Shelf Slope', _lowshelfSlope, 0.1, 2.0, (v) {
+          setState(() => _lowshelfSlope = v);
+          _player.setLowshelf(
+            enabled: _lowshelfEnabled,
+            gainDb: _lowshelfGainDb,
+            slope: _lowshelfSlope,
+            frequencyHz: _lowshelfFreq,
+          );
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable High Shelf'),
+          value: _highshelfEnabled,
+          onChanged: (v) {
+            setState(() => _highshelfEnabled = v);
+            _player.setHighshelf(
+              enabled: v,
+              gainDb: _highshelfGainDb,
+              slope: _highshelfSlope,
+              frequencyHz: _highshelfFreq,
+            );
+          },
+        ),
+        _slider('High Shelf Frequency (Hz)', _highshelfFreq, 1000, 18000, (v) {
+          setState(() => _highshelfFreq = v);
+          _player.setHighshelf(
+            enabled: _highshelfEnabled,
+            gainDb: _highshelfGainDb,
+            slope: _highshelfSlope,
+            frequencyHz: _highshelfFreq,
+          );
+        }),
+        _slider('High Shelf Gain (dB)', _highshelfGainDb, -24, 24, (v) {
+          setState(() => _highshelfGainDb = v);
+          _player.setHighshelf(
+            enabled: _highshelfEnabled,
+            gainDb: _highshelfGainDb,
+            slope: _highshelfSlope,
+            frequencyHz: _highshelfFreq,
+          );
+        }),
+        _slider('High Shelf Slope', _highshelfSlope, 0.1, 2.0, (v) {
+          setState(() => _highshelfSlope = v);
+          _player.setHighshelf(
+            enabled: _highshelfEnabled,
+            gainDb: _highshelfGainDb,
+            slope: _highshelfSlope,
+            frequencyHz: _highshelfFreq,
+          );
         }),
         const Divider(),
         SwitchListTile(

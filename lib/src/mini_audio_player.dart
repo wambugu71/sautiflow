@@ -264,6 +264,66 @@ class MiniAudioPlayer {
     _engine.setDelayParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
+  void setBandpass({
+    required bool enabled,
+    required double cutoffHz,
+    double q = 0.707,
+  }) {
+    _engine.setBandpassEnabled(enabled);
+    _engine.setBandpassParams(cutoffHz: cutoffHz, q: q);
+  }
+
+  void setPeakEq({
+    required bool enabled,
+    required double gainDb,
+    required double q,
+    required double frequencyHz,
+  }) {
+    _engine.setPeakEqEnabled(enabled);
+    _engine.setPeakEqParams(
+      gainDb: gainDb,
+      q: q,
+      frequencyHz: frequencyHz,
+    );
+  }
+
+  void setNotch({
+    required bool enabled,
+    required double q,
+    required double frequencyHz,
+  }) {
+    _engine.setNotchEnabled(enabled);
+    _engine.setNotchParams(q: q, frequencyHz: frequencyHz);
+  }
+
+  void setLowshelf({
+    required bool enabled,
+    required double gainDb,
+    double slope = 1.0,
+    required double frequencyHz,
+  }) {
+    _engine.setLowshelfEnabled(enabled);
+    _engine.setLowshelfParams(
+      gainDb: gainDb,
+      slope: slope,
+      frequencyHz: frequencyHz,
+    );
+  }
+
+  void setHighshelf({
+    required bool enabled,
+    required double gainDb,
+    double slope = 1.0,
+    required double frequencyHz,
+  }) {
+    _engine.setHighshelfEnabled(enabled);
+    _engine.setHighshelfParams(
+      gainDb: gainDb,
+      slope: slope,
+      frequencyHz: frequencyHz,
+    );
+  }
+
   Future<void> pushStream({required String url}) async {
     _engine.initPushStream();
 
