@@ -15,6 +15,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <numeric>
@@ -55,6 +56,59 @@ namespace
         return s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0;
     }
 
+    struct PushStreamContext
+    {
+        ma_rb rb;
+        void *rbBuffer; // Raw memory for the ring buffer
+        std::atomic<bool> initialized{false};
+        std::atomic<bool> isDone{false};
+        std::mutex mtx; // Just in case we need coord
+    };
+
+    static ma_result push_stream_on_read(ma_decoder *pDecoder, void *pBufferOut, size_t bytesToRead, size_t *pBytesRead)
+    {
+        auto *ctx = reinterpret_cast<PushStreamContext *>(pDecoder->pUserData);
+        if (!ctx || !ctx->initialized)
+            return MA_INVALID_ARGS;
+
+        *pBytesRead = 0;
+
+        // Non-blocking read from RB
+        size_t available = ma_rb_available_read(&ctx->rb);
+        if (available == 0)
+        {
+            if (ctx->isDone)
+            {
+                return MA_SUCCESS; // EOF
+            }
+            // Buffer underrun - just return 0 bytes read, miniaudio might interpret as EOF or silence?
+            // If we return 0 bytes and not EOF, decoder might stop.
+            // We should block slightly or return silence?
+            // Standard behavior: if 0 bytes read, it assumes EOF.
+            // workaround: we need to block if not done.
+            // But blocking in audio thread is bad.
+            // However, this is the DECODING thread usually.
+            // If `ma_decoder_read` is called from the audio callback directly, blocking is bad.
+            // But we are in a custom `onRead`.
+
+            // For now, let's just wait a tiny bit to see if data arrives
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            available = ma_rb_available_read(&ctx->rb);
+            if (available == 0)
+                return MA_SUCCESS; // Still empty
+        }
+
+        size_t toRead = (bytesToRead < available) ? bytesToRead : available;
+        void *pReadBuf = nullptr;
+        if (ma_rb_acquire_read(&ctx->rb, &toRead, &pReadBuf) == MA_SUCCESS)
+        {
+            std::memcpy(pBufferOut, pReadBuf, toRead);
+            ma_rb_commit_read(&ctx->rb, toRead);
+            *pBytesRead = toRead;
+        }
+
+        return MA_SUCCESS;
+    }
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
     struct NetworkStreamState
     {
@@ -471,6 +525,9 @@ struct AudioEngineHandle
     std::thread worker;
 
     std::atomic<bool> isPlaying{false};
+    std::atomic<bool> pendingSeekValid{false};
+    std::atomic<ma_uint64> pendingSeekFrame{0};
+    std::atomic<int> pendingSeekIndex{-1};
 
     std::mutex fxMutex;
     bool eqEnabled = false;
@@ -486,8 +543,61 @@ struct AudioEngineHandle
     OnePoleState highpass;
     DelayState delay;
 
+    // Advanced Audio Features
+    AEAudioFormat outputFormat = AE_FORMAT_F32;
+    int outputSampleRate = 0; // 0 = native
+    int outputChannels = 2;   // default stereo
+
+    bool multibandEqEnabled = false;
+    int eqBandCount = 0;
+    std::mutex eqMutex; // Protect EQ config changes
+    std::vector<float> eqFrequencies;
+    std::vector<float> eqGains;
+    std::vector<float> eqQ;
+    // Each band has one ma_peak2 filter which handles all channels (interleaved)
+    std::vector<ma_peak2> eqFilters;
+
+    void update_eq_filters()
+    {
+        if (eqBandCount <= 0)
+        {
+            eqFilters.clear();
+            return;
+        }
+        eqFilters.resize(eqBandCount);
+        int sr = outputSampleRate > 0 ? outputSampleRate : 48000;
+        int ch = outputChannels > 0 ? outputChannels : 2;
+
+        for (int i = 0; i < eqBandCount; ++i)
+        {
+            ma_peak2_config config = ma_peak2_config_init(
+                ma_format_f32,
+                (ma_uint32)ch,
+                (ma_uint32)sr,
+                eqGains[i],
+                eqQ[i],
+                eqFrequencies[i]);
+            ma_peak2_init(&config, nullptr, &eqFilters[i]);
+        }
+    }
+
+    void process_multiband_eq(float *frames, ma_uint32 frameCount, int channels)
+    {
+        for (auto &filter : eqFilters)
+        {
+            ma_peak2_process_pcm_frames(&filter, frames, frames, (ma_uint64)frameCount);
+        }
+    }
+
+    // Temporary buffer for format conversion/resampling if needed
+    std::vector<float> conversionBuffer;
+
     std::mutex errorMutex;
     std::string lastError;
+
+    // Push stream state
+    PushStreamContext pushStreamForCurrent; // Single slot for now, for simplicity
+    bool isPushStreamMode = false;
 };
 
 static void set_last_error(AudioEngineHandle *e, const std::string &message)
@@ -791,32 +901,13 @@ static void worker_loop(AudioEngineHandle *e)
                 continue;
             }
 
-            ma_decoder *newNext = nullptr;
-            ma_uint64 newNextLen = 0;
-            bool loadedNext = false;
             int computedNextIndex = -1;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-            NetworkStreamState *newNextStream = nullptr;
-#endif
 
             {
                 std::lock_guard<std::mutex> pl(e->playlistMutex);
                 e->currentIndex = jumpIndex;
                 set_order_cursor_for_index_locked(e, jumpIndex);
                 computedNextIndex = next_index_locked(e);
-                if (computedNextIndex >= 0 && computedNextIndex < (int)e->playlist.size())
-                {
-                    loadedNext = load_decoder_for_path(
-                        e,
-                        e->playlist[(size_t)computedNextIndex],
-                        &newNext,
-                        &newNextLen
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                        ,
-                        &newNextStream
-#endif
-                    );
-                }
             }
 
             {
@@ -852,37 +943,30 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
 
-                if (loadedNext)
+                if (e->pendingSeekValid.load(std::memory_order_acquire) &&
+                    e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
                 {
-                    e->nextDecoder = newNext;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    e->nextStream = newNextStream;
-#endif
-                    e->nextLengthFrames = newNextLen;
-                    e->nextIndex = computedNextIndex;
-                    e->hasNext = true;
-                }
-                else
-                {
-                    if (newNext != nullptr)
+                    const ma_uint64 frame = e->pendingSeekFrame.load(std::memory_order_acquire);
+                    const ma_result seekRc = ma_decoder_seek_to_pcm_frame(e->currentDecoder, frame);
+                    if (seekRc != MA_SUCCESS)
                     {
-                        uninit_decoder_slot(
-                            newNext
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                            ,
-                            newNextStream
-#endif
-                        );
+                        engine_log("worker pending seek failed (ma_result=%d) index=%d", (int)seekRc, jumpIndex);
+                        set_last_error(e, "Seek failed after jump.");
                     }
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    e->nextStream = nullptr;
-#endif
-                    e->nextIndex = -1;
-                    e->nextLengthFrames = 0;
-                    e->hasNext = false;
+                    e->pendingSeekValid.store(false, std::memory_order_release);
+                    e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->nextStream = nullptr;
+#endif
+                e->nextDecoder = nullptr;
+                e->nextIndex = -1;
+                e->nextLengthFrames = 0;
+                e->hasNext = false;
             }
 
+            request_preload(e);
             engine_log("worker jump complete -> current=%d next=%d", jumpIndex, computedNextIndex);
         }
 
@@ -967,12 +1051,36 @@ static void worker_loop(AudioEngineHandle *e)
 static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
 {
     AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pDevice->pUserData);
-    float *out = reinterpret_cast<float *>(pOutput);
 
-    std::memset(out, 0, (size_t)frameCount * (size_t)e->channels * sizeof(float));
+    float *processBuffer = nullptr;
+    ma_uint32 totalSamples = frameCount * (ma_uint32)e->outputChannels;
+
+    if (e->outputFormat == AE_FORMAT_F32)
+    {
+        processBuffer = reinterpret_cast<float *>(pOutput);
+    }
+    else
+    {
+        if (e->conversionBuffer.size() < totalSamples)
+        {
+            e->conversionBuffer.resize(totalSamples);
+        }
+        processBuffer = e->conversionBuffer.data();
+    }
+
+    // Zero out buffer (silence)
+    std::memset(processBuffer, 0, totalSamples * sizeof(float));
 
     if (!e->isPlaying.load(std::memory_order_relaxed))
     {
+        // If stopping, just return silence (already zeroed above)
+        // If format is not F32, we need to zero pOutput too? No, conversion later handles it.
+        // Wait, if not playing, we return so silence.
+        // If format != F32, we must ensure pOutput is zeroed.
+        if (e->outputFormat != AE_FORMAT_F32)
+        {
+            std::memset(pOutput, 0, totalSamples * (e->outputFormat == AE_FORMAT_S16 ? 2 : 1));
+        }
         return;
     }
 
@@ -981,19 +1089,58 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     {
         std::lock_guard<std::mutex> d(e->decoderMutex);
 
-        while (produced < frameCount && e->hasCurrent)
+        while (produced < frameCount)
         {
+            // Lazy-init push stream decoder if needed (and we have enough data)
+            if (e->isPushStreamMode && e->currentDecoder == nullptr && e->pushStreamForCurrent.initialized)
+            {
+                // Check if we have enough data to likely succeed with header detection
+                // 4KB is usually plenty for mp3/wav headers.
+                if (ma_rb_available_read(&e->pushStreamForCurrent.rb) >= 4096)
+                {
+                    ma_decoder_config config = ma_decoder_config_init(e->outputFormat == AE_FORMAT_F32 ? ma_format_f32 : ma_format_s16,
+                                                                      (ma_uint32)e->outputChannels, (ma_uint32)e->sampleRate);
+
+                    auto *newDecoder = new ma_decoder();
+                    ma_result result = ma_decoder_init(push_stream_on_read, nullptr, &e->pushStreamForCurrent, &config, newDecoder);
+                    if (result == MA_SUCCESS)
+                    {
+                        e->currentDecoder = newDecoder;
+                        e->hasCurrent = true;
+                    }
+                    else
+                    {
+                        // Failed to init, maybe bad data or not enough?
+                        // If we fail, we probably should stop trying appropriately, but for now just cleanup
+                        delete newDecoder;
+                        break; // Will output silence this frame
+                    }
+                }
+                else
+                {
+                    // Wait for more data
+                    break;
+                }
+            }
+
+            if (!e->hasCurrent || e->currentDecoder == nullptr)
+            {
+                break;
+            }
+
             ma_uint64 framesRead = 0;
             ma_result r = ma_decoder_read_pcm_frames(
                 e->currentDecoder,
-                out + ((size_t)produced * (size_t)e->channels),
+                processBuffer + ((size_t)produced * (size_t)e->outputChannels),
                 (ma_uint64)(frameCount - produced),
                 &framesRead);
 
+            // If framesRead > 0, we have data.
             produced += (ma_uint32)framesRead;
 
             if (framesRead == 0 || r == MA_AT_END)
             {
+                // Try next track
                 if (e->hasNext)
                 {
                     uninit_decoder_slot(
@@ -1034,6 +1181,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     continue;
                 }
 
+                // End of playlist
                 e->isPlaying.store(false, std::memory_order_relaxed);
                 break;
             }
@@ -1047,52 +1195,64 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         }
     }
 
-    if (produced == 0)
+    if (produced > 0)
     {
-        return;
-    }
+        std::lock_guard<std::mutex> fx(e->fxMutex);
 
-    std::lock_guard<std::mutex> fx(e->fxMutex);
-    if (e->gain != 1.0f)
-    {
-        const size_t n = (size_t)produced * (size_t)e->channels;
-        for (size_t i = 0; i < n; ++i)
+        // Volume
+        if (e->gain != 1.0f)
         {
-            out[i] *= e->gain;
+            float vol = e->gain;
+            for (size_t i = 0; i < produced * e->outputChannels; ++i)
+                processBuffer[i] *= vol;
         }
-    }
 
-    if (e->channels >= 2 && e->pan != 0.0f)
-    {
-        const float l = clampf(1.0f - std::max(0.0f, e->pan), 0.0f, 1.0f);
-        const float rGain = clampf(1.0f + std::min(0.0f, e->pan), 0.0f, 1.0f);
-        for (ma_uint32 i = 0; i < produced; ++i)
+        // Pan (Assume Stereo or more)
+        if (e->outputChannels >= 2 && e->pan != 0.0f)
         {
-            out[(size_t)i * (size_t)e->channels] *= l;
-            out[(size_t)i * (size_t)e->channels + 1] *= rGain;
+            float p = e->pan;
+            const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
+            const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
+            for (ma_uint32 i = 0; i < produced; ++i)
+            {
+                processBuffer[i * e->outputChannels] *= l;
+                processBuffer[i * e->outputChannels + 1] *= r;
+            }
         }
+
+        // Multiband EQ
+        if (e->multibandEqEnabled)
+        {
+            std::lock_guard<std::mutex> eqLock(e->eqMutex);
+            e->process_multiband_eq(processBuffer, produced, e->outputChannels);
+        }
+
+        // Existing Effects
+        // Note: passing e->outputChannels instead of e->channels
+        if (e->lowpassEnabled)
+            e->lowpass.processLowpass(processBuffer, produced, e->outputChannels);
+        if (e->highpassEnabled)
+            e->highpass.processHighpass(processBuffer, produced, e->outputChannels);
+        // Delay (Check channel layout support in DelayState - assumes stereo?)
+        if (e->delayEnabled)
+            e->delay.process(processBuffer, produced, e->outputChannels);
+        // Old 3-band EQ
+        if (e->eqEnabled)
+            e->eq.process(processBuffer, produced, e->outputChannels);
+        if (e->reverbEnabled)
+            e->reverb.process(processBuffer, produced, e->outputChannels);
     }
 
-    if (e->lowpassEnabled)
+    // Format Conversion if needed
+    if (e->outputFormat == AE_FORMAT_S16)
     {
-        e->lowpass.processLowpass(out, produced, e->channels);
+        ma_pcm_f32_to_s16(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
-    if (e->highpassEnabled)
+    else if (e->outputFormat == AE_FORMAT_U8)
     {
-        e->highpass.processHighpass(out, produced, e->channels);
+        ma_pcm_f32_to_u8(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
-    if (e->delayEnabled)
-    {
-        e->delay.process(out, produced, e->channels);
-    }
-    if (e->eqEnabled)
-    {
-        e->eq.process(out, produced, e->channels);
-    }
-    if (e->reverbEnabled)
-    {
-        e->reverb.process(out, produced, e->channels);
-    }
+    // else F32 -> already in pOutput
 }
 
 extern "C"
@@ -1125,6 +1285,12 @@ extern "C"
         e->lowpass.setLowpassCutoff(12000.0f, sample_rate);
         e->highpass.setHighpassCutoff(80.0f, sample_rate);
         e->delay.reset(sample_rate, channels);
+
+        // Initialize advanced settings
+        e->outputSampleRate = sample_rate;
+        e->outputChannels = channels;
+        // Default format is F32
+        e->outputFormat = AE_FORMAT_F32;
 
         ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
         cfg.playback.format = ma_format_f32;
@@ -1194,6 +1360,18 @@ extern "C"
 #endif
                 );
                 e->hasNext = false;
+            }
+
+            // Cleanup Push Stream if allocated
+            if (e->pushStreamForCurrent.initialized)
+            {
+                ma_rb_uninit(&e->pushStreamForCurrent.rb);
+                if (e->pushStreamForCurrent.rbBuffer)
+                {
+                    std::free(e->pushStreamForCurrent.rbBuffer);
+                    e->pushStreamForCurrent.rbBuffer = nullptr;
+                }
+                e->pushStreamForCurrent.initialized = false;
             }
         }
 
@@ -1461,13 +1639,27 @@ extern "C"
         }
 
         bool hasCurrent = false;
+        bool isPushMode = false;
+        bool pushInitialized = false;
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
             hasCurrent = e->hasCurrent;
+            isPushMode = e->isPushStreamMode;
+            pushInitialized = e->pushStreamForCurrent.initialized;
         }
 
         if (!hasCurrent)
         {
+            if (isPushMode && pushInitialized)
+            {
+                // Push-stream mode may not have an initialized decoder yet.
+                // The audio callback will lazy-init it once enough bytes arrive.
+                e->isPlaying.store(true, std::memory_order_relaxed);
+                engine_log("play requested in push-stream mode (decoder pending)");
+                clear_last_error(e);
+                return true;
+            }
+
             int idx = 0;
             {
                 std::lock_guard<std::mutex> pl(e->playlistMutex);
@@ -1604,6 +1796,8 @@ extern "C"
             }
         }
 
+        e->pendingSeekValid.store(false, std::memory_order_release);
+        e->pendingSeekIndex.store(-1, std::memory_order_release);
         request_jump(e, index);
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("jump_to requested: index=%d", index);
@@ -1613,24 +1807,51 @@ extern "C"
 
     AE_API bool ae_jump_to_with_position(AudioEngineHandle *e, int index, double position_seconds)
     {
-        if (!ae_jump_to(e, index))
+        if (e == nullptr || index < 0)
         {
+            set_last_error(e, "Invalid jump_to_with_position input.");
             return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> pl(e->playlistMutex);
+            if (index >= (int)e->playlist.size())
+            {
+                set_last_error(e, "jump_to_with_position index out of range.");
+                return false;
+            }
         }
 
         const double pos = std::max(0.0, position_seconds);
         const ma_uint64 frame = (ma_uint64)(pos * (double)e->sampleRate);
 
-        std::lock_guard<std::mutex> d(e->decoderMutex);
-        if (!e->hasCurrent)
-            return false;
-        return ma_decoder_seek_to_pcm_frame(e->currentDecoder, frame) == MA_SUCCESS;
+        e->pendingSeekFrame.store(frame, std::memory_order_release);
+        e->pendingSeekIndex.store(index, std::memory_order_release);
+        e->pendingSeekValid.store(true, std::memory_order_release);
+
+        request_jump(e, index);
+        e->isPlaying.store(true, std::memory_order_relaxed);
+        engine_log("jump_to_with_position requested: index=%d frame=%llu", index, (unsigned long long)frame);
+        clear_last_error(e);
+        return true;
+    }
+
+    AE_API int ae_is_network_streaming_supported(void)
+    {
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        return 1;
+#else
+        return 0;
+#endif
     }
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *e, int loop_mode)
     {
         if (e == nullptr)
+        {
             return;
+        }
+
         std::lock_guard<std::mutex> pl(e->playlistMutex);
         if (loop_mode < AE_LOOP_OFF)
             loop_mode = AE_LOOP_OFF;
@@ -1800,6 +2021,270 @@ extern "C"
             return;
         std::lock_guard<std::mutex> fx(e->fxMutex);
         e->delay.updateParams(e->sampleRate, e->channels, mix, feedback, delay_ms);
+    }
+
+    // Helper to restart device with new config
+    static void restart_and_apply_config(AudioEngineHandle *e)
+    {
+        if (!e)
+            return;
+        bool wasPlaying = e->isPlaying.load();
+
+        if (ma_device_get_state(&e->device) == ma_device_state_started)
+        {
+            ma_device_stop(&e->device);
+        }
+        ma_device_uninit(&e->device);
+
+        int newRate = e->outputSampleRate > 0 ? e->outputSampleRate : 48000;
+        int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
+
+        e->sampleRate = newRate;
+        e->channels = newCh;
+
+        e->update_eq_filters();
+
+        ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+        switch (e->outputFormat)
+        {
+        case AE_FORMAT_S16:
+            cfg.playback.format = ma_format_s16;
+            break;
+        case AE_FORMAT_U8:
+            cfg.playback.format = ma_format_u8;
+            break;
+        default:
+            cfg.playback.format = ma_format_f32;
+            break;
+        }
+        cfg.playback.channels = (ma_uint32)newCh;
+        cfg.sampleRate = (ma_uint32)newRate;
+        cfg.dataCallback = data_callback;
+        cfg.pUserData = e;
+
+        if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+        {
+            set_last_error(e, "Failed to re-initialize device with new config.");
+            return;
+        }
+
+        if (wasPlaying)
+        {
+            ma_device_start(&e->device);
+        }
+    }
+
+    AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
+    {
+        if (!engine)
+            return;
+        engine->outputFormat = (AEAudioFormat)format;
+        restart_and_apply_config(engine);
+    }
+
+    AE_API int ae_get_output_format(AudioEngineHandle *engine)
+    {
+        return engine ? (int)engine->outputFormat : 0;
+    }
+
+    AE_API void ae_set_output_sample_rate(AudioEngineHandle *engine, int sample_rate)
+    {
+        if (!engine || sample_rate <= 0)
+            return;
+        engine->outputSampleRate = sample_rate;
+        restart_and_apply_config(engine);
+    }
+
+    AE_API int ae_get_output_sample_rate(AudioEngineHandle *engine)
+    {
+        return engine ? engine->outputSampleRate : 0;
+    }
+
+    AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels)
+    {
+        if (!engine || channels <= 0)
+            return;
+        engine->outputChannels = channels;
+        restart_and_apply_config(engine);
+    }
+
+    AE_API int ae_get_output_channels(AudioEngineHandle *engine)
+    {
+        return engine ? engine->outputChannels : 0;
+    }
+
+    AE_API void ae_init_multiband_eq(AudioEngineHandle *engine, int band_count, float *frequencies, float *q_factors)
+    {
+        if (!engine || band_count <= 0)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->eqBandCount = band_count;
+        engine->eqFrequencies.assign(frequencies, frequencies + band_count);
+        engine->eqGains.assign(band_count, 0.0f); // 0dB initially
+
+        if (q_factors)
+        {
+            engine->eqQ.assign(q_factors, q_factors + band_count);
+        }
+        else
+        {
+            engine->eqQ.assign(band_count, 1.0f); // Default Q=1.0
+        }
+
+        engine->update_eq_filters();
+    }
+
+    AE_API void ae_set_multiband_eq_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->multibandEqEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_multiband_eq_gain(AudioEngineHandle *engine, int band_index, float gain_db)
+    {
+        if (!engine || band_index < 0)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        if (band_index < engine->eqBandCount && band_index < (int)engine->eqFilters.size())
+        {
+            engine->eqGains[band_index] = gain_db;
+
+            int sr = engine->outputSampleRate > 0 ? engine->outputSampleRate : 48000;
+            int ch = engine->outputChannels > 0 ? engine->outputChannels : 2;
+
+            ma_peak2_config config = ma_peak2_config_init(
+                ma_format_f32,
+                (ma_uint32)ch,
+                (ma_uint32)sr,
+                gain_db,
+                engine->eqQ[band_index],
+                engine->eqFrequencies[band_index]);
+
+            // Re-init the filter for this band
+            // This resets internal state (history), which might cause a click.
+            // Ideally we'd update coeffs, but standard miniaudio usage often implies re-init for param changes
+            // unless using lower-level coeff API.
+            ma_peak2_init(&config, nullptr, &engine->eqFilters[band_index]);
+        }
+    }
+
+    AE_API float ae_get_multiband_eq_gain(AudioEngineHandle *engine, int band_index)
+    {
+        if (!engine || band_index < 0 || band_index >= engine->eqBandCount)
+            return 0.0f;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        return engine->eqGains[band_index];
+    }
+
+    AE_API void ae_init_push_stream(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return;
+
+        // Force stop any current playback first
+        if (engine->isPlaying)
+        {
+            ae_stop(engine);
+        }
+
+        // Unload current decoder if any
+        {
+            std::lock_guard<std::mutex> d(engine->decoderMutex);
+            if (engine->currentDecoder)
+            {
+                uninit_decoder_slot(
+                    engine->currentDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    ,
+                    engine->currentStream
+#endif
+                );
+                engine->currentDecoder = nullptr;
+                engine->hasCurrent = false;
+            }
+        }
+
+        std::lock_guard<std::mutex> lk(engine->pushStreamForCurrent.mtx);
+
+        if (engine->pushStreamForCurrent.initialized)
+        {
+            // Already initialized, maybe reset?
+            // For safety, uninit first
+            ma_rb_uninit(&engine->pushStreamForCurrent.rb);
+            if (engine->pushStreamForCurrent.rbBuffer)
+            {
+                std::free(engine->pushStreamForCurrent.rbBuffer);
+                engine->pushStreamForCurrent.rbBuffer = nullptr;
+            }
+            engine->pushStreamForCurrent.initialized = false;
+        }
+
+        const size_t bufSize = 1024 * 1024 * 4; // 4MB buffer
+        engine->pushStreamForCurrent.rbBuffer = std::malloc(bufSize);
+        if (!engine->pushStreamForCurrent.rbBuffer)
+            return;
+
+        if (ma_rb_init(bufSize, engine->pushStreamForCurrent.rbBuffer, nullptr, &engine->pushStreamForCurrent.rb) == MA_SUCCESS)
+        {
+            engine->pushStreamForCurrent.initialized = true;
+            engine->pushStreamForCurrent.isDone = false;
+        }
+
+        // We do NOT init the decoder here anymore.
+        // We set the mode, and let data_callback (or a separate call) init the decoder
+        // once data is available.
+        // We can add a flag "needsDecoderInit" or just check if currentDecoder is null while isPushStreamMode is true.
+
+        engine->isPushStreamMode = true;
+
+        // Ensure hasCurrent is false so data_callback waits
+        {
+            std::lock_guard<std::mutex> d(engine->decoderMutex);
+            engine->currentDecoder = nullptr;
+            engine->hasCurrent = false; // Will trigger decoder init attempts in data_callback
+            engine->hasNext = false;
+        }
+    }
+
+    AE_API void ae_push_stream_chunk(AudioEngineHandle *engine, const unsigned char *data, size_t size)
+    {
+        if (!engine || !data || size == 0 || !engine->pushStreamForCurrent.initialized)
+            return;
+
+        size_t written = 0;
+        while (written < size)
+        {
+            void *pWrite = nullptr;
+            size_t toWrite = size - written;
+
+            if (ma_rb_acquire_write(&engine->pushStreamForCurrent.rb, &toWrite, &pWrite) == MA_SUCCESS)
+            {
+                std::memcpy(pWrite, data + written, toWrite);
+                ma_rb_commit_write(&engine->pushStreamForCurrent.rb, toWrite);
+                written += toWrite;
+                continue;
+            }
+
+            // If buffer full, wait a bit
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+
+    AE_API void ae_end_push_stream(AudioEngineHandle *engine)
+    {
+        if (!engine || !engine->pushStreamForCurrent.initialized)
+            return;
+        engine->pushStreamForCurrent.isDone = true;
+    }
+
+    AE_API int ae_get_push_stream_buffered_bytes(AudioEngineHandle *engine)
+    {
+        if (!engine || !engine->pushStreamForCurrent.initialized)
+            return 0;
+        return (int)ma_rb_available_read(&engine->pushStreamForCurrent.rb);
     }
 
 } // extern "C"

@@ -1,0 +1,20 @@
+                        -HC:\Users\wambugukinyua\miniaudiodart\android\src\main\cpp
+-DCMAKE_SYSTEM_NAME=Android
+-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+-DCMAKE_SYSTEM_VERSION=21
+-DANDROID_PLATFORM=android-21
+-DANDROID_ABI=x86
+-DCMAKE_ANDROID_ARCH_ABI=x86
+-DANDROID_NDK=C:\androidsdk\ndk\28.2.13676358
+-DCMAKE_ANDROID_NDK=C:\androidsdk\ndk\28.2.13676358
+-DCMAKE_TOOLCHAIN_FILE=C:\androidsdk\ndk\28.2.13676358\build\cmake\android.toolchain.cmake
+-DCMAKE_MAKE_PROGRAM=C:\androidsdk\cmake\3.22.1\bin\ninja.exe
+-DCMAKE_CXX_FLAGS=-std=c++17 -O2
+-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=C:\Users\wambugukinyua\miniaudiodart\example\build\sautiflow\intermediates\cxx\RelWithDebInfo\6b6nq4b1\obj\x86
+-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=C:\Users\wambugukinyua\miniaudiodart\example\build\sautiflow\intermediates\cxx\RelWithDebInfo\6b6nq4b1\obj\x86
+-DCMAKE_BUILD_TYPE=RelWithDebInfo
+-BC:\Users\wambugukinyua\miniaudiodart\android\.cxx\RelWithDebInfo\6b6nq4b1\x86
+-GNinja
+-DMINIAUDIODART_ENABLE_CURL=ON
+                        Build command args: []
+                        Version: 2

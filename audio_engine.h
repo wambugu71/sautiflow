@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
 
 #if defined(_WIN32) || defined(_WIN64)
 #define AE_API __declspec(dllexport)
@@ -33,6 +35,13 @@ extern "C"
         AE_LOOP_ONE = 2
     } AELoopMode;
 
+    typedef enum AEAudioFormat
+    {
+        AE_FORMAT_F32 = 0,
+        AE_FORMAT_S16 = 1,
+        AE_FORMAT_U8 = 2
+    } AEAudioFormat;
+
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels);
     AE_API void ae_destroy_engine(AudioEngineHandle *engine);
 
@@ -51,6 +60,7 @@ extern "C"
     AE_API bool ae_prev(AudioEngineHandle *engine);
     AE_API bool ae_jump_to(AudioEngineHandle *engine, int index);
     AE_API bool ae_jump_to_with_position(AudioEngineHandle *engine, int index, double position_seconds);
+    AE_API int ae_is_network_streaming_supported(void);
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *engine, int loop_mode);
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);
@@ -72,6 +82,32 @@ extern "C"
     AE_API void ae_set_highpass_cutoff(AudioEngineHandle *engine, float hz);
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
+
+    // Advanced Audio Controls
+    AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);
+    AE_API int ae_get_output_format(AudioEngineHandle *engine);
+
+    AE_API void ae_set_output_sample_rate(AudioEngineHandle *engine, int sample_rate);
+    AE_API int ae_get_output_sample_rate(AudioEngineHandle *engine);
+
+    AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels);
+    AE_API int ae_get_output_channels(AudioEngineHandle *engine);
+
+    // Push Stream API (Dart-driven streaming)
+    AE_API void ae_init_push_stream(AudioEngineHandle *engine);
+    // Use unsigned char instead of uint8_t as it is more standard and avoids <cstdint> vs <stdint.h> issues
+    AE_API void ae_push_stream_chunk(AudioEngineHandle *engine, const unsigned char *data, size_t size);
+    AE_API void ae_end_push_stream(AudioEngineHandle *engine); // Signal EOF or Abort
+    AE_API int ae_get_push_stream_buffered_bytes(AudioEngineHandle *engine);
+
+    // Multiband Equalizer
+    // band_count: number of EQ bands
+    // frequencies: array of center frequencies for each band (Hz)
+    // q_factors: array of Q factors for each band (default 1.0 if null)
+    AE_API void ae_init_multiband_eq(AudioEngineHandle *engine, int band_count, float *frequencies, float *q_factors);
+    AE_API void ae_set_multiband_eq_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_multiband_eq_gain(AudioEngineHandle *engine, int band_index, float gain_db);
+    AE_API float ae_get_multiband_eq_gain(AudioEngineHandle *engine, int band_index);
 
 #ifdef __cplusplus
 }

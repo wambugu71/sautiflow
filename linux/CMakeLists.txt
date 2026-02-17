@@ -26,11 +26,11 @@ target_link_libraries(audio_engine PRIVATE
 )
 
 set_target_properties(audio_engine PROPERTIES
-  OUTPUT_NAME "audio_engine"
+  OUTPUT_NAME "sautiflow"
 )
 
 # Required by Flutter FFI plugin packaging.
-set(miniaudiodart_bundled_libraries
+set(sautiflow_bundled_libraries
   $<TARGET_FILE:audio_engine>
   PARENT_SCOPE
 )

@@ -1,0 +1,73 @@
+# -----------------------------
+# Dart / Flutter
+# -----------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+
+# Generated plugin registrants
+**/GeneratedPluginRegistrant.*
+
+# -----------------------------
+# IDE / Editor
+# -----------------------------
+.idea/
+.vscode/
+*.iml
+
+# -----------------------------
+# OS files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Android
+# -----------------------------
+**/.gradle/
+**/local.properties
+**/captures/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# -----------------------------
+# iOS / macOS
+# -----------------------------
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework/
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+
+**/macos/Pods/
+**/macos/Flutter/ephemeral/
+
+# -----------------------------
+# Linux / Windows native build outputs
+# -----------------------------
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# CMake / native artifacts
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe
+
+# -----------------------------
+# Logs
+# -----------------------------
+*.log

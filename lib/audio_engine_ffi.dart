@@ -4,9 +4,16 @@ import 'dart:io';
 
 enum LoopMode { off, all, one }
 
+enum AudioFormat { f32, s16, u8 }
+
 class AudioSource {
   final Uri uri;
   const AudioSource.uri(this.uri);
+
+  factory AudioSource.file(String path) => AudioSource.uri(Uri.file(path));
+  factory AudioSource.network(String url) => AudioSource.uri(Uri.parse(url));
+
+  bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
 }
 
 typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
@@ -123,6 +130,62 @@ typedef _SetEqGainsDart = void Function(
 typedef _SetSingleFloatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float);
 typedef _SetSingleFloatDart = void Function(ffi.Pointer<ffi.Void>, double);
+typedef _SetOutputFormatNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetOutputFormatDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetOutputFormatNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetOutputFormatDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetOutputRateNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetOutputRateDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetOutputRateNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetOutputRateDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetOutputChannelsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetOutputChannelsDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetOutputChannelsNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetOutputChannelsDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _InitMultibandEqNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
+    ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+typedef _InitMultibandEqDart = void Function(
+    ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
+typedef _SetMultibandEqEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetMultibandEqEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _SetMultibandEqGainNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _SetMultibandEqGainDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
+
+typedef _GetMultibandEqGainNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _GetMultibandEqGainDart = double Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _InitPushStreamNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _InitPushStreamDart = void Function(ffi.Pointer<ffi.Void>);
+
+typedef _PushStreamChunkNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, ffi.Size);
+typedef _PushStreamChunkDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, int);
+
+typedef _EndPushStreamNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _EndPushStreamDart = void Function(ffi.Pointer<ffi.Void>);
+
+typedef _GetPushStreamBufferedBytesNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetPushStreamBufferedBytesDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _GetNetworkStreamingSupportNative = ffi.Int32 Function();
+typedef _GetNetworkStreamingSupportDart = int Function();
 
 class PlayerStatus {
   final double positionSeconds;
@@ -260,6 +323,72 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
       'ae_set_delay_params',
     );
+
+    // Advanced Audio Features Bindings
+    _setOutputFormat =
+        _lib.lookupFunction<_SetOutputFormatNative, _SetOutputFormatDart>(
+      'ae_set_output_format',
+    );
+    _getOutputFormat =
+        _lib.lookupFunction<_GetOutputFormatNative, _GetOutputFormatDart>(
+      'ae_get_output_format',
+    );
+    _setOutputSampleRate =
+        _lib.lookupFunction<_SetOutputRateNative, _SetOutputRateDart>(
+      'ae_set_output_sample_rate',
+    );
+    _getOutputSampleRate =
+        _lib.lookupFunction<_GetOutputRateNative, _GetOutputRateDart>(
+      'ae_get_output_sample_rate',
+    );
+    _setOutputChannels =
+        _lib.lookupFunction<_SetOutputChannelsNative, _SetOutputChannelsDart>(
+      'ae_set_output_channels',
+    );
+    _getOutputChannels =
+        _lib.lookupFunction<_GetOutputChannelsNative, _GetOutputChannelsDart>(
+      'ae_get_output_channels',
+    );
+
+    _initMultibandEq =
+        _lib.lookupFunction<_InitMultibandEqNative, _InitMultibandEqDart>(
+      'ae_init_multiband_eq',
+    );
+    _setMultibandEqEnabled = _lib.lookupFunction<_SetMultibandEqEnabledNative,
+        _SetMultibandEqEnabledDart>('ae_set_multiband_eq_enabled');
+    _setMultibandEqGain =
+        _lib.lookupFunction<_SetMultibandEqGainNative, _SetMultibandEqGainDart>(
+      'ae_set_multiband_eq_gain',
+    );
+    _getMultibandEqGain =
+        _lib.lookupFunction<_GetMultibandEqGainNative, _GetMultibandEqGainDart>(
+      'ae_get_multiband_eq_gain',
+    );
+
+    _initPushStream =
+        _lib.lookupFunction<_InitPushStreamNative, _InitPushStreamDart>(
+      'ae_init_push_stream',
+    );
+    _pushStreamChunk =
+        _lib.lookupFunction<_PushStreamChunkNative, _PushStreamChunkDart>(
+      'ae_push_stream_chunk',
+    );
+    _endPushStream =
+        _lib.lookupFunction<_EndPushStreamNative, _EndPushStreamDart>(
+      'ae_end_push_stream',
+    );
+    _getPushStreamBufferedBytes = _lib.lookupFunction<
+        _GetPushStreamBufferedBytesNative, _GetPushStreamBufferedBytesDart>(
+      'ae_get_push_stream_buffered_bytes',
+    );
+
+    try {
+      _getNetworkStreamingSupport = _lib.lookupFunction<
+          _GetNetworkStreamingSupportNative,
+          _GetNetworkStreamingSupportDart>('ae_is_network_streaming_supported');
+    } catch (_) {
+      _getNetworkStreamingSupport = null;
+    }
   }
 
   final ffi.DynamicLibrary _lib;
@@ -297,8 +426,28 @@ class AudioEngineFFI {
   late final _SetSingleFloatDart _setHighpassCutoff;
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
+
+  // Advanced Audio Features
+  late final _SetOutputFormatDart _setOutputFormat;
+  late final _GetOutputFormatDart _getOutputFormat;
+  late final _SetOutputRateDart _setOutputSampleRate;
+  late final _GetOutputRateDart _getOutputSampleRate;
+  late final _SetOutputChannelsDart _setOutputChannels;
+  late final _GetOutputChannelsDart _getOutputChannels;
+
+  late final _InitMultibandEqDart _initMultibandEq;
+  late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
+  late final _SetMultibandEqGainDart _setMultibandEqGain;
+  late final _GetMultibandEqGainDart _getMultibandEqGain;
+
+  late final _InitPushStreamDart _initPushStream;
+  late final _PushStreamChunkDart _pushStreamChunk;
+  late final _EndPushStreamDart _endPushStream;
+  late final _GetPushStreamBufferedBytesDart _getPushStreamBufferedBytes;
+
   late final _MallocDart _malloc;
   late final _FreeDart _free;
+  _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
 
   ffi.Pointer<ffi.Void> _engine;
 
@@ -342,13 +491,33 @@ class AudioEngineFFI {
     if (path != null && path.isNotEmpty) {
       return ffi.DynamicLibrary.open(path);
     }
-    if (Platform.isWindows) return ffi.DynamicLibrary.open('audio_engine.dll');
+    if (Platform.isWindows) {
+      try {
+        return ffi.DynamicLibrary.open('sautiflow.dll');
+      } catch (_) {
+        return ffi.DynamicLibrary.open('audio_engine.dll');
+      }
+    }
     if (Platform.isIOS) return ffi.DynamicLibrary.process();
-    if (Platform.isMacOS)
-      return ffi.DynamicLibrary.open('libaudio_engine.dylib');
-    if (Platform.isAndroid)
+    if (Platform.isMacOS) {
+      try {
+        return ffi.DynamicLibrary.open('libsautiflow.dylib');
+      } catch (_) {
+        return ffi.DynamicLibrary.open('libaudio_engine.dylib');
+      }
+    }
+    if (Platform.isAndroid) {
+      try {
+        return ffi.DynamicLibrary.open('libsautiflow.so');
+      } catch (_) {
+        return ffi.DynamicLibrary.open('libaudio_engine.so');
+      }
+    }
+    try {
+      return ffi.DynamicLibrary.open('libsautiflow.so');
+    } catch (_) {
       return ffi.DynamicLibrary.open('libaudio_engine.so');
-    return ffi.DynamicLibrary.open('libaudio_engine.so');
+    }
   }
 
   static ffi.DynamicLibrary _openAllocatorLibrary() {
@@ -375,6 +544,12 @@ class AudioEngineFFI {
       _destroyEngine(_engine);
       _engine = ffi.nullptr;
     }
+  }
+
+  bool isNetworkStreamingSupported() {
+    final getter = _getNetworkStreamingSupport;
+    if (getter == null) return false;
+    return getter() != 0;
   }
 
   bool setPlaylist(List<String> paths) {
@@ -620,5 +795,104 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setDelayParams(_engine, mix, feedback, delayMs);
+  }
+
+  // Advanced Audio Features Helpers
+
+  void setOutputFormat(AudioFormat format) {
+    if (_engine == ffi.nullptr) return;
+    _setOutputFormat(_engine, format.index);
+  }
+
+  AudioFormat getOutputFormat() {
+    if (_engine == ffi.nullptr) return AudioFormat.f32;
+    final index = _getOutputFormat(_engine);
+    return AudioFormat.values[index.clamp(0, AudioFormat.values.length - 1)];
+  }
+
+  void setOutputSampleRate(int rate) {
+    if (_engine == ffi.nullptr) return;
+    _setOutputSampleRate(_engine, rate);
+  }
+
+  int getOutputSampleRate() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getOutputSampleRate(_engine);
+  }
+
+  void setOutputChannels(int channels) {
+    if (_engine == ffi.nullptr) return;
+    _setOutputChannels(_engine, channels);
+  }
+
+  int getOutputChannels() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getOutputChannels(_engine);
+  }
+
+  void initMultibandEq(
+    int bands,
+    List<double> frequencies, {
+    List<double>? qFactors,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    if (frequencies.length != bands) return;
+    if (qFactors != null && qFactors.length != bands) return;
+
+    final freqPtr = _malloc(bands * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final freqList = freqPtr.asTypedList(bands);
+    freqList.setAll(0, frequencies);
+
+    ffi.Pointer<ffi.Float> qPtr = ffi.nullptr;
+    if (qFactors != null) {
+      qPtr = _malloc(bands * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+      final qList = qPtr.asTypedList(bands);
+      qList.setAll(0, qFactors);
+    }
+
+    try {
+      _initMultibandEq(_engine, bands, freqPtr, qPtr);
+    } finally {
+      _freePtr(freqPtr.cast<ffi.Void>());
+      if (qPtr != ffi.nullptr) {
+        _freePtr(qPtr.cast<ffi.Void>());
+      }
+    }
+  }
+
+  void setMultibandEqEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setMultibandEqEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setMultibandEqGain(int bandIndex, double gain) {
+    if (_engine == ffi.nullptr) return;
+    _setMultibandEqGain(_engine, bandIndex, gain);
+  }
+
+  double getMultibandEqGain(int bandIndex) {
+    if (_engine == ffi.nullptr) return 0.0;
+    return _getMultibandEqGain(_engine, bandIndex);
+  }
+
+  // Push Stream API
+  void initPushStream() {
+    if (_engine == ffi.nullptr) return;
+    _initPushStream(_engine);
+  }
+
+  void pushStreamChunk(ffi.Pointer<ffi.Uint8> data, int size) {
+    if (_engine == ffi.nullptr) return;
+    _pushStreamChunk(_engine, data, size);
+  }
+
+  void endPushStream() {
+    if (_engine == ffi.nullptr) return;
+    _endPushStream(_engine);
+  }
+
+  int getPushStreamBufferedBytes() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getPushStreamBufferedBytes(_engine);
   }
 }

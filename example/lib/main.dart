@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:miniaudiodart/miniaudiodart.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sautiflow/sautiflow.dart';
+
+import 'isolate_player.dart';
 
 void main() {
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -48,7 +52,7 @@ class PlayerShell extends StatefulWidget {
 }
 
 class _PlayerShellState extends State<PlayerShell> {
-  final MiniAudioPlayer _player = MiniAudioPlayer();
+  final IsolateAudioPlayer _player = IsolateAudioPlayer();
   final TextEditingController _singleUrlController = TextEditingController();
   final TextEditingController _multiUrlController = TextEditingController();
   final ValueNotifier<PlayerStatus> _status = ValueNotifier(
@@ -66,12 +70,36 @@ class _PlayerShellState extends State<PlayerShell> {
   final List<AudioSource> _playlist = <AudioSource>[];
   final List<String> _logs = <String>[];
   int _tabIndex = 0;
+  int _lazyLoadSession = 0;
+  bool _nativeNetworkStreamingSupported = false;
+  bool _allowInvalidTlsForDownloads = false;
+  bool _systemMediaControlsEnabled = false;
+  int _lastPublishedNowPlayingIndex = -1;
 
   bool _eqEnabled = false;
   bool _reverbEnabled = false;
   bool _lowpassEnabled = false;
   bool _highpassEnabled = false;
   bool _delayEnabled = false;
+
+  // Advanced Audio State
+  bool _multibandEqEnabled = false;
+  final List<double> _eqBandGains = List.filled(10, 0.0);
+  final List<double> _eqFrequencies = const [
+    31.25,
+    62.5,
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ];
+  AudioFormat _outputFormat = AudioFormat.f32;
+  int _outputSampleRate = 0; // 0=Native
+  int _outputChannels = 2; // Stereo
 
   double _low = 1.0;
   double _mid = 1.0;
@@ -90,22 +118,39 @@ class _PlayerShellState extends State<PlayerShell> {
   @override
   void initState() {
     super.initState();
-    _player.init();
+    // Initialize the engine with defaults
+    _player.init(enableSystemAudio: true);
+
+    // Initialize the multiband EQ (safe to call even if unnecessary, but good practice)
+    _player.initMultibandEq(_eqFrequencies);
+    _nativeNetworkStreamingSupported = _player.isNetworkStreamingSupported();
+    _logs.insert(
+      0,
+      _nativeNetworkStreamingSupported
+          ? '[init] Native URL byte-streaming: enabled'
+          : '[init] Native URL byte-streaming: disabled (download fallback for URLs)',
+    );
     final initErr = _player.getLastError();
     if (initErr.isNotEmpty) {
       _logs.insert(0, '[init] $initErr');
     }
     _player.statusStream.listen((s) {
       _status.value = s;
-      if (mounted) setState(() {});
+      _publishNowPlayingFromStatus(s);
+      // Removed setState to prevent full rebuilds on every status update
     });
     _player.logStream.listen((line) {
       _logs.insert(0, '[${DateTime.now().toIso8601String()}] $line');
       if (_logs.length > 200) {
         _logs.removeRange(200, _logs.length);
       }
-      if (mounted) setState(() {});
+      if (mounted && _tabIndex == 2)
+        setState(() {}); // Only rebuild if Logs tab is active
     });
+
+    if (Platform.isAndroid) {
+      unawaited(_ensureNotificationPermission());
+    }
   }
 
   @override
@@ -115,6 +160,46 @@ class _PlayerShellState extends State<PlayerShell> {
     _status.dispose();
     _player.dispose();
     super.dispose();
+  }
+
+  Future<void> _ensureNotificationPermission() async {
+    final notif = await Permission.notification.status;
+    if (notif.isGranted) return;
+
+    final req = await Permission.notification.request();
+    if (!req.isGranted) {
+      _logs.insert(
+        0,
+        '[permission] Notification permission denied. Media notification may not appear.',
+      );
+      if (req.isPermanentlyDenied) {
+        _logs.insert(
+          0,
+          '[permission] Notification permission permanently denied. Open app settings.',
+        );
+      }
+    }
+  }
+
+  void _publishNowPlayingFromStatus(PlayerStatus status) {
+    final idx = status.currentIndex;
+    if (idx < 0 || idx >= _playlist.length) return;
+    if (idx == _lastPublishedNowPlayingIndex) return;
+
+    final source = _playlist[idx];
+    final title = _nameFromSource(source);
+    final subtitle = _subtitleFromSource(source);
+    _lastPublishedNowPlayingIndex = idx;
+
+    unawaited(
+      _player.updateNowPlaying(
+        id: 'track_$idx',
+        title: title,
+        artist: subtitle,
+        duration:
+            Duration(milliseconds: (status.durationSeconds * 1000).round()),
+      ),
+    );
   }
 
   Uri? _parseInputToUri(String raw) {
@@ -180,6 +265,65 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
+  Future<AudioSource?> _sourceFromPickedFile(PlatformFile f) async {
+    if (f.path != null && f.path!.isNotEmpty) {
+      final file = File(f.path!);
+      if (file.existsSync()) {
+        return AudioSource.uri(file.uri);
+      }
+    }
+
+    final cacheDir = Directory(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_pick_cache',
+    );
+    if (!cacheDir.existsSync()) {
+      cacheDir.createSync(recursive: true);
+    }
+
+    final ext = (() {
+      final fromExt = f.extension?.trim();
+      if (fromExt != null && fromExt.isNotEmpty) {
+        return '.${fromExt.toLowerCase()}';
+      }
+      final fromName = f.name;
+      final dot = fromName.lastIndexOf('.');
+      if (dot > 0 && dot < fromName.length - 1) {
+        return '.${fromName.substring(dot + 1).toLowerCase()}';
+      }
+      return '.bin';
+    })();
+
+    final out = File(
+      '${cacheDir.path}${Platform.pathSeparator}pick_${DateTime.now().microsecondsSinceEpoch}_${f.name.hashCode}$ext',
+    );
+
+    if (f.readStream != null) {
+      final sink = out.openWrite();
+      try {
+        await sink.addStream(f.readStream!);
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (out.existsSync() && out.lengthSync() > 0) {
+        return AudioSource.uri(out.uri);
+      }
+    }
+
+    if (f.bytes != null && f.bytes!.isNotEmpty) {
+      await out.writeAsBytes(f.bytes!, flush: true);
+      if (out.existsSync() && out.lengthSync() > 0) {
+        return AudioSource.uri(out.uri);
+      }
+    }
+
+    _logs.insert(
+      0,
+      '[pick] Could not materialize: ${f.name} (no usable path/stream/bytes)',
+    );
+    return null;
+  }
+
   Future<AudioSource?> _materializeSource(Uri uri) async {
     if (uri.scheme == 'file') {
       final filePath = _safeFilePathFromUri(uri);
@@ -200,12 +344,14 @@ class _PlayerShellState extends State<PlayerShell> {
       return null;
     }
 
-    // Desktop builds can use native progressive URL decoding (when available
-    // in the bundled native library). Mobile currently falls back to
-    // download-to-temp until native URL streaming is enabled there.
-    if (Platform.isLinux || Platform.isMacOS) {
-      return AudioSource.uri(uri);
+    final supportsNativeNetwork = _player.isNetworkStreamingSupported();
+    if (supportsNativeNetwork) {
+      _logs.insert(0, '[source] Using native network source in playlist: $uri');
+      return AudioSource.network(uri.toString());
     }
+
+    _logs.insert(
+        0, '[source] Downloading URL for playlist compatibility: $uri');
 
     final cacheDir = Directory(
       '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_stream_cache',
@@ -230,6 +376,9 @@ class _PlayerShellState extends State<PlayerShell> {
     );
 
     final client = HttpClient();
+    if (_allowInvalidTlsForDownloads && uri.scheme == 'https') {
+      client.badCertificateCallback = (_, __, ___) => true;
+    }
     try {
       final req = await client.getUrl(uri);
       req.headers.set('User-Agent', 'MiniAudioDart/1.0 (Flutter)');
@@ -247,6 +396,23 @@ class _PlayerShellState extends State<PlayerShell> {
       await sink.close();
 
       return AudioSource.uri(file.uri);
+    } on HandshakeException catch (e) {
+      final message = e.toString();
+      if (message.contains('CERTIFICATE_VERIFY_FAILED') &&
+          message.contains('not yet valid')) {
+        _logs.insert(
+          0,
+          '[source] TLS certificate date check failed. Verify device/system clock and timezone, then retry.',
+        );
+        if (!_allowInvalidTlsForDownloads) {
+          _logs.insert(
+            0,
+            '[source] Tip: enable "Allow invalid TLS certs" in Logs tab for testing only.',
+          );
+        }
+      }
+      _logs.insert(0, '[source] Download failed: $e');
+      return null;
     } catch (e) {
       _logs.insert(0, '[source] Download failed: $e');
       return null;
@@ -264,6 +430,13 @@ class _PlayerShellState extends State<PlayerShell> {
       );
       setState(() {});
       return;
+    }
+
+    if (uri.scheme == 'http' || uri.scheme == 'https') {
+      _logs.insert(
+        0,
+        '[source] URL input detected. Downloading to local cache before playback: $uri',
+      );
     }
 
     final src = await _materializeSource(uri);
@@ -301,16 +474,15 @@ class _PlayerShellState extends State<PlayerShell> {
       return;
     }
 
+    final resolved = await Future.wait(uris.map(_materializeSource));
     final sources = <AudioSource>[];
-    for (final uri in uris) {
-      final src = await _materializeSource(uri);
-      if (src != null) sources.add(src);
+    for (final resolvedSrc in resolved) {
+      if (resolvedSrc == null) continue;
+      sources.add(resolvedSrc);
     }
+
     if (sources.isEmpty) {
-      _logs.insert(
-        0,
-        '[sources-set] No playable sources after validation/download.',
-      );
+      _logs.insert(0, '[sources] No valid entries found after resolution.');
       setState(() {});
       return;
     }
@@ -343,9 +515,8 @@ class _PlayerShellState extends State<PlayerShell> {
       return;
     }
 
-    for (final uri in uris) {
-      final src = await _materializeSource(uri);
-      if (src == null) continue;
+    final resolved = await Future.wait(uris.map(_materializeSource));
+    for (final src in resolved.whereType<AudioSource>()) {
       _playlist.add(src);
       _player.addAudioSource(src);
       final msg = _player.getLastError();
@@ -353,6 +524,40 @@ class _PlayerShellState extends State<PlayerShell> {
         _logs.insert(0, '[sources-add] $msg');
       }
     }
+    setState(() {});
+  }
+
+  Future<void> _appendPickedFilesLazily(
+    List<PlatformFile> files, {
+    required int sessionTag,
+    int? skipIndex,
+    String logPrefix = '[lazy]',
+  }) async {
+    var added = 0;
+    for (var i = 0; i < files.length; i++) {
+      if (skipIndex != null && i == skipIndex) continue;
+      if (!mounted || sessionTag != _lazyLoadSession) return;
+
+      final src = await _sourceFromPickedFile(files[i]);
+      if (src == null) continue;
+      if (!mounted || sessionTag != _lazyLoadSession) return;
+
+      _playlist.add(src);
+      _player.addAudioSource(src);
+      added++;
+
+      final msg = _player.getLastError();
+      if (msg.isNotEmpty) {
+        _logs.insert(0, '$logPrefix $msg');
+      }
+
+      if (added % 5 == 0) {
+        setState(() {});
+      }
+    }
+
+    if (!mounted || sessionTag != _lazyLoadSession) return;
+    _logs.insert(0, '$logPrefix Added $added tracks in background');
     setState(() {});
   }
 
@@ -367,16 +572,105 @@ class _PlayerShellState extends State<PlayerShell> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
+      withReadStream: true,
       allowedExtensions: const ['mp3', 'ogg', 'wav', 'flac', 'm4a', 'aac'],
     );
     if (result == null || result.files.isEmpty) return;
 
-    final sources = result.files
-        .where((f) => f.path != null && f.path!.isNotEmpty)
-        .map((f) => AudioSource.uri(Uri.file(f.path!)))
-        .toList();
+    final sessionTag = ++_lazyLoadSession;
+    AudioSource? firstSource;
+    var firstIndex = -1;
+    for (var i = 0; i < result.files.length; i++) {
+      final src = await _sourceFromPickedFile(result.files[i]);
+      if (src != null) {
+        firstSource = src;
+        firstIndex = i;
+        break;
+      }
+    }
 
-    if (sources.isEmpty) return;
+    if (firstSource == null) {
+      _logs.insert(0, '[playlist] No playable picked files.');
+      if (mounted) setState(() {});
+      return;
+    }
+
+    setState(() {
+      _playlist
+        ..clear()
+        ..add(firstSource!);
+    });
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: 0,
+      initialPosition: Duration.zero,
+      useLazyPreparation: true,
+    );
+
+    final msg = _player.getLastError();
+    if (msg.isNotEmpty) {
+      _logs.insert(0, '[playlist] $msg');
+      setState(() {});
+    }
+
+    _logs.insert(
+      0,
+      '[lazy] Playlist ready instantly with 1 track. Loading remaining tracks in background...',
+    );
+    setState(() {});
+
+    unawaited(
+      _appendPickedFilesLazily(
+        result.files,
+        sessionTag: sessionTag,
+        skipIndex: firstIndex,
+        logPrefix: '[playlist-lazy]',
+      ),
+    );
+  }
+
+  Future<void> _pickFolderAndSetPlaylist() async {
+    final hasPermission = await _ensureMediaPermission();
+    if (!hasPermission) {
+      _logs.insert(0, '[permission] Media permission denied');
+      if (mounted) setState(() {});
+      return;
+    }
+
+    final String? selectedDirectory =
+        await FilePicker.platform.getDirectoryPath();
+    if (selectedDirectory == null) return;
+
+    final dir = Directory(selectedDirectory);
+    if (!dir.existsSync()) return;
+
+    final List<File> audioFiles = [];
+    final extensions = ['.mp3', '.ogg', '.wav', '.flac', '.m4a', '.aac'];
+
+    try {
+      await for (final entity in dir.list(recursive: true)) {
+        if (entity is File) {
+          final lowerPath = entity.path.toLowerCase();
+          if (extensions.any((ext) => lowerPath.endsWith(ext))) {
+            audioFiles.add(entity);
+          }
+        }
+      }
+    } catch (e) {
+      _logs.insert(0, '[folder] Error listing files: $e');
+    }
+
+    if (audioFiles.isEmpty) {
+      _logs.insert(0, '[playlist] No playable files found in folder.');
+      if (mounted) setState(() {});
+      return;
+    }
+
+    // Convert to PlatformFiles to reuse _appendPickedFilesLazily logic or handle directly
+    // Since we have Files, we can create AudioSources directly.
+
+    final sources = audioFiles.map((f) => AudioSource.uri(f.uri)).toList();
 
     setState(() {
       _playlist
@@ -389,6 +683,10 @@ class _PlayerShellState extends State<PlayerShell> {
       initialIndex: 0,
       initialPosition: Duration.zero,
       useLazyPreparation: true,
+    );
+    _logs.insert(
+      0,
+      '[folder] Playlist ready with ${sources.length} tracks from ${dir.path}',
     );
 
     final msg = _player.getLastError();
@@ -409,21 +707,25 @@ class _PlayerShellState extends State<PlayerShell> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
+      withReadStream: true,
       allowedExtensions: const ['mp3', 'ogg', 'wav', 'flac', 'm4a', 'aac'],
     );
     if (result == null || result.files.isEmpty) return;
 
-    for (final f in result.files) {
-      if (f.path == null || f.path!.isEmpty) continue;
-      final src = AudioSource.uri(Uri.file(f.path!));
-      _playlist.add(src);
-      _player.addAudioSource(src);
-      final msg = _player.getLastError();
-      if (msg.isNotEmpty) {
-        _logs.insert(0, '[add] $msg');
-      }
-    }
+    final sessionTag = ++_lazyLoadSession;
+    _logs.insert(
+      0,
+      '[add-lazy] Adding ${result.files.length} picked songs in background...',
+    );
     setState(() {});
+
+    unawaited(
+      _appendPickedFilesLazily(
+        result.files,
+        sessionTag: sessionTag,
+        logPrefix: '[add-lazy]',
+      ),
+    );
   }
 
   String _nameFromSource(AudioSource source) {
@@ -454,38 +756,72 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Widget _buildPlayerScreen() {
-    final st = _status.value;
-    final duration = Duration(
-      milliseconds: (st.durationSeconds * 1000).round(),
+    return Column(
+      children: [
+        Expanded(
+          flex: 3,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildInputSection(),
+                const SizedBox(height: 8),
+                ValueListenableBuilder<PlayerStatus>(
+                  valueListenable: _status,
+                  builder: (context, st, _) => _buildPlayerControls(st),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Divider(),
+        Expanded(
+          flex: 2,
+          child: ValueListenableBuilder<PlayerStatus>(
+            valueListenable: _status,
+            builder: (context, st, _) => _buildPlaylist(st),
+          ),
+        ),
+      ],
     );
-    final position = Duration(
-      milliseconds: (st.positionSeconds * 1000).round(),
-    );
-    final maxMs = duration.inMilliseconds <= 0
-        ? 1.0
-        : duration.inMilliseconds.toDouble();
-    final posMs = position.inMilliseconds
-        .clamp(0, duration.inMilliseconds <= 0 ? 0 : duration.inMilliseconds)
-        .toDouble();
+  }
 
+  Widget _buildInputSection() {
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _pickSongsAndSetPlaylist,
-                  icon: const Icon(Icons.library_music),
-                  label: const Text('Pick Playlist'),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _pickSongsAndSetPlaylist,
+                      icon: const Icon(Icons.library_music),
+                      label: const Text('Pick Files'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _pickFolderAndSetPlaylist,
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('Pick Folder'),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                onPressed: _addSongs,
-                icon: const Icon(Icons.queue_music),
-                label: const Text('Add Songs'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _addSongs,
+                      icon: const Icon(Icons.queue_music),
+                      label: const Text('Add Songs'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -513,6 +849,31 @@ class _PlayerShellState extends State<PlayerShell> {
                       onPressed: _playSingleUrl,
                       icon: const Icon(Icons.link),
                       label: const Text('Play URL'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      child: const Text('Stream'),
+                      onPressed: () async {
+                        final uri = _parseInputToUri(_singleUrlController.text);
+                        if (uri == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Invalid URL/path')),
+                          );
+                          return;
+                        }
+
+                        if (uri.scheme == 'http' || uri.scheme == 'https') {
+                          _logs.insert(
+                            0,
+                            '[stream] Direct push streaming disabled in demo for stability. Falling back to cached URL playback.',
+                          );
+                          if (mounted) setState(() {});
+                        }
+
+                        await _playSingleUrl();
+                      },
                     ),
                   ),
                 ],
@@ -554,7 +915,58 @@ class _PlayerShellState extends State<PlayerShell> {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _buildPlayerControls(PlayerStatus st) {
+    final duration = Duration(
+      milliseconds: (st.durationSeconds * 1000).round(),
+    );
+    final position = Duration(
+      milliseconds: (st.positionSeconds * 1000).round(),
+    );
+    final maxMs =
+        duration.inMilliseconds <= 0 ? 1.0 : duration.inMilliseconds.toDouble();
+    final posMs = position.inMilliseconds
+        .clamp(0, duration.inMilliseconds <= 0 ? 0 : duration.inMilliseconds)
+        .toDouble();
+    final currentIndex = st.currentIndex;
+    final currentTitle = (currentIndex >= 0 && currentIndex < _playlist.length)
+        ? _nameFromSource(_playlist[currentIndex])
+        : 'No track selected';
+    final currentSubtitle =
+        (currentIndex >= 0 && currentIndex < _playlist.length)
+            ? _subtitleFromSource(_playlist[currentIndex])
+            : 'Pick songs or set URL playlist';
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Card(
+            child: ListTile(
+              leading: Icon(
+                st.isPlaying ? Icons.graphic_eq : Icons.music_note_outlined,
+              ),
+              title: Text(
+                currentTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                currentSubtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Icon(
+                _systemMediaControlsEnabled
+                    ? Icons.notifications_active
+                    : Icons.notifications_off,
+              ),
+            ),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Column(
@@ -618,35 +1030,91 @@ class _PlayerShellState extends State<PlayerShell> {
             ],
           ),
         ),
-        const Divider(),
-        Expanded(
-          child: ReorderableListView.builder(
-            itemCount: _playlist.length,
-            onReorder: (oldIndex, newIndex) {
-              if (newIndex > oldIndex) newIndex -= 1;
-              final item = _playlist.removeAt(oldIndex);
-              _playlist.insert(newIndex, item);
-              _player.moveAudioSource(oldIndex, newIndex);
+      ],
+    );
+  }
+
+  Widget _buildPlaylist(PlayerStatus st) {
+    return ReorderableListView.builder(
+      itemCount: _playlist.length,
+      onReorder: (oldIndex, newIndex) {
+        if (newIndex > oldIndex) newIndex -= 1;
+        final item = _playlist.removeAt(oldIndex);
+        _playlist.insert(newIndex, item);
+        _player.moveAudioSource(oldIndex, newIndex);
+        setState(() {});
+      },
+      itemBuilder: (context, index) {
+        final isCurrent = st.currentIndex == index;
+        return ListTile(
+          key: ValueKey('song_$index'),
+          leading: Icon(isCurrent ? Icons.graphic_eq : Icons.music_note),
+          title: Text(_nameFromSource(_playlist[index])),
+          subtitle: Text(_subtitleFromSource(_playlist[index])),
+          onTap: () => _player.seekTo(Duration.zero, index: index),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: () {
+              _player.removeAudioSourceAt(index);
+              _playlist.removeAt(index);
               setState(() {});
             },
-            itemBuilder: (context, index) {
-              final isCurrent = _status.value.currentIndex == index;
-              return ListTile(
-                key: ValueKey('song_$index'),
-                leading: Icon(isCurrent ? Icons.graphic_eq : Icons.music_note),
-                title: Text(_nameFromSource(_playlist[index])),
-                subtitle: Text(_subtitleFromSource(_playlist[index])),
-                onTap: () => _player.seekTo(Duration.zero, index: index),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () {
-                    _player.removeAudioSourceAt(index);
-                    _playlist.removeAt(index);
-                    setState(() {});
-                  },
-                ),
-              );
-            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAdvancedSettings() {
+    return ExpansionTile(
+      title: const Text('Advanced Audio Settings'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            children: [
+              // Output Format
+              DropdownButtonFormField<AudioFormat>(
+                value: _outputFormat,
+                decoration: const InputDecoration(labelText: 'Audio Format'),
+                items: AudioFormat.values.map((f) {
+                  return DropdownMenuItem(value: f, child: Text(f.name));
+                }).toList(),
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _outputFormat = v);
+                  _player.setOutputFormat(v);
+                },
+              ),
+              const SizedBox(height: 8),
+              // Sample Rate
+              DropdownButtonFormField<int>(
+                value: _outputSampleRate,
+                decoration: const InputDecoration(labelText: 'Sample Rate'),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('Native')),
+                  DropdownMenuItem(value: 44100, child: Text('44100 Hz')),
+                  DropdownMenuItem(value: 48000, child: Text('48000 Hz')),
+                  DropdownMenuItem(value: 96000, child: Text('96000 Hz')),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _outputSampleRate = v);
+                  _player.setOutputSampleRate(v);
+                },
+              ),
+              // Mono/Stereo
+              SwitchListTile(
+                title: const Text('Stereo Output'),
+                subtitle: Text(
+                    _outputChannels == 2 ? '2 Channels' : '1 Channel (Mono)'),
+                value: _outputChannels == 2,
+                onChanged: (v) {
+                  setState(() => _outputChannels = v ? 2 : 1);
+                  _player.setOutputChannels(_outputChannels);
+                },
+              ),
+            ],
           ),
         ),
       ],
@@ -657,8 +1125,64 @@ class _PlayerShellState extends State<PlayerShell> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        _buildAdvancedSettings(),
+        const Divider(),
         SwitchListTile(
-          title: const Text('Enable EQ'),
+          title: const Text('Enable 10-Band EQ'),
+          value: _multibandEqEnabled,
+          onChanged: (v) {
+            setState(() => _multibandEqEnabled = v);
+            _player.setMultibandEqEnabled(v);
+            // Initialize if enabling
+            if (v) {
+              _player.initMultibandEq(_eqFrequencies);
+              for (int i = 0; i < _eqFrequencies.length; ++i) {
+                _player.setMultibandEqBandGain(i, _eqBandGains[i]);
+              }
+            }
+          },
+        ),
+        if (_multibandEqEnabled)
+          SizedBox(
+            height: 300,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _eqFrequencies.length,
+              itemBuilder: (context, index) {
+                final freq = _eqFrequencies[index];
+                final label = freq >= 1000
+                    ? '${(freq / 1000).toStringAsFixed(1)}k'
+                    : '${freq.toInt()}';
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Expanded(
+                      child: RotatedBox(
+                        quarterTurns: 3,
+                        child: Slider(
+                          value: _eqBandGains[index],
+                          min: -12.0,
+                          max: 12.0,
+                          onChanged: (v) {
+                            setState(() => _eqBandGains[index] = v);
+                            _player.setMultibandEqBandGain(index, v);
+                          },
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${_eqBandGains[index].toStringAsFixed(1)} dB',
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                    Text(label, style: const TextStyle(fontSize: 10)),
+                  ],
+                );
+              },
+            ),
+          ),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable 3-Band EQ'),
           value: _eqEnabled,
           onChanged: (v) {
             setState(() => _eqEnabled = v);
@@ -785,6 +1309,7 @@ class _PlayerShellState extends State<PlayerShell> {
             delayMs: _dlDelay,
           );
         }),
+        _buildAdvancedSettings(),
       ],
     );
   }
@@ -815,6 +1340,39 @@ class _PlayerShellState extends State<PlayerShell> {
                 },
                 icon: const Icon(Icons.cleaning_services_outlined),
                 label: const Text('Clear Native Error'),
+              ),
+              FilterChip(
+                selected: _allowInvalidTlsForDownloads,
+                label: const Text('Allow invalid TLS certs (test only)'),
+                onSelected: (selected) {
+                  setState(() => _allowInvalidTlsForDownloads = selected);
+                  _logs.insert(
+                    0,
+                    selected
+                        ? '[security] Invalid TLS cert acceptance enabled for fallback downloads.'
+                        : '[security] Invalid TLS cert acceptance disabled.',
+                  );
+                },
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  if (_logs.isEmpty) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No logs to copy')),
+                    );
+                    return;
+                  }
+
+                  final text = _logs.reversed.join('\n');
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Copied ${_logs.length} log lines')),
+                  );
+                },
+                icon: const Icon(Icons.copy_all_outlined),
+                label: const Text('Copy Logs'),
               ),
               OutlinedButton.icon(
                 onPressed: () {

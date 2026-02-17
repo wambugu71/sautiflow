@@ -70,7 +70,7 @@ build CMakeFiles/audio_engine.dir/C_/Users/wambugukinyua/miniaudiodart/audio_eng
 build C$:/Users/wambugukinyua/miniaudiodart/example/build/miniaudiodart/intermediates/cxx/RelWithDebInfo/6oc1y112/obj/x86_64/libaudio_engine.so: CXX_SHARED_LIBRARY_LINKER__audio_engine_RelWithDebInfo CMakeFiles/audio_engine.dir/C_/Users/wambugukinyua/miniaudiodart/audio_engine.cpp.o | C$:/androidsdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/21/liblog.so
   LANGUAGE_COMPILE_FLAGS = -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O2 -O2 -g -DNDEBUG
   LINK_FLAGS = -static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments  -Wl,--gc-sections
-  LINK_LIBRARIES = C:/androidsdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/21/liblog.so  -landroid  -latomic -lm
+  LINK_LIBRARIES = C:/androidsdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/21/liblog.so  -landroid  -lm  -latomic -lm
   OBJECT_DIR = CMakeFiles\audio_engine.dir
   POST_BUILD = cd .
   PRE_LINK = cd .

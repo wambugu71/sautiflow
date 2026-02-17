@@ -1,4 +1,4 @@
-group 'com.wambugu.miniaudiodart'
+group 'com.wambugu.sautiflow'
 version '1.0-SNAPSHOT'
 
 buildscript {
@@ -11,15 +11,24 @@ buildscript {
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.wambugu.miniaudiodart'
+    namespace 'com.wambugu.sautiflow'
     compileSdkVersion 34
     ndkVersion "28.2.13676358"
+
+    def mdEnableCurl = (project.findProperty('MINIAUDIODART_ENABLE_CURL') ?: 'ON').toString()
+    def mdCurlIncludeDir = (project.findProperty('MINIAUDIODART_CURL_INCLUDE_DIR') ?: '').toString()
+    def mdCurlLibrary = (project.findProperty('MINIAUDIODART_CURL_LIBRARY') ?: '').toString()
+    def mdCurlLibraryDir = (project.findProperty('MINIAUDIODART_CURL_LIBRARY_DIR') ?: '').toString()
 
     defaultConfig {
         minSdkVersion 21
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O2"
+                arguments "-DMINIAUDIODART_ENABLE_CURL=${mdEnableCurl}",
+                          "-DMINIAUDIODART_CURL_INCLUDE_DIR=${mdCurlIncludeDir}",
+                          "-DMINIAUDIODART_CURL_LIBRARY=${mdCurlLibrary}",
+                          "-DMINIAUDIODART_CURL_LIBRARY_DIR=${mdCurlLibraryDir}"
             }
         }
     }

@@ -1,16 +1,28 @@
-name: miniaudiodart
-description: Cross-platform Dart/Flutter audio engine powered by miniaudio + C++ FFI.
+name: sautiflow
+description: High-fidelity, cross-platform Dart/Flutter audio engine for audiophiles, powered by miniaudio and native C++ FFI.
 version: 0.1.0
-homepage: https://example.com
-repository: https://example.com
+homepage: https://github.com/wambugukinyua/miniaudiodart
+repository: https://github.com/wambugukinyua/miniaudiodart
+issue_tracker: https://github.com/wambugukinyua/miniaudiodart/issues
+topics:
+  - audio
+  - flutter-plugin
+  - ffi
+  - miniaudio
+  - streaming
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.22.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  audio_service: ^0.18.18
+  audio_session: ^0.2.2
   meta: ^1.12.0
+  http: ^1.6.0
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:

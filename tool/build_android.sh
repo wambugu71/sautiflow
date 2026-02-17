@@ -6,6 +6,13 @@ set -euo pipefail
 API=24
 ABIS=(arm64-v8a armeabi-v7a x86_64)
 
+# Optional: pass extra compiler/linker flags (for example to enable libcurl).
+# Example:
+#   export AE_EXTRA_CXXFLAGS="-DAE_ENABLE_CURL=1 -I/path/to/curl/include"
+#   export AE_EXTRA_LDFLAGS="-L/path/to/curl/libs/arm64-v8a -lcurl -lz"
+AE_EXTRA_CXXFLAGS="${AE_EXTRA_CXXFLAGS:-}"
+AE_EXTRA_LDFLAGS="${AE_EXTRA_LDFLAGS:-}"
+
 mkdir -p build/android
 
 for ABI in "${ABIS[@]}"; do
@@ -33,7 +40,9 @@ for ABI in "${ABIS[@]}"; do
     -std=c++17 -O2 -fPIC -shared \
     audio_engine.cpp \
     -o "$OUT_DIR/libaudio_engine.so" \
-    -D__ANDROID_API__=$API
+    -D__ANDROID_API__=$API \
+    $AE_EXTRA_CXXFLAGS \
+    $AE_EXTRA_LDFLAGS
 
   echo "Built $OUT_DIR/libaudio_engine.so"
 done

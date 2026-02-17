@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(audio_engine SHARED audio_engine.cpp)
 
+set_target_properties(audio_engine PROPERTIES
+  OUTPUT_NAME "sautiflow"
+)
+
 target_include_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if (WIN32)
@@ -16,6 +20,12 @@ if (WIN32)
 elseif(APPLE)
   find_library(COREAUDIO_FRAMEWORK CoreAudio)
   find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+  find_package(CURL QUIET)
+  if(CURL_FOUND)
+    target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
+    target_link_libraries(audio_engine PRIVATE ${CURL_LIBRARIES})
+    target_include_directories(audio_engine PRIVATE ${CURL_INCLUDE_DIRS})
+  endif()
   target_link_libraries(audio_engine PRIVATE ${COREAUDIO_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK})
 elseif(UNIX)
   find_package(CURL QUIET)

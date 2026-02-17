@@ -1,4 +1,4 @@
-# miniaudiodart
+# sautiflow
 
 Cross-platform Dart audio package backed by a C++ miniaudio engine.
 
@@ -17,7 +17,7 @@ Cross-platform Dart audio package backed by a C++ miniaudio engine.
 Import:
 
 ```dart
-import 'package:miniaudiodart/miniaudiodart.dart';
+import 'package:sautiflow/sautiflow.dart';
 ```
 
 ### Example (playlist + controls)
@@ -78,7 +78,7 @@ This package is configured as a Flutter FFI plugin in [pubspec.yaml](pubspec.yam
 Platform native build configs are included:
 
 - [android/src/main/cpp/CMakeLists.txt](android/src/main/cpp/CMakeLists.txt)
-- [ios/miniaudiodart.podspec](ios/miniaudiodart.podspec)
+- [ios/sautiflow.podspec](ios/sautiflow.podspec)
 - [linux/CMakeLists.txt](linux/CMakeLists.txt)
 - [windows/CMakeLists.txt](windows/CMakeLists.txt)
 
@@ -98,6 +98,20 @@ For Flutter app integration, keep native artifacts available in app/plugin outpu
 - iOS: link `audio_engine.xcframework` in Xcode/Podspec
 - Windows: place `audio_engine.dll` next to executable
 - Linux: ship `libaudio_engine.so` with app bundle and ensure loader path
+
+### Android native network streaming (libcurl)
+
+Android now attempts to enable native URL streaming by default.
+
+- If `libcurl` is found (explicit path or bundled per ABI), native network streaming is enabled.
+- If not found, Android build continues and falls back to non-native URL handling (no build break).
+
+Optional overrides (Gradle project properties):
+
+- `MINIAUDIODART_ENABLE_CURL=ON|OFF`
+- `MINIAUDIODART_CURL_INCLUDE_DIR=/path/to/include`
+- `MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so`
+- `MINIAUDIODART_CURL_LIBRARY_DIR=/path/to/abi-parent`
 
 ## Example
 
