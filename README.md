@@ -1,6 +1,6 @@
 # sautiflow
 
-![Sautiflow Logo](sautiflow_docs/assets/sautiflow.png)
+![Sautiflow Logo](docs/assets/sautiflow.png)
 
 Cross-platform Dart audio package backed by a C++ miniaudio engine.
 
