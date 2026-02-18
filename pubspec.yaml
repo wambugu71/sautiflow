@@ -9,7 +9,7 @@ topics:
   - miniaudio
   - audiophiles
   - equalizer
-  - music player plugin
+  - music
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
