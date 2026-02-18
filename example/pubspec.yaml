@@ -15,6 +15,7 @@ dependencies:
     path: ..
   file_picker: any
   permission_handler: ^11.3.1
+  fl_chart: ^0.69.0
 
   cupertino_icons: ^1.0.8
 

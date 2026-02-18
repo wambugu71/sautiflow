@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart'; // For RootIsolateToken
 import 'package:sautiflow/sautiflow.dart';
@@ -13,12 +14,14 @@ class IsolateAudioPlayer {
 
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
+  final _analyzerController = StreamController<Float32List>.broadcast();
 
   final List<Map<String, dynamic>> _pendingCommands = [];
   bool _networkStreamingSupported = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
+  Stream<Float32List> get analyzerStream => _analyzerController.stream;
 
   MiniAudioSystemAudioController? _systemAudio;
 
@@ -56,6 +59,8 @@ class IsolateAudioPlayer {
         if (!_ready.isCompleted) _ready.complete();
       } else if (message is PlayerStatus) {
         _statusController.add(message);
+      } else if (message is Float32List) {
+        _analyzerController.add(message);
       } else if (message is Map) {
         if (message['type'] == 'capabilities') {
           final supported = message['networkStreamingSupported'] == true;
@@ -95,6 +100,7 @@ class IsolateAudioPlayer {
     _isolate?.kill();
     _statusController.close();
     _logController.close();
+    _analyzerController.close();
     _receivePort.close();
   }
 
@@ -243,6 +249,50 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setMultibandEqBandGain', 'index': index, 'gain': gain});
   }
 
+  void initMultibandFx(List<EqBandConfig> bands, {bool enabled = true}) {
+    _send({
+      'cmd': 'initMultibandFx',
+      'bands': bands
+          .map((b) => {
+                'type': b.type.index,
+                'frequencyHz': b.frequencyHz,
+                'q': b.q,
+                'gainDb': b.gainDb,
+                'slope': b.slope,
+                'enabled': b.enabled,
+              })
+          .toList(),
+      'enabled': enabled,
+    });
+  }
+
+  void setMultibandFxBands(List<EqBandConfig> bands) {
+    _send({
+      'cmd': 'setMultibandFxBands',
+      'bands': bands
+          .map((b) => {
+                'type': b.type.index,
+                'frequencyHz': b.frequencyHz,
+                'q': b.q,
+                'gainDb': b.gainDb,
+                'slope': b.slope,
+                'enabled': b.enabled,
+              })
+          .toList(),
+    });
+  }
+
+  void setMultibandFxEnabled(bool enabled) =>
+      _send({'cmd': 'setMultibandFxEnabled', 'enabled': enabled});
+
+  void clearMultibandFx() => _send({'cmd': 'clearMultibandFx'});
+
+  void configureAnalyzer({int frameSize = 512}) =>
+      _send({'cmd': 'configureAnalyzer', 'frameSize': frameSize});
+
+  void setAnalyzerEnabled(bool enabled) =>
+      _send({'cmd': 'setAnalyzerEnabled', 'enabled': enabled});
+
   void setOutputFormat(AudioFormat format) =>
       _send({'cmd': 'setOutputFormat', 'format': format.index});
   void setOutputSampleRate(int rate) =>
@@ -280,6 +330,10 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setLoopMode', 'mode': mode.index});
   void setShuffleModeEnabled(bool enabled) =>
       _send({'cmd': 'setShuffle', 'enabled': enabled});
+  void setCrossfadeEnabled(bool enabled) =>
+      _send({'cmd': 'setCrossfadeEnabled', 'enabled': enabled});
+  void setCrossfadeDurationMs(int durationMs) =>
+      _send({'cmd': 'setCrossfadeDurationMs', 'durationMs': durationMs});
   void next() => _send({'cmd': 'next'});
   void previous() => _send({'cmd': 'previous'});
   void moveAudioSource(int oldIndex, int newIndex) =>
@@ -317,6 +371,10 @@ void _isolateEntry(_IsolateInitData initData) {
 
   player.logStream.listen((log) {
     initData.sendPort.send('[log]$log');
+  });
+
+  player.analyzerStream.listen((samples) {
+    initData.sendPort.send(samples);
   });
 
   receivePort.listen((message) {
@@ -447,6 +505,63 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setMultibandEqBandGain':
           player.setMultibandEqBandGain(message['index'], message['gain']);
           break;
+        case 'initMultibandFx':
+          {
+            final rawBands = (message['bands'] as List)
+                .cast<Map>()
+                .cast<Map<dynamic, dynamic>>();
+            final bands = rawBands
+                .map(
+                  (m) => EqBandConfig(
+                    type: EqBandType.values[(m['type'] as int)],
+                    frequencyHz: (m['frequencyHz'] as num).toDouble(),
+                    q: (m['q'] as num).toDouble(),
+                    gainDb: (m['gainDb'] as num).toDouble(),
+                    slope: (m['slope'] as num).toDouble(),
+                    enabled: (m['enabled'] as bool?) ?? true,
+                  ),
+                )
+                .toList();
+            player.initMultibandFx(
+              bands,
+              enabled: (message['enabled'] as bool?) ?? true,
+            );
+          }
+          break;
+        case 'setMultibandFxBands':
+          {
+            final rawBands = (message['bands'] as List)
+                .cast<Map>()
+                .cast<Map<dynamic, dynamic>>();
+            final bands = rawBands
+                .map(
+                  (m) => EqBandConfig(
+                    type: EqBandType.values[(m['type'] as int)],
+                    frequencyHz: (m['frequencyHz'] as num).toDouble(),
+                    q: (m['q'] as num).toDouble(),
+                    gainDb: (m['gainDb'] as num).toDouble(),
+                    slope: (m['slope'] as num).toDouble(),
+                    enabled: (m['enabled'] as bool?) ?? true,
+                  ),
+                )
+                .toList();
+            player.setMultibandFxBands(bands);
+          }
+          break;
+        case 'setMultibandFxEnabled':
+          player.setMultibandFxEnabled(message['enabled'] == true);
+          break;
+        case 'clearMultibandFx':
+          player.clearMultibandFx();
+          break;
+        case 'configureAnalyzer':
+          player.configureAnalyzer(
+            frameSize: (message['frameSize'] as int?) ?? 512,
+          );
+          break;
+        case 'setAnalyzerEnabled':
+          player.setAnalyzerEnabled(message['enabled'] == true);
+          break;
         case 'setOutputFormat':
           player.setOutputFormat(AudioFormat.values[message['format']]);
           break;
@@ -464,6 +579,12 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setShuffle':
           player.setShuffleModeEnabled(message['enabled']);
+          break;
+        case 'setCrossfadeEnabled':
+          player.setCrossfadeEnabled(message['enabled'] == true);
+          break;
+        case 'setCrossfadeDurationMs':
+          player.setCrossfadeDurationMs((message['durationMs'] as int?) ?? 0);
           break;
         case 'next':
           player.seekToNext();

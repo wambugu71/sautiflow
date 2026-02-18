@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0-dev
+
+- Started unified mixed multiband FX implementation.
+- Added new public Dart model types for user-defined band chains:
+  - `EqBandType` (`peak`, `bandpass`, `notch`, `lowshelf`, `highshelf`)
+  - `EqBandConfig` (per-band `frequencyHz`, `q`, `gainDb`, `slope`, `enabled`)
+- Added `MiniAudioPlayer` APIs:
+  - `initMultibandFx(bands, enabled: true)`
+  - `setMultibandFxBands(bands)`
+  - `setMultibandFxEnabled(enabled)`
+  - `clearMultibandFx()`
+- Wired new mixed multiband FX path through Dart FFI and native C/C++ ABI (`ae_set_multiband_fx_*`).
+- Added initial realtime analyzer frame API for visualization pipelines:
+  - Native C ABI: `ae_set_analyzer_enabled`, `ae_configure_analyzer`, `ae_poll_analyzer_frame`
+  - Dart FFI + `MiniAudioPlayer` surface:
+    - `configureAnalyzer(frameSize: ...)`
+    - `setAnalyzerEnabled(enabled)`
+    - `getLatestAnalyzerFrame()`
+    - `analyzerStream`
+- Added transition crossfade controls end-to-end:
+  - `setCrossfadeEnabled(bool)`
+  - `setCrossfadeDurationMs(int)` (native clamp `0..10000`)
+- Updated output sample-rate handling so `setOutputSampleRate(0)` now applies native device rate mode.
+
 ## 0.2.0
 
 - Added new miniaudio-powered FX APIs:

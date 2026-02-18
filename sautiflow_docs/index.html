@@ -20,6 +20,7 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" type="image/png" href="assets/sautiflow.png">
     <!-- Highlight.js (Atom One Dark) -->
     <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
@@ -33,7 +34,7 @@
         <!-- Sidebar Navigation -->
         <nav class="sidebar">
             <div class="logo">
-                <i class="fa-solid fa-wave-square"></i>
+                <img src="assets/sautiflow.png" alt="Sautiflow Logo" width="22" height="22">
                 Sautiflow <span>Docs</span>
             </div>
 
@@ -45,6 +46,7 @@
             <div class="nav-group">
                 <div class="nav-title">Getting Started</div>
                 <a href="#introduction" class="nav-item">Introduction</a>
+                <a href="#changes-made-so-far" class="nav-item">Changes Made So Far</a>
                 <a href="#installation" class="nav-item">Installation</a>
                 <a href="#quick-start" class="nav-item">Quick Start</a>
             </div>
@@ -60,6 +62,8 @@
             <div class="nav-group">
                 <div class="nav-title">Audio FX</div>
                 <a href="#equalizer" class="nav-item">Equalizer (EQ)</a>
+                <a href="#mixed-multiband-fx" class="nav-item">Mixed Multiband FX</a>
+                <a href="#realtime-analyzer" class="nav-item">Realtime Analyzer</a>
                 <a href="#reverb" class="nav-item">Reverb</a>
                 <a href="#delay" class="nav-item">Delay</a>
                 <a href="#filters" class="nav-item">Filters</a>
@@ -67,6 +71,7 @@
 
             <div class="nav-group">
                 <div class="nav-title">Advanced</div>
+                <a href="#crossfade" class="nav-item">Crossfade</a>
                 <a href="#output-format" class="nav-item">Output Format</a>
                 <a href="#stream-pushing" class="nav-item">Stream Pushing</a>
                 <a href="#android-setup" class="nav-item">Android Setup</a>
@@ -121,6 +126,26 @@
                         <i class="fa-solid fa-box-open"></i> Pub.dev
                     </a>
                 </div>
+            </section>
+
+            <section id="changes-made-so-far">
+                <h2>Changes Made So Far</h2>
+                <p>Quick implementation summary of the latest work in this package:</p>
+                <ul>
+                    <li>Added mixed multiband FX chain API with per-band types via <code>EqBandType</code> and
+                        <code>EqBandConfig</code>.
+                    </li>
+                    <li>Added realtime analyzer frame APIs, including stream and pull-style access.</li>
+                    <li>Added crossfade controls: <code>setCrossfadeEnabled(bool)</code> and
+                        <code>setCrossfadeDurationMs(int)</code>.
+                    </li>
+                    <li>Updated sample-rate behavior so <code>setOutputSampleRate(0)</code> uses native device rate
+                        mode.</li>
+                    <li>Updated example app to test: mixed EQ mode, analyzer visualization, output format/rate/channels,
+                        and crossfade controls.</li>
+                    <li>Updated docs with implementation snippets for mixed multiband FX, realtime analyzer, crossfade,
+                        and output sample-rate native mode.</li>
+                </ul>
             </section>
 
             <section id="installation">
@@ -354,6 +379,73 @@ player.setMultibandEqEnabled(true);
 player.setMultibandEqBandGain(0, 2.0); // Boost 32Hz by 2dB</code></pre>
                     </div>
                 </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3 id="mixed-multiband-fx">Mixed Multiband FX (Peak + Shelf + Bandpass + Notch)</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Build a single, ordered chain where each band can use a different filter type.</p>
+                        <pre><code class="language-dart">final bands = &lt;EqBandConfig&gt;[
+  EqBandConfig(type: EqBandType.lowshelf, frequencyHz: 120, gainDb: 4.0, slope: 1.0),
+  EqBandConfig(type: EqBandType.peak, frequencyHz: 1000, gainDb: 2.0, q: 1.2),
+  EqBandConfig(type: EqBandType.notch, frequencyHz: 60, q: 10.0),
+  EqBandConfig(type: EqBandType.bandpass, frequencyHz: 2500, q: 0.9),
+  EqBandConfig(type: EqBandType.highshelf, frequencyHz: 9000, gainDb: 2.5, slope: 1.0),
+];
+
+// Initialize and enable the mixed chain.
+player.initMultibandFx(bands, enabled: true);
+
+// Update all bands later (for dynamic user-added bands in UI).
+player.setMultibandFxBands(bands);
+
+// Toggle or clear.
+player.setMultibandFxEnabled(false);
+player.clearMultibandFx();</code></pre>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3 id="realtime-analyzer">Realtime Analyzer Frames + fl_chart</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Expose frame values as a stream and plug into any pub chart library (example below uses
+                            <code>fl_chart</code>).
+                        </p>
+                        <pre><code class="language-dart">// pubspec.yaml (app)
+// fl_chart: ^0.69.0
+
+player.configureAnalyzer(frameSize: 1024);
+player.setAnalyzerEnabled(true);
+
+StreamSubscription? sub;
+List&lt;double&gt; bins = List.filled(96, 0.0);
+
+sub = player.analyzerStream.listen((frame) {
+    // Convert raw frame samples to chart bins.
+    const targetBins = 96;
+    final out = List&lt;double&gt;.filled(targetBins, 0.0);
+    for (var i = 0; i &lt; targetBins; i++) {
+        final from = (i * frame.length / targetBins).floor();
+        final to = ((i + 1) * frame.length / targetBins).ceil();
+        var sum = 0.0;
+        var count = 0;
+        for (var j = from; j &lt; to &amp;&amp; j &lt; frame.length; j++) {
+            sum += frame[j].abs();
+            count++;
+        }
+        out[i] = count &gt; 0 ? sum / count : 0.0;
+    }
+    bins = out;
+    // setState(() {});
+});
+
+// Pull API also exists:
+final latest = player.getLatestAnalyzerFrame();</code></pre>
+                    </div>
+                </div>
             </section>
 
             <section id="reverb">
@@ -426,6 +518,19 @@ player.setHighshelf(
 );</code></pre>
             </section>
 
+            <section id="crossfade">
+                <h2>Crossfade</h2>
+                <p>Enable transition fades between tracks and control duration in milliseconds.</p>
+                <pre><code class="language-dart">// Enable track transition fade.
+player.setCrossfadeEnabled(true);
+
+// Duration is clamped in native layer to 0..10000 ms.
+player.setCrossfadeDurationMs(300);
+
+// Disable if you want hard cuts.
+player.setCrossfadeEnabled(false);</code></pre>
+            </section>
+
             <section id="output-format">
                 <h2>Output Format</h2>
                 <p>Configure the audio engine output format.</p>
@@ -435,6 +540,9 @@ player.setOutputFormat(AudioFormat.f32);
 
 // Set Sample Rate to 44.1kHz
 player.setOutputSampleRate(44100);
+
+// Use native device sample rate mode
+player.setOutputSampleRate(0);
 
 // Set to Mono
 player.setOutputChannels(1);
@@ -564,8 +672,10 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
             </section>
 
             <footer>
-                <p>&copy; 2024 Sautiflow. Built with <i class="fa-solid fa-heart"
+                <p>&copy; <span id="year">2024</span> Sautiflow. Built with <i class="fa-solid fa-heart"
                         style="color: var(--accent-primary)"></i> and Dart.</p>
+                <p>Contact: <a href="mailto:contact@wambugu.nett.to"
+                        style="color: var(--text-secondary); font-size: 0.9rem;">contact@wambugu.nett.to</a></p>
             </footer>
 
         </main>
@@ -574,6 +684,7 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
         <aside class="toc">
             <div class="toc-title">ON THIS PAGE</div>
             <a href="#introduction" class="toc-link">Introduction</a>
+            <a href="#changes-made-so-far" class="toc-link">Changes Made So Far</a>
             <a href="#installation" class="toc-link">Installation</a>
             <a href="#quick-start" class="toc-link">Quick Start</a>
             <a href="#player-initialization" class="toc-link">Initialization</a>
@@ -581,9 +692,12 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
             <a href="#playlist-management" class="toc-link">Playlist Management</a>
             <a href="#player-status" class="toc-link">Player Status</a>
             <a href="#equalizer" class="toc-link">Equalizer</a>
+            <a href="#mixed-multiband-fx" class="toc-link">Mixed Multiband FX</a>
+            <a href="#realtime-analyzer" class="toc-link">Realtime Analyzer</a>
             <a href="#reverb" class="toc-link">Reverb</a>
             <a href="#delay" class="toc-link">Delay</a>
             <a href="#filters" class="toc-link">Filters</a>
+            <a href="#crossfade" class="toc-link">Crossfade</a>
             <a href="#output-format" class="toc-link">Output Format</a>
             <a href="#android-setup" class="toc-link">Android Setup</a>
             <a href="#platform-specifics" class="toc-link">Platform Specifics</a>

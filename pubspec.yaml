@@ -1,6 +1,6 @@
 name: sautiflow
 description: High-fidelity, cross-platform Dart/Flutter audio engine for audiophiles, powered by miniaudio and native C++ FFI.
-version: 0.2.0
+version: 0.3.0
 homepage: https://github.com/wambugukinyua/miniaudiodart
 repository: https://github.com/wambugukinyua/miniaudiodart
 issue_tracker: https://github.com/wambugukinyua/miniaudiodart/issues

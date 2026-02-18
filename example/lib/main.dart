@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -42,6 +45,14 @@ class DemoApp extends StatelessWidget {
       home: const PlayerShell(),
     );
   }
+}
+
+enum EqScreenMode {
+  multibandEq('Enable Multiband EQ'),
+  mixEq('Enable Mix EQ');
+
+  const EqScreenMode(this.label);
+  final String label;
 }
 
 class PlayerShell extends StatefulWidget {
@@ -88,7 +99,9 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _delayEnabled = false;
 
   // Advanced Audio State
+  EqScreenMode _eqMode = EqScreenMode.multibandEq;
   bool _multibandEqEnabled = false;
+  bool _mixEqEnabled = false;
   final List<double> _eqBandGains = List.filled(10, 0.0);
   final List<double> _eqFrequencies = const [
     31.25,
@@ -102,9 +115,12 @@ class _PlayerShellState extends State<PlayerShell> {
     8000,
     16000
   ];
+  late final List<EqBandConfig> _mixedEqBands = _buildMixedEqBands();
   AudioFormat _outputFormat = AudioFormat.f32;
   int _outputSampleRate = 0; // 0=Native
   int _outputChannels = 2; // Stereo
+  bool _crossfadeEnabled = false;
+  int _crossfadeDurationMs = 250;
 
   double _low = 1.0;
   double _mid = 1.0;
@@ -132,6 +148,11 @@ class _PlayerShellState extends State<PlayerShell> {
   double _dlMix = 0.2;
   double _dlFeedback = 0.35;
   double _dlDelay = 240;
+
+  bool _analyzerEnabled = false;
+  int _analyzerFrameSize = 512;
+  StreamSubscription<Float32List>? _analyzerSub;
+  List<double> _analyzerValues = List<double>.filled(96, 0.0);
 
   @override
   void initState() {
@@ -167,15 +188,83 @@ class _PlayerShellState extends State<PlayerShell> {
       }
     });
 
+    _player.configureAnalyzer(frameSize: _analyzerFrameSize);
+    _analyzerSub = _player.analyzerStream.listen((frame) {
+      if (frame.isEmpty) return;
+      const targetBins = 96;
+      final bins = List<double>.filled(targetBins, 0.0);
+      final srcLen = frame.length;
+      for (var i = 0; i < targetBins; i++) {
+        final from = (i * srcLen / targetBins).floor();
+        final to = ((i + 1) * srcLen / targetBins).ceil();
+        var sum = 0.0;
+        var count = 0;
+        for (var j = from; j < to && j < srcLen; j++) {
+          sum += frame[j].abs();
+          count++;
+        }
+        bins[i] = count > 0 ? sum / count : 0.0;
+      }
+      if (!mounted) return;
+      setState(() {
+        _analyzerValues = bins;
+      });
+    });
+
     if (Platform.isAndroid) {
       unawaited(_ensureNotificationPermission());
     }
+  }
+
+  List<EqBandConfig> _buildMixedEqBands() {
+    const types = <EqBandType>[
+      EqBandType.lowshelf,
+      EqBandType.peak,
+      EqBandType.notch,
+      EqBandType.bandpass,
+      EqBandType.peak,
+      EqBandType.peak,
+      EqBandType.notch,
+      EqBandType.bandpass,
+      EqBandType.peak,
+      EqBandType.highshelf,
+    ];
+    return List<EqBandConfig>.generate(_eqFrequencies.length, (i) {
+      return EqBandConfig(
+        type: types[i],
+        frequencyHz: _eqFrequencies[i],
+        gainDb: _eqBandGains[i],
+        q: 1.0,
+        slope: 1.0,
+        enabled: true,
+      );
+    });
+  }
+
+  void _applyMixEq() {
+    _player.setMultibandEqEnabled(false);
+    _player.initMultibandFx(_mixedEqBands, enabled: _mixEqEnabled);
+  }
+
+  void _updateMixEqBand(int index,
+      {EqBandType? type, double? q, double? gain}) {
+    final current = _mixedEqBands[index];
+    _mixedEqBands[index] = EqBandConfig(
+      type: type ?? current.type,
+      frequencyHz: current.frequencyHz,
+      q: q ?? current.q,
+      gainDb: gain ?? current.gainDb,
+      slope: current.slope,
+      enabled: current.enabled,
+    );
+    _applyMixEq();
   }
 
   @override
   void dispose() {
     _singleUrlController.dispose();
     _multiUrlController.dispose();
+    _analyzerSub?.cancel();
     _status.dispose();
     _player.dispose();
     super.dispose();
@@ -1133,6 +1222,33 @@ class _PlayerShellState extends State<PlayerShell> {
                   _player.setOutputChannels(_outputChannels);
                 },
               ),
+              const Divider(height: 16),
+              SwitchListTile(
+                title: const Text('Enable Crossfade'),
+                subtitle: Text(
+                    'Transition fade between tracks (${_crossfadeDurationMs} ms)'),
+                value: _crossfadeEnabled,
+                onChanged: (v) {
+                  setState(() => _crossfadeEnabled = v);
+                  _player.setCrossfadeEnabled(v);
+                },
+              ),
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text('Crossfade Duration: $_crossfadeDurationMs ms'),
+                subtitle: Slider(
+                  value: _crossfadeDurationMs.toDouble(),
+                  min: 0,
+                  max: 10000,
+                  divisions: 100,
+                  onChanged: (v) {
+                    final next = v.round();
+                    setState(() => _crossfadeDurationMs = next);
+                    _player.setCrossfadeDurationMs(next);
+                  },
+                ),
+              ),
             ],
           ),
         ),
@@ -1146,59 +1262,207 @@ class _PlayerShellState extends State<PlayerShell> {
       children: [
         _buildAdvancedSettings(),
         const Divider(),
-        SwitchListTile(
-          title: const Text('Enable 10-Band EQ'),
-          value: _multibandEqEnabled,
-          onChanged: (v) {
-            setState(() => _multibandEqEnabled = v);
-            _player.setMultibandEqEnabled(v);
-            // Initialize if enabling
-            if (v) {
-              _player.initMultibandEq(_eqFrequencies);
-              for (int i = 0; i < _eqFrequencies.length; ++i) {
-                _player.setMultibandEqBandGain(i, _eqBandGains[i]);
+        DropdownButtonFormField<EqScreenMode>(
+          value: _eqMode,
+          decoration: const InputDecoration(
+            labelText: 'EQ mode',
+            border: OutlineInputBorder(),
+          ),
+          items: EqScreenMode.values
+              .map(
+                (mode) => DropdownMenuItem<EqScreenMode>(
+                  value: mode,
+                  child: Text(mode.label),
+                ),
+              )
+              .toList(),
+          onChanged: (mode) {
+            if (mode == null) return;
+            setState(() {
+              _eqMode = mode;
+              if (mode == EqScreenMode.multibandEq) {
+                _mixEqEnabled = false;
+                _player.setMultibandFxEnabled(false);
+              } else {
+                _multibandEqEnabled = false;
+                _player.setMultibandEqEnabled(false);
               }
-            }
+            });
           },
         ),
-        if (_multibandEqEnabled)
-          SizedBox(
-            height: 300,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _eqFrequencies.length,
-              itemBuilder: (context, index) {
-                final freq = _eqFrequencies[index];
-                final label = freq >= 1000
-                    ? '${(freq / 1000).toStringAsFixed(1)}k'
-                    : '${freq.toInt()}';
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Expanded(
-                      child: RotatedBox(
-                        quarterTurns: 3,
-                        child: Slider(
-                          value: _eqBandGains[index],
-                          min: -12.0,
-                          max: 12.0,
-                          onChanged: (v) {
-                            setState(() => _eqBandGains[index] = v);
-                            _player.setMultibandEqBandGain(index, v);
-                          },
+        const SizedBox(height: 8),
+        if (_eqMode == EqScreenMode.multibandEq) ...[
+          SwitchListTile(
+            title: const Text('Enable 10-Band EQ'),
+            value: _multibandEqEnabled,
+            onChanged: (v) {
+              setState(() => _multibandEqEnabled = v);
+              if (v) {
+                _mixEqEnabled = false;
+                _player.setMultibandFxEnabled(false);
+              }
+              _player.setMultibandEqEnabled(v);
+              if (v) {
+                _player.initMultibandEq(_eqFrequencies);
+                for (int i = 0; i < _eqFrequencies.length; ++i) {
+                  _player.setMultibandEqBandGain(i, _eqBandGains[i]);
+                }
+              }
+            },
+          ),
+          if (_multibandEqEnabled)
+            SizedBox(
+              height: 300,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _eqFrequencies.length,
+                itemBuilder: (context, index) {
+                  final freq = _eqFrequencies[index];
+                  final label = freq >= 1000
+                      ? '${(freq / 1000).toStringAsFixed(1)}k'
+                      : '${freq.toInt()}';
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Expanded(
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: Slider(
+                            value: _eqBandGains[index],
+                            min: -12.0,
+                            max: 12.0,
+                            onChanged: (v) {
+                              setState(() => _eqBandGains[index] = v);
+                              _player.setMultibandEqBandGain(index, v);
+                            },
+                          ),
                         ),
                       ),
+                      Text(
+                        '${_eqBandGains[index].toStringAsFixed(1)} dB',
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                      Text(label, style: const TextStyle(fontSize: 10)),
+                    ],
+                  );
+                },
+              ),
+            ),
+        ] else ...[
+          SwitchListTile(
+            title: const Text('Enable Mix EQ'),
+            value: _mixEqEnabled,
+            onChanged: (v) {
+              setState(() {
+                _mixEqEnabled = v;
+                if (v) {
+                  _multibandEqEnabled = false;
+                  _player.setMultibandEqEnabled(false);
+                }
+              });
+              _applyMixEq();
+            },
+          ),
+          if (_mixEqEnabled)
+            ListView.builder(
+              itemCount: _mixedEqBands.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final band = _mixedEqBands[index];
+                final freq = band.frequencyHz;
+                final label = freq >= 1000
+                    ? '${(freq / 1000).toStringAsFixed(1)}k'
+                    : '${freq.toStringAsFixed(2)}';
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Band ${index + 1} • $label Hz'),
+                        DropdownButton<EqBandType>(
+                          value: band.type,
+                          items: EqBandType.values
+                              .map(
+                                (t) => DropdownMenuItem<EqBandType>(
+                                  value: t,
+                                  child: Text(t.name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(
+                                () => _updateMixEqBand(index, type: value));
+                          },
+                        ),
+                        Text('Q: ${band.q.toStringAsFixed(2)}'),
+                        Slider(
+                          value: band.q,
+                          min: 0.1,
+                          max: 18.0,
+                          divisions: 179,
+                          onChanged: (v) {
+                            setState(() => _updateMixEqBand(index, q: v));
+                          },
+                        ),
+                        Text('Gain: ${band.gainDb.toStringAsFixed(1)} dB'),
+                        Slider(
+                          value: band.gainDb,
+                          min: -12.0,
+                          max: 12.0,
+                          divisions: 48,
+                          onChanged: (v) {
+                            setState(() {
+                              _eqBandGains[index] = v;
+                              _updateMixEqBand(index, gain: v);
+                            });
+                          },
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${_eqBandGains[index].toStringAsFixed(1)} dB',
-                      style: const TextStyle(fontSize: 10),
-                    ),
-                    Text(label, style: const TextStyle(fontSize: 10)),
-                  ],
+                  ),
                 );
               },
             ),
+        ],
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Realtime Analyzer'),
+          subtitle: const Text('Raw frame values for chart visualization'),
+          value: _analyzerEnabled,
+          onChanged: (v) {
+            setState(() => _analyzerEnabled = v);
+            _player.setAnalyzerEnabled(v);
+          },
+        ),
+        DropdownButtonFormField<int>(
+          initialValue: _analyzerFrameSize,
+          decoration: const InputDecoration(
+            labelText: 'Analyzer frame size',
+            border: OutlineInputBorder(),
           ),
+          items: const [256, 512, 1024, 2048]
+              .map((v) => DropdownMenuItem(value: v, child: Text('$v samples')))
+              .toList(),
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() => _analyzerFrameSize = v);
+            _player.configureAnalyzer(frameSize: v);
+          },
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 180,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: _buildAnalyzerChart(),
+            ),
+          ),
+        ),
         const Divider(),
         SwitchListTile(
           title: const Text('Enable 3-Band EQ'),
@@ -1503,6 +1767,49 @@ class _PlayerShellState extends State<PlayerShell> {
         }),
         _buildAdvancedSettings(),
       ],
+    );
+  }
+
+  Widget _buildAnalyzerChart() {
+    if (!_analyzerEnabled) {
+      return const Center(
+        child: Text('Enable Realtime Analyzer to view audio frame values.'),
+      );
+    }
+
+    final spots = <FlSpot>[];
+    final len = _analyzerValues.length;
+    for (var i = 0; i < len; i++) {
+      final normalized = (_analyzerValues[i] * 6.0).clamp(0.0, 1.0);
+      spots.add(FlSpot(i.toDouble(), normalized));
+    }
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: math.max(1, len - 1).toDouble(),
+        minY: 0,
+        maxY: 1,
+        gridData: const FlGridData(show: true, drawVerticalLine: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(
+          show: true,
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: Colors.deepPurple,
+            barWidth: 2,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: Colors.deepPurple.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -42,6 +42,15 @@ extern "C"
         AE_FORMAT_U8 = 2
     } AEAudioFormat;
 
+    typedef enum AEEqBandType
+    {
+        AE_EQ_BAND_PEAK = 0,
+        AE_EQ_BAND_BANDPASS = 1,
+        AE_EQ_BAND_NOTCH = 2,
+        AE_EQ_BAND_LOWSHELF = 3,
+        AE_EQ_BAND_HIGHSHELF = 4
+    } AEEqBandType;
+
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels);
     AE_API void ae_destroy_engine(AudioEngineHandle *engine);
 
@@ -65,6 +74,14 @@ extern "C"
     AE_API void ae_set_loop_mode(AudioEngineHandle *engine, int loop_mode);
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_reshuffle(AudioEngineHandle *engine);
+
+    // Track transition controls.
+    // Note: current implementation performs a short transition fade-in on track switches.
+    AE_API void ae_set_crossfade_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_crossfade_enabled(AudioEngineHandle *engine);
+    // Clamped to [0, 10000]. 0 disables transition fade.
+    AE_API void ae_set_crossfade_duration_ms(AudioEngineHandle *engine, int duration_ms);
+    AE_API int ae_get_crossfade_duration_ms(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API const char *ae_get_last_error(AudioEngineHandle *engine);
@@ -118,6 +135,36 @@ extern "C"
     AE_API void ae_set_multiband_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_multiband_eq_gain(AudioEngineHandle *engine, int band_index, float gain_db);
     AE_API float ae_get_multiband_eq_gain(AudioEngineHandle *engine, int band_index);
+
+    // Unified multiband FX chain (mixed filter types).
+    // band_count: number of bands in the chain.
+    // types: array of AEEqBandType values (required).
+    // frequencies: array of per-band center/cutoff frequencies (required).
+    // q_factors: optional array; default 1.0 when null.
+    // gains_db: optional array; default 0.0 when null.
+    // slopes: optional array; default 1.0 when null.
+    // enabled_flags: optional per-band enabled flags; default true when null.
+    AE_API void ae_set_multiband_fx_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_multiband_fx_bands(
+        AudioEngineHandle *engine,
+        int band_count,
+        const int *types,
+        const float *frequencies,
+        const float *q_factors,
+        const float *gains_db,
+        const float *slopes,
+        const int *enabled_flags);
+    AE_API void ae_clear_multiband_fx(AudioEngineHandle *engine);
+
+    // Realtime analyzer frames (post-FX, mono mixdown).
+    // frame_size: number of mono samples per analyzer snapshot.
+    AE_API void ae_set_analyzer_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_configure_analyzer(AudioEngineHandle *engine, int frame_size);
+    AE_API int ae_get_analyzer_frame_size(AudioEngineHandle *engine);
+    // Copies latest analyzer snapshot into out_samples (up to max_samples).
+    // Returns number of samples copied.
+    AE_API int ae_poll_analyzer_frame(AudioEngineHandle *engine, float *out_samples, int max_samples);
+    AE_API uint64_t ae_get_analyzer_dropped_frames(AudioEngineHandle *engine);
 
 #ifdef __cplusplus
 }

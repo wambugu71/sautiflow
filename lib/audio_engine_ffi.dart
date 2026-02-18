@@ -1,10 +1,31 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:typed_data';
 
 enum LoopMode { off, all, one }
 
 enum AudioFormat { f32, s16, u8 }
+
+enum EqBandType { peak, bandpass, notch, lowshelf, highshelf }
+
+class EqBandConfig {
+  const EqBandConfig({
+    required this.type,
+    required this.frequencyHz,
+    this.enabled = true,
+    this.q = 1.0,
+    this.gainDb = 0.0,
+    this.slope = 1.0,
+  });
+
+  final EqBandType type;
+  final double frequencyHz;
+  final bool enabled;
+  final double q;
+  final double gainDb;
+  final double slope;
+}
 
 class AudioSource {
   final Uri uri;
@@ -99,6 +120,8 @@ typedef _JumpWithPositionDart = int Function(
 
 typedef _SetIntNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetIntDart = void Function(ffi.Pointer<ffi.Void>, int);
+typedef _GetIntNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _GetStatusNative = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
 typedef _GetStatusDart = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
@@ -173,6 +196,34 @@ typedef _GetMultibandEqGainNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _GetMultibandEqGainDart = double Function(ffi.Pointer<ffi.Void>, int);
 
+typedef _SetMultibandFxEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetMultibandFxEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _SetMultibandFxBandsNative = ffi.Void Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Int32,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Int32>,
+);
+typedef _SetMultibandFxBandsDart = void Function(
+  ffi.Pointer<ffi.Void>,
+  int,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Float>,
+  ffi.Pointer<ffi.Int32>,
+);
+
+typedef _ClearMultibandFxNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _ClearMultibandFxDart = void Function(ffi.Pointer<ffi.Void>);
+
 typedef _InitPushStreamNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _InitPushStreamDart = void Function(ffi.Pointer<ffi.Void>);
 
@@ -190,6 +241,26 @@ typedef _GetPushStreamBufferedBytesDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _GetNetworkStreamingSupportNative = ffi.Int32 Function();
 typedef _GetNetworkStreamingSupportDart = int Function();
+
+typedef _SetAnalyzerEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetAnalyzerEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _ConfigureAnalyzerNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _ConfigureAnalyzerDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetAnalyzerFrameSizeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetAnalyzerFrameSizeDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _PollAnalyzerFrameNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _PollAnalyzerFrameDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
+
+typedef _GetAnalyzerDroppedFramesNative = ffi.Uint64 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetAnalyzerDroppedFramesDart = int Function(ffi.Pointer<ffi.Void>);
 
 class PlayerStatus {
   final double positionSeconds;
@@ -281,6 +352,18 @@ class AudioEngineFFI {
     );
     _reshuffle = _lib.lookupFunction<_ClearPlaylistNative, _ClearPlaylistDart>(
       'ae_reshuffle',
+    );
+    _setCrossfadeEnabled = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+      'ae_set_crossfade_enabled',
+    );
+    _getCrossfadeEnabled = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+      'ae_get_crossfade_enabled',
+    );
+    _setCrossfadeDurationMs = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+      'ae_set_crossfade_duration_ms',
+    );
+    _getCrossfadeDurationMs = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+      'ae_get_crossfade_duration_ms',
     );
 
     _setReverbEnabled =
@@ -408,6 +491,16 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetMultibandEqGainNative, _GetMultibandEqGainDart>(
       'ae_get_multiband_eq_gain',
     );
+    _setMultibandFxEnabled = _lib.lookupFunction<_SetMultibandFxEnabledNative,
+        _SetMultibandFxEnabledDart>('ae_set_multiband_fx_enabled');
+    _setMultibandFxBands = _lib
+        .lookupFunction<_SetMultibandFxBandsNative, _SetMultibandFxBandsDart>(
+      'ae_set_multiband_fx_bands',
+    );
+    _clearMultibandFx =
+        _lib.lookupFunction<_ClearMultibandFxNative, _ClearMultibandFxDart>(
+      'ae_clear_multiband_fx',
+    );
 
     _initPushStream =
         _lib.lookupFunction<_InitPushStreamNative, _InitPushStreamDart>(
@@ -425,6 +518,24 @@ class AudioEngineFFI {
         _GetPushStreamBufferedBytesNative, _GetPushStreamBufferedBytesDart>(
       'ae_get_push_stream_buffered_bytes',
     );
+
+    _setAnalyzerEnabled =
+        _lib.lookupFunction<_SetAnalyzerEnabledNative, _SetAnalyzerEnabledDart>(
+      'ae_set_analyzer_enabled',
+    );
+    _configureAnalyzer =
+        _lib.lookupFunction<_ConfigureAnalyzerNative, _ConfigureAnalyzerDart>(
+      'ae_configure_analyzer',
+    );
+    _getAnalyzerFrameSize = _lib.lookupFunction<_GetAnalyzerFrameSizeNative,
+        _GetAnalyzerFrameSizeDart>('ae_get_analyzer_frame_size');
+    _pollAnalyzerFrame =
+        _lib.lookupFunction<_PollAnalyzerFrameNative, _PollAnalyzerFrameDart>(
+      'ae_poll_analyzer_frame',
+    );
+    _getAnalyzerDroppedFrames = _lib.lookupFunction<
+        _GetAnalyzerDroppedFramesNative,
+        _GetAnalyzerDroppedFramesDart>('ae_get_analyzer_dropped_frames');
 
     try {
       _getNetworkStreamingSupport = _lib.lookupFunction<
@@ -458,6 +569,10 @@ class AudioEngineFFI {
   late final _SetIntDart _setLoopMode;
   late final _SetIntDart _setShuffleEnabled;
   late final _ClearPlaylistDart _reshuffle;
+  late final _SetIntDart _setCrossfadeEnabled;
+  late final _GetIntDart _getCrossfadeEnabled;
+  late final _SetIntDart _setCrossfadeDurationMs;
+  late final _GetIntDart _getCrossfadeDurationMs;
   late final _SetFxEnabledDart _setReverbEnabled;
   late final _SetReverbParamsDart _setReverbParams;
   late final _SetFxEnabledDart _setEqEnabled;
@@ -493,11 +608,20 @@ class AudioEngineFFI {
   late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
   late final _SetMultibandEqGainDart _setMultibandEqGain;
   late final _GetMultibandEqGainDart _getMultibandEqGain;
+  late final _SetMultibandFxEnabledDart _setMultibandFxEnabled;
+  late final _SetMultibandFxBandsDart _setMultibandFxBands;
+  late final _ClearMultibandFxDart _clearMultibandFx;
 
   late final _InitPushStreamDart _initPushStream;
   late final _PushStreamChunkDart _pushStreamChunk;
   late final _EndPushStreamDart _endPushStream;
   late final _GetPushStreamBufferedBytesDart _getPushStreamBufferedBytes;
+
+  late final _SetAnalyzerEnabledDart _setAnalyzerEnabled;
+  late final _ConfigureAnalyzerDart _configureAnalyzer;
+  late final _GetAnalyzerFrameSizeDart _getAnalyzerFrameSize;
+  late final _PollAnalyzerFrameDart _pollAnalyzerFrame;
+  late final _GetAnalyzerDroppedFramesDart _getAnalyzerDroppedFrames;
 
   late final _MallocDart _malloc;
   late final _FreeDart _free;
@@ -697,6 +821,26 @@ class AudioEngineFFI {
   void reshuffle() {
     if (_engine == ffi.nullptr) return;
     _reshuffle(_engine);
+  }
+
+  void setCrossfadeEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfadeEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  bool getCrossfadeEnabled() {
+    if (_engine == ffi.nullptr) return false;
+    return _getCrossfadeEnabled(_engine) != 0;
+  }
+
+  void setCrossfadeDurationMs(int durationMs) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfadeDurationMs(_engine, durationMs);
+  }
+
+  int getCrossfadeDurationMs() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getCrossfadeDurationMs(_engine);
   }
 
   // Alias matching requested naming style.
@@ -997,6 +1141,71 @@ class AudioEngineFFI {
     return _getMultibandEqGain(_engine, bandIndex);
   }
 
+  void setMultibandFxEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setMultibandFxEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void clearMultibandFx() {
+    if (_engine == ffi.nullptr) return;
+    _clearMultibandFx(_engine);
+  }
+
+  void setMultibandFxBands(List<EqBandConfig> bands) {
+    if (_engine == ffi.nullptr) return;
+    if (bands.isEmpty) {
+      clearMultibandFx();
+      return;
+    }
+
+    final count = bands.length;
+    final typesPtr = _malloc(count * ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final frequencyPtr =
+        _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final qPtr = _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final gainPtr = _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final slopePtr = _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final enabledPtr =
+        _malloc(count * ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+
+    try {
+      final types = typesPtr.asTypedList(count);
+      final freqs = frequencyPtr.asTypedList(count);
+      final qs = qPtr.asTypedList(count);
+      final gains = gainPtr.asTypedList(count);
+      final slopes = slopePtr.asTypedList(count);
+      final enabledFlags = enabledPtr.asTypedList(count);
+
+      for (var i = 0; i < count; i++) {
+        final band = bands[i];
+        types[i] = band.type.index;
+        freqs[i] = band.frequencyHz;
+        qs[i] = band.q;
+        gains[i] = band.gainDb;
+        slopes[i] = band.slope;
+        enabledFlags[i] = band.enabled ? 1 : 0;
+      }
+
+      _setMultibandFxBands(
+        _engine,
+        count,
+        typesPtr,
+        frequencyPtr,
+        qPtr,
+        gainPtr,
+        slopePtr,
+        enabledPtr,
+      );
+    } finally {
+      _freePtr(typesPtr.cast<ffi.Void>());
+      _freePtr(frequencyPtr.cast<ffi.Void>());
+      _freePtr(qPtr.cast<ffi.Void>());
+      _freePtr(gainPtr.cast<ffi.Void>());
+      _freePtr(slopePtr.cast<ffi.Void>());
+      _freePtr(enabledPtr.cast<ffi.Void>());
+    }
+  }
+
   // Push Stream API
   void initPushStream() {
     if (_engine == ffi.nullptr) return;
@@ -1016,5 +1225,48 @@ class AudioEngineFFI {
   int getPushStreamBufferedBytes() {
     if (_engine == ffi.nullptr) return 0;
     return _getPushStreamBufferedBytes(_engine);
+  }
+
+  void setAnalyzerEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setAnalyzerEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void configureAnalyzer(int frameSize) {
+    if (_engine == ffi.nullptr) return;
+    _configureAnalyzer(_engine, frameSize);
+  }
+
+  int getAnalyzerFrameSize() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getAnalyzerFrameSize(_engine);
+  }
+
+  int getAnalyzerDroppedFrames() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getAnalyzerDroppedFrames(_engine);
+  }
+
+  Float32List pollAnalyzerFrame({int? maxSamples}) {
+    if (_engine == ffi.nullptr) {
+      return Float32List(0);
+    }
+
+    final size = maxSamples ?? getAnalyzerFrameSize();
+    if (size <= 0) {
+      return Float32List(0);
+    }
+
+    final ptr = _malloc(size * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      final copied = _pollAnalyzerFrame(_engine, ptr, size);
+      if (copied <= 0) {
+        return Float32List(0);
+      }
+      final src = ptr.asTypedList(copied);
+      return Float32List.fromList(src);
+    } finally {
+      _freePtr(ptr.cast<ffi.Void>());
+    }
   }
 }

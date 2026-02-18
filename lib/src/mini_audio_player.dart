@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ffi' as ffi;
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
@@ -11,13 +12,16 @@ class MiniAudioPlayer {
   MiniAudioPlayer({
     String? libraryPath,
     this.statusPollInterval = const Duration(milliseconds: 200),
+    this.analyzerPollInterval = const Duration(milliseconds: 33),
   }) : _engine = AudioEngineFFI(libraryPath: libraryPath);
 
   final AudioEngineFFI _engine;
   final Duration statusPollInterval;
+  final Duration analyzerPollInterval;
 
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
+  final _analyzerController = StreamController<Float32List>.broadcast();
   late final MiniAudioSystemAudioController _systemAudio =
       MiniAudioSystemAudioController(
     statusStream: _statusController.stream,
@@ -44,10 +48,13 @@ class MiniAudioPlayer {
     },
   );
   Timer? _statusTimer;
+  Timer? _analyzerTimer;
   String _lastLog = '';
+  bool _analyzerEnabled = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
+  Stream<Float32List> get analyzerStream => _analyzerController.stream;
 
   bool init({
     int sampleRate = 48000,
@@ -58,6 +65,7 @@ class MiniAudioPlayer {
     final ok = _engine.create(sampleRate: sampleRate, channels: channels);
     if (ok) {
       _startStatusPolling();
+      _startAnalyzerPolling();
       if (enableSystemAudio) {
         unawaited(
           _systemAudio.enable(
@@ -72,8 +80,10 @@ class MiniAudioPlayer {
   void dispose() {
     unawaited(_systemAudio.disable());
     _statusTimer?.cancel();
+    _analyzerTimer?.cancel();
     _statusController.close();
     _logController.close();
+    _analyzerController.close();
     _engine.dispose();
   }
 
@@ -135,14 +145,33 @@ class MiniAudioPlayer {
   void setShuffleModeEnabled(bool enabled) =>
       _engine.setShuffleModeEnabled(enabled);
   void reshuffle() => _engine.reshuffle();
+  void setCrossfadeEnabled(bool enabled) =>
+      _engine.setCrossfadeEnabled(enabled);
+  bool getCrossfadeEnabled() => _engine.getCrossfadeEnabled();
+  void setCrossfadeDurationMs(int durationMs) =>
+      _engine.setCrossfadeDurationMs(durationMs);
+  int getCrossfadeDurationMs() => _engine.getCrossfadeDurationMs();
 
   PlayerStatus get status => _engine.getStatus();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
   int getPushStreamBufferedBytes() => _engine.getPushStreamBufferedBytes();
+  int getAnalyzerFrameSize() => _engine.getAnalyzerFrameSize();
+  int getAnalyzerDroppedFrames() => _engine.getAnalyzerDroppedFrames();
   bool get supportsSystemMediaControls => _systemAudio.isSupported;
   bool get systemMediaControlsEnabled => _systemAudio.isEnabled;
+
+  void configureAnalyzer({int frameSize = 512}) =>
+      _engine.configureAnalyzer(frameSize);
+
+  void setAnalyzerEnabled(bool enabled) {
+    _analyzerEnabled = enabled;
+    _engine.setAnalyzerEnabled(enabled);
+  }
+
+  Float32List getLatestAnalyzerFrame({int? maxSamples}) =>
+      _engine.pollAnalyzerFrame(maxSamples: maxSamples);
 
   Future<bool> enableSystemMediaControls({
     MiniAudioSystemAudioConfig config = const MiniAudioSystemAudioConfig(),
@@ -229,6 +258,28 @@ class MiniAudioPlayer {
   /// Get the current gain (in dB) for a specific EQ band.
   double getMultibandEqBandGain(int bandIndex) =>
       _engine.getMultibandEqGain(bandIndex);
+
+  /// Configure a mixed multiband FX chain where each band can be a different
+  /// filter type (peak, bandpass, notch, lowshelf, highshelf).
+  void initMultibandFx(
+    List<EqBandConfig> bands, {
+    bool enabled = true,
+  }) {
+    _engine.setMultibandFxBands(bands);
+    _engine.setMultibandFxEnabled(enabled);
+  }
+
+  /// Replace all bands in the mixed multiband FX chain.
+  void setMultibandFxBands(List<EqBandConfig> bands) =>
+      _engine.setMultibandFxBands(bands);
+
+  /// Enable or disable the mixed multiband FX chain.
+  void setMultibandFxEnabled(bool enabled) =>
+      _engine.setMultibandFxEnabled(enabled);
+
+  /// Clears all mixed multiband FX bands and disables the chain.
+  void clearMultibandFx() => _engine.clearMultibandFx();
+
   void setReverb(
       {required double mix,
       required double feedback,
@@ -372,6 +423,17 @@ class MiniAudioPlayer {
           _lastLog = msg;
           _logController.add(msg);
         }
+      }
+    });
+  }
+
+  void _startAnalyzerPolling() {
+    _analyzerTimer?.cancel();
+    _analyzerTimer = Timer.periodic(analyzerPollInterval, (_) {
+      if (_analyzerController.isClosed || !_analyzerEnabled) return;
+      final frame = _engine.pollAnalyzerFrame();
+      if (frame.isNotEmpty) {
+        _analyzerController.add(frame);
       }
     });
   }

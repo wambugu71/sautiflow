@@ -1,8 +1,8 @@
 # sautiflow
 
-Cross-platform Dart audio package backed by a C++ miniaudio engine.
+![Sautiflow Logo](sautiflow_docs/assets/sautiflow.png)
 
-Current release: `0.2.0`
+Cross-platform Dart audio package backed by a C++ miniaudio engine.
 
 ## Features
 

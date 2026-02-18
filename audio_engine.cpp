@@ -275,6 +275,11 @@ namespace
         return (v < lo) ? lo : ((v > hi) ? hi : v);
     }
 
+    static inline int clampi(int v, int lo, int hi)
+    {
+        return (v < lo) ? lo : ((v > hi) ? hi : v);
+    }
+
     struct EqState
     {
         float lowGain = 1.0f;
@@ -525,6 +530,10 @@ struct AudioEngineHandle
     std::thread worker;
 
     std::atomic<bool> isPlaying{false};
+    std::atomic<bool> crossfadeEnabled{false};
+    std::atomic<int> crossfadeDurationMs{250};
+    std::atomic<ma_uint64> transitionFadeInFramesRemaining{0};
+    std::atomic<ma_uint64> transitionFadeInFramesTotal{0};
     std::atomic<bool> pendingSeekValid{false};
     std::atomic<ma_uint64> pendingSeekFrame{0};
     std::atomic<int> pendingSeekIndex{-1};
@@ -585,6 +594,33 @@ struct AudioEngineHandle
     // Each band has one ma_peak2 filter which handles all channels (interleaved)
     std::vector<ma_peak2> eqFilters;
 
+    struct FxBand
+    {
+        int type = AE_EQ_BAND_PEAK;
+        bool enabled = true;
+        float frequencyHz = 1000.0f;
+        float q = 1.0f;
+        float gainDb = 0.0f;
+        float slope = 1.0f;
+
+        ma_peak2 peak{};
+        ma_bpf2 bandpass{};
+        ma_notch2 notch{};
+        ma_loshelf2 lowshelf{};
+        ma_hishelf2 highshelf{};
+    };
+
+    bool multibandFxEnabled = false;
+    std::vector<FxBand> multibandFxBands;
+
+    std::atomic<bool> analyzerEnabled{false};
+    int analyzerFrameSize = 512;
+    std::vector<float> analyzerAccumulator;
+    int analyzerAccumulatorCount = 0;
+    std::vector<float> analyzerLatest;
+    std::mutex analyzerMutex;
+    std::atomic<uint64_t> analyzerDroppedFrames{0};
+
     void update_eq_filters()
     {
         if (eqBandCount <= 0)
@@ -617,6 +653,160 @@ struct AudioEngineHandle
         }
     }
 
+    void update_multiband_fx_filters()
+    {
+        const int sr = (outputSampleRate > 0) ? outputSampleRate : ((sampleRate > 0) ? sampleRate : 48000);
+        const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
+        const ma_uint32 sampleRateU32 = (ma_uint32)sr;
+        const ma_uint32 channelsU32 = (ma_uint32)ch;
+
+        for (auto &band : multibandFxBands)
+        {
+            const float frequencyHz = clampf(band.frequencyHz, 20.0f, (float)sampleRateU32 * 0.45f);
+            const float q = clampf(band.q, 0.1f, 18.0f);
+            const float gainDb = clampf(band.gainDb, -24.0f, 24.0f);
+            const float slope = clampf(band.slope, 0.1f, 2.0f);
+
+            band.frequencyHz = frequencyHz;
+            band.q = q;
+            band.gainDb = gainDb;
+            band.slope = slope;
+
+            switch (band.type)
+            {
+            case AE_EQ_BAND_BANDPASS:
+            {
+                ma_bpf2_config config = ma_bpf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    frequencyHz,
+                    q);
+                (void)ma_bpf2_init(&config, nullptr, &band.bandpass);
+                break;
+            }
+            case AE_EQ_BAND_NOTCH:
+            {
+                ma_notch2_config config = ma_notch2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    q,
+                    frequencyHz);
+                (void)ma_notch2_init(&config, nullptr, &band.notch);
+                break;
+            }
+            case AE_EQ_BAND_LOWSHELF:
+            {
+                ma_loshelf2_config config = ma_loshelf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    gainDb,
+                    slope,
+                    frequencyHz);
+                (void)ma_loshelf2_init(&config, nullptr, &band.lowshelf);
+                break;
+            }
+            case AE_EQ_BAND_HIGHSHELF:
+            {
+                ma_hishelf2_config config = ma_hishelf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    gainDb,
+                    slope,
+                    frequencyHz);
+                (void)ma_hishelf2_init(&config, nullptr, &band.highshelf);
+                break;
+            }
+            case AE_EQ_BAND_PEAK:
+            default:
+            {
+                ma_peak2_config config = ma_peak2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    gainDb,
+                    q,
+                    frequencyHz);
+                (void)ma_peak2_init(&config, nullptr, &band.peak);
+                break;
+            }
+            }
+        }
+    }
+
+    void process_multiband_fx(float *frames, ma_uint32 frameCount)
+    {
+        for (auto &band : multibandFxBands)
+        {
+            if (!band.enabled)
+                continue;
+
+            switch (band.type)
+            {
+            case AE_EQ_BAND_BANDPASS:
+                (void)ma_bpf2_process_pcm_frames(&band.bandpass, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_NOTCH:
+                (void)ma_notch2_process_pcm_frames(&band.notch, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_LOWSHELF:
+                (void)ma_loshelf2_process_pcm_frames(&band.lowshelf, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_HIGHSHELF:
+                (void)ma_hishelf2_process_pcm_frames(&band.highshelf, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_PEAK:
+            default:
+                (void)ma_peak2_process_pcm_frames(&band.peak, frames, frames, (ma_uint64)frameCount);
+                break;
+            }
+        }
+    }
+
+    void capture_analyzer_frames(const float *frames, ma_uint32 frameCount, int channels)
+    {
+        if (!analyzerEnabled.load(std::memory_order_relaxed))
+            return;
+        if (analyzerFrameSize <= 0 || frameCount == 0 || channels <= 0)
+            return;
+        if ((int)analyzerAccumulator.size() != analyzerFrameSize)
+            return;
+
+        const int ch = std::max(1, channels);
+        for (ma_uint32 i = 0; i < frameCount; ++i)
+        {
+            float mono = 0.0f;
+            const size_t base = (size_t)i * (size_t)ch;
+            for (int c = 0; c < ch; ++c)
+            {
+                mono += frames[base + (size_t)c];
+            }
+            mono /= (float)ch;
+
+            if (analyzerAccumulatorCount < analyzerFrameSize)
+            {
+                analyzerAccumulator[(size_t)analyzerAccumulatorCount++] = mono;
+            }
+
+            if (analyzerAccumulatorCount >= analyzerFrameSize)
+            {
+                if (analyzerMutex.try_lock())
+                {
+                    analyzerLatest = analyzerAccumulator;
+                    analyzerMutex.unlock();
+                }
+                else
+                {
+                    analyzerDroppedFrames.fetch_add(1, std::memory_order_relaxed);
+                }
+                analyzerAccumulatorCount = 0;
+            }
+        }
+    }
+
     // Temporary buffer for format conversion/resampling if needed
     std::vector<float> conversionBuffer;
 
@@ -627,6 +817,40 @@ struct AudioEngineHandle
     PushStreamContext pushStreamForCurrent; // Single slot for now, for simplicity
     bool isPushStreamMode = false;
 };
+
+static void arm_transition_fade_in(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+
+    const bool enabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
+    if (!enabled)
+    {
+        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
+        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        return;
+    }
+
+    const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+    if (durationMs <= 0)
+    {
+        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
+        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        return;
+    }
+
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
+    if (fadeFrames == 0)
+    {
+        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
+        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        return;
+    }
+
+    e->transitionFadeInFramesTotal.store(fadeFrames, std::memory_order_relaxed);
+    e->transitionFadeInFramesRemaining.store(fadeFrames, std::memory_order_relaxed);
+}
 
 static void reinit_advanced_fx_filters(AudioEngineHandle *e)
 {
@@ -1022,6 +1246,7 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentLengthFrames = newCurrentLen;
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
+                arm_transition_fade_in(e);
 
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                     e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
@@ -1250,6 +1475,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 #endif
                     e->nextIndex = -1;
                     e->nextLengthFrames = 0;
+                    arm_transition_fade_in(e);
 
                     request_preload(e);
                     continue;
@@ -1277,6 +1503,24 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (produced > 0)
     {
+        ma_uint64 fadeRemaining = e->transitionFadeInFramesRemaining.load(std::memory_order_relaxed);
+        const ma_uint64 fadeTotal = e->transitionFadeInFramesTotal.load(std::memory_order_relaxed);
+        if (fadeRemaining > 0 && fadeTotal > 0)
+        {
+            ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
+            {
+                const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                const size_t base = (size_t)i * (size_t)e->outputChannels;
+                for (int c = 0; c < e->outputChannels; ++c)
+                {
+                    processBuffer[base + (size_t)c] *= t;
+                }
+                fadeRemaining -= 1;
+            }
+            e->transitionFadeInFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+        }
+
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
         // Volume
@@ -1300,11 +1544,15 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
         }
 
-        // Multiband EQ
+        // Multiband EQ and mixed multiband FX
+        std::lock_guard<std::mutex> eqLock(e->eqMutex);
         if (e->multibandEqEnabled)
         {
-            std::lock_guard<std::mutex> eqLock(e->eqMutex);
             e->process_multiband_eq(processBuffer, produced, e->outputChannels);
+        }
+        if (e->multibandFxEnabled)
+        {
+            e->process_multiband_fx(processBuffer, produced);
         }
 
         // Existing Effects
@@ -1331,6 +1579,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             e->eq.process(processBuffer, produced, e->outputChannels);
         if (e->reverbEnabled)
             e->reverb.process(processBuffer, produced, e->outputChannels);
+
+        e->capture_analyzer_frames(processBuffer, produced, e->outputChannels);
     }
 
     // Format Conversion if needed
@@ -1376,6 +1626,11 @@ extern "C"
         e->highpass.setHighpassCutoff(80.0f, sample_rate);
         e->delay.reset(sample_rate, channels);
         reinit_advanced_fx_filters(e);
+
+        e->analyzerFrameSize = 512;
+        e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
+        e->analyzerLatest.assign((size_t)e->analyzerFrameSize, 0.0f);
+        e->analyzerAccumulatorCount = 0;
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -1968,6 +2223,39 @@ extern "C"
         rebuild_play_order_locked(e);
     }
 
+    AE_API void ae_set_crossfade_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        e->crossfadeEnabled.store(enabled != 0, std::memory_order_relaxed);
+        if (enabled == 0)
+        {
+            e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
+            e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        }
+    }
+
+    AE_API int ae_get_crossfade_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        return e->crossfadeEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    AE_API void ae_set_crossfade_duration_ms(AudioEngineHandle *e, int duration_ms)
+    {
+        if (e == nullptr)
+            return;
+        e->crossfadeDurationMs.store(clampi(duration_ms, 0, 10000), std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_crossfade_duration_ms(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        return clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+    }
+
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *e)
     {
         PlayerStatus s{};
@@ -2220,13 +2508,15 @@ extern "C"
         }
         ma_device_uninit(&e->device);
 
-        int newRate = e->outputSampleRate > 0 ? e->outputSampleRate : 48000;
+        int newRate = e->outputSampleRate > 0 ? e->outputSampleRate : 0;
         int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
 
-        e->sampleRate = newRate;
+        const int srForFilterInit = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+        e->sampleRate = srForFilterInit;
         e->channels = newCh;
 
         e->update_eq_filters();
+        e->update_multiband_fx_filters();
         {
             std::lock_guard<std::mutex> fx(e->fxMutex);
             reinit_advanced_fx_filters(e);
@@ -2246,7 +2536,7 @@ extern "C"
             break;
         }
         cfg.playback.channels = (ma_uint32)newCh;
-        cfg.sampleRate = (ma_uint32)newRate;
+        cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate.
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
 
@@ -2254,6 +2544,15 @@ extern "C"
         {
             set_last_error(e, "Failed to re-initialize device with new config.");
             return;
+        }
+
+        {
+            const int actualRate = (int)e->device.sampleRate;
+            e->sampleRate = (actualRate > 0) ? actualRate : ((newRate > 0) ? newRate : 48000);
+            e->update_eq_filters();
+            e->update_multiband_fx_filters();
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+            reinit_advanced_fx_filters(e);
         }
 
         if (wasPlaying)
@@ -2277,7 +2576,7 @@ extern "C"
 
     AE_API void ae_set_output_sample_rate(AudioEngineHandle *engine, int sample_rate)
     {
-        if (!engine || sample_rate <= 0)
+        if (!engine || sample_rate < 0)
             return;
         engine->outputSampleRate = sample_rate;
         restart_and_apply_config(engine);
@@ -2327,6 +2626,7 @@ extern "C"
     {
         if (!engine)
             return;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
         engine->multibandEqEnabled = (enabled != 0);
     }
 
@@ -2365,6 +2665,112 @@ extern "C"
             return 0.0f;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
         return engine->eqGains[band_index];
+    }
+
+    AE_API void ae_set_multiband_fx_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->multibandFxEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_multiband_fx_bands(
+        AudioEngineHandle *engine,
+        int band_count,
+        const int *types,
+        const float *frequencies,
+        const float *q_factors,
+        const float *gains_db,
+        const float *slopes,
+        const int *enabled_flags)
+    {
+        if (!engine || band_count <= 0 || types == nullptr || frequencies == nullptr)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->multibandFxBands.clear();
+        engine->multibandFxBands.reserve((size_t)band_count);
+
+        for (int i = 0; i < band_count; ++i)
+        {
+            AudioEngineHandle::FxBand band{};
+
+            int type = types[i];
+            if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_HIGHSHELF)
+            {
+                type = AE_EQ_BAND_PEAK;
+            }
+
+            band.type = type;
+            band.enabled = (enabled_flags == nullptr) ? true : (enabled_flags[i] != 0);
+            band.frequencyHz = frequencies[i];
+            band.q = (q_factors == nullptr) ? 1.0f : q_factors[i];
+            band.gainDb = (gains_db == nullptr) ? 0.0f : gains_db[i];
+            band.slope = (slopes == nullptr) ? 1.0f : slopes[i];
+
+            engine->multibandFxBands.push_back(band);
+        }
+
+        engine->update_multiband_fx_filters();
+    }
+
+    AE_API void ae_clear_multiband_fx(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->multibandFxBands.clear();
+        engine->multibandFxEnabled = false;
+    }
+
+    AE_API void ae_set_analyzer_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->analyzerEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API void ae_configure_analyzer(AudioEngineHandle *engine, int frame_size)
+    {
+        if (!engine)
+            return;
+        const int size = std::max(64, std::min(frame_size, 8192));
+
+        std::lock_guard<std::mutex> fx(engine->fxMutex);
+        std::lock_guard<std::mutex> lk(engine->analyzerMutex);
+        engine->analyzerFrameSize = size;
+        engine->analyzerAccumulator.assign((size_t)size, 0.0f);
+        engine->analyzerLatest.assign((size_t)size, 0.0f);
+        engine->analyzerAccumulatorCount = 0;
+    }
+
+    AE_API int ae_get_analyzer_frame_size(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->analyzerFrameSize;
+    }
+
+    AE_API int ae_poll_analyzer_frame(AudioEngineHandle *engine, float *out_samples, int max_samples)
+    {
+        if (!engine || out_samples == nullptr || max_samples <= 0)
+            return 0;
+
+        std::lock_guard<std::mutex> lk(engine->analyzerMutex);
+        if (engine->analyzerLatest.empty())
+            return 0;
+
+        const int n = std::min((int)engine->analyzerLatest.size(), max_samples);
+        std::memcpy(out_samples, engine->analyzerLatest.data(), (size_t)n * sizeof(float));
+        return n;
+    }
+
+    AE_API uint64_t ae_get_analyzer_dropped_frames(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->analyzerDroppedFrames.load(std::memory_order_relaxed);
     }
 
     AE_API void ae_init_push_stream(AudioEngineHandle *engine)
