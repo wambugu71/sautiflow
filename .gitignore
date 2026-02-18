@@ -8,7 +8,8 @@
 .pub/
 .pub-cache/
 build/
-
+sautiplay/
+stitch/
 # Generated plugin registrants
 **/GeneratedPluginRegistrant.*
 
@@ -29,6 +30,7 @@ Thumbs.db
 # Android
 # -----------------------------
 **/.gradle/
+**/.cxx/
 **/local.properties
 **/captures/
 **/android/app/debug/
@@ -58,6 +60,7 @@ Thumbs.db
 # CMake / native artifacts
 cmake-build-*/
 CMakeFiles/
+sautify/
 CMakeCache.txt
 compile_commands.json
 *.o

@@ -67,6 +67,7 @@
                 <a href="#reverb" class="nav-item">Reverb</a>
                 <a href="#delay" class="nav-item">Delay</a>
                 <a href="#filters" class="nav-item">Filters</a>
+                <a href="#standalone-filters" class="nav-item">Standalone Filters</a>
             </div>
 
             <div class="nav-group">
@@ -119,7 +120,7 @@
                 </div>
 
                 <div class="cta-group">
-                    <a href="https://github.com/wambugukinyua/miniaudiodart" target="_blank" class="btn btn-primary">
+                    <a href="https://github.com/wambugukinyua/sautiflow" target="_blank" class="btn btn-primary">
                         <i class="fa-brands fa-github"></i> View on GitHub
                     </a>
                     <a href="https://pub.dev/packages/sautiflow" target="_blank" class="btn btn-secondary">
@@ -139,6 +140,11 @@
                     <li>Added crossfade controls: <code>setCrossfadeEnabled(bool)</code> and
                         <code>setCrossfadeDurationMs(int)</code>.
                     </li>
+                    <li>Added real-time injectible custom filters: <strong>LPF1, HPF1, Biquad</strong> which tap
+                        directly into the audio engine node graph.</li>
+                    <li>Added standalone object-oriented filter APIs (LPF1, LPF2, Biquad, Resampler, etc) that work
+                        independently from the main player.</li>
+                    <li>Added <code>s24</code> and <code>s32</code> audio formats, with dithering options.</li>
                     <li>Updated sample-rate behavior so <code>setOutputSampleRate(0)</code> uses native device rate
                         mode.</li>
                     <li>Updated example app to test: mixed EQ mode, analyzer visualization, output format/rate/channels,
@@ -515,7 +521,64 @@ player.setHighshelf(
   frequencyHz: 10000.0,
   gainDb: 2.0,
   slope: 1.0
+);
+
+// Custom Real-Time Filter Injection 
+player.setCustomLpf1(enabled: true, cutoffHz: 500.0);
+player.setCustomHpf1(enabled: true, cutoffHz: 120.0);
+player.setCustomBiquad(
+  enabled: true,
+  b0: 1.0, b1: 0.0, b2: 0.0, // Feedforward coefficients
+  a0: 1.0, a1: 0.0, a2: 0.0, // Feedback coefficients
 );</code></pre>
+            </section>
+
+            <section id="standalone-filters">
+                <h2>Standalone Filters &amp; Resampling</h2>
+                <p>Advanced audio manipulation independent of the main player instance.</p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Filter Classes (LPF1, HPF2, Biquad, etc)</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Apply standalone filters to arbitrary audio buffers, bypassing the internal player
+                            completely.</p>
+                        <pre><code class="language-dart">final ffi = MiniaudioFiltersFFI();
+// Initialize a 1-pole Low-pass filter
+final lpf = MiniaudioLpf1(ffi, AudioFormat.f32, 2, 48000, 1000.0);
+
+// Process custom frames from pointer
+// bool success = lpf.process(outFrames, inFrames, 1024);
+
+// Always dispose the native pointers when done
+lpf.dispose();</code></pre>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Resampler</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Sample rate conversion with controllable algorithms and dithering.</p>
+                        <pre><code class="language-dart">final ffi = MiniaudioFiltersFFI();
+final resampler = MiniaudioResampler(
+  ffi,
+  AudioFormat.f32,  // including new formats: s24, s32
+  2,                // channels
+  44100,            // input rate
+  48000,            // output rate
+  algorithm: ResampleAlgorithm.linear,
+  ditherMode: DitherMode.none,
+);
+
+// process(inFrames, inCount, outFrames, outCount)
+// resampler.setRate(48000, 96000);
+
+resampler.dispose();</code></pre>
+                    </div>
+                </div>
             </section>
 
             <section id="crossfade">
@@ -546,6 +609,14 @@ player.setOutputSampleRate(0);
 
 // Set to Mono
 player.setOutputChannels(1);
+
+// Configure Global Native Engine Resampler
+// 0 = Linear, 1 = Custom
+player.setEngineResampleAlgorithm(0);
+
+// Configure Output Dithering Mode (e.g for 16-bit PCM output)
+// 0 = None, 1 = Rectangle, 2 = Triangle
+player.setEngineDitherMode(2);
           </code></pre>
             </section>
 
@@ -697,6 +768,7 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
             <a href="#reverb" class="toc-link">Reverb</a>
             <a href="#delay" class="toc-link">Delay</a>
             <a href="#filters" class="toc-link">Filters</a>
+            <a href="#standalone-filters" class="toc-link">Standalone Filters</a>
             <a href="#crossfade" class="toc-link">Crossfade</a>
             <a href="#output-format" class="toc-link">Output Format</a>
             <a href="#android-setup" class="toc-link">Android Setup</a>

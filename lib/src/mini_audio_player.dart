@@ -98,7 +98,8 @@ class MiniAudioPlayer {
     for (final source in sources) {
       if (source.isNetwork && !supportsNetwork) {
         throw ArgumentError(
-            'Network URLs are not supported in this native build (found: ${source.uri}). Rebuild with network streaming enabled, or use local files/pushStream().');
+          'Network URLs are not supported in this native build (found: ${source.uri}). Rebuild with network streaming enabled, or use local files/pushStream().',
+        );
       }
     }
     return _engine.setAudioSources(
@@ -113,7 +114,8 @@ class MiniAudioPlayer {
   bool addAudioSource(AudioSource source) {
     if (source.isNetwork && !isNetworkStreamingSupported()) {
       throw ArgumentError(
-          'Network URLs are not supported in this native build (found: ${source.uri}). Rebuild with network streaming enabled, or use local files/pushStream().');
+        'Network URLs are not supported in this native build (found: ${source.uri}). Rebuild with network streaming enabled, or use local files/pushStream().',
+      );
     }
     return _engine.addAudioSourceUri(source.uri);
   }
@@ -186,6 +188,7 @@ class MiniAudioPlayer {
     String? album,
     String? id,
     Duration? duration,
+    Uri? artUri,
   }) =>
       _systemAudio.updateNowPlaying(
         title: title,
@@ -193,6 +196,7 @@ class MiniAudioPlayer {
         album: album,
         id: id,
         duration: duration,
+        artUri: artUri,
       );
 
   void setReverbEnabled(bool enabled) => _engine.setReverbEnabled(enabled);
@@ -244,8 +248,11 @@ class MiniAudioPlayer {
   /// Optional [qFactors] lists the Q factor for each band (defaults to 1.0).
   /// Example 10-band ISO: [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
   void initMultibandEq(List<double> frequencies, {List<double>? qFactors}) =>
-      _engine.initMultibandEq(frequencies.length, frequencies,
-          qFactors: qFactors);
+      _engine.initMultibandEq(
+        frequencies.length,
+        frequencies,
+        qFactors: qFactors,
+      );
 
   /// Enable or disable the multiband equalizer.
   void setMultibandEqEnabled(bool enabled) =>
@@ -261,10 +268,7 @@ class MiniAudioPlayer {
 
   /// Configure a mixed multiband FX chain where each band can be a different
   /// filter type (peak, bandpass, notch, lowshelf, highshelf).
-  void initMultibandFx(
-    List<EqBandConfig> bands, {
-    bool enabled = true,
-  }) {
+  void initMultibandFx(List<EqBandConfig> bands, {bool enabled = true}) {
     _engine.setMultibandFxBands(bands);
     _engine.setMultibandFxEnabled(enabled);
   }
@@ -280,10 +284,11 @@ class MiniAudioPlayer {
   /// Clears all mixed multiband FX bands and disables the chain.
   void clearMultibandFx() => _engine.clearMultibandFx();
 
-  void setReverb(
-      {required double mix,
-      required double feedback,
-      required double delayMs}) {
+  void setReverb({
+    required double mix,
+    required double feedback,
+    required double delayMs,
+  }) {
     _engine.setReverbParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
@@ -306,11 +311,12 @@ class MiniAudioPlayer {
     _engine.setHighpassCutoff(cutoffHz);
   }
 
-  void setDelay(
-      {required bool enabled,
-      required double mix,
-      required double feedback,
-      required double delayMs}) {
+  void setDelay({
+    required bool enabled,
+    required double mix,
+    required double feedback,
+    required double delayMs,
+  }) {
     _engine.setDelayEnabled(enabled);
     _engine.setDelayParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
@@ -331,11 +337,7 @@ class MiniAudioPlayer {
     required double frequencyHz,
   }) {
     _engine.setPeakEqEnabled(enabled);
-    _engine.setPeakEqParams(
-      gainDb: gainDb,
-      q: q,
-      frequencyHz: frequencyHz,
-    );
+    _engine.setPeakEqParams(gainDb: gainDb, q: q, frequencyHz: frequencyHz);
   }
 
   void setNotch({
@@ -373,6 +375,42 @@ class MiniAudioPlayer {
       slope: slope,
       frequencyHz: frequencyHz,
     );
+  }
+
+  void setCustomLpf1({required bool enabled, required double cutoffHz}) {
+    _engine.setCustomLpf1Params(enabled: enabled, cutoffHz: cutoffHz);
+  }
+
+  void setCustomHpf1({required bool enabled, required double cutoffHz}) {
+    _engine.setCustomHpf1Params(enabled: enabled, cutoffHz: cutoffHz);
+  }
+
+  void setCustomBiquad({
+    required bool enabled,
+    required double b0,
+    required double b1,
+    required double b2,
+    required double a0,
+    required double a1,
+    required double a2,
+  }) {
+    _engine.setCustomBiquadParams(
+      enabled: enabled,
+      b0: b0,
+      b1: b1,
+      b2: b2,
+      a0: a0,
+      a1: a1,
+      a2: a2,
+    );
+  }
+
+  void setEngineResampleAlgorithm(int algorithm) {
+    _engine.setEngineResampleAlgorithm(algorithm);
+  }
+
+  void setEngineDitherMode(int ditherMode) {
+    _engine.setEngineDitherMode(ditherMode);
   }
 
   Future<void> pushStream({required String url}) async {

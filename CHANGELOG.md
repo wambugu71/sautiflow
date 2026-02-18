@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-dev
+
+- Added standalone object-oriented filter API wrapping miniaudio natively (`MiniaudioLpf1`, `MiniaudioLpf2`, `MiniaudioLpf`, `MiniaudioHpf1`, etc).
+- Added standalone `MiniaudioBiquad` filter wrapping.
+- Added standalone `MiniaudioResampler` with support for algorithms (`linear`, `sinc`) and dithering modes.
+- Added support for `s24` and `s32` AudioFormats in the native engine mappings.
+- Re-architected C++ FFI to expose these standalone filters independently of the main `AudioEngineHandle` player.
+- **[Real-Time DSP]** Injected custom `ma_lpf1`, `ma_hpf1`, and `ma_biquad` as native nodes in the main AudioEngineHandle data callback.
+- **[Real-Time DSP]** Exposed `setEngineResampleAlgorithm` and `setEngineDitherMode` to dynamically re-configure the global audio device.
+- Updated documentation and the example app to include interactive, real-time SLIDER and DROPDOWN controls for testing the native backend integrations.
+
 ## 0.3.0-dev
 
 - Started unified mixed multiband FX implementation.

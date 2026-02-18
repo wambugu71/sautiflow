@@ -2,6 +2,9 @@
 
 build/
 doc/
+sautify/
+sautiplay/
+/stitch
 docs/
 .dart_tool/
 .packages

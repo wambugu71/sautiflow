@@ -119,8 +119,25 @@ Optional overrides (Gradle project properties):
 
 - `MINIAUDIODART_ENABLE_CURL=ON|OFF`
 - `MINIAUDIODART_CURL_INCLUDE_DIR=/path/to/include`
-- `MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so`
+- `MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.a` (or `.so`)
 - `MINIAUDIODART_CURL_LIBRARY_DIR=/path/to/abi-parent`
+- `MINIAUDIODART_CURL_EXTRA_LIBS=ssl;crypto;z` (optional static dependency chain)
+
+### Recommended Android setup (static per ABI)
+
+Use static `libcurl.a` per ABI to keep plugin packaging simple (single `libsautiflow.so`).
+
+Expected layout:
+
+- `native/android/include/` (curl headers)
+- `native/android/armeabi-v7a/libcurl.a`
+- `native/android/arm64-v8a/libcurl.a`
+
+The Android Gradle configs are aligned to arm ABIs by default (`armeabi-v7a`, `arm64-v8a`).
+If you need emulator ABIs (`x86`, `x86_64`), add matching prebuilt curl artifacts and expand ABI filters.
+
+For release/legal packaging, include third-party attributions from
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Example
 

@@ -580,6 +580,18 @@ struct AudioEngineHandle
     float highshelfFrequencyHz = 4000.0f;
     ma_hishelf2 highshelf{};
 
+    bool customLpf1Enabled = false;
+    double customLpf1Cutoff = 1000.0;
+    ma_lpf1 customLpf1{};
+
+    bool customHpf1Enabled = false;
+    double customHpf1Cutoff = 80.0;
+    ma_hpf1 customHpf1{};
+
+    bool customBiquadEnabled = false;
+    double bq_b0 = 1.0, bq_b1 = 0.0, bq_b2 = 0.0, bq_a0 = 1.0, bq_a1 = 0.0, bq_a2 = 0.0;
+    ma_biquad customBiquad{};
+
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
     int outputSampleRate = 0; // 0 = native
@@ -588,6 +600,10 @@ struct AudioEngineHandle
     bool multibandEqEnabled = false;
     int eqBandCount = 0;
     std::mutex eqMutex; // Protect EQ config changes
+
+    int resampleAlgorithm = 0; // AE_RESAMPLE_ALGORITHM_LINEAR
+    int ditherMode = 0; // AE_DITHER_MODE_NONE
+
     std::vector<float> eqFrequencies;
     std::vector<float> eqGains;
     std::vector<float> eqQ;
@@ -902,6 +918,15 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->highshelfSlope, 0.1f, 2.0f),
         clampf(e->highshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
     (void)ma_hishelf2_init(&highshelfConfig, nullptr, &e->highshelf);
+
+    ma_lpf1_config lpf1Cfg = ma_lpf1_config_init(ma_format_f32, channels, sampleRate, e->customLpf1Cutoff);
+    (void)ma_lpf1_init(&lpf1Cfg, nullptr, &e->customLpf1);
+
+    ma_hpf1_config hpf1Cfg = ma_hpf1_config_init(ma_format_f32, channels, sampleRate, e->customHpf1Cutoff);
+    (void)ma_hpf1_init(&hpf1Cfg, nullptr, &e->customHpf1);
+
+    ma_biquad_config bqCfg = ma_biquad_config_init(ma_format_f32, channels, e->bq_b0, e->bq_b1, e->bq_b2, e->bq_a0, e->bq_a1, e->bq_a2);
+    (void)ma_biquad_init(&bqCfg, nullptr, &e->customBiquad);
 }
 
 static void set_last_error(AudioEngineHandle *e, const std::string &message)
@@ -1384,7 +1409,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         // If format != F32, we must ensure pOutput is zeroed.
         if (e->outputFormat != AE_FORMAT_F32)
         {
-            std::memset(pOutput, 0, totalSamples * (e->outputFormat == AE_FORMAT_S16 ? 2 : 1));
+            size_t bytesPerSample = 1;
+            if (e->outputFormat == AE_FORMAT_S16) bytesPerSample = 2;
+            else if (e->outputFormat == AE_FORMAT_S24) bytesPerSample = 3;
+            else if (e->outputFormat == AE_FORMAT_S32) bytesPerSample = 4;
+            
+            std::memset(pOutput, 0, totalSamples * bytesPerSample);
         }
         return;
     }
@@ -1403,10 +1433,19 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 // 4KB is usually plenty for mp3/wav headers.
                 if (ma_rb_available_read(&e->pushStreamForCurrent.rb) >= 4096)
                 {
-                    ma_decoder_config config = ma_decoder_config_init(e->outputFormat == AE_FORMAT_F32 ? ma_format_f32 : ma_format_s16,
+                    ma_format configFormat = ma_format_f32;
+                    if (e->outputFormat == AE_FORMAT_S16) configFormat = ma_format_s16;
+                    else if (e->outputFormat == AE_FORMAT_U8) configFormat = ma_format_u8;
+                    else if (e->outputFormat == AE_FORMAT_S24) configFormat = ma_format_s24;
+                    else if (e->outputFormat == AE_FORMAT_S32) configFormat = ma_format_s32;
+
+                    ma_decoder_config config = ma_decoder_config_init(configFormat,
                                                                       (ma_uint32)e->outputChannels, (ma_uint32)e->sampleRate);
 
-                    auto *newDecoder = new ma_decoder();
+                    // ma_decoder must be zero-initialized before init.
+                    // Using default-initialization here can leave garbage fields
+                    // and cause rare crashes on some Android devices.
+                    auto *newDecoder = new ma_decoder{};
                     ma_result result = ma_decoder_init(push_stream_on_read, nullptr, &e->pushStreamForCurrent, &config, newDecoder);
                     if (result == MA_SUCCESS)
                     {
@@ -1555,6 +1594,14 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             e->process_multiband_fx(processBuffer, produced);
         }
 
+        // Custom Filter Elements
+        if (e->customLpf1Enabled)
+            (void)ma_lpf1_process_pcm_frames(&e->customLpf1, processBuffer, processBuffer, produced);
+        if (e->customHpf1Enabled)
+            (void)ma_hpf1_process_pcm_frames(&e->customHpf1, processBuffer, processBuffer, produced);
+        if (e->customBiquadEnabled)
+            (void)ma_biquad_process_pcm_frames(&e->customBiquad, processBuffer, processBuffer, produced);
+
         // Existing Effects
         // Note: passing e->outputChannels instead of e->channels
         if (e->lowpassEnabled)
@@ -1584,13 +1631,25 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
 
     // Format Conversion if needed
+    ma_dither_mode maDither = ma_dither_mode_none;
+    if (e->ditherMode == 1) maDither = ma_dither_mode_rectangle;
+    else if (e->ditherMode == 2) maDither = ma_dither_mode_triangle;
+
     if (e->outputFormat == AE_FORMAT_S16)
     {
-        ma_pcm_f32_to_s16(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
+        ma_pcm_f32_to_s16(pOutput, processBuffer, totalSamples, maDither);
     }
     else if (e->outputFormat == AE_FORMAT_U8)
     {
-        ma_pcm_f32_to_u8(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
+        ma_pcm_f32_to_u8(pOutput, processBuffer, totalSamples, maDither);
+    }
+    else if (e->outputFormat == AE_FORMAT_S24)
+    {
+        ma_pcm_f32_to_s24(pOutput, processBuffer, totalSamples, maDither);
+    }
+    else if (e->outputFormat == AE_FORMAT_S32)
+    {
+        ma_pcm_f32_to_s32(pOutput, processBuffer, totalSamples, maDither);
     }
     // else F32 -> already in pOutput
 }
@@ -1644,6 +1703,12 @@ extern "C"
         cfg.sampleRate = (ma_uint32)sample_rate;
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
+        
+        if (e->resampleAlgorithm == 1) { // AE_RESAMPLE_ALGORITHM_CUSTOM
+            cfg.resampling.algorithm = ma_resample_algorithm_custom;
+        } else {
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+        }
 
         if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
         {
@@ -2495,6 +2560,37 @@ extern "C"
         reinit_advanced_fx_filters(e);
     }
 
+    AE_API void ae_set_custom_lpf1_params(AudioEngineHandle *e, int enabled, double cutoff_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->customLpf1Enabled = (enabled != 0);
+        e->customLpf1Cutoff = cutoff_hz;
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_custom_hpf1_params(AudioEngineHandle *e, int enabled, double cutoff_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->customHpf1Enabled = (enabled != 0);
+        e->customHpf1Cutoff = cutoff_hz;
+        reinit_advanced_fx_filters(e);
+    }
+
+    AE_API void ae_set_custom_biquad_params(AudioEngineHandle *e, int enabled, double b0, double b1, double b2, double a0, double a1, double a2)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->customBiquadEnabled = (enabled != 0);
+        e->bq_b0 = b0; e->bq_b1 = b1; e->bq_b2 = b2;
+        e->bq_a0 = a0; e->bq_a1 = a1; e->bq_a2 = a2;
+        reinit_advanced_fx_filters(e);
+    }
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -2531,6 +2627,12 @@ extern "C"
         case AE_FORMAT_U8:
             cfg.playback.format = ma_format_u8;
             break;
+        case AE_FORMAT_S24:
+            cfg.playback.format = ma_format_s24;
+            break;
+        case AE_FORMAT_S32:
+            cfg.playback.format = ma_format_s32;
+            break;
         default:
             cfg.playback.format = ma_format_f32;
             break;
@@ -2539,6 +2641,12 @@ extern "C"
         cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate.
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
+
+        if (e->resampleAlgorithm == 1) { // AE_RESAMPLE_ALGORITHM_CUSTOM
+            cfg.resampling.algorithm = ma_resample_algorithm_custom;
+        } else {
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+        }
 
         if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
         {
@@ -2598,6 +2706,31 @@ extern "C"
     AE_API int ae_get_output_channels(AudioEngineHandle *engine)
     {
         return engine ? engine->outputChannels : 0;
+    }
+
+    AE_API void ae_set_engine_resample_algorithm(AudioEngineHandle *engine, int algorithm)
+    {
+        if (!engine)
+            return;
+        engine->resampleAlgorithm = algorithm;
+        restart_and_apply_config(engine);
+    }
+
+    AE_API int ae_get_engine_resample_algorithm(AudioEngineHandle *engine)
+    {
+        return engine ? engine->resampleAlgorithm : 0;
+    }
+
+    AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode)
+    {
+        if (!engine)
+            return;
+        engine->ditherMode = dither_mode;
+    }
+
+    AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
+    {
+        return engine ? engine->ditherMode : 0;
     }
 
     AE_API void ae_init_multiband_eq(AudioEngineHandle *engine, int band_count, float *frequencies, float *q_factors)
@@ -2879,6 +3012,238 @@ extern "C"
         if (!engine || !engine->pushStreamForCurrent.initialized)
             return 0;
         return (int)ma_rb_available_read(&engine->pushStreamForCurrent.rb);
+    }
+
+    // ==========================================
+    // Standalone Filters & Resampler (miniaudio direct bindings)
+    // ==========================================
+
+    static ma_format ae_format_to_ma(int format) {
+        switch (format) {
+            case AE_FORMAT_F32: return ma_format_f32;
+            case AE_FORMAT_S16: return ma_format_s16;
+            case AE_FORMAT_U8:  return ma_format_u8;
+            case AE_FORMAT_S24: return ma_format_s24;
+            case AE_FORMAT_S32: return ma_format_s32;
+            default: return ma_format_unknown;
+        }
+    }
+
+    struct AELpf1 { ma_lpf1 filter; };
+    struct AELpf2 { ma_lpf2 filter; };
+    struct AELpf { ma_lpf filter; };
+    struct AEHpf1 { ma_hpf1 filter; };
+    struct AEHpf2 { ma_hpf2 filter; };
+    struct AEHpf { ma_hpf filter; };
+    struct AEBiquad { ma_biquad filter; };
+    struct AEResampler { ma_resampler filter; };
+
+    // LPF1
+    AE_API AELpf1* ae_lpf1_create(int format, int channels, int sample_rate, double cutoff_hz) {
+        AELpf1* obj = new AELpf1();
+        ma_lpf1_config config = ma_lpf1_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz);
+        if (ma_lpf1_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_lpf1_destroy(AELpf1* obj) { if (obj) delete obj; }
+    AE_API void ae_lpf1_reinit(AELpf1* obj, int format, int channels, int sample_rate, double cutoff_hz) {
+        if (obj) {
+            ma_lpf1_config config = ma_lpf1_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz);
+            ma_lpf1_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_lpf1_process(AELpf1* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_lpf1_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // LPF2
+    AE_API AELpf2* ae_lpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q) {
+        AELpf2* obj = new AELpf2();
+        ma_lpf2_config config = ma_lpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+        if (ma_lpf2_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_lpf2_destroy(AELpf2* obj) { if (obj) delete obj; }
+    AE_API void ae_lpf2_reinit(AELpf2* obj, int format, int channels, int sample_rate, double cutoff_hz, double q) {
+        if (obj) {
+            ma_lpf2_config config = ma_lpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+            ma_lpf2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_lpf2_process(AELpf2* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_lpf2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // LPF
+    AE_API AELpf* ae_lpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order) {
+        AELpf* obj = new AELpf();
+        ma_lpf_config config = ma_lpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+        if (ma_lpf_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_lpf_destroy(AELpf* obj) { if (obj) { ma_lpf_uninit(&obj->filter, nullptr); delete obj; } }
+    AE_API void ae_lpf_reinit(AELpf* obj, int format, int channels, int sample_rate, double cutoff_hz, int order) {
+        if (obj) {
+            ma_lpf_config config = ma_lpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+            ma_lpf_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_lpf_process(AELpf* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_lpf_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // HPF1
+    AE_API AEHpf1* ae_hpf1_create(int format, int channels, int sample_rate, double cutoff_hz) {
+        AEHpf1* obj = new AEHpf1();
+        ma_hpf1_config config = ma_hpf1_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz);
+        if (ma_hpf1_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_hpf1_destroy(AEHpf1* obj) { if (obj) delete obj; }
+    AE_API void ae_hpf1_reinit(AEHpf1* obj, int format, int channels, int sample_rate, double cutoff_hz) {
+        if (obj) {
+            ma_hpf1_config config = ma_hpf1_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz);
+            ma_hpf1_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_hpf1_process(AEHpf1* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_hpf1_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // HPF2
+    AE_API AEHpf2* ae_hpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q) {
+        AEHpf2* obj = new AEHpf2();
+        ma_hpf2_config config = ma_hpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+        if (ma_hpf2_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_hpf2_destroy(AEHpf2* obj) { if (obj) delete obj; }
+    AE_API void ae_hpf2_reinit(AEHpf2* obj, int format, int channels, int sample_rate, double cutoff_hz, double q) {
+        if (obj) {
+            ma_hpf2_config config = ma_hpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+            ma_hpf2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_hpf2_process(AEHpf2* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_hpf2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // HPF
+    AE_API AEHpf* ae_hpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order) {
+        AEHpf* obj = new AEHpf();
+        ma_hpf_config config = ma_hpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+        if (ma_hpf_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_hpf_destroy(AEHpf* obj) { if (obj) { ma_hpf_uninit(&obj->filter, nullptr); delete obj; } }
+    AE_API void ae_hpf_reinit(AEHpf* obj, int format, int channels, int sample_rate, double cutoff_hz, int order) {
+        if (obj) {
+            ma_hpf_config config = ma_hpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+            ma_hpf_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_hpf_process(AEHpf* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_hpf_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // Biquad
+    AE_API AEBiquad* ae_biquad_create(int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2) {
+        AEBiquad* obj = new AEBiquad();
+        ma_biquad_config config = ma_biquad_config_init(ae_format_to_ma(format), channels, b0, b1, b2, a0, a1, a2);
+        if (ma_biquad_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_biquad_destroy(AEBiquad* obj) { if (obj) { ma_biquad_uninit(&obj->filter, nullptr); delete obj; } }
+    AE_API void ae_biquad_reinit(AEBiquad* obj, int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2) {
+        if (obj) {
+            ma_biquad_config config = ma_biquad_config_init(ae_format_to_ma(format), channels, b0, b1, b2, a0, a1, a2);
+            ma_biquad_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_biquad_process(AEBiquad* obj, void* out_frames, const void* in_frames, uint64_t frame_count) {
+        if (!obj) return 0;
+        return ma_biquad_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // Resampler
+    AE_API AEResampler* ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode) {
+        AEResampler* obj = new AEResampler();
+        ma_resample_algorithm algo = ma_resample_algorithm_linear;
+        if (algorithm == AE_RESAMPLE_ALGORITHM_CUSTOM) algo = ma_resample_algorithm_custom;
+
+        ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(format), channels, sample_rate_in, sample_rate_out, algo);
+        
+        // This version of miniaudio (0.11.24) does not support ma_dither_mode natively.
+        // We ignore the dither_mode parameter here to maintain FFI ABI stability without compiler errors.
+
+        if (ma_resampler_init(&config, nullptr, &obj->filter) != MA_SUCCESS) {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_resampler_destroy(AEResampler* obj) { if (obj) { ma_resampler_uninit(&obj->filter, nullptr); delete obj; } }
+    AE_API int ae_resampler_process(AEResampler* obj, const void* in_frames, uint64_t* in_frame_count, void* out_frames, uint64_t* out_frame_count) {
+        if (!obj) return 0;
+        ma_uint64 in_count = in_frame_count ? *in_frame_count : 0;
+        ma_uint64 out_count = out_frame_count ? *out_frame_count : 0;
+        ma_result result = ma_resampler_process_pcm_frames(&obj->filter, in_frames, &in_count, out_frames, &out_count);
+        if (in_frame_count) *in_frame_count = in_count;
+        if (out_frame_count) *out_frame_count = out_count;
+        return result == MA_SUCCESS;
+    }
+    AE_API void ae_resampler_set_rate(AEResampler* obj, int sample_rate_in, int sample_rate_out) {
+        if (obj) ma_resampler_set_rate(&obj->filter, sample_rate_in, sample_rate_out);
+    }
+    AE_API void ae_resampler_set_rate_ratio(AEResampler* obj, float ratio_in_out) {
+        if (obj) ma_resampler_set_rate_ratio(&obj->filter, ratio_in_out);
+    }
+    AE_API uint64_t ae_resampler_get_required_input_frame_count(AEResampler* obj, uint64_t out_frame_count) {
+        if (!obj) return 0;
+        ma_uint64 in_count = 0;
+        ma_resampler_get_required_input_frame_count(&obj->filter, out_frame_count, &in_count);
+        return in_count;
+    }
+    AE_API uint64_t ae_resampler_get_expected_output_frame_count(AEResampler* obj, uint64_t in_frame_count) {
+        if (!obj) return 0;
+        ma_uint64 out_count = 0;
+        ma_resampler_get_expected_output_frame_count(&obj->filter, in_frame_count, &out_count);
+        return out_count;
+    }
+    AE_API uint64_t ae_resampler_get_input_latency(AEResampler* obj) {
+        if (!obj) return 0;
+        return ma_resampler_get_input_latency(&obj->filter);
+    }
+    AE_API uint64_t ae_resampler_get_output_latency(AEResampler* obj) {
+        if (!obj) return 0;
+        return ma_resampler_get_output_latency(&obj->filter);
     }
 
 } // extern "C"

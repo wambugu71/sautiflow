@@ -194,6 +194,7 @@ class MiniAudioSystemAudioController {
     String? album,
     String? id,
     Duration? duration,
+    Uri? artUri,
   }) async {
     final h = _typedHandler;
     if (h == null) return;
@@ -205,6 +206,7 @@ class MiniAudioSystemAudioController {
         artist: artist,
         album: album,
         duration: duration,
+        artUri: artUri,
       ),
     );
   }

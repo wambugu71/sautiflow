@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 enum LoopMode { off, all, one }
 
-enum AudioFormat { f32, s16, u8 }
+enum AudioFormat { f32, s16, u8, s24, s32 }
 
 enum EqBandType { peak, bandpass, notch, lowshelf, highshelf }
 
@@ -150,6 +150,24 @@ typedef _SetEqGainsNative = ffi.Void Function(
 typedef _SetEqGainsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
+// Custom Filter Typedefs
+typedef _SetCustomLpf1ParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Double);
+typedef _SetCustomLpf1ParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
+
+typedef _SetCustomBiquadParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double);
+typedef _SetCustomBiquadParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double, double, double, double, double);
+
 typedef _SetSingleFloatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float);
 typedef _SetSingleFloatDart = void Function(ffi.Pointer<ffi.Void>, double);
@@ -177,6 +195,22 @@ typedef _SetOutputChannelsDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 typedef _GetOutputChannelsNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetOutputChannelsDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetEngineResampleAlgorithmNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetEngineResampleAlgorithmDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetEngineResampleAlgorithmNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetEngineResampleAlgorithmDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetEngineDitherModeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetEngineDitherModeDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetEngineDitherModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetEngineDitherModeDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _InitMultibandEqNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
     ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
@@ -284,9 +318,9 @@ class PlayerStatus {
 
 class AudioEngineFFI {
   AudioEngineFFI({String? libraryPath})
-      : _lib = _openLibrary(libraryPath),
+      : _lib = openLibrary(libraryPath),
         _engine = ffi.nullptr {
-    final allocLib = _openAllocatorLibrary();
+    final allocLib = openAllocatorLibrary();
     _malloc = allocLib.lookupFunction<_MallocNative, _MallocDart>('malloc');
     _free = allocLib.lookupFunction<_FreeNative, _FreeDart>('free');
 
@@ -451,6 +485,20 @@ class AudioEngineFFI {
       'ae_set_highshelf_params',
     );
 
+    // Custom Filters
+    _setCustomLpf1Params = _lib
+        .lookupFunction<_SetCustomLpf1ParamsNative, _SetCustomLpf1ParamsDart>(
+      'ae_set_custom_lpf1_params',
+    );
+    _setCustomHpf1Params = _lib
+        .lookupFunction<_SetCustomLpf1ParamsNative, _SetCustomLpf1ParamsDart>(
+      'ae_set_custom_hpf1_params',
+    );
+    _setCustomBiquadParams = _lib.lookupFunction<_SetCustomBiquadParamsNative,
+        _SetCustomBiquadParamsDart>(
+      'ae_set_custom_biquad_params',
+    );
+
     // Advanced Audio Features Bindings
     _setOutputFormat =
         _lib.lookupFunction<_SetOutputFormatNative, _SetOutputFormatDart>(
@@ -476,6 +524,18 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetOutputChannelsNative, _GetOutputChannelsDart>(
       'ae_get_output_channels',
     );
+
+    _setEngineResampleAlgorithm = _lib.lookupFunction<
+        _SetEngineResampleAlgorithmNative,
+        _SetEngineResampleAlgorithmDart>('ae_set_engine_resample_algorithm');
+    _getEngineResampleAlgorithm = _lib.lookupFunction<
+        _GetEngineResampleAlgorithmNative,
+        _GetEngineResampleAlgorithmDart>('ae_get_engine_resample_algorithm');
+
+    _setEngineDitherMode = _lib.lookupFunction<_SetEngineDitherModeNative,
+        _SetEngineDitherModeDart>('ae_set_engine_dither_mode');
+    _getEngineDitherMode = _lib.lookupFunction<_GetEngineDitherModeNative,
+        _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
     _initMultibandEq =
         _lib.lookupFunction<_InitMultibandEqNative, _InitMultibandEqDart>(
@@ -596,6 +656,11 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setHighshelfEnabled;
   late final _SetReverbParamsDart _setHighshelfParams;
 
+  // Custom filters
+  late final _SetCustomLpf1ParamsDart _setCustomLpf1Params;
+  late final _SetCustomLpf1ParamsDart _setCustomHpf1Params;
+  late final _SetCustomBiquadParamsDart _setCustomBiquadParams;
+
   // Advanced Audio Features
   late final _SetOutputFormatDart _setOutputFormat;
   late final _GetOutputFormatDart _getOutputFormat;
@@ -603,6 +668,11 @@ class AudioEngineFFI {
   late final _GetOutputRateDart _getOutputSampleRate;
   late final _SetOutputChannelsDart _setOutputChannels;
   late final _GetOutputChannelsDart _getOutputChannels;
+
+  late final _SetEngineResampleAlgorithmDart _setEngineResampleAlgorithm;
+  late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
+  late final _SetEngineDitherModeDart _setEngineDitherMode;
+  late final _GetEngineDitherModeDart _getEngineDitherMode;
 
   late final _InitMultibandEqDart _initMultibandEq;
   late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
@@ -665,7 +735,7 @@ class AudioEngineFFI {
     return uri.toString();
   }
 
-  static ffi.DynamicLibrary _openLibrary(String? path) {
+  static ffi.DynamicLibrary openLibrary(String? path) {
     if (path != null && path.isNotEmpty) {
       return ffi.DynamicLibrary.open(path);
     }
@@ -698,7 +768,7 @@ class AudioEngineFFI {
     }
   }
 
-  static ffi.DynamicLibrary _openAllocatorLibrary() {
+  static ffi.DynamicLibrary openAllocatorLibrary() {
     if (Platform.isWindows) return ffi.DynamicLibrary.open('msvcrt.dll');
     if (Platform.isMacOS || Platform.isIOS) return ffi.DynamicLibrary.process();
     if (Platform.isLinux || Platform.isAndroid) {
@@ -1063,6 +1133,31 @@ class AudioEngineFFI {
     _setHighshelfParams(_engine, gainDb, slope, frequencyHz);
   }
 
+  // Custom Filters
+
+  void setCustomLpf1Params({required bool enabled, required double cutoffHz}) {
+    if (_engine == ffi.nullptr) return;
+    _setCustomLpf1Params(_engine, enabled ? 1 : 0, cutoffHz);
+  }
+
+  void setCustomHpf1Params({required bool enabled, required double cutoffHz}) {
+    if (_engine == ffi.nullptr) return;
+    _setCustomHpf1Params(_engine, enabled ? 1 : 0, cutoffHz);
+  }
+
+  void setCustomBiquadParams({
+    required bool enabled,
+    required double b0,
+    required double b1,
+    required double b2,
+    required double a0,
+    required double a1,
+    required double a2,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setCustomBiquadParams(_engine, enabled ? 1 : 0, b0, b1, b2, a0, a1, a2);
+  }
+
   // Advanced Audio Features Helpers
 
   void setOutputFormat(AudioFormat format) {
@@ -1094,6 +1189,26 @@ class AudioEngineFFI {
   int getOutputChannels() {
     if (_engine == ffi.nullptr) return 0;
     return _getOutputChannels(_engine);
+  }
+
+  void setEngineResampleAlgorithm(int algorithm) {
+    if (_engine == ffi.nullptr) return;
+    _setEngineResampleAlgorithm(_engine, algorithm);
+  }
+
+  int getEngineResampleAlgorithm() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getEngineResampleAlgorithm(_engine);
+  }
+
+  void setEngineDitherMode(int ditherMode) {
+    if (_engine == ffi.nullptr) return;
+    _setEngineDitherMode(_engine, ditherMode);
+  }
+
+  int getEngineDitherMode() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getEngineDitherMode(_engine);
   }
 
   void initMultibandEq(

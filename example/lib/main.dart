@@ -149,6 +149,22 @@ class _PlayerShellState extends State<PlayerShell> {
   double _dlFeedback = 0.35;
   double _dlDelay = 240;
 
+  bool _customLpf1Enabled = false;
+  double _customLpf1Cutoff = 1000.0;
+  bool _customHpf1Enabled = false;
+  double _customHpf1Cutoff = 80.0;
+
+  bool _customBiquadEnabled = false;
+  double _bqB0 = 1.0;
+  double _bqB1 = 0.0;
+  double _bqB2 = 0.0;
+  final double _bqA0 = 1.0;
+  double _bqA1 = 0.0;
+  double _bqA2 = 0.0;
+
+  int _resampleAlgIndex = 0;
+  int _ditherModeIndex = 0;
+
   bool _analyzerEnabled = false;
   int _analyzerFrameSize = 512;
   StreamSubscription<Float32List>? _analyzerSub;
@@ -540,17 +556,27 @@ class _PlayerShellState extends State<PlayerShell> {
       return;
     }
 
+    late final AudioSource src;
     if (uri.scheme == 'http' || uri.scheme == 'https') {
-      _logs.insert(
-        0,
-        '[source] URL input detected. Downloading to local cache before playback: $uri',
-      );
-    }
-
-    final src = await _materializeSource(uri);
-    if (src == null) {
-      setState(() {});
-      return;
+      final supportsNativeNetwork = _player.isNetworkStreamingSupported();
+      if (supportsNativeNetwork) {
+        _logs.insert(0,
+            '[source] URL input detected. Using native network source: $uri');
+        src = AudioSource.network(uri.toString());
+      } else {
+        _logs.insert(
+          0,
+          '[source] URL input detected. Native URL byte-streaming is unavailable; using isolate pushStream fallback.',
+        );
+        src = AudioSource.network(uri.toString());
+      }
+    } else {
+      final localSrc = await _materializeSource(uri);
+      if (localSrc == null) {
+        setState(() {});
+        return;
+      }
+      src = localSrc;
     }
 
     setState(() {
@@ -1226,7 +1252,7 @@ class _PlayerShellState extends State<PlayerShell> {
               SwitchListTile(
                 title: const Text('Enable Crossfade'),
                 subtitle: Text(
-                    'Transition fade between tracks (${_crossfadeDurationMs} ms)'),
+                    'Transition fade between tracks ($_crossfadeDurationMs ms)'),
                 value: _crossfadeEnabled,
                 onChanged: (v) {
                   setState(() => _crossfadeEnabled = v);
@@ -1263,7 +1289,7 @@ class _PlayerShellState extends State<PlayerShell> {
         _buildAdvancedSettings(),
         const Divider(),
         DropdownButtonFormField<EqScreenMode>(
-          value: _eqMode,
+          initialValue: _eqMode,
           decoration: const InputDecoration(
             labelText: 'EQ mode',
             border: OutlineInputBorder(),
@@ -1373,7 +1399,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 final freq = band.frequencyHz;
                 final label = freq >= 1000
                     ? '${(freq / 1000).toStringAsFixed(1)}k'
-                    : '${freq.toStringAsFixed(2)}';
+                    : freq.toStringAsFixed(2);
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: Padding(
@@ -1765,6 +1791,152 @@ class _PlayerShellState extends State<PlayerShell> {
             delayMs: _dlDelay,
           );
         }),
+        const Divider(),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Standalone Continuous Filters',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        SwitchListTile(
+          title: const Text('Enable Custom LPF1'),
+          value: _customLpf1Enabled,
+          onChanged: (v) {
+            setState(() => _customLpf1Enabled = v);
+            _player.setCustomLpf1(enabled: v, cutoffHz: _customLpf1Cutoff);
+          },
+        ),
+        _slider('LPF1 Cutoff (Hz)', _customLpf1Cutoff, 20, 22000, (v) {
+          setState(() => _customLpf1Cutoff = v);
+          _player.setCustomLpf1(enabled: _customLpf1Enabled, cutoffHz: v);
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Custom HPF1'),
+          value: _customHpf1Enabled,
+          onChanged: (v) {
+            setState(() => _customHpf1Enabled = v);
+            _player.setCustomHpf1(enabled: v, cutoffHz: _customHpf1Cutoff);
+          },
+        ),
+        _slider('HPF1 Cutoff (Hz)', _customHpf1Cutoff, 10, 22000, (v) {
+          setState(() => _customHpf1Cutoff = v);
+          _player.setCustomHpf1(enabled: _customHpf1Enabled, cutoffHz: v);
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Custom Biquad (Raw)'),
+          value: _customBiquadEnabled,
+          onChanged: (v) {
+            setState(() => _customBiquadEnabled = v);
+            _player.setCustomBiquad(
+                enabled: v,
+                b0: _bqB0,
+                b1: _bqB1,
+                b2: _bqB2,
+                a0: _bqA0,
+                a1: _bqA1,
+                a2: _bqA2);
+          },
+        ),
+        _slider('B0', _bqB0, -2.0, 2.0, (v) {
+          setState(() => _bqB0 = v);
+          _player.setCustomBiquad(
+              enabled: _customBiquadEnabled,
+              b0: v,
+              b1: _bqB1,
+              b2: _bqB2,
+              a0: _bqA0,
+              a1: _bqA1,
+              a2: _bqA2);
+        }),
+        _slider('B1', _bqB1, -2.0, 2.0, (v) {
+          setState(() => _bqB1 = v);
+          _player.setCustomBiquad(
+              enabled: _customBiquadEnabled,
+              b0: _bqB0,
+              b1: v,
+              b2: _bqB2,
+              a0: _bqA0,
+              a1: _bqA1,
+              a2: _bqA2);
+        }),
+        _slider('B2', _bqB2, -2.0, 2.0, (v) {
+          setState(() => _bqB2 = v);
+          _player.setCustomBiquad(
+              enabled: _customBiquadEnabled,
+              b0: _bqB0,
+              b1: _bqB1,
+              b2: v,
+              a0: _bqA0,
+              a1: _bqA1,
+              a2: _bqA2);
+        }),
+        _slider('A1', _bqA1, -2.0, 2.0, (v) {
+          setState(() => _bqA1 = v);
+          _player.setCustomBiquad(
+              enabled: _customBiquadEnabled,
+              b0: _bqB0,
+              b1: _bqB1,
+              b2: _bqB2,
+              a0: _bqA0,
+              a1: v,
+              a2: _bqA2);
+        }),
+        _slider('A2', _bqA2, -2.0, 2.0, (v) {
+          setState(() => _bqA2 = v);
+          _player.setCustomBiquad(
+              enabled: _customBiquadEnabled,
+              b0: _bqB0,
+              b1: _bqB1,
+              b2: _bqB2,
+              a0: _bqA0,
+              a1: _bqA1,
+              a2: v);
+        }),
+        const Divider(),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Engine Resampling & Dither',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        ListTile(
+          title: const Text('Resampling Algorithm'),
+          trailing: DropdownButton<int>(
+            value: _resampleAlgIndex,
+            items: const [
+              DropdownMenuItem(value: 0, child: Text('Linear')),
+              DropdownMenuItem(value: 1, child: Text('Custom')),
+            ],
+            onChanged: (v) {
+              if (v != null) {
+                setState(() => _resampleAlgIndex = v);
+                _player.setEngineResampleAlgorithm(v);
+              }
+            },
+          ),
+        ),
+        ListTile(
+          title: const Text('Dither Mode'),
+          trailing: DropdownButton<int>(
+            value: _ditherModeIndex,
+            items: const [
+              DropdownMenuItem(value: 0, child: Text('None')),
+              DropdownMenuItem(value: 1, child: Text('Rectangle')),
+              DropdownMenuItem(value: 2, child: Text('Triangle')),
+            ],
+            onChanged: (v) {
+              if (v != null) {
+                setState(() => _ditherModeIndex = v);
+                _player.setEngineDitherMode(v);
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
         _buildAdvancedSettings(),
       ],
     );

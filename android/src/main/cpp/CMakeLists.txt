@@ -26,11 +26,11 @@ find_library(log-lib log)
 #   -DMINIAUDIODART_CURL_LIBRARY_DIR=<dir-containing-abi-folders>
 # If MINIAUDIODART_CURL_LIBRARY is omitted, CMake will attempt to resolve
 # one of:
-#   <MINIAUDIODART_CURL_LIBRARY_DIR>/<ANDROID_ABI>/libcurl.so
 #   <MINIAUDIODART_CURL_LIBRARY_DIR>/<ANDROID_ABI>/libcurl.a
+#   <MINIAUDIODART_CURL_LIBRARY_DIR>/<ANDROID_ABI>/libcurl.so
 # and fallback to:
-#   <repo>/native/android/<ANDROID_ABI>/libcurl.so
 #   <repo>/native/android/<ANDROID_ABI>/libcurl.a
+#   <repo>/native/android/<ANDROID_ABI>/libcurl.so
 option(MINIAUDIODART_ENABLE_CURL "Enable native URL streaming via libcurl" ON)
 if(MINIAUDIODART_ENABLE_CURL)
   set(_md_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../../../../")
@@ -40,6 +40,7 @@ if(MINIAUDIODART_ENABLE_CURL)
   set(_md_curl_include_dir "${MINIAUDIODART_CURL_INCLUDE_DIR}")
   set(_md_curl_library "${MINIAUDIODART_CURL_LIBRARY}")
   set(_md_curl_library_dir "${MINIAUDIODART_CURL_LIBRARY_DIR}")
+  set(_md_curl_extra_libs "${MINIAUDIODART_CURL_EXTRA_LIBS}")
 
   if(NOT _md_curl_include_dir)
     if(EXISTS "${_md_default_include_dir}")
@@ -54,10 +55,11 @@ if(MINIAUDIODART_ENABLE_CURL)
 
     if(ANDROID_ABI)
       set(_md_curl_abi_dir "${_md_curl_library_dir}/${ANDROID_ABI}")
-      if(EXISTS "${_md_curl_abi_dir}/libcurl.so")
-        set(_md_curl_library "${_md_curl_abi_dir}/libcurl.so")
-      elseif(EXISTS "${_md_curl_abi_dir}/libcurl.a")
+      # Prefer static linking on Android plugin builds to avoid extra .so packaging.
+      if(EXISTS "${_md_curl_abi_dir}/libcurl.a")
         set(_md_curl_library "${_md_curl_abi_dir}/libcurl.a")
+      elseif(EXISTS "${_md_curl_abi_dir}/libcurl.so")
+        set(_md_curl_library "${_md_curl_abi_dir}/libcurl.so")
       endif()
     endif()
   endif()
@@ -72,7 +74,7 @@ if(MINIAUDIODART_ENABLE_CURL)
   if(_md_curl_include_dir AND _md_curl_library)
     target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
     target_include_directories(audio_engine PRIVATE ${_md_curl_include_dir})
-    target_link_libraries(audio_engine PRIVATE ${_md_curl_library})
+    target_link_libraries(audio_engine PRIVATE ${_md_curl_library} ${_md_curl_extra_libs})
     message(STATUS "MiniAudioDart Android: native network streaming enabled (libcurl).")
   else()
     message(WARNING

@@ -1,6 +1,0 @@
-# ninja log v5
-2	51128	7923974656569939	CMakeFiles/audio_engine.dir/C_/Users/wambugukinyua/miniaudiodart/audio_engine.cpp.o	c7178022ced6a1ca
-51144	51459	7923974661301002	C:/Users/wambugukinyua/miniaudiodart/example/build/miniaudiodart/intermediates/cxx/RelWithDebInfo/6oc1y112/obj/arm64-v8a/libaudio_engine.so	703feb32209834e9
-70	468	7928513933015576	C:/Users/wambugukinyua/miniaudiodart/example/build/miniaudiodart/intermediates/cxx/RelWithDebInfo/6oc1y112/obj/arm64-v8a/libaudio_engine.so	703feb32209834e9
-51	48043	7929207201820655	CMakeFiles/audio_engine.dir/C_/Users/wambugukinyua/miniaudiodart/audio_engine.cpp.o	c7178022ced6a1ca
-48044	48393	7929207206781665	C:/Users/wambugukinyua/miniaudiodart/example/build/miniaudiodart/intermediates/cxx/RelWithDebInfo/6oc1y112/obj/arm64-v8a/libaudio_engine.so	703feb32209834e9

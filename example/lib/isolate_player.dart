@@ -175,6 +175,44 @@ class IsolateAudioPlayer {
     });
   }
 
+  // Custom Real-Time Filters
+  void setCustomLpf1({required bool enabled, required double cutoffHz}) {
+    _send({'cmd': 'setCustomLpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
+  }
+
+  void setCustomHpf1({required bool enabled, required double cutoffHz}) {
+    _send({'cmd': 'setCustomHpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
+  }
+
+  void setCustomBiquad({
+    required bool enabled,
+    required double b0,
+    required double b1,
+    required double b2,
+    required double a0,
+    required double a1,
+    required double a2,
+  }) {
+    _send({
+      'cmd': 'setCustomBiquad',
+      'enabled': enabled,
+      'b0': b0,
+      'b1': b1,
+      'b2': b2,
+      'a0': a0,
+      'a1': a1,
+      'a2': a2,
+    });
+  }
+
+  void setEngineResampleAlgorithm(int algorithm) {
+    _send({'cmd': 'setEngineResampleAlgorithm', 'algorithm': algorithm});
+  }
+
+  void setEngineDitherMode(int ditherMode) {
+    _send({'cmd': 'setEngineDitherMode', 'ditherMode': ditherMode});
+  }
+
   void setBandpass({bool? enabled, double? cutoffHz, double? q}) {
     _send({
       'cmd': 'setBandpass',
@@ -392,19 +430,52 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'load':
           try {
-            player.setAudioSources([message['source'] as AudioSource]);
+            final source = message['source'] as AudioSource;
+            if (!player.isNetworkStreamingSupported() && source.isNetwork) {
+              final url = source.uri.toString();
+              initData.sendPort.send(
+                '[log]Native network streaming unavailable; falling back to pushStream for: $url',
+              );
+              player.pushStream(url: url).catchError((e) {
+                initData.sendPort.send('[log]PushStream Error: $e');
+              });
+              break;
+            }
+            player.setAudioSources([source]);
           } catch (e) {
             initData.sendPort.send('[log]Error loading source: $e');
           }
           break;
         case 'setAudioSources':
           try {
+            final sources = (message['sources'] as List).cast<AudioSource>();
+            if (!player.isNetworkStreamingSupported()) {
+              final hasNetworkSource = sources.any((s) => s.isNetwork);
+              if (hasNetworkSource) {
+                if (sources.length == 1) {
+                  final url = sources.first.uri.toString();
+                  initData.sendPort.send(
+                    '[log]Native network streaming unavailable; falling back to pushStream for: $url',
+                  );
+                  player.pushStream(url: url).catchError((e) {
+                    initData.sendPort.send('[log]PushStream Error: $e');
+                  });
+                } else {
+                  initData.sendPort.send(
+                    '[log]Native network streaming unavailable for playlist network sources. Build Android native libs with curl to enable direct network playlist playback.',
+                  );
+                }
+                break;
+              }
+            }
+
             player.setAudioSources(
-                (message['sources'] as List).cast<AudioSource>(),
-                initialIndex: message['index'] ?? 0,
-                initialPosition: message['position'] != null
-                    ? Duration(milliseconds: message['position'])
-                    : Duration.zero);
+              sources,
+              initialIndex: message['index'] ?? 0,
+              initialPosition: message['position'] != null
+                  ? Duration(milliseconds: message['position'])
+                  : Duration.zero,
+            );
           } catch (e) {
             initData.sendPort.send('[log]Error setting sources: $e');
           }
@@ -448,6 +519,29 @@ void _isolateEntry(_IsolateInitData initData) {
               mix: message['mix'],
               feedback: message['feedback'],
               delayMs: message['delayMs']);
+          break;
+        case 'setCustomLpf1':
+          player.setCustomLpf1(
+            enabled: message['enabled'] ?? false,
+            cutoffHz: message['cutoffHz'] ?? 1000.0,
+          );
+          break;
+        case 'setCustomHpf1':
+          player.setCustomHpf1(
+            enabled: message['enabled'] ?? false,
+            cutoffHz: message['cutoffHz'] ?? 80.0,
+          );
+          break;
+        case 'setCustomBiquad':
+          player.setCustomBiquad(
+            enabled: message['enabled'] ?? false,
+            b0: message['b0'] ?? 1.0,
+            b1: message['b1'] ?? 0.0,
+            b2: message['b2'] ?? 0.0,
+            a0: message['a0'] ?? 1.0,
+            a1: message['a1'] ?? 0.0,
+            a2: message['a2'] ?? 0.0,
+          );
           break;
         case 'setBandpass':
           player.setBandpass(
@@ -610,6 +704,12 @@ void _isolateEntry(_IsolateInitData initData) {
           player.pushStream(url: message['url']).catchError((e) {
             initData.sendPort.send('[log]PushStream Error: $e');
           });
+          break;
+        case 'setEngineResampleAlgorithm':
+          player.setEngineResampleAlgorithm(message['algorithm'] ?? 0);
+          break;
+        case 'setEngineDitherMode':
+          player.setEngineDitherMode(message['ditherMode'] ?? 0);
           break;
         case 'dispose':
           player.dispose();

@@ -19,16 +19,22 @@ android {
     def mdCurlIncludeDir = (project.findProperty('MINIAUDIODART_CURL_INCLUDE_DIR') ?: '').toString()
     def mdCurlLibrary = (project.findProperty('MINIAUDIODART_CURL_LIBRARY') ?: '').toString()
     def mdCurlLibraryDir = (project.findProperty('MINIAUDIODART_CURL_LIBRARY_DIR') ?: '').toString()
+    def mdCurlExtraLibs = (project.findProperty('MINIAUDIODART_CURL_EXTRA_LIBS') ?: '').toString()
 
     defaultConfig {
         minSdkVersion 21
+        ndk {
+            // Keep plugin output aligned with bundled prebuilt static curl artifacts.
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O2"
                 arguments "-DMINIAUDIODART_ENABLE_CURL=${mdEnableCurl}",
                           "-DMINIAUDIODART_CURL_INCLUDE_DIR=${mdCurlIncludeDir}",
                           "-DMINIAUDIODART_CURL_LIBRARY=${mdCurlLibrary}",
-                          "-DMINIAUDIODART_CURL_LIBRARY_DIR=${mdCurlLibraryDir}"
+                          "-DMINIAUDIODART_CURL_LIBRARY_DIR=${mdCurlLibraryDir}",
+                          "-DMINIAUDIODART_CURL_EXTRA_LIBS=${mdCurlExtraLibs}"
             }
         }
     }

@@ -279,7 +279,7 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<ProcessingType>(
-              value: _processingType,
+              initialValue: _processingType,
               decoration: const InputDecoration(
                 labelText: 'EQ mode',
                 border: OutlineInputBorder(),
