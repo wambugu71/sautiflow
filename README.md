@@ -2,7 +2,7 @@
 
 ![Sautiflow Logo](docs/assets/sautiflow.png)
 
-Cross-platform Dart audio package backed by a C++ miniaudio engine.
+Sautiflow is a cross-platform audio playback and processing engine for Dart and Flutter, powered by the C++ miniaudio library. It provides a high-level API for playlist management, gapless transitions, audio effects, and real-time status updates, all accessible via Dart FFI. Sautiflow supports native targets including Windows, Linux, Android, iOS, and macOS. Audiophiles and developers can leverage Sautiflow for building rich audio applications with advanced playback and processing capabilities.
 
 ## Features
 
@@ -125,3 +125,7 @@ Optional overrides (Gradle project properties):
 ## Example
 
 See [example/main.dart](example/main.dart) for a complete usage sample.
+
+Leave a star if you find this project useful! ⭐
+
+Project inspired by `just_audio` for simplicity and familiarity of API design, but built on a custom native engine with a focus on advanced audio processing features and real-time capabilities.
