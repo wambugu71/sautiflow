@@ -4,12 +4,26 @@ project(miniaudiodart_linux LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+file(GLOB FAAD2_SOURCES "../third_party/faad2/libfaad/*.c")
+
 add_library(audio_engine SHARED
   ../audio_engine.cpp
+  ../mp4_aac_decoder.cpp
+  ${FAAD2_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/include
+)
+
+target_compile_definitions(audio_engine PRIVATE
+  HAVE_INTTYPES_H=1
+  HAVE_MEMCPY=1
+  HAVE_STRING_H=1
+  HAVE_STRINGS_H=1
+  HAVE_SYS_TYPES_H=1
 )
 
 find_package(CURL QUIET)
