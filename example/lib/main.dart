@@ -127,6 +127,13 @@ class _PlayerShellState extends State<PlayerShell> {
   double _high = 1.0;
   double _gain = 1.0;
   double _pan = 0.0;
+  double _pitch = 1.0;
+
+  bool _spatEnabled = false;
+  double _spatX = 0.0;
+  double _spatY = 0.0;
+  double _spatZ = 0.0;
+
   double _lpCutoff = 12000;
   double _hpCutoff = 80;
   double _bpCutoff = 1000;
@@ -1519,6 +1526,33 @@ class _PlayerShellState extends State<PlayerShell> {
           setState(() => _pan = v);
           _player.setPan(v);
         }),
+        _slider('Pitch', _pitch, 0.1, 4.0, (v) {
+          setState(() => _pitch = v);
+          _player.setPitch(v);
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Spatialization (3D Audio)'),
+          value: _spatEnabled,
+          onChanged: (v) {
+            setState(() => _spatEnabled = v);
+            _player.setSpatializationEnabled(v);
+          },
+        ),
+        if (_spatEnabled) ...[
+          _slider('Source X (Left/Right)', _spatX, -5, 5, (v) {
+            setState(() => _spatX = v);
+            _player.setPosition(x: _spatX, y: _spatY, z: _spatZ);
+          }),
+          _slider('Source Y (Up/Down)', _spatY, -5, 5, (v) {
+            setState(() => _spatY = v);
+            _player.setPosition(x: _spatX, y: _spatY, z: _spatZ);
+          }),
+          _slider('Source Z (Forward/Back)', _spatZ, -5, 5, (v) {
+            setState(() => _spatZ = v);
+            _player.setPosition(x: _spatX, y: _spatY, z: _spatZ);
+          }),
+        ],
         const Divider(),
         SwitchListTile(
           title: const Text('Enable Reverb'),

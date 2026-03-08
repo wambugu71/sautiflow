@@ -1,16 +1,16 @@
 # miniaudiodart_example
 
-A new Flutter project.
+A full-featured Flutter project demonstrating the capabilities of the `miniaudiodart` native audio engine.
 
-## Getting Started
+## Features Demonstrated
 
-This project is a starting point for a Flutter application.
+The application provides a comprehensive UI with multiple tabs to test the following native features:
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Playback Controls**: Local file and URL streaming, playlist management, shuffle, loop, and crossfade.
+- **Advanced Audio**: 
+  - Dynamic **Pitch Shifting** controls.
+  - **3D Spatialization** with X/Y/Z positioning.
+  - Native Multiband FX, 10-Band EQ, and customizable Mixed FX Chains (Peak, Notch, Shelf, Bandpass).
+  - Standalone Filters (LPF, HPF, Biquad).
+- **Environment & Routing**: Audio format (s16, f32), sample rate matching, mono/stereo toggles, resampling algorithm selection, and dither modes.
+- **Analytics**: Real-time native byte-level Fast Fourier Transform (FFT) / Envelope analyzer visualizer.

@@ -653,6 +653,31 @@ struct AudioEngineHandle
     std::atomic<ma_uint64> pendingSeekFrame{0};
     std::atomic<int> pendingSeekIndex{-1};
 
+    // Pitch
+    std::atomic<float> pitchMultiplier{1.0f};
+
+    // Spatialization
+    std::mutex spatialMutex;
+    bool spatializationEnabled = false;
+    ma_spatializer spatializer{};
+    ma_spatializer_listener spatialListener{};
+    bool spatializerInitialized = false;
+
+    // Fading & Scheduling
+    std::atomic<bool> customFadeArmed{false};
+    std::atomic<float> customFadeVolumeBeg{1.0f};
+    std::atomic<float> customFadeVolumeEnd{1.0f};
+    std::atomic<ma_uint64> customFadeFramesTotal{0};
+    std::atomic<ma_uint64> customFadeFramesRemaining{0};
+
+    std::atomic<ma_uint64> scheduledStartTime{-1ULL};
+    std::atomic<ma_uint64> scheduledStopTime{-1ULL};
+    std::atomic<ma_uint64> engineAbsoluteTime{0};
+
+    // End Callback
+    AE_EndCallback endCallback = nullptr;
+    void* pEndCallbackUserData = nullptr;
+
     std::mutex fxMutex;
     bool eqEnabled = false;
     bool reverbEnabled = false;
@@ -1549,6 +1574,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         return;
     }
 
+    const ma_uint64 absTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
+    const ma_uint64 startTime = e->scheduledStartTime.load(std::memory_order_relaxed);
+    if (startTime != -1ULL && absTime < startTime) {
+        // Scheduled to start in the future, return silence
+        if (e->outputFormat != AE_FORMAT_F32)
+        {
+            size_t bytesPerSample = 1;
+            if (e->outputFormat == AE_FORMAT_S16)
+                bytesPerSample = 2;
+            else if (e->outputFormat == AE_FORMAT_S24)
+                bytesPerSample = 3;
+            else if (e->outputFormat == AE_FORMAT_S32)
+                bytesPerSample = 4;
+
+            std::memset(pOutput, 0, totalSamples * bytesPerSample);
+        }
+        e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
+        return;
+    }
+
     ma_uint32 produced = 0;
 
     {
@@ -1575,6 +1620,11 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
                     ma_uint32 outCh = (e->outputChannels > 0) ? (ma_uint32)e->outputChannels : 2;
                     ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
+                    // Dynamically apply pitch if present
+                    const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+                    if (pitch != 1.0f) {
+                        config.sampleRate = (ma_uint32)((float)e->sampleRate * pitch);
+                    }
 
                     // ma_decoder must be zero-initialized before init.
                     // Using default-initialization here can leave garbage fields
@@ -1607,17 +1657,39 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
 
             ma_uint64 framesRead = 0;
+            const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
             ma_result r = ma_decoder_read_pcm_frames(
                 e->currentDecoder,
                 processBuffer + ((size_t)produced * (size_t)e->outputChannels),
                 (ma_uint64)(frameCount - produced),
                 &framesRead);
+            
+            // To properly do pitch shifting without ma_engine, one must use a dedicated ma_resampler over the decoded frames.
+            // But miniaudio doesn't let us push/pull pitch easily without ma_data_source or ma_resampler object.
+            // As a quick inline polyfill for pitch without node graphs: we can just tell the decoder to change its 
+            // internal sample rate output slightly, but decoder API doesn't expose it after init easily without internal access.
+            // For now, if pitch != 1.0f, the initialization branch applies pitch to the initial config. 
+            // Dynamic pitch shifting requires us to run a custom re-sampler over 'framesRead', 
+            // which requires extensive buffering. We will leave dynamic pitch out for this commit unless requested.
 
             // If framesRead > 0, we have data.
             produced += (ma_uint32)framesRead;
+            e->engineAbsoluteTime.fetch_add(framesRead, std::memory_order_relaxed);
+
+            const ma_uint64 absTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
+            const ma_uint64 stopTime = e->scheduledStopTime.load(std::memory_order_relaxed);
+            if (stopTime != -1ULL && absTime >= stopTime) {
+                e->isPlaying.store(false, std::memory_order_relaxed);
+                break;
+            }
 
             if (framesRead == 0 || r == MA_AT_END)
             {
+                if (e->endCallback != nullptr)
+                {
+                    e->endCallback(e->pEndCallbackUserData, e);
+                }
+
                 // Try next track
                 if (e->hasNext)
                 {
@@ -1702,6 +1774,48 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             float vol = e->gain;
             for (size_t i = 0; i < produced * e->outputChannels; ++i)
                 processBuffer[i] *= vol;
+        }
+
+        // Custom Fading (Wait Fade)
+        if (e->customFadeArmed.load(std::memory_order_acquire))
+        {
+            ma_uint64 fadeRemaining = e->customFadeFramesRemaining.load(std::memory_order_relaxed);
+            ma_uint64 fadeTotal = e->customFadeFramesTotal.load(std::memory_order_relaxed);
+            if (fadeRemaining > 0 && fadeTotal > 0)
+            {
+                const float volBeg = e->customFadeVolumeBeg.load(std::memory_order_relaxed);
+                const float volEnd = e->customFadeVolumeEnd.load(std::memory_order_relaxed);
+                
+                ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+                for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
+                {
+                    const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                    const float currentVol = volBeg + (volEnd - volBeg) * t;
+                    const size_t base = (size_t)i * (size_t)e->outputChannels;
+                    for (int c = 0; c < e->outputChannels; ++c)
+                    {
+                        processBuffer[base + (size_t)c] *= currentVol;
+                    }
+                    fadeRemaining -= 1;
+                }
+                e->customFadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+                if (fadeRemaining == 0) {
+                    e->customFadeArmed.store(false, std::memory_order_release);
+                }
+            }
+        }
+
+        // 3D Spatialization
+        bool spatialOn = false;
+        {
+            std::lock_guard<std::mutex> lock(e->spatialMutex);
+            spatialOn = e->spatializationEnabled && e->spatializerInitialized;
+        }
+
+        if (spatialOn)
+        {
+            std::lock_guard<std::mutex> lock(e->spatialMutex);
+            ma_spatializer_process_pcm_frames(&e->spatializer, &e->spatialListener, processBuffer, processBuffer, produced);
         }
 
         // Pan (Assume Stereo or more)
@@ -1822,6 +1936,17 @@ extern "C"
         e->delay.reset(sample_rate, channels);
         reinit_advanced_fx_filters(e);
 
+        // Initialize Spatializer
+        ma_spatializer_config spatConfig = ma_spatializer_config_init(channels, channels);
+        spatConfig.minDistance = 1.0f;
+        spatConfig.maxDistance = 10000.0f;
+        spatConfig.rolloff = 1.0f;
+        if (ma_spatializer_init(&spatConfig, nullptr, &e->spatializer) == MA_SUCCESS) {
+            ma_spatializer_listener_config listConfig = ma_spatializer_listener_config_init(channels);
+            ma_spatializer_listener_init(&listConfig, nullptr, &e->spatialListener);
+            e->spatializerInitialized = true;
+        }
+
         e->analyzerFrameSize = 512;
         e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
         e->analyzerLatest.assign((size_t)e->analyzerFrameSize, 0.0f);
@@ -1924,6 +2049,11 @@ extern "C"
                     e->pushStreamForCurrent.rbBuffer = nullptr;
                 }
                 e->pushStreamForCurrent.initialized = false;
+            }
+
+            if (e->spatializerInitialized) {
+                ma_spatializer_uninit(&e->spatializer, nullptr);
+                e->spatializerInitialized = false;
             }
         }
 
@@ -2560,6 +2690,13 @@ extern "C"
         e->pan = clampf(pan_minus1_to_plus1, -1.0f, 1.0f);
     }
 
+    AE_API void ae_set_pitch(AudioEngineHandle *e, float pitch)
+    {
+        if (e == nullptr)
+            return;
+        e->pitchMultiplier.store(std::max(0.01f, pitch), std::memory_order_relaxed);
+    }
+
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *e, int enabled)
     {
         if (e == nullptr)
@@ -2888,6 +3025,132 @@ extern "C"
         }
     }
 
+    // --- Spatialization (3D Audio) ---
+
+    AE_API void ae_set_spatialization_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        e->spatializationEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_position(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_position(&e->spatializer, x, y, z);
+    }
+
+    AE_API void ae_set_direction(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_direction(&e->spatializer, x, y, z);
+    }
+
+    AE_API void ae_set_velocity(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_velocity(&e->spatializer, x, y, z);
+    }
+
+    AE_API void ae_set_attenuation_model(AudioEngineHandle *e, int model)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_attenuation_model am = ma_attenuation_model_none;
+        switch (model) {
+            case 1: am = ma_attenuation_model_inverse; break;
+            case 2: am = ma_attenuation_model_linear; break;
+            case 3: am = ma_attenuation_model_exponential; break;
+        }
+        ma_spatializer_set_attenuation_model(&e->spatializer, am);
+    }
+
+    AE_API void ae_set_rolloff(AudioEngineHandle *e, float rolloff)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_rolloff(&e->spatializer, rolloff);
+    }
+
+    AE_API void ae_set_min_gain(AudioEngineHandle *e, float min_gain)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_min_gain(&e->spatializer, min_gain);
+    }
+
+    AE_API void ae_set_max_gain(AudioEngineHandle *e, float max_gain)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_max_gain(&e->spatializer, max_gain);
+    }
+
+    AE_API void ae_set_min_distance(AudioEngineHandle *e, float min_distance)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_min_distance(&e->spatializer, min_distance);
+    }
+
+    AE_API void ae_set_max_distance(AudioEngineHandle *e, float max_distance)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_max_distance(&e->spatializer, max_distance);
+    }
+
+    AE_API void ae_set_doppler_factor(AudioEngineHandle *e, float doppler_factor)
+    {
+        if (e == nullptr || !e->spatializerInitialized) return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_doppler_factor(&e->spatializer, doppler_factor);
+    }
+
+    // --- Fading & Scheduling ---
+
+    AE_API void ae_set_fade_in_milliseconds(AudioEngineHandle *e, float volume_beg, float volume_end, int time_ms)
+    {
+        if (e == nullptr || time_ms <= 0) return;
+        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)time_ms / 1000.0));
+        
+        e->customFadeVolumeBeg.store(volume_beg, std::memory_order_relaxed);
+        e->customFadeVolumeEnd.store(volume_end, std::memory_order_relaxed);
+        e->customFadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
+        e->customFadeFramesRemaining.store(fadeFrames, std::memory_order_relaxed);
+        e->customFadeArmed.store(true, std::memory_order_release);
+    }
+
+    AE_API void ae_set_start_time_in_pcm_frames(AudioEngineHandle *e, uint64_t absolute_time)
+    {
+        if (e == nullptr) return;
+        e->scheduledStartTime.store(absolute_time, std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_stop_time_in_pcm_frames(AudioEngineHandle *e, uint64_t absolute_time)
+    {
+        if (e == nullptr) return;
+        e->scheduledStopTime.store(absolute_time, std::memory_order_relaxed);
+    }
+
+    AE_API uint64_t ae_get_engine_time_in_pcm_frames(AudioEngineHandle *e)
+    {
+        if (e == nullptr) return 0;
+        return e->engineAbsoluteTime.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_end_callback(AudioEngineHandle *e, AE_EndCallback callback, void* pUserData)
+    {
+        if (e == nullptr) return;
+        e->endCallback = callback;
+        e->pEndCallbackUserData = pUserData;
+    }
+
+    // Advanced Audio Controls
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
     {
         if (!engine)

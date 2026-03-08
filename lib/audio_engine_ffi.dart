@@ -175,6 +175,42 @@ typedef _SetTwoFloatsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
 typedef _SetTwoFloatsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double);
+
+// Spatialization Typedefs
+// ae_set_spatialization_enabled(AudioEngineHandle *engine, int enabled)
+typedef _SetSpatializationEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetSpatializationEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+// ae_set_position, ae_set_direction, ae_set_velocity (engine, x, y, z)
+typedef _SetSpatializationVec3Native = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetSpatializationVec3Dart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
+// Fading & Scheduling
+typedef _SetFadeInMillisecondsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Int32);
+typedef _SetFadeInMillisecondsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, int);
+
+typedef _SetTimeInPcmFramesNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Uint64);
+typedef _SetTimeInPcmFramesDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetEngineTimeInPcmFramesNative = ffi.Uint64 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetEngineTimeInPcmFramesDart = int Function(ffi.Pointer<ffi.Void>);
+
+// End Callback
+typedef _EndCallbackNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>);
+typedef _SetEndCallbackNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
+typedef _SetEndCallbackDart = void Function(ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
+
 typedef _SetOutputFormatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetOutputFormatDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -420,6 +456,9 @@ class AudioEngineFFI {
     _setPan = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_pan',
     );
+    _setPitch = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+      'ae_set_pitch',
+    );
     _setLowpassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_lowpass_enabled',
@@ -498,6 +537,53 @@ class AudioEngineFFI {
         _SetCustomBiquadParamsDart>(
       'ae_set_custom_biquad_params',
     );
+
+    // Spatialization
+    _setSpatializationEnabled = _lib.lookupFunction<
+        _SetSpatializationEnabledNative,
+        _SetSpatializationEnabledDart>('ae_set_spatialization_enabled');
+    _setPosition = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_position');
+    _setDirection = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_direction');
+    _setVelocity = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_velocity');
+    _setAttenuationModel = _lib
+        .lookupFunction<_SetIntNative, _SetIntDart>('ae_set_attenuation_model');
+    _setRolloff =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_rolloff');
+    _setMinGain =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_min_gain');
+    _setMaxGain =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_max_gain');
+    _setMinDistance =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_min_distance');
+    _setMaxDistance =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_max_distance');
+    _setDopplerFactor =
+        _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+            'ae_set_doppler_factor');
+
+    // Fading & Scheduling
+    _setFadeInMilliseconds = _lib.lookupFunction<_SetFadeInMillisecondsNative,
+        _SetFadeInMillisecondsDart>('ae_set_fade_in_milliseconds');
+    _setStartTimeInPcmFrames =
+        _lib.lookupFunction<_SetTimeInPcmFramesNative, _SetTimeInPcmFramesDart>(
+            'ae_set_start_time_in_pcm_frames');
+    _setStopTimeInPcmFrames =
+        _lib.lookupFunction<_SetTimeInPcmFramesNative, _SetTimeInPcmFramesDart>(
+            'ae_set_stop_time_in_pcm_frames');
+    _getEngineTimeInPcmFrames = _lib.lookupFunction<
+        _GetEngineTimeInPcmFramesNative,
+        _GetEngineTimeInPcmFramesDart>('ae_get_engine_time_in_pcm_frames');
+    _setEndCallback =
+        _lib.lookupFunction<_SetEndCallbackNative, _SetEndCallbackDart>(
+            'ae_set_end_callback');
 
     // Advanced Audio Features Bindings
     _setOutputFormat =
@@ -639,6 +725,7 @@ class AudioEngineFFI {
   late final _SetEqGainsDart _setEqGains;
   late final _SetSingleFloatDart _setGain;
   late final _SetSingleFloatDart _setPan;
+  late final _SetSingleFloatDart _setPitch;
   late final _SetFxEnabledDart _setLowpassEnabled;
   late final _SetSingleFloatDart _setLowpassCutoff;
   late final _SetFxEnabledDart _setHighpassEnabled;
@@ -660,6 +747,26 @@ class AudioEngineFFI {
   late final _SetCustomLpf1ParamsDart _setCustomLpf1Params;
   late final _SetCustomLpf1ParamsDart _setCustomHpf1Params;
   late final _SetCustomBiquadParamsDart _setCustomBiquadParams;
+
+  // Spatialization
+  late final _SetSpatializationEnabledDart _setSpatializationEnabled;
+  late final _SetSpatializationVec3Dart _setPosition;
+  late final _SetSpatializationVec3Dart _setDirection;
+  late final _SetSpatializationVec3Dart _setVelocity;
+  late final _SetIntDart _setAttenuationModel;
+  late final _SetSingleFloatDart _setRolloff;
+  late final _SetSingleFloatDart _setMinGain;
+  late final _SetSingleFloatDart _setMaxGain;
+  late final _SetSingleFloatDart _setMinDistance;
+  late final _SetSingleFloatDart _setMaxDistance;
+  late final _SetSingleFloatDart _setDopplerFactor;
+
+  // Fading & Scheduling
+  late final _SetFadeInMillisecondsDart _setFadeInMilliseconds;
+  late final _SetTimeInPcmFramesDart _setStartTimeInPcmFrames;
+  late final _SetTimeInPcmFramesDart _setStopTimeInPcmFrames;
+  late final _GetEngineTimeInPcmFramesDart _getEngineTimeInPcmFrames;
+  late final _SetEndCallbackDart _setEndCallback;
 
   // Advanced Audio Features
   late final _SetOutputFormatDart _setOutputFormat;
@@ -1031,6 +1138,11 @@ class AudioEngineFFI {
     _setPan(_engine, panMinus1ToPlus1);
   }
 
+  void setPitch(double pitchMultiplier) {
+    if (_engine == ffi.nullptr) return;
+    _setPitch(_engine, pitchMultiplier);
+  }
+
   void setLowpassEnabled(bool enabled) {
     if (_engine == ffi.nullptr) return;
     _setLowpassEnabled(_engine, enabled ? 1 : 0);
@@ -1156,6 +1268,93 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setCustomBiquadParams(_engine, enabled ? 1 : 0, b0, b1, b2, a0, a1, a2);
+  }
+
+  // Spatialization
+
+  void setSpatializationEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setSpatializationEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setPosition({required double x, required double y, required double z}) {
+    if (_engine == ffi.nullptr) return;
+    _setPosition(_engine, x, y, z);
+  }
+
+  void setDirection({required double x, required double y, required double z}) {
+    if (_engine == ffi.nullptr) return;
+    _setDirection(_engine, x, y, z);
+  }
+
+  void setVelocity({required double x, required double y, required double z}) {
+    if (_engine == ffi.nullptr) return;
+    _setVelocity(_engine, x, y, z);
+  }
+
+  /// 0 = None, 1 = Inverse, 2 = Linear, 3 = Exponential
+  void setAttenuationModel(int model) {
+    if (_engine == ffi.nullptr) return;
+    _setAttenuationModel(_engine, model);
+  }
+
+  void setRolloff(double rolloff) {
+    if (_engine == ffi.nullptr) return;
+    _setRolloff(_engine, rolloff);
+  }
+
+  void setMinGain(double minGain) {
+    if (_engine == ffi.nullptr) return;
+    _setMinGain(_engine, minGain);
+  }
+
+  void setMaxGain(double maxGain) {
+    if (_engine == ffi.nullptr) return;
+    _setMaxGain(_engine, maxGain);
+  }
+
+  void setMinDistance(double minDistance) {
+    if (_engine == ffi.nullptr) return;
+    _setMinDistance(_engine, minDistance);
+  }
+
+  void setMaxDistance(double maxDistance) {
+    if (_engine == ffi.nullptr) return;
+    _setMaxDistance(_engine, maxDistance);
+  }
+
+  void setDopplerFactor(double dopplerFactor) {
+    if (_engine == ffi.nullptr) return;
+    _setDopplerFactor(_engine, dopplerFactor);
+  }
+
+  // Fading & Scheduling
+
+  void setFade(double startVol, double endVol, int durationMs) {
+    if (_engine == ffi.nullptr) return;
+    _setFadeInMilliseconds(_engine, startVol, endVol, durationMs);
+  }
+
+  void scheduleStartTimeInPcmFrames(int absoluteTime) {
+    if (_engine == ffi.nullptr) return;
+    _setStartTimeInPcmFrames(_engine, absoluteTime);
+  }
+
+  void scheduleStopTimeInPcmFrames(int absoluteTime) {
+    if (_engine == ffi.nullptr) return;
+    _setStopTimeInPcmFrames(_engine, absoluteTime);
+  }
+
+  int getEngineTimeInPcmFrames() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getEngineTimeInPcmFrames(_engine);
+  }
+
+  void setEndCallback(
+      ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>> callback,
+      ffi.Pointer<ffi.Void> userData) {
+    if (_engine == ffi.nullptr) return;
+    _setEndCallback(_engine, callback, userData);
   }
 
   // Advanced Audio Features Helpers

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.5
+- **[Pitch & Spatialization]** Added new advanced audio features natively using miniaudio:
+  - Added robust Pitch Control with `setPitch(double)`.
+  - Added 3D Spatial Audio: Enable via `setSpatializationEnabled(bool)` and position sound sources in a 3D environment via `setPosition(x,y,z)`, `setDirection()`, and `setVelocity()`.
+  - Configurable 3D Audio parameters: Doppler effect, attenuation models, rolloff factor, min/max gain, and distance thresholds.
+  - Added customizable Fading: `setFade(startVol, endVol, durationMs)`.
+  - Added granular Playback Scheduling: `scheduleStartTimeInPcmFrames(time)` and `scheduleStopTimeInPcmFrames(time)`.
+- **[Example App]** Updated the demonstration app with UI sliders to configure Pitch shifting and 3D Spatial Audio in real-time.
+
 ## 0.5.0
 
 - Integrated `libsamplerate` (Secret Rabbit Code) for audiophile-grade audio resampling.

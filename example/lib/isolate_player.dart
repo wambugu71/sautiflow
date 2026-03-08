@@ -144,6 +144,13 @@ class IsolateAudioPlayer {
 
   void setGain(double gain) => _send({'cmd': 'setGain', 'gain': gain});
   void setPan(double pan) => _send({'cmd': 'setPan', 'pan': pan});
+  void setPitch(double pitch) => _send({'cmd': 'setPitch', 'pitch': pitch});
+
+  void setSpatializationEnabled(bool enabled) =>
+      _send({'cmd': 'setSpatializationEnabled', 'enabled': enabled});
+  void setPosition({required double x, required double y, required double z}) {
+    _send({'cmd': 'setPosition', 'x': x, 'y': y, 'z': z});
+  }
 
   void setReverbEnabled(bool enabled) =>
       _send({'cmd': 'setReverbEnabled', 'enabled': enabled});
@@ -503,6 +510,19 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setPan':
           player.setPan(message['pan']);
+          break;
+        case 'setPitch':
+          player.setPitch(message['pitch']);
+          break;
+        case 'setSpatializationEnabled':
+          player.setSpatializationEnabled(message['enabled']);
+          break;
+        case 'setPosition':
+          player.setPosition(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
           break;
         case 'setReverbEnabled':
           player.setReverbEnabled(message['enabled']);

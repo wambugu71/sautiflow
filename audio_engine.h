@@ -111,6 +111,7 @@ extern "C"
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
     AE_API void ae_set_pan(AudioEngineHandle *engine, float pan_minus1_to_plus1);
+    AE_API void ae_set_pitch(AudioEngineHandle *engine, float pitch);
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_lowpass_cutoff(AudioEngineHandle *engine, float hz);
     AE_API void ae_set_highpass_enabled(AudioEngineHandle *engine, int enabled);
@@ -127,6 +128,32 @@ extern "C"
     AE_API void ae_set_lowshelf_params(AudioEngineHandle *engine, float gain_db, float slope, float frequency_hz);
     AE_API void ae_set_highshelf_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_highshelf_params(AudioEngineHandle *engine, float gain_db, float slope, float frequency_hz);
+
+    // Spatialization (3D Audio)
+    AE_API void ae_set_spatialization_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_position(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_direction(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_velocity(AudioEngineHandle *engine, float x, float y, float z);
+    // Attenuation models: 0=None, 1=Inverse, 2=Linear, 3=Exponential
+    AE_API void ae_set_attenuation_model(AudioEngineHandle *engine, int model);
+    AE_API void ae_set_rolloff(AudioEngineHandle *engine, float rolloff);
+    AE_API void ae_set_min_gain(AudioEngineHandle *engine, float min_gain);
+    AE_API void ae_set_max_gain(AudioEngineHandle *engine, float max_gain);
+    AE_API void ae_set_min_distance(AudioEngineHandle *engine, float min_distance);
+    AE_API void ae_set_max_distance(AudioEngineHandle *engine, float max_distance);
+    AE_API void ae_set_doppler_factor(AudioEngineHandle *engine, float doppler_factor);
+
+    // Fading & Scheduling
+    // Wait fade: sets a target volume over ms time
+    AE_API void ae_set_fade_in_milliseconds(AudioEngineHandle *engine, float volume_beg, float volume_end, int time_ms);
+    // Scheduling start/stop using absolute engine time (pcm frames). -1 means no schedule.
+    AE_API void ae_set_start_time_in_pcm_frames(AudioEngineHandle *engine, uint64_t absolute_time);
+    AE_API void ae_set_stop_time_in_pcm_frames(AudioEngineHandle *engine, uint64_t absolute_time);
+    AE_API uint64_t ae_get_engine_time_in_pcm_frames(AudioEngineHandle *engine);
+
+    // End Callback processing
+    typedef void (*AE_EndCallback)(void* pUserData, AudioEngineHandle* engine);
+    AE_API void ae_set_end_callback(AudioEngineHandle *engine, AE_EndCallback callback, void* pUserData);
 
     // Advanced Audio Controls
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);

@@ -301,6 +301,46 @@ class MiniAudioPlayer {
   void setGain(double gain) => _engine.setGain(gain);
   void setVolume(double volume) => setGain(volume);
   void setPan(double pan) => _engine.setPan(pan);
+  void setPitch(double pitch) => _engine.setPitch(pitch);
+
+  // --- Spatialization ---
+  void setSpatializationEnabled(bool enabled) =>
+      _engine.setSpatializationEnabled(enabled);
+  void setPosition({required double x, required double y, required double z}) =>
+      _engine.setPosition(x: x, y: y, z: z);
+  void setDirection(
+          {required double x, required double y, required double z}) =>
+      _engine.setDirection(x: x, y: y, z: z);
+  void setVelocity({required double x, required double y, required double z}) =>
+      _engine.setVelocity(x: x, y: y, z: z);
+  void setAttenuationModel(int model) => _engine.setAttenuationModel(model);
+  void setRolloff(double rolloff) => _engine.setRolloff(rolloff);
+  void setMinGain(double minGain) => _engine.setMinGain(minGain);
+  void setMaxGain(double maxGain) => _engine.setMaxGain(maxGain);
+  void setMinDistance(double minDistance) =>
+      _engine.setMinDistance(minDistance);
+  void setMaxDistance(double maxDistance) =>
+      _engine.setMaxDistance(maxDistance);
+  void setDopplerFactor(double dopplerFactor) =>
+      _engine.setDopplerFactor(dopplerFactor);
+
+  // --- Fading & Scheduling ---
+  void setFade(double startVol, double endVol, int durationMs) =>
+      _engine.setFade(startVol, endVol, durationMs);
+  void scheduleStartTimeInPcmFrames(int absoluteTime) =>
+      _engine.scheduleStartTimeInPcmFrames(absoluteTime);
+  void scheduleStopTimeInPcmFrames(int absoluteTime) =>
+      _engine.scheduleStopTimeInPcmFrames(absoluteTime);
+  int getEngineTimeInPcmFrames() => _engine.getEngineTimeInPcmFrames();
+  void setEndCallback(
+      ffi.Pointer<
+              ffi.NativeFunction<
+                  ffi.Void Function(
+                      ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>)>>
+          callback,
+      ffi.Pointer<ffi.Void> userData) {
+    _engine.setEndCallback(callback, userData);
+  }
 
   void setLowpass({required bool enabled, required double cutoffHz}) {
     _engine.setLowpassEnabled(enabled);
