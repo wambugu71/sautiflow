@@ -603,6 +603,74 @@ namespace
         nullptr  // onReset
     };
 
+    struct LimiterState
+    {
+        float threshold = 0.95f;   // Level above which gain reduction starts (linear)
+        float attackMs = 2.0f;     // Attack time in ms
+        float releaseMs = 50.0f;   // Release time in ms
+
+        float attackCoeff = 0.0f;
+        float releaseCoeff = 0.0f;
+        float gainEnvelope = 1.0f;
+
+        void updateCoefficients(int sampleRate)
+        {
+            // Simple 1-pole exponential moving average coefficients
+            attackCoeff = std::exp(-1.0f / (attackMs * 0.001f * (float)sampleRate));
+            releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
+        }
+
+        void updateParams(int sampleRate, float newThreshold, float newAttackMs, float newReleaseMs)
+        {
+            threshold = clampf(newThreshold, 0.1f, 1.0f);
+            attackMs = clampf(newAttackMs, 0.1f, 100.0f);
+            releaseMs = clampf(newReleaseMs, 10.0f, 1000.0f);
+            updateCoefficients(sampleRate);
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 1) return;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                // Find peak absolute value across all channels for this frame (linked channels)
+                float peak = 0.0f;
+                size_t base = (size_t)i * (size_t)channels;
+                for (int c = 0; c < channels; ++c)
+                {
+                    float absVal = std::abs(interleaved[base + (size_t)c]);
+                    if (absVal > peak) peak = absVal;
+                }
+
+                // Calculate desired gain
+                float targetGain = 1.0f;
+                if (peak > threshold)
+                {
+                    targetGain = threshold / peak;
+                }
+
+                // Smooth the gain matching attack/release
+                if (targetGain < gainEnvelope)
+                {
+                    // Attack phase (gain is reducing)
+                    gainEnvelope = attackCoeff * gainEnvelope + (1.0f - attackCoeff) * targetGain;
+                }
+                else
+                {
+                    // Release phase (gain is recovering)
+                    gainEnvelope = releaseCoeff * gainEnvelope + (1.0f - releaseCoeff) * targetGain;
+                }
+
+                // Apply gain reduction
+                for (int c = 0; c < channels; ++c)
+                {
+                    interleaved[base + (size_t)c] *= gainEnvelope;
+                }
+            }
+        }
+    };
+
 } // namespace
 
 struct AudioEngineHandle
@@ -719,6 +787,12 @@ struct AudioEngineHandle
     float highshelfSlope = 1.0f;
     float highshelfFrequencyHz = 4000.0f;
     ma_hishelf2 highshelf{};
+
+    // Audio Limiter & Clipping Detection
+    bool limiterEnabled = false;
+    LimiterState limiter;
+    std::atomic<bool> clippingDetectionEnabled{false};
+    std::atomic<uint64_t> clippedSamplesCount{0};
 
     bool customLpf1Enabled = false;
     double customLpf1Cutoff = 1000.0;
@@ -1876,6 +1950,29 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             e->reverb.process(processBuffer, produced, e->outputChannels);
 
         e->capture_analyzer_frames(processBuffer, produced, e->outputChannels);
+
+        // Limiter & Clipping Detection (run at the end of the chain before format conversion)
+        if (e->limiterEnabled)
+        {
+            e->limiter.process(processBuffer, produced, e->outputChannels);
+        }
+
+        if (e->clippingDetectionEnabled.load(std::memory_order_relaxed))
+        {
+            uint64_t clippedCountLocal = 0;
+            const size_t numSamplesCheck = produced * e->outputChannels;
+            for (size_t i = 0; i < numSamplesCheck; ++i)
+            {
+                if (processBuffer[i] > 1.0f || processBuffer[i] < -1.0f)
+                {
+                    clippedCountLocal++;
+                }
+            }
+            if (clippedCountLocal > 0)
+            {
+                e->clippedSamplesCount.fetch_add(clippedCountLocal, std::memory_order_relaxed);
+            }
+        }
     }
 
     // Format Conversion if needed
@@ -3213,6 +3310,44 @@ extern "C"
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
     {
         return engine ? engine->ditherMode : 0;
+    }
+
+    // Audio Limiter & Clipping Detection
+    AE_API void ae_set_limiter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> fx(engine->fxMutex);
+        engine->limiterEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> fx(engine->fxMutex);
+        engine->limiter.updateParams(engine->sampleRate, threshold, attack_ms, release_ms);
+    }
+
+    AE_API void ae_set_clipping_detection_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->clippingDetectionEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API uint64_t ae_get_clipped_samples_count(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->clippedSamplesCount.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_reset_clipped_samples_count(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return;
+        engine->clippedSamplesCount.store(0, std::memory_order_relaxed);
     }
 
     AE_API void ae_init_multiband_eq(AudioEngineHandle *engine, int band_count, float *frequencies, float *q_factors)

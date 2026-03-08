@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:sautiflow/sautiflow.dart';
 
@@ -37,6 +39,17 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
   bool _fxEnabled = true;
   ProcessingType _processingType = ProcessingType.mixedMultibandFx;
   String _status = 'Initializing...';
+
+  // ── Limiter state ────────────────────────────────────────────────────────
+  bool _limiterEnabled = false;
+  double _limiterThreshold = 0.95;
+  double _limiterAttackMs = 2.0;
+  double _limiterReleaseMs = 50.0;
+
+  // ── Clipping Detection state ─────────────────────────────────────────────
+  bool _clipDetectionEnabled = false;
+  int _clippedSamples = 0;
+  Timer? _clipPollTimer;
 
   final List<EqBandConfig> _bands = _buildTenBandMixedPreset();
 
@@ -126,6 +139,49 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
     });
   }
 
+  // ── Limiter helpers ──────────────────────────────────────────────────────
+
+  void _applyLimiter() {
+    if (!_initialized) return;
+    _player.setLimiterEnabled(_limiterEnabled);
+    if (_limiterEnabled) {
+      _player.setLimiterParams(
+        threshold: _limiterThreshold,
+        attackMs: _limiterAttackMs,
+        releaseMs: _limiterReleaseMs,
+      );
+    }
+  }
+
+  // ── Clipping-detection helpers ───────────────────────────────────────────
+
+  void _applyClipDetection(bool enabled) {
+    if (!_initialized) return;
+    _player.setClippingDetectionEnabled(enabled);
+    if (enabled) {
+      _clipPollTimer?.cancel();
+      _clipPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (!mounted) return;
+        final count = _player.getClippedSamplesCount();
+        // Schedule via post-frame callback to avoid calling setState
+        // during Flutter's mouse-tracker device-update phase.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _clippedSamples = count);
+        });
+      });
+    } else {
+      _clipPollTimer?.cancel();
+      _clipPollTimer = null;
+    }
+  }
+
+  void _resetClipCounter() {
+    _player.resetClippedSamplesCount();
+    setState(() => _clippedSamples = 0);
+  }
+
+  // ── Existing EQ helpers ──────────────────────────────────────────────────
+
   void _applyFx({bool updateStatus = true}) {
     if (!_initialized) return;
     _applySelectedProcessor();
@@ -165,7 +221,6 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
       return;
     }
 
-    // Multiband EQ path (peak-only bands).
     _player.setMultibandFxEnabled(false);
 
     final frequencies = _bands.map((b) => b.frequencyHz).toList();
@@ -249,21 +304,23 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
 
   @override
   void dispose() {
+    _clipPollTimer?.cancel();
     _player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('EQ Screen'),
-      ),
+      appBar: AppBar(title: const Text('Sautiflow – EQ & Limiter')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── EQ enable toggle ─────────────────────────────────────────
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text('Enable ${_processingType.label}'),
@@ -271,9 +328,7 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
               onChanged: !_initialized
                   ? null
                   : (value) {
-                      setState(() {
-                        _fxEnabled = value;
-                      });
+                      setState(() => _fxEnabled = value);
                       _applySelectedProcessor();
                     },
             ),
@@ -296,9 +351,7 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
                   ? null
                   : (value) {
                       if (value == null) return;
-                      setState(() {
-                        _processingType = value;
-                      });
+                      setState(() => _processingType = value);
                       _applyFx();
                     },
             ),
@@ -308,40 +361,173 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
               runSpacing: 8,
               children: [
                 FilledButton(
-                  onPressed: _initialized ? _applyFx : null,
-                  child: const Text('Apply Bands'),
-                ),
+                    onPressed: _initialized ? _applyFx : null,
+                    child: const Text('Apply Bands')),
                 OutlinedButton(
-                  onPressed: _initialized ? _loadTenBandPreset : null,
-                  child: const Text('Load 10-Band Preset'),
-                ),
+                    onPressed: _initialized ? _loadTenBandPreset : null,
+                    child: const Text('10-Band Preset')),
                 OutlinedButton(
-                  onPressed: _initialized ? _addPeakBand : null,
-                  child: const Text('Add Band'),
-                ),
+                    onPressed: _initialized ? _addPeakBand : null,
+                    child: const Text('Add Band')),
                 OutlinedButton(
-                  onPressed:
-                      _initialized ? _replaceAllBandsWithExtraPeak : null,
-                  child: const Text('Replace +1 Peak@3500'),
-                ),
+                    onPressed:
+                        _initialized ? _replaceAllBandsWithExtraPeak : null,
+                    child: const Text('+1 Peak@3500')),
                 OutlinedButton(
-                  onPressed: _initialized ? _removeLastBand : null,
-                  child: const Text('Remove Last Band'),
-                ),
+                    onPressed: _initialized ? _removeLastBand : null,
+                    child: const Text('Remove Last')),
                 OutlinedButton(
-                  onPressed: _initialized ? _clearMixedFx : null,
-                  child: const Text('Clear Mixed FX'),
-                ),
+                    onPressed: _initialized ? _clearMixedFx : null,
+                    child: const Text('Clear FX')),
               ],
             ),
+            const SizedBox(height: 8),
+            Text(_status, style: Theme.of(context).textTheme.bodyMedium),
+
             const SizedBox(height: 12),
-            Text(
-              _status,
-              style: Theme.of(context).textTheme.bodyMedium,
+
+            // ── Limiter Card ─────────────────────────────────────────────
+            Card(
+              color: cs.surfaceContainerHighest,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.compress, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Soft Limiter',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        Switch(
+                          value: _limiterEnabled,
+                          onChanged: !_initialized
+                              ? null
+                              : (v) {
+                                  setState(() => _limiterEnabled = v);
+                                  _applyLimiter();
+                                },
+                        ),
+                      ],
+                    ),
+                    _LabeledSlider(
+                      label: 'Threshold',
+                      value: _limiterThreshold,
+                      min: 0.1,
+                      max: 1.0,
+                      divisions: 90,
+                      displayValue: _limiterThreshold.toStringAsFixed(2),
+                      enabled: _initialized && _limiterEnabled,
+                      onChanged: (v) {
+                        setState(() => _limiterThreshold = v);
+                        _applyLimiter();
+                      },
+                    ),
+                    _LabeledSlider(
+                      label: 'Attack (ms)',
+                      value: _limiterAttackMs,
+                      min: 0.1,
+                      max: 100.0,
+                      divisions: 100,
+                      displayValue: _limiterAttackMs.toStringAsFixed(1),
+                      enabled: _initialized && _limiterEnabled,
+                      onChanged: (v) {
+                        setState(() => _limiterAttackMs = v);
+                        _applyLimiter();
+                      },
+                    ),
+                    _LabeledSlider(
+                      label: 'Release (ms)',
+                      value: _limiterReleaseMs,
+                      min: 10.0,
+                      max: 1000.0,
+                      divisions: 99,
+                      displayValue: _limiterReleaseMs.toStringAsFixed(0),
+                      enabled: _initialized && _limiterEnabled,
+                      onChanged: (v) {
+                        setState(() => _limiterReleaseMs = v);
+                        _applyLimiter();
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
+
+            const SizedBox(height: 8),
+
+            // ── Clipping Detection Card ──────────────────────────────────
+            Card(
+              color: _clippedSamples > 0
+                  ? cs.errorContainer
+                  : cs.surfaceContainerHighest,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color:
+                          _clippedSamples > 0 ? cs.error : cs.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Clipping Detection',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            _clipDetectionEnabled
+                                ? 'Clipped samples: $_clippedSamples'
+                                : 'Disabled',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _initialized && _clipDetectionEnabled
+                          ? _resetClipCounter
+                          : null,
+                      child: const Text('Reset'),
+                    ),
+                    Switch(
+                      value: _clipDetectionEnabled,
+                      onChanged: !_initialized
+                          ? null
+                          : (v) {
+                              setState(() {
+                                _clipDetectionEnabled = v;
+                                if (!v) _clippedSamples = 0;
+                              });
+                              _applyClipDetection(v);
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
             const SizedBox(height: 12),
+
+            // ── Band list ────────────────────────────────────────────────
             Text(
-              'Current band chain (${_bands.length})',
+              'Band chain (${_bands.length})',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -414,6 +600,60 @@ class _MixedMultibandFxPageState extends State<MixedMultibandFxPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Helper widget ──────────────────────────────────────────────────────────
+
+class _LabeledSlider extends StatelessWidget {
+  const _LabeledSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.displayValue,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final String displayValue;
+  final ValueChanged<double> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 90,
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: divisions,
+            label: displayValue,
+            onChanged: enabled ? onChanged : null,
+          ),
+        ),
+        SizedBox(
+          width: 46,
+          child: Text(
+            displayValue,
+            textAlign: TextAlign.end,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
     );
   }
 }

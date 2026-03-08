@@ -172,6 +172,15 @@ class _PlayerShellState extends State<PlayerShell> {
   int _resampleAlgIndex = 0;
   int _ditherModeIndex = 0;
 
+  // Limiter & Clipping Detection
+  bool _limiterEnabled = false;
+  double _limiterThreshold = 0.95;
+  double _limiterAttackMs = 2.0;
+  double _limiterReleaseMs = 50.0;
+  bool _clipDetectionEnabled = false;
+  int _clippedSamples = 0;
+  Timer? _clipPollTimer;
+
   bool _analyzerEnabled = false;
   int _analyzerFrameSize = 512;
   StreamSubscription<Float32List>? _analyzerSub;
@@ -283,11 +292,40 @@ class _PlayerShellState extends State<PlayerShell> {
     _applyMixEq();
   }
 
+  void _applyLimiter() {
+    _player.setLimiterEnabled(_limiterEnabled);
+    if (_limiterEnabled) {
+      _player.setLimiterParams(
+        threshold: _limiterThreshold,
+        attackMs: _limiterAttackMs,
+        releaseMs: _limiterReleaseMs,
+      );
+    }
+  }
+
+  void _setClipDetection(bool enabled) {
+    _player.setClippingDetectionEnabled(enabled);
+    if (enabled) {
+      _clipPollTimer?.cancel();
+      _clipPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (!mounted) return;
+        final count = _player.getClippedSamplesCount();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _clippedSamples = count);
+        });
+      });
+    } else {
+      _clipPollTimer?.cancel();
+      _clipPollTimer = null;
+    }
+  }
+
   @override
   void dispose() {
     _singleUrlController.dispose();
     _multiUrlController.dispose();
     _analyzerSub?.cancel();
+    _clipPollTimer?.cancel();
     _status.dispose();
     _player.dispose();
     super.dispose();
@@ -1977,6 +2015,122 @@ class _PlayerShellState extends State<PlayerShell> {
         ),
         const SizedBox(height: 16),
         _buildAdvancedSettings(),
+        const Divider(),
+        // ── Soft Limiter ────────────────────────────────────────────────
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Soft Limiter',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        SwitchListTile(
+          title: const Text('Enable Limiter'),
+          secondary: const Icon(Icons.compress),
+          value: _limiterEnabled,
+          onChanged: (v) {
+            setState(() => _limiterEnabled = v);
+            _applyLimiter();
+          },
+        ),
+        ListTile(
+          title: const Text('Threshold'),
+          subtitle: Slider(
+            value: _limiterThreshold.clamp(0.1, 1.0),
+            min: 0.1,
+            max: 1.0,
+            divisions: 90,
+            label: _limiterThreshold.toStringAsFixed(2),
+            onChanged: _limiterEnabled
+                ? (v) {
+                    setState(() => _limiterThreshold = v);
+                    _applyLimiter();
+                  }
+                : null,
+          ),
+          trailing: Text(_limiterThreshold.toStringAsFixed(2)),
+        ),
+        ListTile(
+          title: const Text('Attack (ms)'),
+          subtitle: Slider(
+            value: _limiterAttackMs.clamp(0.1, 100.0),
+            min: 0.1,
+            max: 100.0,
+            divisions: 100,
+            label: _limiterAttackMs.toStringAsFixed(1),
+            onChanged: _limiterEnabled
+                ? (v) {
+                    setState(() => _limiterAttackMs = v);
+                    _applyLimiter();
+                  }
+                : null,
+          ),
+          trailing: Text('${_limiterAttackMs.toStringAsFixed(1)} ms'),
+        ),
+        ListTile(
+          title: const Text('Release (ms)'),
+          subtitle: Slider(
+            value: _limiterReleaseMs.clamp(10.0, 1000.0),
+            min: 10.0,
+            max: 1000.0,
+            divisions: 99,
+            label: _limiterReleaseMs.toStringAsFixed(0),
+            onChanged: _limiterEnabled
+                ? (v) {
+                    setState(() => _limiterReleaseMs = v);
+                    _applyLimiter();
+                  }
+                : null,
+          ),
+          trailing: Text('${_limiterReleaseMs.toStringAsFixed(0)} ms'),
+        ),
+        const Divider(),
+        // ── Clipping Detection ───────────────────────────────────────────
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Clipping Detection',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        SwitchListTile(
+          title: const Text('Enable Clipping Detection'),
+          secondary: Icon(
+            Icons.warning_amber_rounded,
+            color: _clippedSamples > 0 ? Colors.red : null,
+          ),
+          subtitle: _clipDetectionEnabled
+              ? Text(
+                  'Clipped samples: $_clippedSamples',
+                  style: TextStyle(
+                    color: _clippedSamples > 0 ? Colors.red : null,
+                    fontWeight: _clippedSamples > 0
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                )
+              : null,
+          value: _clipDetectionEnabled,
+          onChanged: (v) {
+            setState(() {
+              _clipDetectionEnabled = v;
+              if (!v) _clippedSamples = 0;
+            });
+            _setClipDetection(v);
+          },
+        ),
+        if (_clipDetectionEnabled)
+          ListTile(
+            title: const Text('Reset Clip Counter'),
+            trailing: FilledButton.tonal(
+              onPressed: () {
+                _player.resetClippedSamplesCount();
+                setState(() => _clippedSamples = 0);
+              },
+              child: const Text('Reset'),
+            ),
+          ),
+        const SizedBox(height: 16),
       ],
     );
   }

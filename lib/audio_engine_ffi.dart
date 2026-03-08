@@ -248,6 +248,29 @@ typedef _SetEngineDitherModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetEngineDitherModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetEngineDitherModeDart = int Function(ffi.Pointer<ffi.Void>);
 
+// Limiter & Clipping Detection
+typedef _SetLimiterEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetLimiterEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _SetLimiterParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetLimiterParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
+typedef _SetClippingDetectionEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetClippingDetectionEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetClippedSamplesCountNative = ffi.Uint64 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetClippedSamplesCountDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _ResetClippedSamplesCountNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>);
+typedef _ResetClippedSamplesCountDart = void Function(ffi.Pointer<ffi.Void>);
+
 typedef _InitMultibandEqNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
     ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
 typedef _InitMultibandEqDart = void Function(
@@ -623,6 +646,22 @@ class AudioEngineFFI {
     _getEngineDitherMode = _lib.lookupFunction<_GetEngineDitherModeNative,
         _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
+    // Limiter & Clipping Detection
+    _setLimiterEnabled =
+        _lib.lookupFunction<_SetLimiterEnabledNative, _SetLimiterEnabledDart>(
+            'ae_set_limiter_enabled');
+    _setLimiterParams =
+        _lib.lookupFunction<_SetLimiterParamsNative, _SetLimiterParamsDart>(
+            'ae_set_limiter_params');
+    _setClippingDetectionEnabled = _lib.lookupFunction<
+        _SetClippingDetectionEnabledNative,
+        _SetClippingDetectionEnabledDart>('ae_set_clipping_detection_enabled');
+    _getClippedSamplesCount = _lib.lookupFunction<_GetClippedSamplesCountNative,
+        _GetClippedSamplesCountDart>('ae_get_clipped_samples_count');
+    _resetClippedSamplesCount = _lib.lookupFunction<
+        _ResetClippedSamplesCountNative,
+        _ResetClippedSamplesCountDart>('ae_reset_clipped_samples_count');
+
     _initMultibandEq =
         _lib.lookupFunction<_InitMultibandEqNative, _InitMultibandEqDart>(
       'ae_init_multiband_eq',
@@ -780,6 +819,13 @@ class AudioEngineFFI {
   late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
   late final _SetEngineDitherModeDart _setEngineDitherMode;
   late final _GetEngineDitherModeDart _getEngineDitherMode;
+
+  // Limiter & Clipping Detection
+  late final _SetLimiterEnabledDart _setLimiterEnabled;
+  late final _SetLimiterParamsDart _setLimiterParams;
+  late final _SetClippingDetectionEnabledDart _setClippingDetectionEnabled;
+  late final _GetClippedSamplesCountDart _getClippedSamplesCount;
+  late final _ResetClippedSamplesCountDart _resetClippedSamplesCount;
 
   late final _InitMultibandEqDart _initMultibandEq;
   late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
@@ -1408,6 +1454,47 @@ class AudioEngineFFI {
   int getEngineDitherMode() {
     if (_engine == ffi.nullptr) return 0;
     return _getEngineDitherMode(_engine);
+  }
+
+  // ── Limiter & Clipping Detection ──────────────────────────────────────────
+
+  /// Enable or disable the soft limiter in the audio chain.
+  void setLimiterEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setLimiterEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  /// Configure the limiter parameters.
+  ///
+  /// [threshold] – linear amplitude threshold (0.1 – 1.0, default 0.95).
+  /// [attackMs]  – attack time in milliseconds (0.1 – 100 ms, default 2 ms).
+  /// [releaseMs] – release time in milliseconds (10 – 1000 ms, default 50 ms).
+  void setLimiterParams({
+    double threshold = 0.95,
+    double attackMs = 2.0,
+    double releaseMs = 50.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setLimiterParams(_engine, threshold, attackMs, releaseMs);
+  }
+
+  /// Enable or disable clipping detection.
+  /// When enabled, samples exceeding ±1.0 are counted by the engine.
+  void setClippingDetectionEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setClippingDetectionEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  /// Returns the total number of clipped samples since the last reset.
+  int getClippedSamplesCount() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getClippedSamplesCount(_engine);
+  }
+
+  /// Resets the clipped-sample counter back to zero.
+  void resetClippedSamplesCount() {
+    if (_engine == ffi.nullptr) return;
+    _resetClippedSamplesCount(_engine);
   }
 
   void initMultibandEq(

@@ -173,34 +173,22 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setHighpass', 'enabled': enabled, 'cutoffHz': cutoffHz});
   }
 
-  void setDelay(
-      {double? mix, double? feedback, double? delayMs, bool? enabled}) {
-    _send({
-      'cmd': 'setDelay',
-      'mix': mix,
-      'feedback': feedback,
-      'delayMs': delayMs,
-      'enabled': enabled
-    });
-  }
-
-  // Custom Real-Time Filters
-  void setCustomLpf1({required bool enabled, required double cutoffHz}) {
+  void setCustomLpf1({bool? enabled, double? cutoffHz}) {
     _send({'cmd': 'setCustomLpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
   }
 
-  void setCustomHpf1({required bool enabled, required double cutoffHz}) {
+  void setCustomHpf1({bool? enabled, double? cutoffHz}) {
     _send({'cmd': 'setCustomHpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
   }
 
   void setCustomBiquad({
-    required bool enabled,
-    required double b0,
-    required double b1,
-    required double b2,
-    required double a0,
-    required double a1,
-    required double a2,
+    bool? enabled,
+    double? b0,
+    double? b1,
+    double? b2,
+    double? a0,
+    double? a1,
+    double? a2,
   }) {
     _send({
       'cmd': 'setCustomBiquad',
@@ -218,8 +206,8 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setEngineResampleAlgorithm', 'algorithm': algorithm});
   }
 
-  void setEngineDitherMode(int ditherMode) {
-    _send({'cmd': 'setEngineDitherMode', 'ditherMode': ditherMode});
+  void setEngineDitherMode(int mode) {
+    _send({'cmd': 'setEngineDitherMode', 'mode': mode});
   }
 
   // --- Limiter & Clipping Detection ---
@@ -249,6 +237,17 @@ class IsolateAudioPlayer {
   void resetClippedSamplesCount() {
     _clippedSamplesCount = 0;
     _send({'cmd': 'resetClippedSamplesCount'});
+  }
+
+  void setDelay(
+      {double? mix, double? feedback, double? delayMs, bool? enabled}) {
+    _send({
+      'cmd': 'setDelay',
+      'mix': mix,
+      'feedback': feedback,
+      'delayMs': delayMs,
+      'enabled': enabled
+    });
   }
 
   void setBandpass({bool? enabled, double? cutoffHz, double? q}) {
@@ -376,6 +375,20 @@ class IsolateAudioPlayer {
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
 
+  Future<Map<String, dynamic>> getAudioProperties() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getAudioProperties',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as Map<String, dynamic>;
+  }
+
   void pushStream(String url) => _send({'cmd': 'pushStream', 'url': url});
 
   bool isNetworkStreamingSupported() => _networkStreamingSupported;
@@ -392,6 +405,48 @@ class IsolateAudioPlayer {
     String? artUri,
   }) async {
     if (_systemAudio != null) {
+      final systemAudio = _systemAudio as dynamic;
+      if (artUri != null && artUri.isNotEmpty) {
+        final parsedUri = Uri.tryParse(artUri);
+        try {
+          await Function.apply(
+            systemAudio.updateNowPlaying,
+            [],
+            {
+              #id: id,
+              #title: title,
+              #artist: artist,
+              #duration: duration,
+              #album: album,
+              #artUri: parsedUri,
+            },
+          );
+          _logController.add('[now-playing] artwork path: artUri');
+          return;
+        } catch (_) {
+          try {
+            await Function.apply(
+              systemAudio.updateNowPlaying,
+              [],
+              {
+                #id: id,
+                #title: title,
+                #artist: artist,
+                #duration: duration,
+                #album: album,
+                #artworkUri: parsedUri,
+              },
+            );
+            _logController.add('[now-playing] artwork path: artworkUri');
+            return;
+          } catch (e) {
+            _logController.add(
+                '[now-playing] artwork unsupported by API; fallback without artwork. Error: $e');
+            // fall back below
+          }
+        }
+      }
+
       await _systemAudio!.updateNowPlaying(
         id: id,
         title: title,
@@ -399,6 +454,10 @@ class IsolateAudioPlayer {
         duration: duration,
         album: album,
       );
+      if (artUri == null || artUri.isEmpty) {
+        _logController
+            .add('[now-playing] no artwork available for current track');
+      }
     }
   }
 
@@ -560,39 +619,16 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setReverb':
           player.setReverb(
-              mix: message['mix'],
-              feedback: message['feedback'],
-              delayMs: message['delayMs']);
+              mix: message['mix'] ?? 0.25,
+              feedback: message['feedback'] ?? 0.5,
+              delayMs: message['delayMs'] ?? 50.0);
           break;
         case 'setDelay':
           player.setDelay(
-              enabled: message['enabled'],
-              mix: message['mix'],
-              feedback: message['feedback'],
-              delayMs: message['delayMs']);
-          break;
-        case 'setCustomLpf1':
-          player.setCustomLpf1(
-            enabled: message['enabled'] ?? false,
-            cutoffHz: message['cutoffHz'] ?? 1000.0,
-          );
-          break;
-        case 'setCustomHpf1':
-          player.setCustomHpf1(
-            enabled: message['enabled'] ?? false,
-            cutoffHz: message['cutoffHz'] ?? 80.0,
-          );
-          break;
-        case 'setCustomBiquad':
-          player.setCustomBiquad(
-            enabled: message['enabled'] ?? false,
-            b0: message['b0'] ?? 1.0,
-            b1: message['b1'] ?? 0.0,
-            b2: message['b2'] ?? 0.0,
-            a0: message['a0'] ?? 1.0,
-            a1: message['a1'] ?? 0.0,
-            a2: message['a2'] ?? 0.0,
-          );
+              enabled: message['enabled'] ?? false,
+              mix: message['mix'] ?? 0.3,
+              feedback: message['feedback'] ?? 0.4,
+              delayMs: message['delayMs'] ?? 250.0);
           break;
         case 'setBandpass':
           player.setBandpass(
@@ -639,6 +675,34 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setHighpass':
           player.setHighpass(
               enabled: message['enabled'], cutoffHz: message['cutoffHz']);
+          break;
+        case 'setCustomLpf1':
+          player.setCustomLpf1(
+              enabled: message['enabled'] ?? false,
+              cutoffHz: message['cutoffHz'] ?? 500.0);
+          break;
+        case 'setCustomHpf1':
+          player.setCustomHpf1(
+              enabled: message['enabled'] ?? false,
+              cutoffHz: message['cutoffHz'] ?? 120.0);
+          break;
+        case 'setCustomBiquad':
+          player.setCustomBiquad(
+            enabled: message['enabled'] ?? false,
+            b0: message['b0'] ?? 1.0,
+            b1: message['b1'] ?? 0.0,
+            b2: message['b2'] ?? 0.0,
+            a0: message['a0'] ?? 1.0,
+            a1: message['a1'] ?? 0.0,
+            a2: message['a2'] ?? 0.0,
+          );
+          break;
+        case 'setEngineResampleAlgorithm':
+          player.setEngineResampleAlgorithm(
+              ResampleAlgorithm.values[message['algorithm'] ?? 0]);
+          break;
+        case 'setEngineDitherMode':
+          player.setEngineDitherMode(message['mode'] ?? 0);
           break;
         case 'setMultibandEqEnabled':
           player.setMultibandEqEnabled(message['enabled']);
@@ -716,6 +780,18 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
           break;
+        case 'getAudioProperties':
+          final SendPort replyTo = message['replyTo'];
+          try {
+            replyTo.send({
+              'channels': player.getOutputChannels(),
+              'format': player.getOutputFormat().name,
+              'sampleRate': player.getOutputSampleRate(),
+            });
+          } catch (e) {
+            replyTo.send({'error': e.toString()});
+          }
+          break;
         case 'clearLastError':
           player.clearLastError();
           break;
@@ -756,14 +832,6 @@ void _isolateEntry(_IsolateInitData initData) {
             initData.sendPort.send('[log]PushStream Error: $e');
           });
           break;
-        case 'setEngineResampleAlgorithm':
-          player.setEngineResampleAlgorithm(
-            ResampleAlgorithm.values[message['algorithm'] ?? 0],
-          );
-          break;
-        case 'setEngineDitherMode':
-          player.setEngineDitherMode(message['ditherMode'] ?? 0);
-          break;
         case 'setLimiterEnabled':
           player.setLimiterEnabled(message['enabled'] == true);
           break;
@@ -776,7 +844,6 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setClippingDetectionEnabled':
           player.setClippingDetectionEnabled(message['enabled'] == true);
-          // Push current count back so main isolate cache stays fresh
           initData.sendPort.send({
             'type': 'clippedCount',
             'count': player.getClippedSamplesCount(),

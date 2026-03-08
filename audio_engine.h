@@ -171,6 +171,13 @@ extern "C"
     AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode);
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine);
 
+    // Audio Limiter & Clipping Detection
+    AE_API void ae_set_limiter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms);
+    AE_API void ae_set_clipping_detection_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API uint64_t ae_get_clipped_samples_count(AudioEngineHandle *engine);
+    AE_API void ae_reset_clipped_samples_count(AudioEngineHandle *engine);
+
     // Custom Real-Time Filter Parameters
     AE_API void ae_set_custom_lpf1_params(AudioEngineHandle *engine, int enabled, double cutoff_hz);
     AE_API void ae_set_custom_hpf1_params(AudioEngineHandle *engine, int enabled, double cutoff_hz);

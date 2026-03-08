@@ -454,6 +454,36 @@ class MiniAudioPlayer {
     _engine.setEngineDitherMode(ditherMode);
   }
 
+  // --- Limiter & Clipping Detection ---
+
+  /// Enable or disable the soft limiter.
+  void setLimiterEnabled(bool enabled) => _engine.setLimiterEnabled(enabled);
+
+  /// Configure limiter parameters.
+  /// [threshold] linear amplitude ceiling (0.1–1.0, default 0.95).
+  /// [attackMs]  attack time in ms (0.1–100, default 2).
+  /// [releaseMs] release time in ms (10–1000, default 50).
+  void setLimiterParams({
+    double threshold = 0.95,
+    double attackMs = 2.0,
+    double releaseMs = 50.0,
+  }) =>
+      _engine.setLimiterParams(
+        threshold: threshold,
+        attackMs: attackMs,
+        releaseMs: releaseMs,
+      );
+
+  /// Enable or disable clipping detection.
+  void setClippingDetectionEnabled(bool enabled) =>
+      _engine.setClippingDetectionEnabled(enabled);
+
+  /// Total number of samples that exceeded ±1.0 since last reset.
+  int getClippedSamplesCount() => _engine.getClippedSamplesCount();
+
+  /// Reset the clipped-sample counter to zero.
+  void resetClippedSamplesCount() => _engine.resetClippedSamplesCount();
+
   Future<void> pushStream({required String url}) async {
     _engine.initPushStream();
 
