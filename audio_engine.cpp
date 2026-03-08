@@ -13,6 +13,7 @@
 #include "miniaudio.h"
 
 #include "audio_engine.h"
+#include <samplerate.h>
 #include "mp4_aac_decoder.h"
 
 #include <algorithm>
@@ -511,6 +512,95 @@ namespace
                     idx = 0;
             }
         }
+    };
+
+    struct LibSampleRateBackend {
+        SRC_STATE* state;
+        float ratio;
+        int channels;
+        int converterType;
+    };
+
+    static ma_result src_onGetHeapSize(void* pUserData, const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes)
+    {
+        *pHeapSizeInBytes = sizeof(LibSampleRateBackend);
+        return MA_SUCCESS;
+    }
+
+    static ma_result src_onInit(void* pUserData, const ma_resampler_config* pConfig, void* pAllocation, ma_resampling_backend** ppBackend)
+    {
+        LibSampleRateBackend* backend = (LibSampleRateBackend*)pAllocation;
+        backend->channels = pConfig->channels;
+        
+        // pUserData points to the algorithm int (from AudioEngineHandle)
+        int algo = pUserData ? *(int*)pUserData : 1;
+        int converter = SRC_SINC_FASTEST;
+        if (algo == 1) converter = SRC_SINC_BEST_QUALITY;
+        else if (algo == 2) converter = SRC_SINC_MEDIUM_QUALITY;
+        else if (algo == 3) converter = SRC_SINC_FASTEST;
+        else if (algo == 4) converter = SRC_ZERO_ORDER_HOLD;
+        else if (algo == 5) converter = SRC_LINEAR;
+
+        backend->converterType = converter;
+        backend->ratio = (float)pConfig->sampleRateOut / (float)pConfig->sampleRateIn;
+        
+        int err = 0;
+        backend->state = src_new(converter, backend->channels, &err);
+        if (!backend->state) return MA_ERROR;
+        
+        *ppBackend = (ma_resampling_backend*)backend;
+        return MA_SUCCESS;
+    }
+
+    static void src_onUninit(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+    {
+        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
+        if (backend && backend->state) {
+            src_delete(backend->state);
+            backend->state = nullptr;
+        }
+    }
+
+    static ma_result src_onProcess(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+    {
+        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
+        if (!backend->state) return MA_ERROR;
+        
+        SRC_DATA srcData;
+        srcData.data_in = (const float*)pFramesIn;
+        srcData.input_frames = (long)(*pFrameCountIn);
+        srcData.data_out = (float*)pFramesOut;
+        srcData.output_frames = (long)(*pFrameCountOut);
+        srcData.src_ratio = backend->ratio;
+        srcData.end_of_input = 0;
+        
+        int err = src_process(backend->state, &srcData);
+        if (err) return MA_ERROR;
+        
+        *pFrameCountIn = srcData.input_frames_used;
+        *pFrameCountOut = srcData.output_frames_gen;
+        return MA_SUCCESS;
+    }
+
+    static ma_result src_onSetRate(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+    {
+        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
+        backend->ratio = (float)sampleRateOut / (float)sampleRateIn;
+        src_set_ratio(backend->state, backend->ratio);
+        return MA_SUCCESS;
+    }
+
+    static ma_resampling_backend_vtable g_customResamplerVTable = {
+        src_onGetHeapSize,
+        src_onInit,
+        src_onUninit,
+        src_onProcess,
+        src_onSetRate,
+        nullptr, // onGetInputLatency
+        nullptr, // onGetOutputLatency
+        nullptr, // onGetRequiredInputFrameCount
+        nullptr, // onGetExpectedOutputFrameCount
+        nullptr  // onReset
     };
 
 } // namespace
@@ -1750,9 +1840,11 @@ extern "C"
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
 
-        if (e->resampleAlgorithm == 1)
-        { // AE_RESAMPLE_ALGORITHM_CUSTOM
+        if (e->resampleAlgorithm > 0)
+        { // >0 uses custom libsamplerate algorithm
             cfg.resampling.algorithm = ma_resample_algorithm_custom;
+            cfg.resampling.pBackendVTable = &g_customResamplerVTable;
+            cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
         }
         else
         {

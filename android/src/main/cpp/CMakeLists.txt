@@ -1,29 +1,37 @@
 cmake_minimum_required(VERSION 3.10)
-project(miniaudiodart_android LANGUAGES CXX)
+project(miniaudiodart_android LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB FAAD2_SOURCES "../../../../third_party/faad2/libfaad/*.c")
+file(GLOB LIBSAMPLERATE_SOURCES "../../../../third_party/libsamplerate/src/*.c")
 
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
   ../../../../mp4_aac_decoder.cpp
   ${FAAD2_SOURCES}
+  ${LIBSAMPLERATE_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
   ../../../../
   ../../../../third_party
   ../../../../third_party/faad2/include
+  ../../../../third_party/faad2/libfaad
+  ../../../../third_party/libsamplerate/include
 )
 
 target_compile_definitions(audio_engine PRIVATE
   HAVE_INTTYPES_H=1
   HAVE_MEMCPY=1
   HAVE_STRING_H=1
+  HAVE_STDBOOL_H=1
   HAVE_STRINGS_H=1
   HAVE_SYS_TYPES_H=1
+  PACKAGE="libsamplerate"
+  VERSION="0.2.2"
+  PACKAGE_VERSION="2.11.1"
 )
 
 # Suppress harmless warnings from third-party FAAD2 C code

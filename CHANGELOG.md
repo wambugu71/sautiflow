@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+- Integrated `libsamplerate` (Secret Rabbit Code) for audiophile-grade audio resampling.
+- Added extensive new resampling algorithms via Flutter FFI to the native C++ audio engine:
+  - `srcSincBestQuality`
+  - `srcSincMediumQuality`
+  - `srcSincFastest`
+  - `srcZeroOrderHold`
+  - `srcLinear`
+- Exposed the new algorithms in `MiniAudioPlayer.setEngineResampleAlgorithm(ResampleAlgorithm)`.
+- Updated Windows and Android CMake build systems to natively compile `libsamplerate` alongside `faad2` and `miniaudio`.
+- Added m4a AAC decoding support via `faad2`.
+- Enhanced example application with UI dropdown to dynamically change resampling algorithms on the fly.
+
 ## 0.4.0-dev
 
 - Added standalone object-oriented filter API wrapping miniaudio natively (`MiniaudioLpf1`, `MiniaudioLpf2`, `MiniaudioLpf`, `MiniaudioHpf1`, etc).

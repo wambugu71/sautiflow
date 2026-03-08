@@ -1908,8 +1908,13 @@ class _PlayerShellState extends State<PlayerShell> {
           trailing: DropdownButton<int>(
             value: _resampleAlgIndex,
             items: const [
-              DropdownMenuItem(value: 0, child: Text('Linear')),
-              DropdownMenuItem(value: 1, child: Text('Custom')),
+              DropdownMenuItem(value: 0, child: Text('miniaudio Linear')),
+              DropdownMenuItem(value: 1, child: Text('srcSincBestQuality')),
+              DropdownMenuItem(value: 2, child: Text('srcSincMediumQuality')),
+              DropdownMenuItem(value: 3, child: Text('srcSincFastest')),
+              DropdownMenuItem(value: 4, child: Text('srcZeroOrderHold')),
+              DropdownMenuItem(value: 5, child: Text('srcLinear')),
+              DropdownMenuItem(value: 6, child: Text('Custom')),
             ],
             onChanged: (v) {
               if (v != null) {

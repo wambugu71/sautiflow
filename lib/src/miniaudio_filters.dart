@@ -1,7 +1,15 @@
 import 'dart:ffi' as ffi;
 import '../audio_engine_ffi.dart';
 
-enum ResampleAlgorithm { linear, custom }
+enum ResampleAlgorithm {
+  miniaudioLinear,
+  srcSincBestQuality,
+  srcSincMediumQuality,
+  srcSincFastest,
+  srcZeroOrderHold,
+  srcLinear,
+  custom,
+}
 
 enum DitherMode { none, rectangle, triangle }
 

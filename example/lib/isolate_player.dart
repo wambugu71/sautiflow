@@ -706,7 +706,9 @@ void _isolateEntry(_IsolateInitData initData) {
           });
           break;
         case 'setEngineResampleAlgorithm':
-          player.setEngineResampleAlgorithm(message['algorithm'] ?? 0);
+          player.setEngineResampleAlgorithm(
+            ResampleAlgorithm.values[message['algorithm'] ?? 0],
+          );
           break;
         case 'setEngineDitherMode':
           player.setEngineDitherMode(message['ditherMode'] ?? 0);

@@ -4,18 +4,25 @@ project(miniaudiodart_windows LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 file(GLOB FAAD2_SOURCES "../third_party/faad2/libfaad/*.c")
+file(GLOB LIBSAMPLERATE_SOURCES "../third_party/libsamplerate/src/*.c")
 
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../mp4_aac_decoder.cpp
   ${FAAD2_SOURCES}
+  ${LIBSAMPLERATE_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/libfaad
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
 )
 
 target_compile_definitions(audio_engine PRIVATE
@@ -25,12 +32,16 @@ target_compile_definitions(audio_engine PRIVATE
   HAVE_INTTYPES_H=1
   HAVE_MEMCPY=1
   HAVE_STRING_H=1
+  HAVE_STDBOOL_H=1
   HAVE_STRINGS_H=1
   HAVE_SYS_TYPES_H=1
+  PACKAGE="libsamplerate"
+  VERSION="0.2.2"
 )
 
 # Suppress harmless warnings from third-party FAAD2 C code
 if(MSVC)
+  target_compile_options(audio_engine PRIVATE /std:c11)
   set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
     COMPILE_FLAGS "/wd4100 /wd4244 /wd4267 /wd4701 /wd4706"
   )

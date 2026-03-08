@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
 
 import '../audio_engine_ffi.dart';
+import 'miniaudio_filters.dart';
 import 'mobile_system_audio.dart';
 
 class MiniAudioPlayer {
@@ -405,8 +406,8 @@ class MiniAudioPlayer {
     );
   }
 
-  void setEngineResampleAlgorithm(int algorithm) {
-    _engine.setEngineResampleAlgorithm(algorithm);
+  void setEngineResampleAlgorithm(ResampleAlgorithm algorithm) {
+    _engine.setEngineResampleAlgorithm(algorithm.index);
   }
 
   void setEngineDitherMode(int ditherMode) {
