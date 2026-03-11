@@ -17,6 +17,7 @@ class MiniAudioSystemAudioConfig {
     this.androidNotificationChannelName = 'Audio Playback',
     this.androidNotificationOngoing = true,
     this.androidStopForegroundOnPause = true,
+    this.androidNotificationIcon = 'mipmap/ic_launcher',
   });
 
   final bool enableDucking;
@@ -28,6 +29,7 @@ class MiniAudioSystemAudioConfig {
   final String androidNotificationChannelName;
   final bool androidNotificationOngoing;
   final bool androidStopForegroundOnPause;
+  final String androidNotificationIcon;
 }
 
 class MiniAudioSystemAudioController {
@@ -106,6 +108,7 @@ class MiniAudioSystemAudioController {
                 config.androidNotificationChannelName,
             androidNotificationOngoing: config.androidNotificationOngoing,
             androidStopForegroundOnPause: config.androidStopForegroundOnPause,
+            androidNotificationIcon: config.androidNotificationIcon,
           ),
         );
         _handler = handler;
