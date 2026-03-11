@@ -2452,6 +2452,14 @@ extern "C"
             request_jump(e, idx);
         }
 
+        if (ma_device_get_state(&e->device) != ma_device_state_started)
+        {
+            if (ma_device_start(&e->device) != MA_SUCCESS)
+            {
+                engine_log("Failed to start device in ae_play");
+            }
+        }
+
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("play requested (currentIndex=%d)", e->currentIndex);
         clear_last_error(e);
@@ -2527,6 +2535,15 @@ extern "C"
         }
 
         request_jump(e, idx);
+        
+        if (ma_device_get_state(&e->device) != ma_device_state_started)
+        {
+            if (ma_device_start(&e->device) != MA_SUCCESS)
+            {
+                engine_log("Failed to start device in ae_next");
+            }
+        }
+        
         e->isPlaying.store(true, std::memory_order_relaxed);
         clear_last_error(e);
         return true;
@@ -2553,6 +2570,15 @@ extern "C"
         }
 
         request_jump(e, idx);
+        
+        if (ma_device_get_state(&e->device) != ma_device_state_started)
+        {
+            if (ma_device_start(&e->device) != MA_SUCCESS)
+            {
+                engine_log("Failed to start device in ae_prev");
+            }
+        }
+        
         e->isPlaying.store(true, std::memory_order_relaxed);
         clear_last_error(e);
         return true;
@@ -2578,6 +2604,15 @@ extern "C"
         e->pendingSeekValid.store(false, std::memory_order_release);
         e->pendingSeekIndex.store(-1, std::memory_order_release);
         request_jump(e, index);
+        
+        if (ma_device_get_state(&e->device) != ma_device_state_started)
+        {
+            if (ma_device_start(&e->device) != MA_SUCCESS)
+            {
+                engine_log("Failed to start device in ae_jump_to");
+            }
+        }
+        
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("jump_to requested: index=%d", index);
         clear_last_error(e);
@@ -2609,6 +2644,15 @@ extern "C"
         e->pendingSeekValid.store(true, std::memory_order_release);
 
         request_jump(e, index);
+        
+        if (ma_device_get_state(&e->device) != ma_device_state_started)
+        {
+            if (ma_device_start(&e->device) != MA_SUCCESS)
+            {
+                engine_log("Failed to start device in ae_jump_to_with_position");
+            }
+        }
+        
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("jump_to_with_position requested: index=%d frame=%llu", index, (unsigned long long)frame);
         clear_last_error(e);
