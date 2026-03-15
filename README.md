@@ -78,9 +78,9 @@ player.setHighshelf(enabled: true, gainDb: 2.5, slope: 1.0, frequencyHz: 10000);
 
 Expected library names by platform:
 
-- Windows: `audio_engine.dll`
-- Linux/Android: `libaudio_engine.so`
-- macOS: `libaudio_engine.dylib`
+- Windows: `sautiflow.dll`
+- Linux/Android: `libsautiflow.so`
+- macOS: `libsautiflow.dylib`
 - iOS: statically linked (`DynamicLibrary.process()`)
 
 ## Flutter plugin structure
@@ -111,10 +111,10 @@ Platform native build configs are included:
 
 For Flutter app integration, keep native artifacts available in app/plugin output:
 
-- Android: `android/src/main/jniLibs/<abi>/libaudio_engine.so`
-- iOS: link `audio_engine.xcframework` in Xcode/Podspec
-- Windows: place `audio_engine.dll` next to executable
-- Linux: ship `libaudio_engine.so` with app bundle and ensure loader path
+- Android: `android/src/main/jniLibs/<abi>/libsautiflow.so`
+- iOS: link `sautiflow.xcframework` in Xcode/Podspec
+- Windows: place `sautiflow.dll` next to executable
+- Linux: ship `libsautiflow.so` with app bundle and ensure loader path
 
 ### Android native network streaming (libcurl)
 
