@@ -123,7 +123,7 @@ jobs:
 
             - name: Compress Release
               working-directory: ./example/build/macos/Build/Products/Release
-              run: zip -r macos-release.zip . -i "*.app"
+              run: zip -r macos-release.zip *.app
 
             - name: Upload Artifact
               uses: actions/upload-artifact@v4
