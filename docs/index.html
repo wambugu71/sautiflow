@@ -46,6 +46,7 @@
             <div class="nav-group">
                 <div class="nav-title">Getting Started</div>
                 <a href="#introduction" class="nav-item">Introduction</a>
+                <a href="#audio-formats" class="nav-item">Audio Formats</a>
                 <a href="#changes-made-so-far" class="nav-item">Changes Made So Far</a>
                 <a href="#installation" class="nav-item">Installation</a>
                 <a href="#quick-start" class="nav-item">Quick Start</a>
@@ -127,6 +128,15 @@
                         <i class="fa-solid fa-box-open"></i> Pub.dev
                     </a>
                 </div>
+            </section>
+
+            <section id="audio-formats">
+                <h2>Audio Formats & Quality</h2>
+                <p>Sautiflow is engineered with audiophile-grade fidelity in mind. It handles different audio formats natively within its C++ engine to provide the best possible acoustic reproduction:</p>
+                <ul>
+                    <li><strong>Lossy Formats (MP3, AAC, OGG etc.)</strong>: These formats are inherently compressed. Upon playback, Sautiflow <strong>upscales/upsamples</strong> the decoded bitstream internally (using 32-bit floating point math) ensuring that DSP operations—like EQ, reverb, and spatial width—have plenty of headroom and do not clip or introduce artificial artifacts typical of low-resolution math.</li>
+                    <li><strong>Lossless Formats (FLAC, WAV, ALAC, etc.)</strong>: These are mapped and processed <strong>raw</strong>. Sautiflow does <strong>not</strong> dynamically upscale them to guess lost data (since nothing is lost). It maintains their pristine bit-perfect original depth into the DSP chain. If the file's sample rate doesn't match your device's native hardware rate (e.g., streaming an 88.2kHz FLAC file on a 48kHz output device), Sautiflow employs high-fidelity <strong>resampling</strong> transparently using <code>libsamplerate</code> to match your hardware, avoiding quality loss while retaining original bit-depth fidelity.</li>
+                </ul>
             </section>
 
             <section id="changes-made-so-far">
@@ -768,6 +778,7 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
         <aside class="toc">
             <div class="toc-title">ON THIS PAGE</div>
             <a href="#introduction" class="toc-link">Introduction</a>
+            <a href="#audio-formats" class="toc-link">Audio Formats</a>
             <a href="#changes-made-so-far" class="toc-link">Changes Made So Far</a>
             <a href="#installation" class="toc-link">Installation</a>
             <a href="#quick-start" class="toc-link">Quick Start</a>

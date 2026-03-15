@@ -15,6 +15,13 @@ Sautiflow is a cross-platform audio playback and processing engine for Dart and 
 - Pollable player status and stream updates
 - Native targets: Windows, Linux, Android, iOS/macOS
 
+## Audio Formats & Quality
+
+Sautiflow is built with audiophile-grade fidelity in mind. It handles different audio formats natively within its C++ engine to provide the best possible acoustic reproduction:
+
+- **Lossy Formats (MP3, AAC, OGG etc.)**: These formats are inherently compressed. Upon playback, Sautiflow **upscales/upsamples** the decoded bitstream internally (in 32-bit floating point math) ensuring that DSP operations—like EQ, reverb, and spatial width—have plenty of headroom and do not clip or introduce artificial artifacts typical of low-resolution math.
+- **Lossless Formats (FLAC, WAV, ALAC, etc.)**: These are mapped and processed **raw**. Sautiflow does **not** dynamically upscale them to guess lost data (since nothing is lost). It maintains their pristine bit-perfect original depth into the DSP chain. If the file's sample rate doesn't match your device's native hardware rate (e.g., trying to play an 88.2kHz FLAC file on a 48kHz output device), Sautiflow will employ high-fidelity **resampling** transparently using `libsamplerate` to perfectly match your hardware, avoiding quality loss while retaining bit-depth fidelity.
+
 ## Public Dart API
 
 Import:
