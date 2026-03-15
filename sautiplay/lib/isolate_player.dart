@@ -254,6 +254,16 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setStereoWiden(
+      {required bool enabled, required double width, required double delayMs}) {
+    _send({
+      'cmd': 'setStereoWiden',
+      'enabled': enabled,
+      'width': width,
+      'delayMs': delayMs
+    });
+  }
+
   void setBandpass({bool? enabled, double? cutoffHz, double? q}) {
     _send({
       'cmd': 'setBandpass',
@@ -633,6 +643,12 @@ void _isolateEntry(_IsolateInitData initData) {
               mix: message['mix'] ?? 0.3,
               feedback: message['feedback'] ?? 0.4,
               delayMs: message['delayMs'] ?? 250.0);
+          break;
+        case 'setStereoWiden':
+          player.setStereoWiden(
+              enabled: message['enabled'] ?? false,
+              width: message['width'] ?? 1.5,
+              delayMs: message['delayMs'] ?? 15.0);
           break;
         case 'setBandpass':
           player.setBandpass(

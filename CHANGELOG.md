@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.0.5
+## 0.6.0
+
+- **[DSP Effects]** Added new Stereo Widening feature using a hybrid Haas Effect + Mid/Side (M/S) Matrix algorithm.
+  - Exposes `setStereoWiden({required bool enabled, required double width, required double delayMs})` directly in `MiniAudioPlayer` and `IsolateAudioPlayer`.
+  - Enables professional, mono-compatible "wide soundstage" manipulation without destructive phase cancellation.
+- **[UI/Apps]** Integrated fully functional "Stereo Stage" configuration knobs into the Example app and Sautiplay EQ screens.
+- **[Apps]** Added persistent state saving for the Stereo Widening options in Sautiplay's SharedPreferences.
+
+## 0.5.0
+
 - **[Pitch & Spatialization]** Added new advanced audio features natively using miniaudio:
   - Added robust Pitch Control with `setPitch(double)`.
   - Added 3D Spatial Audio: Enable via `setSpatializationEnabled(bool)` and position sound sources in a 3D environment via `setPosition(x,y,z)`, `setDirection()`, and `setVelocity()`.
@@ -8,8 +17,6 @@
   - Added customizable Fading: `setFade(startVol, endVol, durationMs)`.
   - Added granular Playback Scheduling: `scheduleStartTimeInPcmFrames(time)` and `scheduleStopTimeInPcmFrames(time)`.
 - **[Example App]** Updated the demonstration app with UI sliders to configure Pitch shifting and 3D Spatial Audio in real-time.
-
-## 0.5.0
 
 - Integrated `libsamplerate` (Secret Rabbit Code) for audiophile-grade audio resampling.
 - Added extensive new resampling algorithms via Flutter FFI to the native C++ audio engine:

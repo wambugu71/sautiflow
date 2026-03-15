@@ -195,6 +195,11 @@ typedef _SetFadeInMillisecondsNative = ffi.Void Function(
 typedef _SetFadeInMillisecondsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, int);
 
+typedef _SetStereoWidenNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
+typedef _SetStereoWidenDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double);
+
 typedef _SetTimeInPcmFramesNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Uint64);
 typedef _SetTimeInPcmFramesDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -506,6 +511,10 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
       'ae_set_delay_params',
     );
+    _setStereoWiden =
+        _lib.lookupFunction<_SetStereoWidenNative, _SetStereoWidenDart>(
+      'ae_set_stereo_widen',
+    );
     _setBandpassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_bandpass_enabled',
@@ -771,6 +780,7 @@ class AudioEngineFFI {
   late final _SetSingleFloatDart _setHighpassCutoff;
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
+  late final _SetStereoWidenDart _setStereoWiden;
   late final _SetFxEnabledDart _setBandpassEnabled;
   late final _SetTwoFloatsDart _setBandpassParams;
   late final _SetFxEnabledDart _setPeakEqEnabled;
@@ -1221,6 +1231,15 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setDelayParams(_engine, mix, feedback, delayMs);
+  }
+
+  void setStereoWiden({
+    required bool enabled,
+    required double width,
+    required double delayMs,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setStereoWiden(_engine, enabled ? 1 : 0, width, delayMs);
   }
 
   void setBandpassEnabled(bool enabled) {

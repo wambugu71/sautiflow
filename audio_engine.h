@@ -44,7 +44,8 @@ extern "C"
         AE_FORMAT_S32 = 4
     } AEAudioFormat;
 
-    typedef enum AEResampleAlgorithm {
+    typedef enum AEResampleAlgorithm
+    {
         AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR = 0,
         AE_RESAMPLE_ALGORITHM_SRC_SINC_BEST_QUALITY = 1,
         AE_RESAMPLE_ALGORITHM_SRC_SINC_MEDIUM_QUALITY = 2,
@@ -54,7 +55,8 @@ extern "C"
         AE_RESAMPLE_ALGORITHM_CUSTOM = 6
     } AEResampleAlgorithm;
 
-    typedef enum AEDitherMode {
+    typedef enum AEDitherMode
+    {
         AE_DITHER_MODE_NONE = 0,
         AE_DITHER_MODE_RECTANGLE = 1,
         AE_DITHER_MODE_TRIANGLE = 2
@@ -118,6 +120,7 @@ extern "C"
     AE_API void ae_set_highpass_cutoff(AudioEngineHandle *engine, float hz);
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
+    AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms);
     AE_API void ae_set_bandpass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_bandpass_params(AudioEngineHandle *engine, float cutoff_hz, float q);
     AE_API void ae_set_peak_eq_enabled(AudioEngineHandle *engine, int enabled);
@@ -152,8 +155,8 @@ extern "C"
     AE_API uint64_t ae_get_engine_time_in_pcm_frames(AudioEngineHandle *engine);
 
     // End Callback processing
-    typedef void (*AE_EndCallback)(void* pUserData, AudioEngineHandle* engine);
-    AE_API void ae_set_end_callback(AudioEngineHandle *engine, AE_EndCallback callback, void* pUserData);
+    typedef void (*AE_EndCallback)(void *pUserData, AudioEngineHandle *engine);
+    AE_API void ae_set_end_callback(AudioEngineHandle *engine, AE_EndCallback callback, void *pUserData);
 
     // Advanced Audio Controls
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);
@@ -244,57 +247,57 @@ extern "C"
     typedef struct AEResampler AEResampler;
 
     // LPF1
-    AE_API AELpf1* ae_lpf1_create(int format, int channels, int sample_rate, double cutoff_hz);
-    AE_API void ae_lpf1_destroy(AELpf1* filter);
-    AE_API void ae_lpf1_reinit(AELpf1* filter, int format, int channels, int sample_rate, double cutoff_hz);
-    AE_API int ae_lpf1_process(AELpf1* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AELpf1 *ae_lpf1_create(int format, int channels, int sample_rate, double cutoff_hz);
+    AE_API void ae_lpf1_destroy(AELpf1 *filter);
+    AE_API void ae_lpf1_reinit(AELpf1 *filter, int format, int channels, int sample_rate, double cutoff_hz);
+    AE_API int ae_lpf1_process(AELpf1 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // LPF2
-    AE_API AELpf2* ae_lpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q);
-    AE_API void ae_lpf2_destroy(AELpf2* filter);
-    AE_API void ae_lpf2_reinit(AELpf2* filter, int format, int channels, int sample_rate, double cutoff_hz, double q);
-    AE_API int ae_lpf2_process(AELpf2* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AELpf2 *ae_lpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API void ae_lpf2_destroy(AELpf2 *filter);
+    AE_API void ae_lpf2_reinit(AELpf2 *filter, int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API int ae_lpf2_process(AELpf2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // LPF (High order Butterworth)
-    AE_API AELpf* ae_lpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order);
-    AE_API void ae_lpf_destroy(AELpf* filter);
-    AE_API void ae_lpf_reinit(AELpf* filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
-    AE_API int ae_lpf_process(AELpf* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AELpf *ae_lpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API void ae_lpf_destroy(AELpf *filter);
+    AE_API void ae_lpf_reinit(AELpf *filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API int ae_lpf_process(AELpf *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // HPF1
-    AE_API AEHpf1* ae_hpf1_create(int format, int channels, int sample_rate, double cutoff_hz);
-    AE_API void ae_hpf1_destroy(AEHpf1* filter);
-    AE_API void ae_hpf1_reinit(AEHpf1* filter, int format, int channels, int sample_rate, double cutoff_hz);
-    AE_API int ae_hpf1_process(AEHpf1* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AEHpf1 *ae_hpf1_create(int format, int channels, int sample_rate, double cutoff_hz);
+    AE_API void ae_hpf1_destroy(AEHpf1 *filter);
+    AE_API void ae_hpf1_reinit(AEHpf1 *filter, int format, int channels, int sample_rate, double cutoff_hz);
+    AE_API int ae_hpf1_process(AEHpf1 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // HPF2
-    AE_API AEHpf2* ae_hpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q);
-    AE_API void ae_hpf2_destroy(AEHpf2* filter);
-    AE_API void ae_hpf2_reinit(AEHpf2* filter, int format, int channels, int sample_rate, double cutoff_hz, double q);
-    AE_API int ae_hpf2_process(AEHpf2* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AEHpf2 *ae_hpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API void ae_hpf2_destroy(AEHpf2 *filter);
+    AE_API void ae_hpf2_reinit(AEHpf2 *filter, int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API int ae_hpf2_process(AEHpf2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // HPF (High order Butterworth)
-    AE_API AEHpf* ae_hpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order);
-    AE_API void ae_hpf_destroy(AEHpf* filter);
-    AE_API void ae_hpf_reinit(AEHpf* filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
-    AE_API int ae_hpf_process(AEHpf* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AEHpf *ae_hpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API void ae_hpf_destroy(AEHpf *filter);
+    AE_API void ae_hpf_reinit(AEHpf *filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API int ae_hpf_process(AEHpf *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // Biquad
-    AE_API AEBiquad* ae_biquad_create(int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2);
-    AE_API void ae_biquad_destroy(AEBiquad* filter);
-    AE_API void ae_biquad_reinit(AEBiquad* filter, int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2);
-    AE_API int ae_biquad_process(AEBiquad* filter, void* out_frames, const void* in_frames, uint64_t frame_count);
+    AE_API AEBiquad *ae_biquad_create(int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2);
+    AE_API void ae_biquad_destroy(AEBiquad *filter);
+    AE_API void ae_biquad_reinit(AEBiquad *filter, int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2);
+    AE_API int ae_biquad_process(AEBiquad *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // Resampler
-    AE_API AEResampler* ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode);
-    AE_API void ae_resampler_destroy(AEResampler* resampler);
-    AE_API int ae_resampler_process(AEResampler* resampler, const void* in_frames, uint64_t* in_frame_count, void* out_frames, uint64_t* out_frame_count);
-    AE_API void ae_resampler_set_rate(AEResampler* resampler, int sample_rate_in, int sample_rate_out);
-    AE_API void ae_resampler_set_rate_ratio(AEResampler* resampler, float ratio_in_out);
-    AE_API uint64_t ae_resampler_get_required_input_frame_count(AEResampler* resampler, uint64_t out_frame_count);
-    AE_API uint64_t ae_resampler_get_expected_output_frame_count(AEResampler* resampler, uint64_t in_frame_count);
-    AE_API uint64_t ae_resampler_get_input_latency(AEResampler* resampler);
-    AE_API uint64_t ae_resampler_get_output_latency(AEResampler* resampler);
+    AE_API AEResampler *ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode);
+    AE_API void ae_resampler_destroy(AEResampler *resampler);
+    AE_API int ae_resampler_process(AEResampler *resampler, const void *in_frames, uint64_t *in_frame_count, void *out_frames, uint64_t *out_frame_count);
+    AE_API void ae_resampler_set_rate(AEResampler *resampler, int sample_rate_in, int sample_rate_out);
+    AE_API void ae_resampler_set_rate_ratio(AEResampler *resampler, float ratio_in_out);
+    AE_API uint64_t ae_resampler_get_required_input_frame_count(AEResampler *resampler, uint64_t out_frame_count);
+    AE_API uint64_t ae_resampler_get_expected_output_frame_count(AEResampler *resampler, uint64_t in_frame_count);
+    AE_API uint64_t ae_resampler_get_input_latency(AEResampler *resampler);
+    AE_API uint64_t ae_resampler_get_output_latency(AEResampler *resampler);
 
 #ifdef __cplusplus
 }

@@ -184,6 +184,16 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setStereoWiden(
+      {required bool enabled, required double width, required double delayMs}) {
+    _send({
+      'cmd': 'setStereoWiden',
+      'enabled': enabled,
+      'width': width,
+      'delayMs': delayMs
+    });
+  }
+
   // Custom Real-Time Filters
   void setCustomLpf1({required bool enabled, required double cutoffHz}) {
     _send({'cmd': 'setCustomLpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
@@ -570,6 +580,12 @@ void _isolateEntry(_IsolateInitData initData) {
               mix: message['mix'],
               feedback: message['feedback'],
               delayMs: message['delayMs']);
+          break;
+        case 'setStereoWiden':
+          player.setStereoWiden(
+              enabled: message['enabled'] ?? false,
+              width: message['width'] ?? 1.0,
+              delayMs: message['delayMs'] ?? 15.0);
           break;
         case 'setCustomLpf1':
           player.setCustomLpf1(

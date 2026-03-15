@@ -362,6 +362,14 @@ class MiniAudioPlayer {
     _engine.setDelayParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
+  void setStereoWiden({
+    required bool enabled,
+    required double width,
+    required double delayMs,
+  }) {
+    _engine.setStereoWiden(enabled: enabled, width: width, delayMs: delayMs);
+  }
+
   void setBandpass({
     required bool enabled,
     required double cutoffHz,

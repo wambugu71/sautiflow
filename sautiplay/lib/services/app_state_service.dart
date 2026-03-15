@@ -29,13 +29,16 @@ class AppStateService {
       loadQueue() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_kQueueJson) ?? [];
-    final tracks = raw.map<Map<String, dynamic>>((s) {
-      try {
-        return Map<String, dynamic>.from(jsonDecode(s) as Map);
-      } catch (_) {
-        return {};
-      }
-    }).where((m) => m.isNotEmpty).toList();
+    final tracks = raw
+        .map<Map<String, dynamic>>((s) {
+          try {
+            return Map<String, dynamic>.from(jsonDecode(s) as Map);
+          } catch (_) {
+            return {};
+          }
+        })
+        .where((m) => m.isNotEmpty)
+        .toList();
     final index = prefs.getInt(_kQueueIndex) ?? 0;
     final positionMs = prefs.getInt(_kQueuePositionMs) ?? 0;
     return (tracks: tracks, index: index, positionMs: positionMs);
@@ -78,12 +81,7 @@ class AppStateService {
         ? rawGains.map((s) => double.tryParse(s) ?? 0.0).toList()
         : List<double>.filled(10, 0.0);
     final preampDb = prefs.getDouble(_kPreampDb) ?? 0.0;
-    return (
-      enabled: enabled,
-      preset: preset,
-      gains: gains,
-      preampDb: preampDb
-    );
+    return (enabled: enabled, preset: preset, gains: gains, preampDb: preampDb);
   }
 
   // ─── EQ – Spatial Audio / Reverb ──────────────────────────────────────────
@@ -105,13 +103,7 @@ class AppStateService {
     await prefs.setDouble(_kEcho, echo);
   }
 
-  Future<
-          ({
-            bool enabled,
-            double reverbMix,
-            double roomSize,
-            double echo
-          })>
+  Future<({bool enabled, double reverbMix, double roomSize, double echo})>
       loadSpatialAudio() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -127,6 +119,11 @@ class AppStateService {
   static const _kDelayMix = 'sp_delay_mix';
   static const _kDelayFeedback = 'sp_delay_feedback';
   static const _kDelayTime = 'sp_delay_time';
+
+  // ─── EQ – Stereo Widen ────────────────────────────────────────────────────
+  static const _kStereoWidenEnabled = 'sp_stereo_widen_enabled';
+  static const _kStereoWidenWidth = 'sp_stereo_widen_width';
+  static const _kStereoWidenDelayMs = 'sp_stereo_widen_delay_ms';
 
   Future<void> saveDelay({
     required bool enabled,
@@ -149,6 +146,27 @@ class AppStateService {
       mix: prefs.getDouble(_kDelayMix) ?? 0.3,
       feedback: prefs.getDouble(_kDelayFeedback) ?? 0.4,
       time: prefs.getDouble(_kDelayTime) ?? 0.25,
+    );
+  }
+
+  Future<void> saveStereoWiden({
+    required bool enabled,
+    required double width,
+    required double delayMs,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kStereoWidenEnabled, enabled);
+    await prefs.setDouble(_kStereoWidenWidth, width);
+    await prefs.setDouble(_kStereoWidenDelayMs, delayMs);
+  }
+
+  Future<({bool enabled, double width, double delayMs})>
+      loadStereoWiden() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kStereoWidenEnabled) ?? false,
+      width: prefs.getDouble(_kStereoWidenWidth) ?? 1.5,
+      delayMs: prefs.getDouble(_kStereoWidenDelayMs) ?? 15.0,
     );
   }
 
@@ -272,13 +290,7 @@ class AppStateService {
     await prefs.setDouble(_kLimiterRelease, releaseMs);
   }
 
-  Future<
-          ({
-            bool enabled,
-            double threshold,
-            double attackMs,
-            double releaseMs
-          })>
+  Future<({bool enabled, double threshold, double attackMs, double releaseMs})>
       loadLimiter() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -324,18 +336,17 @@ class AppStateService {
   }
 
   Future<
-          ({
-            int outputFormatIndex,
-            int sampleRate,
-            int channels,
-            bool crossfadeEnabled,
-            int crossfadeMs,
-            bool analyzerEnabled,
-            String analyzerType,
-            int analyzerSampleSize,
-            bool allowInvalidTls
-          })>
-      loadEngineSettings() async {
+      ({
+        int outputFormatIndex,
+        int sampleRate,
+        int channels,
+        bool crossfadeEnabled,
+        int crossfadeMs,
+        bool analyzerEnabled,
+        String analyzerType,
+        int analyzerSampleSize,
+        bool allowInvalidTls
+      })> loadEngineSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
       outputFormatIndex: prefs.getInt(_kOutputFormat) ?? 0, // 0 = f32
@@ -376,19 +387,17 @@ class AppStateService {
   }
 
   Future<
-          ({
-            String streamingQuality,
-            bool gaplessPlayback,
-            bool normalizeVolume,
-            bool streamOverWifi,
-            int resampleAlgorithm,
-            int ditherMode
-          })>
-      loadUiSettings() async {
+      ({
+        String streamingQuality,
+        bool gaplessPlayback,
+        bool normalizeVolume,
+        bool streamOverWifi,
+        int resampleAlgorithm,
+        int ditherMode
+      })> loadUiSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
-      streamingQuality:
-          prefs.getString(_kStreamingQuality) ?? 'High Fidelity',
+      streamingQuality: prefs.getString(_kStreamingQuality) ?? 'High Fidelity',
       gaplessPlayback: prefs.getBool(_kGaplessPlayback) ?? true,
       normalizeVolume: prefs.getBool(_kNormalizeVolume) ?? false,
       streamOverWifi: prefs.getBool(_kStreamOverWifi) ?? true,

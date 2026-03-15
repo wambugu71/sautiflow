@@ -514,77 +514,87 @@ namespace
         }
     };
 
-    struct LibSampleRateBackend {
-        SRC_STATE* state;
+    struct LibSampleRateBackend
+    {
+        SRC_STATE *state;
         float ratio;
         int channels;
         int converterType;
     };
 
-    static ma_result src_onGetHeapSize(void* pUserData, const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes)
+    static ma_result src_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
     {
         *pHeapSizeInBytes = sizeof(LibSampleRateBackend);
         return MA_SUCCESS;
     }
 
-    static ma_result src_onInit(void* pUserData, const ma_resampler_config* pConfig, void* pAllocation, ma_resampling_backend** ppBackend)
+    static ma_result src_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
     {
-        LibSampleRateBackend* backend = (LibSampleRateBackend*)pAllocation;
+        LibSampleRateBackend *backend = (LibSampleRateBackend *)pAllocation;
         backend->channels = pConfig->channels;
-        
+
         // pUserData points to the algorithm int (from AudioEngineHandle)
-        int algo = pUserData ? *(int*)pUserData : 1;
+        int algo = pUserData ? *(int *)pUserData : 1;
         int converter = SRC_SINC_FASTEST;
-        if (algo == 1) converter = SRC_SINC_BEST_QUALITY;
-        else if (algo == 2) converter = SRC_SINC_MEDIUM_QUALITY;
-        else if (algo == 3) converter = SRC_SINC_FASTEST;
-        else if (algo == 4) converter = SRC_ZERO_ORDER_HOLD;
-        else if (algo == 5) converter = SRC_LINEAR;
+        if (algo == 1)
+            converter = SRC_SINC_BEST_QUALITY;
+        else if (algo == 2)
+            converter = SRC_SINC_MEDIUM_QUALITY;
+        else if (algo == 3)
+            converter = SRC_SINC_FASTEST;
+        else if (algo == 4)
+            converter = SRC_ZERO_ORDER_HOLD;
+        else if (algo == 5)
+            converter = SRC_LINEAR;
 
         backend->converterType = converter;
         backend->ratio = (float)pConfig->sampleRateOut / (float)pConfig->sampleRateIn;
-        
+
         int err = 0;
         backend->state = src_new(converter, backend->channels, &err);
-        if (!backend->state) return MA_ERROR;
-        
-        *ppBackend = (ma_resampling_backend*)backend;
+        if (!backend->state)
+            return MA_ERROR;
+
+        *ppBackend = (ma_resampling_backend *)backend;
         return MA_SUCCESS;
     }
 
-    static void src_onUninit(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+    static void src_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
     {
-        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
-        if (backend && backend->state) {
+        LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
+        if (backend && backend->state)
+        {
             src_delete(backend->state);
             backend->state = nullptr;
         }
     }
 
-    static ma_result src_onProcess(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+    static ma_result src_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
     {
-        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
-        if (!backend->state) return MA_ERROR;
-        
+        LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
+        if (!backend->state)
+            return MA_ERROR;
+
         SRC_DATA srcData;
-        srcData.data_in = (const float*)pFramesIn;
+        srcData.data_in = (const float *)pFramesIn;
         srcData.input_frames = (long)(*pFrameCountIn);
-        srcData.data_out = (float*)pFramesOut;
+        srcData.data_out = (float *)pFramesOut;
         srcData.output_frames = (long)(*pFrameCountOut);
         srcData.src_ratio = backend->ratio;
         srcData.end_of_input = 0;
-        
+
         int err = src_process(backend->state, &srcData);
-        if (err) return MA_ERROR;
-        
+        if (err)
+            return MA_ERROR;
+
         *pFrameCountIn = srcData.input_frames_used;
         *pFrameCountOut = srcData.output_frames_gen;
         return MA_SUCCESS;
     }
 
-    static ma_result src_onSetRate(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+    static ma_result src_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
     {
-        LibSampleRateBackend* backend = (LibSampleRateBackend*)pBackend;
+        LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
         backend->ratio = (float)sampleRateOut / (float)sampleRateIn;
         src_set_ratio(backend->state, backend->ratio);
         return MA_SUCCESS;
@@ -605,9 +615,9 @@ namespace
 
     struct LimiterState
     {
-        float threshold = 0.95f;   // Level above which gain reduction starts (linear)
-        float attackMs = 2.0f;     // Attack time in ms
-        float releaseMs = 50.0f;   // Release time in ms
+        float threshold = 0.95f; // Level above which gain reduction starts (linear)
+        float attackMs = 2.0f;   // Attack time in ms
+        float releaseMs = 50.0f; // Release time in ms
 
         float attackCoeff = 0.0f;
         float releaseCoeff = 0.0f;
@@ -630,7 +640,8 @@ namespace
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 1) return;
+            if (channels < 1)
+                return;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
@@ -640,7 +651,8 @@ namespace
                 for (int c = 0; c < channels; ++c)
                 {
                     float absVal = std::abs(interleaved[base + (size_t)c]);
-                    if (absVal > peak) peak = absVal;
+                    if (absVal > peak)
+                        peak = absVal;
                 }
 
                 // Calculate desired gain
@@ -667,6 +679,70 @@ namespace
                 {
                     interleaved[base + (size_t)c] *= gainEnvelope;
                 }
+            }
+        }
+    };
+
+    struct StereoWidenState
+    {
+        std::vector<float> delayBuffer;
+        size_t writeIdx = 0;
+        float width = 1.0f;
+        float delayMs = 15.0f;
+        int cachedSampleRate = 44100;
+
+        void reset(int sampleRate)
+        {
+            cachedSampleRate = sampleRate;
+            size_t delaySamples = (size_t)((delayMs / 1000.0f) * sampleRate);
+            if (delaySamples == 0)
+                delaySamples = 1;
+            delayBuffer.assign(delaySamples, 0.0f);
+            writeIdx = 0;
+        }
+
+        void updateParams(int sampleRate, float w, float dMs)
+        {
+            width = w;
+            if (delayMs != dMs || cachedSampleRate != sampleRate)
+            {
+                delayMs = dMs;
+                reset(sampleRate);
+            }
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 2)
+                return; // Stereo only
+            if (delayBuffer.empty())
+                return;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                size_t base = (size_t)i * channels;
+
+                // 1. Haas Effect (Delay the right channel slightly)
+                float originalL = interleaved[base];
+                float originalR = interleaved[base + 1];
+
+                // Read delayed right channel and write new right channel
+                float delayedR = delayBuffer[writeIdx];
+                delayBuffer[writeIdx] = originalR;
+
+                writeIdx++;
+                if (writeIdx >= delayBuffer.size())
+                    writeIdx = 0;
+
+                // 2. Mid/Side Processing
+                float mid = (originalL + delayedR) * 0.5f;
+                float side = (originalL - delayedR) * 0.5f;
+
+                side *= width; // Widen
+
+                // Recombine
+                interleaved[base] = mid + side;
+                interleaved[base + 1] = mid - side;
             }
         }
     };
@@ -744,7 +820,7 @@ struct AudioEngineHandle
 
     // End Callback
     AE_EndCallback endCallback = nullptr;
-    void* pEndCallbackUserData = nullptr;
+    void *pEndCallbackUserData = nullptr;
 
     std::mutex fxMutex;
     bool eqEnabled = false;
@@ -805,6 +881,10 @@ struct AudioEngineHandle
     bool customBiquadEnabled = false;
     double bq_b0 = 1.0, bq_b1 = 0.0, bq_b2 = 0.0, bq_a0 = 1.0, bq_a1 = 0.0, bq_a2 = 0.0;
     ma_biquad customBiquad{};
+
+    // Stereo Widen Effect
+    bool stereoWidenEnabled = false;
+    StereoWidenState stereoWiden;
 
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
@@ -1650,7 +1730,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     const ma_uint64 absTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
     const ma_uint64 startTime = e->scheduledStartTime.load(std::memory_order_relaxed);
-    if (startTime != -1ULL && absTime < startTime) {
+    if (startTime != -1ULL && absTime < startTime)
+    {
         // Scheduled to start in the future, return silence
         if (e->outputFormat != AE_FORMAT_F32)
         {
@@ -1696,7 +1777,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
                     // Dynamically apply pitch if present
                     const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
-                    if (pitch != 1.0f) {
+                    if (pitch != 1.0f)
+                    {
                         config.sampleRate = (ma_uint32)((float)e->sampleRate * pitch);
                     }
 
@@ -1737,13 +1819,13 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 processBuffer + ((size_t)produced * (size_t)e->outputChannels),
                 (ma_uint64)(frameCount - produced),
                 &framesRead);
-            
+
             // To properly do pitch shifting without ma_engine, one must use a dedicated ma_resampler over the decoded frames.
             // But miniaudio doesn't let us push/pull pitch easily without ma_data_source or ma_resampler object.
-            // As a quick inline polyfill for pitch without node graphs: we can just tell the decoder to change its 
+            // As a quick inline polyfill for pitch without node graphs: we can just tell the decoder to change its
             // internal sample rate output slightly, but decoder API doesn't expose it after init easily without internal access.
-            // For now, if pitch != 1.0f, the initialization branch applies pitch to the initial config. 
-            // Dynamic pitch shifting requires us to run a custom re-sampler over 'framesRead', 
+            // For now, if pitch != 1.0f, the initialization branch applies pitch to the initial config.
+            // Dynamic pitch shifting requires us to run a custom re-sampler over 'framesRead',
             // which requires extensive buffering. We will leave dynamic pitch out for this commit unless requested.
 
             // If framesRead > 0, we have data.
@@ -1752,7 +1834,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             const ma_uint64 absTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
             const ma_uint64 stopTime = e->scheduledStopTime.load(std::memory_order_relaxed);
-            if (stopTime != -1ULL && absTime >= stopTime) {
+            if (stopTime != -1ULL && absTime >= stopTime)
+            {
                 e->isPlaying.store(false, std::memory_order_relaxed);
                 break;
             }
@@ -1859,7 +1942,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             {
                 const float volBeg = e->customFadeVolumeBeg.load(std::memory_order_relaxed);
                 const float volEnd = e->customFadeVolumeEnd.load(std::memory_order_relaxed);
-                
+
                 ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                 for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                 {
@@ -1873,7 +1956,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     fadeRemaining -= 1;
                 }
                 e->customFadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
-                if (fadeRemaining == 0) {
+                if (fadeRemaining == 0)
+                {
                     e->customFadeArmed.store(false, std::memory_order_release);
                 }
             }
@@ -1903,6 +1987,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 processBuffer[i * e->outputChannels] *= l;
                 processBuffer[i * e->outputChannels + 1] *= r;
             }
+        }
+
+        // Stereo Widen
+        if (e->stereoWidenEnabled)
+        {
+            e->stereoWiden.process(processBuffer, produced, e->outputChannels);
         }
 
         // Multiband EQ and mixed multiband FX
@@ -2038,7 +2128,8 @@ extern "C"
         spatConfig.minDistance = 1.0f;
         spatConfig.maxDistance = 10000.0f;
         spatConfig.rolloff = 1.0f;
-        if (ma_spatializer_init(&spatConfig, nullptr, &e->spatializer) == MA_SUCCESS) {
+        if (ma_spatializer_init(&spatConfig, nullptr, &e->spatializer) == MA_SUCCESS)
+        {
             ma_spatializer_listener_config listConfig = ma_spatializer_listener_config_init(channels);
             ma_spatializer_listener_init(&listConfig, nullptr, &e->spatialListener);
             e->spatializerInitialized = true;
@@ -2148,7 +2239,8 @@ extern "C"
                 e->pushStreamForCurrent.initialized = false;
             }
 
-            if (e->spatializerInitialized) {
+            if (e->spatializerInitialized)
+            {
                 ma_spatializer_uninit(&e->spatializer, nullptr);
                 e->spatializerInitialized = false;
             }
@@ -2535,7 +2627,7 @@ extern "C"
         }
 
         request_jump(e, idx);
-        
+
         if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
             if (ma_device_start(&e->device) != MA_SUCCESS)
@@ -2543,7 +2635,7 @@ extern "C"
                 engine_log("Failed to start device in ae_next");
             }
         }
-        
+
         e->isPlaying.store(true, std::memory_order_relaxed);
         clear_last_error(e);
         return true;
@@ -2570,7 +2662,7 @@ extern "C"
         }
 
         request_jump(e, idx);
-        
+
         if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
             if (ma_device_start(&e->device) != MA_SUCCESS)
@@ -2578,7 +2670,7 @@ extern "C"
                 engine_log("Failed to start device in ae_prev");
             }
         }
-        
+
         e->isPlaying.store(true, std::memory_order_relaxed);
         clear_last_error(e);
         return true;
@@ -2604,7 +2696,7 @@ extern "C"
         e->pendingSeekValid.store(false, std::memory_order_release);
         e->pendingSeekIndex.store(-1, std::memory_order_release);
         request_jump(e, index);
-        
+
         if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
             if (ma_device_start(&e->device) != MA_SUCCESS)
@@ -2612,7 +2704,7 @@ extern "C"
                 engine_log("Failed to start device in ae_jump_to");
             }
         }
-        
+
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("jump_to requested: index=%d", index);
         clear_last_error(e);
@@ -2644,7 +2736,7 @@ extern "C"
         e->pendingSeekValid.store(true, std::memory_order_release);
 
         request_jump(e, index);
-        
+
         if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
             if (ma_device_start(&e->device) != MA_SUCCESS)
@@ -2652,7 +2744,7 @@ extern "C"
                 engine_log("Failed to start device in ae_jump_to_with_position");
             }
         }
-        
+
         e->isPlaying.store(true, std::memory_order_relaxed);
         engine_log("jump_to_with_position requested: index=%d frame=%llu", index, (unsigned long long)frame);
         clear_last_error(e);
@@ -3170,83 +3262,101 @@ extern "C"
 
     AE_API void ae_set_spatialization_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr) return;
+        if (e == nullptr)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         e->spatializationEnabled = (enabled != 0);
     }
 
     AE_API void ae_set_position(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_position(&e->spatializer, x, y, z);
     }
 
     AE_API void ae_set_direction(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_direction(&e->spatializer, x, y, z);
     }
 
     AE_API void ae_set_velocity(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_velocity(&e->spatializer, x, y, z);
     }
 
     AE_API void ae_set_attenuation_model(AudioEngineHandle *e, int model)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_attenuation_model am = ma_attenuation_model_none;
-        switch (model) {
-            case 1: am = ma_attenuation_model_inverse; break;
-            case 2: am = ma_attenuation_model_linear; break;
-            case 3: am = ma_attenuation_model_exponential; break;
+        switch (model)
+        {
+        case 1:
+            am = ma_attenuation_model_inverse;
+            break;
+        case 2:
+            am = ma_attenuation_model_linear;
+            break;
+        case 3:
+            am = ma_attenuation_model_exponential;
+            break;
         }
         ma_spatializer_set_attenuation_model(&e->spatializer, am);
     }
 
     AE_API void ae_set_rolloff(AudioEngineHandle *e, float rolloff)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_rolloff(&e->spatializer, rolloff);
     }
 
     AE_API void ae_set_min_gain(AudioEngineHandle *e, float min_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_min_gain(&e->spatializer, min_gain);
     }
 
     AE_API void ae_set_max_gain(AudioEngineHandle *e, float max_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_max_gain(&e->spatializer, max_gain);
     }
 
     AE_API void ae_set_min_distance(AudioEngineHandle *e, float min_distance)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_min_distance(&e->spatializer, min_distance);
     }
 
     AE_API void ae_set_max_distance(AudioEngineHandle *e, float max_distance)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_max_distance(&e->spatializer, max_distance);
     }
 
     AE_API void ae_set_doppler_factor(AudioEngineHandle *e, float doppler_factor)
     {
-        if (e == nullptr || !e->spatializerInitialized) return;
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_doppler_factor(&e->spatializer, doppler_factor);
     }
@@ -3255,10 +3365,11 @@ extern "C"
 
     AE_API void ae_set_fade_in_milliseconds(AudioEngineHandle *e, float volume_beg, float volume_end, int time_ms)
     {
-        if (e == nullptr || time_ms <= 0) return;
+        if (e == nullptr || time_ms <= 0)
+            return;
         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
         const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)time_ms / 1000.0));
-        
+
         e->customFadeVolumeBeg.store(volume_beg, std::memory_order_relaxed);
         e->customFadeVolumeEnd.store(volume_end, std::memory_order_relaxed);
         e->customFadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
@@ -3268,25 +3379,29 @@ extern "C"
 
     AE_API void ae_set_start_time_in_pcm_frames(AudioEngineHandle *e, uint64_t absolute_time)
     {
-        if (e == nullptr) return;
+        if (e == nullptr)
+            return;
         e->scheduledStartTime.store(absolute_time, std::memory_order_relaxed);
     }
 
     AE_API void ae_set_stop_time_in_pcm_frames(AudioEngineHandle *e, uint64_t absolute_time)
     {
-        if (e == nullptr) return;
+        if (e == nullptr)
+            return;
         e->scheduledStopTime.store(absolute_time, std::memory_order_relaxed);
     }
 
     AE_API uint64_t ae_get_engine_time_in_pcm_frames(AudioEngineHandle *e)
     {
-        if (e == nullptr) return 0;
+        if (e == nullptr)
+            return 0;
         return e->engineAbsoluteTime.load(std::memory_order_relaxed);
     }
 
-    AE_API void ae_set_end_callback(AudioEngineHandle *e, AE_EndCallback callback, void* pUserData)
+    AE_API void ae_set_end_callback(AudioEngineHandle *e, AE_EndCallback callback, void *pUserData)
     {
-        if (e == nullptr) return;
+        if (e == nullptr)
+            return;
         e->endCallback = callback;
         e->pEndCallbackUserData = pUserData;
     }
@@ -4042,6 +4157,15 @@ extern "C"
         if (!obj)
             return 0;
         return ma_resampler_get_output_latency(&obj->filter);
+    }
+
+    AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->stereoWidenEnabled = (enabled != 0);
+        engine->stereoWiden.updateParams(engine->sampleRate, clampf(width, 0.0f, 5.0f), clampf(delay_ms, 0.0f, 100.0f));
     }
 
 } // extern "C"

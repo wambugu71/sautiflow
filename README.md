@@ -11,7 +11,7 @@ Sautiflow is a cross-platform audio playback and processing engine for Dart and 
 - Audiophile-grade resampling algorithms powered by `libsamplerate` (SRC Sinc Best/Medium/Fastest, ZOH, Linear)
 - Play/pause/stop/seek/next/previous/jump
 - Shuffle + loop modes (`off`, `all`, `one`)
-- FX chain: gain, pan, EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
+- FX chain: gain, pan, stereo widening, EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
 - Pollable player status and stream updates
 - Native targets: Windows, Linux, Android, iOS/macOS
 

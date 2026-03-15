@@ -4,12 +4,11 @@ import 'dart:typed_data';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'services/app_state_service.dart';
-import 'package:sautiflow/sautiflow.dart';
-
 import 'isolate_player.dart';
+import 'services/app_state_service.dart';
 
 // Tailwind Colors Ported
 const primaryColor = Color(0xFF137fec);
@@ -72,6 +71,11 @@ class _EqScreenState extends State<EqScreen> {
   double _delayMix = 0.3;
   double _delayFeedback = 0.4;
   double _delayTime = 0.25;
+
+  // Stereo Widen
+  bool _stereoWidenEnabled = false;
+  double _stereoWidenWidth = 1.5;
+  double _stereoWidenDelayMs = 0.15; // Maps to 15ms
 
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
@@ -146,6 +150,7 @@ class _EqScreenState extends State<EqScreen> {
     final eqBands = await AppStateService.instance.loadEqBands();
     final spatial = await AppStateService.instance.loadSpatialAudio();
     final delay = await AppStateService.instance.loadDelay();
+    final stereoWiden = await AppStateService.instance.loadStereoWiden();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
     final lpf = await AppStateService.instance.loadCustomLpf();
@@ -176,6 +181,11 @@ class _EqScreenState extends State<EqScreen> {
       _delayMix = delay.mix;
       _delayFeedback = delay.feedback;
       _delayTime = delay.time;
+
+      // Stereo Widen
+      _stereoWidenEnabled = stereoWiden.enabled;
+      _stereoWidenWidth = stereoWiden.width;
+      _stereoWidenDelayMs = stereoWiden.delayMs;
 
       // Audio Tuning
       _audioTuningEnabled = tuning.enabled;
@@ -214,6 +224,9 @@ class _EqScreenState extends State<EqScreen> {
     if (_delayEnabled) {
       widget.player.setDelay(enabled: true);
       _updateDelay();
+    }
+    if (_stereoWidenEnabled) {
+      _updateStereoWiden();
     }
     if (_audioTuningEnabled) {
       widget.player.setEqEnabled(true);
@@ -259,6 +272,11 @@ class _EqScreenState extends State<EqScreen> {
       mix: _delayMix,
       feedback: _delayFeedback,
       time: _delayTime,
+    );
+    AppStateService.instance.saveStereoWiden(
+      enabled: _stereoWidenEnabled,
+      width: _stereoWidenWidth,
+      delayMs: _stereoWidenDelayMs,
     );
     AppStateService.instance.saveAudioTuning(
       enabled: _audioTuningEnabled,
@@ -604,6 +622,13 @@ class _EqScreenState extends State<EqScreen> {
           ),
           const SizedBox(height: 16),
 
+          // Stereo Widen Section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _buildStereoWidenSection(),
+          ),
+          const SizedBox(height: 16),
+
           // Spatial Audio (Reverb combo)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -874,6 +899,91 @@ class _EqScreenState extends State<EqScreen> {
     );
   }
 
+  Widget _buildStereoWidenSection() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.2),
+                      shape: BoxShape.circle),
+                  child: const Icon(Icons.compare_arrows,
+                      color: primaryColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Stereo Stage',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                    Text('M/S & Haas width',
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                            fontSize: 12)),
+                  ],
+                ),
+              ],
+            ),
+            Switch(
+              value: _stereoWidenEnabled,
+              onChanged: (v) {
+                setState(() => _stereoWidenEnabled = v);
+                if (v) _updateStereoWiden();
+                else widget.player.setStereoWiden(enabled: false, width: _stereoWidenWidth, delayMs: _stereoWidenDelayMs * 100.0);
+                _saveEqState();
+              },
+              activeThumbColor: Colors.white,
+              activeTrackColor: primaryColor,
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'WIDTH',
+              value: (_stereoWidenWidth / 5.0).clamp(0.0, 1.0),
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.2, // Maps to 1.0
+              activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${(v * 5.0).toStringAsFixed(1)}x',
+              onChanged: (v) {
+                setState(() => _stereoWidenWidth = v * 5.0);
+                if (_stereoWidenEnabled) _updateStereoWiden();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'HAAS',
+              value: _stereoWidenDelayMs,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.15,
+              activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${(v * 100).toInt()}ms',
+              onChanged: (v) {
+                setState(() => _stereoWidenDelayMs = v);
+                if (_stereoWidenEnabled) _updateStereoWiden();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildDelaySection() {
     return Column(
       children: [
@@ -980,6 +1090,16 @@ class _EqScreenState extends State<EqScreen> {
       mix: _delayMix,
       feedback: _delayFeedback,
       delayMs: delayMs,
+    );
+  }
+
+  void _updateStereoWiden() {
+    // mapped _stereoWidenDelayMs mapping 0.0-1.0 to 0-100ms
+    double delayMsMapping = _stereoWidenDelayMs * 100.0;
+    widget.player.setStereoWiden(
+      enabled: _stereoWidenEnabled,
+      width: _stereoWidenWidth,
+      delayMs: delayMsMapping,
     );
   }
 

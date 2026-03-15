@@ -156,6 +156,10 @@ class _PlayerShellState extends State<PlayerShell> {
   double _dlFeedback = 0.35;
   double _dlDelay = 240;
 
+  bool _stereoWidenEnabled = false;
+  double _stereoWidenWidth = 1.5;
+  double _stereoWidenDelayMs = 15.0;
+
   bool _customLpf1Enabled = false;
   double _customLpf1Cutoff = 1000.0;
   bool _customHpf1Enabled = false;
@@ -1861,6 +1865,35 @@ class _PlayerShellState extends State<PlayerShell> {
             mix: _dlMix,
             feedback: _dlFeedback,
             delayMs: _dlDelay,
+          );
+        }),
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Stereo Widen (M/S + Haas)'),
+          value: _stereoWidenEnabled,
+          onChanged: (v) {
+            setState(() => _stereoWidenEnabled = v);
+            _player.setStereoWiden(
+              enabled: v,
+              width: _stereoWidenWidth,
+              delayMs: _stereoWidenDelayMs,
+            );
+          },
+        ),
+        _slider('Stereo Width', _stereoWidenWidth, 0.0, 5.0, (v) {
+          setState(() => _stereoWidenWidth = v);
+          _player.setStereoWiden(
+            enabled: _stereoWidenEnabled,
+            width: _stereoWidenWidth,
+            delayMs: _stereoWidenDelayMs,
+          );
+        }),
+        _slider('Haas Delay (ms)', _stereoWidenDelayMs, 0.0, 100.0, (v) {
+          setState(() => _stereoWidenDelayMs = v);
+          _player.setStereoWiden(
+            enabled: _stereoWidenEnabled,
+            width: _stereoWidenWidth,
+            delayMs: _stereoWidenDelayMs,
           );
         }),
         const Divider(),
