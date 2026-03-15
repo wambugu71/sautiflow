@@ -1,0 +1,6 @@
+﻿[submodule "third_party/faad2"]
+	path = third_party/faad2
+	url = https://github.com/knik0/faad2.git
+[submodule "third_party/libsamplerate"]
+	path = third_party/libsamplerate
+	url = https://github.com/libsndfile/libsamplerate.git

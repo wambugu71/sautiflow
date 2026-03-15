@@ -13,12 +13,12 @@ A cross-platform miniaudio-backed native engine exposed to Flutter through Dart 
   s.public_header_files = '../audio_engine.h'
   s.dependency 'Flutter'
   s.platform = :ios, '12.0'
-  s.libraries = 'c++', 'z', 'curl'
+  s.libraries = 'c++', 'z'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
-    'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -DAE_ENABLE_CURL=1',
+    'OTHER_CPLUSPLUSFLAGS' => '$(inherited) ',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1',
     'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include"'
   }
