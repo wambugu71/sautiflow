@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'services/app_state_service.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'isolate_player.dart';
@@ -32,6 +35,9 @@ class EqScreen extends StatefulWidget {
 }
 
 class _EqScreenState extends State<EqScreen> {
+  // Preferences
+  bool _showWarningBanner = true;
+
   // Master EQ
   bool _masterEqEnabled = true;
 
@@ -76,9 +82,6 @@ class _EqScreenState extends State<EqScreen> {
   // Preamp
   double _preampDb = 0.0; // Simulated gain offset
 
-  // Pitch
-  double _pitch = 1.0;
-
   // True 3D Spatialization
   bool _true3dEnabled = false;
   double _spatX = 0.0;
@@ -110,14 +113,10 @@ class _EqScreenState extends State<EqScreen> {
   double _limiterAttackMs = 2.0; // 0.1 – 100 ms
   double _limiterReleaseMs = 50.0; // 10 – 1000 ms
 
-  // Clipping Detection
-  bool _clipDetectionEnabled = false;
-  int _clippedSamples = 0;
-  Timer? _clipPollTimer;
-
   @override
   void initState() {
     super.initState();
+    _loadPreferences();
     _initEq();
     _analyzerSub = widget.player.analyzerStream.listen((frame) {
       if (frame.isEmpty || !widget.analyzerEnabled) return;
@@ -139,10 +138,167 @@ class _EqScreenState extends State<EqScreen> {
     });
   }
 
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hideBanner = prefs.getBool('hide_eq_warning') ?? false;
+
+    // Load all persisted EQ state
+    final eqBands = await AppStateService.instance.loadEqBands();
+    final spatial = await AppStateService.instance.loadSpatialAudio();
+    final delay = await AppStateService.instance.loadDelay();
+    final tuning = await AppStateService.instance.loadAudioTuning();
+    final true3d = await AppStateService.instance.loadTrue3d();
+    final lpf = await AppStateService.instance.loadCustomLpf();
+    final hpf = await AppStateService.instance.loadCustomHpf();
+    final limiter = await AppStateService.instance.loadLimiter();
+
+    setState(() {
+      _showWarningBanner = !hideBanner;
+
+      // EQ bands
+      _masterEqEnabled = eqBands.enabled;
+      _activePreset = eqBands.preset;
+      if (eqBands.gains.length == _eqGains.length) {
+        for (int i = 0; i < _eqGains.length; i++) {
+          _eqGains[i] = eqBands.gains[i];
+        }
+      }
+      _preampDb = eqBands.preampDb;
+
+      // Spatial
+      _spatialAudioEnabled = spatial.enabled;
+      _reverbMix = spatial.reverbMix;
+      _roomSize = spatial.roomSize;
+      _echo = spatial.echo;
+
+      // Delay
+      _delayEnabled = delay.enabled;
+      _delayMix = delay.mix;
+      _delayFeedback = delay.feedback;
+      _delayTime = delay.time;
+
+      // Audio Tuning
+      _audioTuningEnabled = tuning.enabled;
+      _tuneLow = tuning.low;
+      _tuneMid = tuning.mid;
+      _tuneHigh = tuning.high;
+
+      // True 3D
+      _true3dEnabled = true3d.enabled;
+      _spatX = true3d.x;
+      _spatY = true3d.y;
+      _spatZ = true3d.z;
+
+      // Custom filters
+      _customLpfEnabled = lpf.enabled;
+      _customLpfCutoff = lpf.cutoff;
+      _customHpfEnabled = hpf.enabled;
+      _customHpfCutoff = hpf.cutoff;
+
+      // Limiter
+      _limiterEnabled = limiter.enabled;
+      _limiterThreshold = limiter.threshold;
+      _limiterAttackMs = limiter.attackMs;
+      _limiterReleaseMs = limiter.releaseMs;
+    });
+
+    // Apply loaded state to the audio engine
+    widget.player.setMultibandEqEnabled(_masterEqEnabled);
+    _applyEqGains();
+    _applyStoredPreamp();
+
+    if (_spatialAudioEnabled) {
+      widget.player.setReverbEnabled(true);
+      _updateSpatialAudio();
+    }
+    if (_delayEnabled) {
+      widget.player.setDelay(enabled: true);
+      _updateDelay();
+    }
+    if (_audioTuningEnabled) {
+      widget.player.setEqEnabled(true);
+      widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
+    }
+    if (_true3dEnabled) {
+      widget.player.setSpatializationEnabled(true);
+      _updateTrue3dPositions();
+    }
+    if (_customLpfEnabled) {
+      widget.player.setCustomLpf1(enabled: true, cutoffHz: _customLpfCutoff);
+    }
+    if (_customHpfEnabled) {
+      widget.player.setCustomHpf1(enabled: true, cutoffHz: _customHpfCutoff);
+    }
+    if (_limiterEnabled) {
+      _applyLimiter();
+    }
+  }
+
+  /// Applies the loaded preamp value to the audio engine.
+  void _applyStoredPreamp() {
+    final gain = math.pow(10, _preampDb / 20).toDouble();
+    widget.player.setGain(gain);
+  }
+
+  /// Saves all current EQ state to persistent storage.
+  void _saveEqState() {
+    AppStateService.instance.saveEqBands(
+      enabled: _masterEqEnabled,
+      preset: _activePreset,
+      gains: List<double>.from(_eqGains),
+      preampDb: _preampDb,
+    );
+    AppStateService.instance.saveSpatialAudio(
+      enabled: _spatialAudioEnabled,
+      reverbMix: _reverbMix,
+      roomSize: _roomSize,
+      echo: _echo,
+    );
+    AppStateService.instance.saveDelay(
+      enabled: _delayEnabled,
+      mix: _delayMix,
+      feedback: _delayFeedback,
+      time: _delayTime,
+    );
+    AppStateService.instance.saveAudioTuning(
+      enabled: _audioTuningEnabled,
+      low: _tuneLow,
+      mid: _tuneMid,
+      high: _tuneHigh,
+    );
+    AppStateService.instance.saveTrue3d(
+      enabled: _true3dEnabled,
+      x: _spatX,
+      y: _spatY,
+      z: _spatZ,
+    );
+    AppStateService.instance.saveCustomLpf(
+      enabled: _customLpfEnabled,
+      cutoff: _customLpfCutoff,
+    );
+    AppStateService.instance.saveCustomHpf(
+      enabled: _customHpfEnabled,
+      cutoff: _customHpfCutoff,
+    );
+    AppStateService.instance.saveLimiter(
+      enabled: _limiterEnabled,
+      threshold: _limiterThreshold,
+      attackMs: _limiterAttackMs,
+      releaseMs: _limiterReleaseMs,
+    );
+  }
+
+  void _dismissWarningBanner() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hide_eq_warning', true);
+    setState(() {
+      _showWarningBanner = false;
+    });
+  }
+
   @override
   void dispose() {
     _analyzerSub?.cancel();
-    _clipPollTimer?.cancel();
     super.dispose();
   }
 
@@ -214,6 +370,8 @@ class _EqScreenState extends State<EqScreen> {
       }
       _applyEqGains();
     });
+    // Persist the new preset
+    _saveEqState();
   }
 
   void _resetAll() {
@@ -237,8 +395,6 @@ class _EqScreenState extends State<EqScreen> {
 
       _preampDb = 0.0;
       widget.player.setGain(1.0); // 1.0 is 0dB
-
-      _pitch = 1.0;
       widget.player.setPitch(1.0);
 
       _true3dEnabled = false;
@@ -271,19 +427,16 @@ class _EqScreenState extends State<EqScreen> {
         a2: _biquadA2,
       );
 
-      // Limiter & Clipping
+      // Limiter
       _limiterEnabled = false;
       _limiterThreshold = 0.95;
       _limiterAttackMs = 2.0;
       _limiterReleaseMs = 50.0;
       widget.player.setLimiterEnabled(false);
-
-      _clipDetectionEnabled = false;
-      _clippedSamples = 0;
-      _clipPollTimer?.cancel();
-      _clipPollTimer = null;
       widget.player.setClippingDetectionEnabled(false);
     });
+    // Persist the reset state
+    _saveEqState();
   }
 
   @override
@@ -313,10 +466,58 @@ class _EqScreenState extends State<EqScreen> {
         padding: const EdgeInsets.only(bottom: 120),
         physics: const BouncingScrollPhysics(),
         children: [
+          // Warning Banner
+          if (_showWarningBanner)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: Colors.red[400], size: 24),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Advanced Controls',
+                          style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Improper equalizer, limiter, or biquad settings can cause severe audio distortion, clipping, or a completely degraded listening experience. Proceed with caution.',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 12, height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _dismissWarningBanner,
+                    icon: const Icon(Icons.close,
+                        color: Colors.white54, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    splashRadius: 20,
+                  ),
+                ],
+              ),
+            ),
+
           // Realtime Audio Analyzer (replaces old EQ chart)
           if (widget.analyzerEnabled)
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: _buildAnalyzerSection(),
             ),
 
@@ -346,6 +547,7 @@ class _EqScreenState extends State<EqScreen> {
                   onChanged: (v) {
                     setState(() => _masterEqEnabled = v);
                     widget.player.setMultibandEqEnabled(v);
+                    _saveEqState();
                   },
                   activeThumbColor: Colors.white,
                   activeTrackColor: primaryColor,
@@ -420,19 +622,6 @@ class _EqScreenState extends State<EqScreen> {
             padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
             child: _buildCustomFiltersSection(),
           ),
-          // Preamp (Gain)
-          Padding(
-            padding:
-                const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 32),
-            child: _buildPreampSection(),
-          ),
-
-          // Pitch Shifting
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildPitchSection(),
-          ),
-          const SizedBox(height: 32),
 
           // Soft Limiter
           Padding(
@@ -480,9 +669,57 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildGraphicEqSliders() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: List.generate(10, (i) {
+    final List<Widget> sliders = [];
+
+    // Preamp Slider
+    sliders.add(
+      Column(
+        children: [
+          SizedBox(
+            height: 160,
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 14),
+                  activeTrackColor:
+                      _masterEqEnabled ? primaryColor : Colors.white,
+                  inactiveTrackColor: Colors.white.withOpacity(0.1),
+                  thumbColor: Colors.white,
+                ),
+                child: Slider(
+                  value: _preampDb,
+                  min: -12.0,
+                  max: 12.0,
+                  onChanged: (v) {
+                    setState(() {
+                      _preampDb = v;
+                      double gain = math.pow(10, v / 20).toDouble();
+                      widget.player.setGain(gain);
+                    });
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text('PREAMP',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+
+    // 10-Band Sliders
+    sliders.addAll(
+      List.generate(10, (i) {
         final freq = _eqFrequencies[i];
         String label =
             freq >= 1000 ? '${(freq / 1000).toInt()}k' : '${freq.toInt()}';
@@ -500,7 +737,8 @@ class _EqScreenState extends State<EqScreen> {
                         const RoundSliderThumbShape(enabledThumbRadius: 6),
                     overlayShape:
                         const RoundSliderOverlayShape(overlayRadius: 14),
-                    activeTrackColor: primaryColor,
+                    activeTrackColor:
+                        _masterEqEnabled ? primaryColor : Colors.white,
                     inactiveTrackColor: Colors.white.withOpacity(0.1),
                     thumbColor: Colors.white,
                   ),
@@ -514,6 +752,7 @@ class _EqScreenState extends State<EqScreen> {
                         _activePreset = 'Custom';
                         widget.player.setMultibandEqBandGain(i, v);
                       });
+                      _saveEqState();
                     },
                   ),
                 ),
@@ -528,6 +767,11 @@ class _EqScreenState extends State<EqScreen> {
           ],
         );
       }),
+    );
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: sliders,
     );
   }
 
@@ -571,6 +815,7 @@ class _EqScreenState extends State<EqScreen> {
                 setState(() => _spatialAudioEnabled = v);
                 widget.player.setReverbEnabled(v);
                 if (v) _updateSpatialAudio();
+                _saveEqState();
               },
               activeThumbColor: Colors.white,
               activeTrackColor: primaryColor,
@@ -587,10 +832,12 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.3,
+              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _roomSize = v);
                 if (_spatialAudioEnabled) _updateSpatialAudio();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -599,10 +846,12 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.15,
+              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _echo = v);
                 if (_spatialAudioEnabled) _updateSpatialAudio();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -611,10 +860,12 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.25,
+              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _reverbMix = v);
                 if (_spatialAudioEnabled) _updateSpatialAudio();
+                _saveEqState();
               },
             ),
           ],
@@ -663,6 +914,7 @@ class _EqScreenState extends State<EqScreen> {
                 setState(() => _delayEnabled = v);
                 widget.player.setDelay(enabled: v);
                 if (v) _updateDelay();
+                _saveEqState();
               },
               activeThumbColor: Colors.white,
               activeTrackColor: primaryColor,
@@ -679,10 +931,12 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.25,
+              activeColor: _delayEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayTime = v);
                 if (_delayEnabled) _updateDelay();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -691,10 +945,12 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.4,
+              activeColor: _delayEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayFeedback = v);
                 if (_delayEnabled) _updateDelay();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -703,6 +959,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.0,
               max: 1.0,
               flatValue: 0.3,
+              activeColor: _delayEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayMix = v);
@@ -734,129 +991,6 @@ class _EqScreenState extends State<EqScreen> {
 
     widget.player
         .setReverb(mix: _reverbMix, feedback: feedback, delayMs: delayMs);
-  }
-
-  Widget _buildPreampSection() {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: const BoxDecoration(
-              color: surfaceDarkerColor, shape: BoxShape.circle),
-          child: Icon(Icons.volume_up,
-              color: Colors.white.withOpacity(0.5), size: 20),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Preamp',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold)),
-                  Text(
-                      '${_preampDb >= 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
-                          fontSize: 12,
-                          fontFamily: 'monospace')),
-                ],
-              ),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 6),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  activeTrackColor: primaryColor,
-                  inactiveTrackColor: Colors.white.withOpacity(0.1),
-                  thumbColor: Colors.white,
-                ),
-                child: Slider(
-                  value: _preampDb,
-                  min: -12.0,
-                  max: 12.0,
-                  onChanged: (v) {
-                    setState(() {
-                      _preampDb = v;
-                      // Linear dB to gain formula (roughly gain = 10^(dB/20))
-                      double gain = math.pow(10, v / 20).toDouble();
-                      widget.player.setGain(gain);
-                    });
-                  },
-                ),
-              ),
-            ],
-          ),
-        )
-      ],
-    );
-  }
-
-  Widget _buildPitchSection() {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: const BoxDecoration(
-              color: surfaceDarkerColor, shape: BoxShape.circle),
-          child:
-              Icon(Icons.speed, color: Colors.white.withOpacity(0.5), size: 20),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Pitch Override',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold)),
-                  Text('${_pitch.toStringAsFixed(2)}x',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
-                          fontSize: 12,
-                          fontFamily: 'monospace')),
-                ],
-              ),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 6),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  activeTrackColor: primaryColor,
-                  inactiveTrackColor: Colors.white.withOpacity(0.1),
-                  thumbColor: Colors.white,
-                ),
-                child: Slider(
-                  value: _pitch,
-                  min: 0.1,
-                  max: 4.0,
-                  onChanged: (v) {
-                    setState(() {
-                      _pitch = v;
-                      widget.player.setPitch(v);
-                    });
-                  },
-                ),
-              ),
-            ],
-          ),
-        )
-      ],
-    );
   }
 
   Widget _buildTrue3dSection() {
@@ -899,6 +1033,7 @@ class _EqScreenState extends State<EqScreen> {
                 setState(() => _true3dEnabled = v);
                 widget.player.setSpatializationEnabled(v);
                 if (v) _updateTrue3dPositions();
+                _saveEqState();
               },
               activeThumbColor: Colors.white,
               activeTrackColor: primaryColor,
@@ -915,10 +1050,12 @@ class _EqScreenState extends State<EqScreen> {
               min: -5.0,
               max: 5.0,
               flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => v.toStringAsFixed(1),
               onChanged: (v) {
                 setState(() => _spatX = v);
                 if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -927,10 +1064,12 @@ class _EqScreenState extends State<EqScreen> {
               min: -5.0,
               max: 5.0,
               flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => v.toStringAsFixed(1),
               onChanged: (v) {
                 setState(() => _spatY = v);
                 if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -939,10 +1078,12 @@ class _EqScreenState extends State<EqScreen> {
               min: -5.0,
               max: 5.0,
               flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => v.toStringAsFixed(1),
               onChanged: (v) {
                 setState(() => _spatZ = v);
                 if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
               },
             ),
           ],
@@ -997,6 +1138,7 @@ class _EqScreenState extends State<EqScreen> {
                   widget.player
                       .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
                 }
+                _saveEqState();
               },
               activeThumbColor: Colors.white,
               activeTrackColor: primaryColor,
@@ -1012,12 +1154,14 @@ class _EqScreenState extends State<EqScreen> {
               value: _tuneLow,
               min: 0.01,
               max: 4.0,
+              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
               onChanged: (v) {
                 setState(() => _tuneLow = v);
                 if (_audioTuningEnabled) {
                   widget.player
                       .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
                 }
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -1025,12 +1169,14 @@ class _EqScreenState extends State<EqScreen> {
               value: _tuneMid,
               min: 0.01,
               max: 4.0,
+              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
               onChanged: (v) {
                 setState(() => _tuneMid = v);
                 if (_audioTuningEnabled) {
                   widget.player
                       .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
                 }
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
@@ -1038,12 +1184,14 @@ class _EqScreenState extends State<EqScreen> {
               value: _tuneHigh,
               min: 0.01,
               max: 4.0,
+              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
               onChanged: (v) {
                 setState(() => _tuneHigh = v);
                 if (_audioTuningEnabled) {
                   widget.player
                       .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
                 }
+                _saveEqState();
               },
             ),
           ],
@@ -1077,7 +1225,7 @@ class _EqScreenState extends State<EqScreen> {
             ),
             Row(
               children: [
-                if (_parametricEqEnabled)
+                if (true) // Keep Add button visible to allow configuring while off
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline,
                         color: primaryColor),
@@ -1129,19 +1277,18 @@ class _EqScreenState extends State<EqScreen> {
             ),
           ],
         ),
-        if (_parametricEqEnabled) const SizedBox(height: 16),
-        if (_parametricEqEnabled)
-          SizedBox(
-            height: 220,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _parametricBands.length,
-              itemBuilder: (context, index) {
-                final band = _parametricBands[index];
-                return _buildParametricBandCard(index, band);
-              },
-            ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 220,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _parametricBands.length,
+            itemBuilder: (context, index) {
+              final band = _parametricBands[index];
+              return _buildParametricBandCard(index, band);
+            },
           ),
+        ),
       ],
     );
   }
@@ -1227,6 +1374,7 @@ class _EqScreenState extends State<EqScreen> {
                 min: 20.0,
                 max: 20000.0,
                 flatValue: 1000.0,
+                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
                 valueFormatter: (v) => '${v.toInt()}Hz',
                 onChanged: (v) {
                   setState(() {
@@ -1256,6 +1404,7 @@ class _EqScreenState extends State<EqScreen> {
                 min: 0.1,
                 max: 18.0,
                 flatValue: 1.0,
+                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
                 valueFormatter: (v) => v.toStringAsFixed(1),
                 onChanged: (v) {
                   setState(() {
@@ -1291,6 +1440,7 @@ class _EqScreenState extends State<EqScreen> {
                 min: -24.0,
                 max: 24.0,
                 flatValue: 0.0,
+                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
                 valueFormatter: (v) =>
                     '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
                 onChanged: (v) {
@@ -1477,6 +1627,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 20.0,
               max: 20000.0,
               flatValue: 500.0,
+              activeColor: _customLpfEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} Hz',
               onChanged: (v) {
                 setState(() {
@@ -1524,6 +1675,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 20.0,
               max: 20000.0,
               flatValue: 120.0,
+              activeColor: _customHpfEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} Hz',
               onChanged: (v) {
                 setState(() {
@@ -1560,58 +1712,56 @@ class _EqScreenState extends State<EqScreen> {
             ),
           ],
         ),
-        if (_customBiquadEnabled) ...[
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildBiquadKnob(
-                  'B0',
-                  _biquadB0,
-                  (v) => setState(() {
-                        _biquadB0 = v;
-                        _updateBiquad();
-                      })),
-              _buildBiquadKnob(
-                  'B1',
-                  _biquadB1,
-                  (v) => setState(() {
-                        _biquadB1 = v;
-                        _updateBiquad();
-                      })),
-              _buildBiquadKnob(
-                  'B2',
-                  _biquadB2,
-                  (v) => setState(() {
-                        _biquadB2 = v;
-                        _updateBiquad();
-                      })),
-              _buildBiquadKnob(
-                  'A0',
-                  _biquadA0,
-                  (v) => setState(() {
-                        _biquadA0 = v;
-                        _updateBiquad();
-                      })),
-              _buildBiquadKnob(
-                  'A1',
-                  _biquadA1,
-                  (v) => setState(() {
-                        _biquadA1 = v;
-                        _updateBiquad();
-                      })),
-              _buildBiquadKnob(
-                  'A2',
-                  _biquadA2,
-                  (v) => setState(() {
-                        _biquadA2 = v;
-                        _updateBiquad();
-                      })),
-            ],
-          )
-        ]
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          alignment: WrapAlignment.center,
+          children: [
+            _buildBiquadKnob(
+                'B0',
+                _biquadB0,
+                (v) => setState(() {
+                      _biquadB0 = v;
+                      _updateBiquad();
+                    })),
+            _buildBiquadKnob(
+                'B1',
+                _biquadB1,
+                (v) => setState(() {
+                      _biquadB1 = v;
+                      _updateBiquad();
+                    })),
+            _buildBiquadKnob(
+                'B2',
+                _biquadB2,
+                (v) => setState(() {
+                      _biquadB2 = v;
+                      _updateBiquad();
+                    })),
+            _buildBiquadKnob(
+                'A0',
+                _biquadA0,
+                (v) => setState(() {
+                      _biquadA0 = v;
+                      _updateBiquad();
+                    })),
+            _buildBiquadKnob(
+                'A1',
+                _biquadA1,
+                (v) => setState(() {
+                      _biquadA1 = v;
+                      _updateBiquad();
+                    })),
+            _buildBiquadKnob(
+                'A2',
+                _biquadA2,
+                (v) => setState(() {
+                      _biquadA2 = v;
+                      _updateBiquad();
+                    })),
+          ],
+        )
       ],
     );
   }
@@ -1636,6 +1786,7 @@ class _EqScreenState extends State<EqScreen> {
       min: -2.0,
       max: 2.0,
       flatValue: (label == 'B0' || label == 'A0') ? 1.0 : 0.0,
+      activeColor: _customBiquadEnabled ? primaryColor : Colors.white,
       valueFormatter: (v) => v.toStringAsFixed(2),
       onChanged: onChanged,
     );
@@ -1693,6 +1844,7 @@ class _EqScreenState extends State<EqScreen> {
               onChanged: (v) {
                 setState(() => _limiterEnabled = v);
                 _applyLimiter();
+                _saveEqState();
               },
               activeThumbColor: Colors.white,
               activeTrackColor: primaryColor,
@@ -1710,6 +1862,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.1,
               max: 1.0,
               flatValue: 0.95,
+              activeColor: _limiterEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: _limiterEnabled
                   ? (v) {
@@ -1724,6 +1877,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 0.1,
               max: 100.0,
               flatValue: 2.0,
+              activeColor: _limiterEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(1)}ms',
               onChanged: _limiterEnabled
                   ? (v) {
@@ -1738,6 +1892,7 @@ class _EqScreenState extends State<EqScreen> {
               min: 10.0,
               max: 1000.0,
               flatValue: 50.0,
+              activeColor: _limiterEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(0)}ms',
               onChanged: _limiterEnabled
                   ? (v) {
@@ -1745,116 +1900,6 @@ class _EqScreenState extends State<EqScreen> {
                       _applyLimiter();
                     }
                   : (_) {},
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        // ── Clipping Detection sub-section ───────────────────────────────
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: _clippedSamples > 0
-                        ? Colors.red.withValues(alpha: 0.2)
-                        : surfaceDarkerColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.warning_amber_rounded,
-                    color: _clippedSamples > 0
-                        ? Colors.redAccent
-                        : Colors.white.withValues(alpha: 0.4),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Clipping Detection',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold)),
-                    Text(
-                      _clipDetectionEnabled
-                          ? 'Clipped: $_clippedSamples samples'
-                          : 'Disabled',
-                      style: TextStyle(
-                          color: _clippedSamples > 0
-                              ? Colors.redAccent
-                              : Colors.white.withValues(alpha: 0.5),
-                          fontSize: 12,
-                          fontWeight: _clippedSamples > 0
-                              ? FontWeight.bold
-                              : FontWeight.normal),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                if (_clipDetectionEnabled)
-                  GestureDetector(
-                    onTap: () {
-                      widget.player.resetClippedSamplesCount();
-                      setState(() => _clippedSamples = 0);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      margin: const EdgeInsets.only(right: 8),
-                      decoration: BoxDecoration(
-                        color: surfaceDarkColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15),
-                        ),
-                      ),
-                      child: Text('Reset',
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                Switch(
-                  value: _clipDetectionEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _clipDetectionEnabled = v;
-                      if (!v) _clippedSamples = 0;
-                    });
-                    widget.player.setClippingDetectionEnabled(v);
-                    if (v) {
-                      _clipPollTimer?.cancel();
-                      _clipPollTimer = Timer.periodic(
-                        const Duration(milliseconds: 500),
-                        (_) {
-                          if (!mounted) return;
-                          final count = widget.player.getClippedSamplesCount();
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) {
-                              setState(() => _clippedSamples = count);
-                            }
-                          });
-                        },
-                      );
-                    } else {
-                      _clipPollTimer?.cancel();
-                      _clipPollTimer = null;
-                    }
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
             ),
           ],
         ),
@@ -1871,6 +1916,7 @@ class ModernAudioKnob extends StatefulWidget {
   final double flatValue;
   final ValueChanged<double> onChanged;
   final String Function(double)? valueFormatter;
+  final Color activeColor;
 
   const ModernAudioKnob({
     super.key,
@@ -1881,6 +1927,7 @@ class ModernAudioKnob extends StatefulWidget {
     this.flatValue = 1.0,
     required this.onChanged,
     this.valueFormatter,
+    this.activeColor = primaryColor,
   });
 
   @override
@@ -1921,21 +1968,23 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
             size: const Size(60, 60),
             painter: _KnobPainter(
               normalizedValue: normalizedValue,
-              activeColor: primaryColor,
-              inactiveColor: Colors.white.withValues(alpha: 0.1),
+              activeColor: widget.activeColor,
+              inactiveColor: Colors.white.withOpacity(0.1),
             ),
           ),
         ),
         const SizedBox(height: 12),
         Text(widget.label,
             style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
+                color: Colors.white.withOpacity(0.8),
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         Text(displayValue,
-            style: const TextStyle(
-                color: primaryColor, fontSize: 10, fontFamily: 'monospace')),
+            style: TextStyle(
+                color: widget.activeColor,
+                fontSize: 10,
+                fontFamily: 'monospace')),
       ],
     );
   }

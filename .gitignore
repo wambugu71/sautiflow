@@ -8,7 +8,7 @@
 .pub/
 .pub-cache/
 build/
-sautiplay/
+
 stitch/
 # Generated plugin registrants
 **/GeneratedPluginRegistrant.*

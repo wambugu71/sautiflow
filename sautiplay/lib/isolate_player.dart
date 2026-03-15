@@ -48,7 +48,11 @@ class IsolateAudioPlayer {
         onSeek: (pos) => seekTo(pos),
         onSetGain: setGain,
       );
-      await _systemAudio!.enable();
+      await _systemAudio!.enable(
+        config: const MiniAudioSystemAudioConfig(
+          androidNotificationIcon: 'mipmap/launcher_icon',
+        ),
+      );
     }
 
     // Listen for messages from the isolate
