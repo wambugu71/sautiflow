@@ -54,6 +54,8 @@ jobs:
         with:
           name: sautiflow_android_arm64
           path: sautiplay/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+
+  build-windows:
     name: Build Windows
     runs-on: windows-latest
     steps:
@@ -223,5 +225,6 @@ jobs:
             artifacts/sautiflow_ios/ios-release.zip
           draft: false
           prerelease: false
+
 
 
