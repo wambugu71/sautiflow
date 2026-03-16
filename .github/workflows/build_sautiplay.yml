@@ -1,4 +1,4 @@
-name: Build Example Releases
+name: Build sautiplay Releases
 
 on:
   push:
@@ -30,18 +30,18 @@ jobs:
           channel: "stable"
 
       - name: Install dependencies
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter pub get
 
       - name: Build Android APK
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter build apk --release --target-platform android-arm,android-arm64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: example/build/app/outputs/flutter-apk/app-release.apk
+          path: sautiplay/build/app/outputs/flutter-apk/app-release.apk
 
   build-windows:
     name: Build Windows
@@ -55,22 +55,22 @@ jobs:
           channel: "stable"
 
       - name: Install dependencies
-        working-directory: .\example
+        working-directory: .\sautiplay
         run: flutter pub get
 
       - name: Build Windows
-        working-directory: .\example
+        working-directory: .\sautiplay
         run: flutter build windows --release
 
       - name: Compress Release
-        working-directory: .\example\build\windows\x64\runner
+        working-directory: .\sautiplay\build\windows\x64\runner
         run: Compress-Archive -Path Release -DestinationPath Release.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: example\build\windows\x64\runner\Release.zip
+          path: sautiplay\build\windows\x64\runner\Release.zip
 
   build-linux:
     name: Build Linux
@@ -88,22 +88,22 @@ jobs:
           channel: "stable"
 
       - name: Install dependencies
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter pub get
 
       - name: Build Linux
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter build linux --release
 
       - name: Compress Release
-        working-directory: ./example/build/linux/x64/release
+        working-directory: ./sautiplay/build/linux/x64/release
         run: tar -czvf release.tar.gz bundle
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-release
-          path: example/build/linux/x64/release/release.tar.gz
+          path: sautiplay/build/linux/x64/release/release.tar.gz
 
   build-macos:
     name: Build macOS
@@ -117,22 +117,22 @@ jobs:
           channel: "stable"
 
       - name: Install dependencies
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter pub get
 
       - name: Build macOS
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter build macos --release
 
       - name: Compress Release
-        working-directory: ./example/build/macos/Build/Products/Release
+        working-directory: ./sautiplay/build/macos/Build/Products/Release
         run: zip -r macos-release.zip *.app
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-release
-          path: example/build/macos/Build/Products/Release/macos-release.zip
+          path: sautiplay/build/macos/Build/Products/Release/macos-release.zip
 
   build-ios:
     name: Build iOS
@@ -146,22 +146,22 @@ jobs:
           channel: "stable"
 
       - name: Install dependencies
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter pub get
 
       - name: Build iOS
-        working-directory: ./example
+        working-directory: ./sautiplay
         run: flutter build ios --release --no-codesign
 
       - name: Compress Release
-        working-directory: ./example/build/ios/iphoneos
+        working-directory: ./sautiplay/build/ios/iphoneos
         run: zip -r ios-release.zip Runner.app
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-release
-          path: example/build/ios/iphoneos/ios-release.zip
+          path: sautiplay/build/ios/iphoneos/ios-release.zip
 
   create-release:
     name: Create Release
