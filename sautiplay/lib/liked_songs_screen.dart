@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+
 import '../models/liked_song.dart';
 import '../services/liked_songs_service.dart';
 
@@ -22,89 +23,117 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
     const Color bgDark = Color(0xFF121212); // background-dark from mockup
     const Color primaryColor = Color(0xFF256AF4); // primary from mockup
 
-    return Scaffold(
-      backgroundColor: bgDark,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              decoration: BoxDecoration(
-                color: bgDark.withOpacity(0.95),
-                border: Border(
-                  bottom: BorderSide(color: Colors.white.withOpacity(0.05)),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                      const Text(
-                        'Liked Songs',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: -0.5,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 800;
+        final contentMaxWidth = isDesktop ? 1000.0 : double.infinity;
+
+        return Scaffold(
+          backgroundColor: bgDark,
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                child: Column(
+                  children: [
+                    // Header
+                    Container(
+                      padding: EdgeInsets.fromLTRB(
+                          isDesktop ? 32 : 24,
+                          isDesktop ? 32 : 24,
+                          isDesktop ? 32 : 24,
+                          isDesktop ? 24 : 16),
+                      decoration: BoxDecoration(
+                        color: bgDark.withOpacity(0.95),
+                        border: Border(
+                          bottom:
+                              BorderSide(color: Colors.white.withOpacity(0.05)),
                         ),
                       ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Content
-            Expanded(
-              child: ValueListenableBuilder<List<LikedSong>>(
-                valueListenable: LikedSongsService.instance.likedSongsNotifier,
-                builder: (context, likedSongs, _) {
-                  if (likedSongs.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'No liked songs yet.',
-                        style: TextStyle(color: Color(0xFFA0A0A0)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.arrow_back,
+                                    color: Colors.white,
+                                    size: isDesktop ? 28 : 24),
+                                onPressed: () => Navigator.of(context).pop(),
+                              ),
+                              SizedBox(width: isDesktop ? 16 : 0),
+                              Text(
+                                'Liked Songs',
+                                style: TextStyle(
+                                  fontSize: isDesktop ? 36 : 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    );
-                  }
+                    ),
 
-                  return ListView.builder(
-                    padding: const EdgeInsets.only(top: 16, bottom: 120),
-                    itemCount: likedSongs.length,
-                    itemBuilder: (context, index) {
-                      final track = likedSongs[index];
-                      return _buildTrackItem(track, likedSongs, index);
-                    },
-                  );
-                },
+                    // Content
+                    Expanded(
+                      child: ValueListenableBuilder<List<LikedSong>>(
+                        valueListenable:
+                            LikedSongsService.instance.likedSongsNotifier,
+                        builder: (context, likedSongs, _) {
+                          if (likedSongs.isEmpty) {
+                            return Center(
+                              child: Text(
+                                'No liked songs yet.',
+                                style: TextStyle(
+                                    color: const Color(0xFFA0A0A0),
+                                    fontSize: isDesktop ? 18 : 14),
+                              ),
+                            );
+                          }
+
+                          return ListView.builder(
+                            padding:
+                                const EdgeInsets.only(top: 16, bottom: 120),
+                            itemCount: likedSongs.length,
+                            itemBuilder: (context, index) {
+                              final track = likedSongs[index];
+                              return _buildTrackItem(track, likedSongs, index,
+                                  isDesktop: isDesktop);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTrackItem(
-      LikedSong track, List<LikedSong> allTracks, int index) {
+  Widget _buildTrackItem(LikedSong track, List<LikedSong> allTracks, int index,
+      {bool isDesktop = false}) {
     return InkWell(
       onTap: () {
         widget.onPlayTracks(allTracks, initialIndex: index);
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: isDesktop ? 12.0 : 8.0),
         child: Row(
           children: [
             // Thumbnail
             Container(
-              width: 56,
-              height: 56,
+              width: isDesktop ? 72 : 56,
+              height: isDesktop ? 72 : 56,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 color: const Color(0xFF1E1E1E),
@@ -122,13 +151,16 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                     ? CachedNetworkImage(
                         imageUrl: track.thumbnailUrl!,
                         fit: BoxFit.cover,
-                        errorWidget: (context, url, error) =>
-                            const Icon(Icons.music_note, color: Colors.white54),
+                        errorWidget: (context, url, error) => Icon(
+                            Icons.music_note,
+                            color: Colors.white54,
+                            size: isDesktop ? 32 : 24),
                       )
-                    : const Icon(Icons.music_note, color: Colors.white54),
+                    : Icon(Icons.music_note,
+                        color: Colors.white54, size: isDesktop ? 32 : 24),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: isDesktop ? 24 : 16),
 
             // Text Details
             Expanded(
@@ -140,9 +172,9 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                       Flexible(
                         child: Text(
                           track.title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 16,
+                            fontSize: isDesktop ? 18 : 16,
                             fontWeight: FontWeight.w600,
                           ),
                           maxLines: 1,
@@ -150,34 +182,34 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                         ),
                       ),
                       if (!track.isLocal) ...[
-                        const SizedBox(width: 8),
+                        SizedBox(width: isDesktop ? 12 : 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: isDesktop ? 8 : 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
                                 color: Colors.white.withOpacity(0.05)),
                           ),
-                          child: const Text(
+                          child: Text(
                             'ONLINE',
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: isDesktop ? 12 : 10,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFA0A0A0),
+                              color: const Color(0xFFA0A0A0),
                             ),
                           ),
                         ),
                       ],
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: isDesktop ? 6 : 4),
                   Text(
                     '${track.artist} • ${_formatDuration(track.durationSeconds)}',
-                    style: const TextStyle(
-                      color: Color(0xFFA0A0A0),
-                      fontSize: 14,
+                    style: TextStyle(
+                      color: const Color(0xFFA0A0A0),
+                      fontSize: isDesktop ? 15 : 14,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -188,7 +220,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
 
             // Like toggle / Context Menu Button
             IconButton(
-              icon: const Icon(Icons.favorite, color: Color(0xFF256AF4)),
+              icon: Icon(Icons.favorite,
+                  color: const Color(0xFF256AF4), size: isDesktop ? 28 : 24),
               onPressed: () async {
                 await LikedSongsService.instance.removeLikedSong(track.videoId);
               },

@@ -480,181 +480,199 @@ class _EqScreenState extends State<EqScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 120),
-        physics: const BouncingScrollPhysics(),
-        children: [
-          // Warning Banner
-          if (_showWarningBanner)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red.withOpacity(0.3)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = constraints.maxWidth >= 800;
+          return Align(
+            alignment: isDesktop ? Alignment.topCenter : Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000.0),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                    isDesktop ? 48.0 : 0, 0, isDesktop ? 48.0 : 0, 120),
+                physics: const BouncingScrollPhysics(),
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: Colors.red[400], size: 24),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  // Warning Banner
+                  if (_showWarningBanner)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.warning_amber_rounded,
+                              color: Colors.red[400], size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  'Advanced Controls',
+                                  style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Improper equalizer, limiter, or biquad settings can cause severe audio distortion, clipping, or a completely degraded listening experience. Proceed with caution.',
+                                  style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      height: 1.4),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _dismissWarningBanner,
+                            icon: const Icon(Icons.close,
+                                color: Colors.white54, size: 20),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            splashRadius: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Realtime Audio Analyzer (replaces old EQ chart)
+                  if (widget.analyzerEnabled)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                      child: _buildAnalyzerSection(),
+                    ),
+
+                  // Master Equalizer Switch
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Advanced Controls',
-                          style: TextStyle(
-                              color: Colors.redAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('10-Band Equalizer',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text('Enable 10-band EQ',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.5),
+                                    fontSize: 12)),
+                          ],
                         ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Improper equalizer, limiter, or biquad settings can cause severe audio distortion, clipping, or a completely degraded listening experience. Proceed with caution.',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 12, height: 1.4),
+                        Switch(
+                          value: _masterEqEnabled,
+                          onChanged: (v) {
+                            setState(() => _masterEqEnabled = v);
+                            widget.player.setMultibandEqEnabled(v);
+                            _saveEqState();
+                          },
+                          activeThumbColor: Colors.white,
+                          activeTrackColor: primaryColor,
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: _dismissWarningBanner,
-                    icon: const Icon(Icons.close,
-                        color: Colors.white54, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    splashRadius: 20,
+
+                  // Presets Horizontal Scroller
+                  SizedBox(
+                    height: 36,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      children: [
+                        _buildPresetChip('Flat'),
+                        const SizedBox(width: 12),
+                        _buildPresetChip('Bass Boost'),
+                        const SizedBox(width: 12),
+                        _buildPresetChip('Vocal'),
+                        const SizedBox(width: 12),
+                        _buildPresetChip('Treble'),
+                        const SizedBox(width: 12),
+                        _buildPresetChip('Rock'),
+                        const SizedBox(width: 12),
+                        _buildPresetChip('Jazz'),
+                      ],
+                    ),
                   ),
+
+                  // 10-Band Sliders
+                  Padding(
+                    padding: const EdgeInsets.only(
+                        top: 32, left: 20, right: 20, bottom: 40),
+                    child: _buildGraphicEqSliders(),
+                  ),
+
+                  // Audio Tuning Section (3-Band)
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(left: 20, right: 20, bottom: 40),
+                    child: _buildAudioTuningSection(),
+                  ),
+
+                  // Parametric EQ Section
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(left: 20, right: 20, bottom: 40),
+                    child: _buildParametricEqSection(),
+                  ),
+
+                  // Delay (Echo) Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildDelaySection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Stereo Widen Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildStereoWidenSection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Spatial Audio (Reverb combo)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildSpatialAudioSection(),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // True 3D Spatial Audio
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildTrue3dSection(),
+                  ),
+
+                  // Custom Filters Section
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(left: 20, right: 20, bottom: 32),
+                    child: _buildCustomFiltersSection(),
+                  ),
+
+                  // Soft Limiter
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildLimiterSection(),
+                  ),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
-
-          // Realtime Audio Analyzer (replaces old EQ chart)
-          if (widget.analyzerEnabled)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: _buildAnalyzerSection(),
-            ),
-
-          // Master Equalizer Switch
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('10-Band Equalizer',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text('Enable 10-band EQ',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-                Switch(
-                  value: _masterEqEnabled,
-                  onChanged: (v) {
-                    setState(() => _masterEqEnabled = v);
-                    widget.player.setMultibandEqEnabled(v);
-                    _saveEqState();
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-          ),
-
-          // Presets Horizontal Scroller
-          SizedBox(
-            height: 36,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              children: [
-                _buildPresetChip('Flat'),
-                const SizedBox(width: 12),
-                _buildPresetChip('Bass Boost'),
-                const SizedBox(width: 12),
-                _buildPresetChip('Vocal'),
-                const SizedBox(width: 12),
-                _buildPresetChip('Treble'),
-                const SizedBox(width: 12),
-                _buildPresetChip('Rock'),
-                const SizedBox(width: 12),
-                _buildPresetChip('Jazz'),
-              ],
-            ),
-          ),
-
-          // 10-Band Sliders
-          Padding(
-            padding:
-                const EdgeInsets.only(top: 32, left: 20, right: 20, bottom: 40),
-            child: _buildGraphicEqSliders(),
-          ),
-
-          // Audio Tuning Section (3-Band)
-          Padding(
-            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 40),
-            child: _buildAudioTuningSection(),
-          ),
-
-          // Parametric EQ Section
-          Padding(
-            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 40),
-            child: _buildParametricEqSection(),
-          ),
-
-          // Delay (Echo) Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildDelaySection(),
-          ),
-          const SizedBox(height: 16),
-
-          // Stereo Widen Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildStereoWidenSection(),
-          ),
-          const SizedBox(height: 16),
-
-          // Spatial Audio (Reverb combo)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildSpatialAudioSection(),
-          ),
-          const SizedBox(height: 32),
-
-          // True 3D Spatial Audio
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildTrue3dSection(),
-          ),
-
-          // Custom Filters Section
-          Padding(
-            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
-            child: _buildCustomFiltersSection(),
-          ),
-
-          // Soft Limiter
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildLimiterSection(),
-          ),
-          const SizedBox(height: 32),
-        ],
+          );
+        },
       ),
     );
   }
@@ -937,8 +955,13 @@ class _EqScreenState extends State<EqScreen> {
               value: _stereoWidenEnabled,
               onChanged: (v) {
                 setState(() => _stereoWidenEnabled = v);
-                if (v) _updateStereoWiden();
-                else widget.player.setStereoWiden(enabled: false, width: _stereoWidenWidth, delayMs: _stereoWidenDelayMs * 100.0);
+                if (v)
+                  _updateStereoWiden();
+                else
+                  widget.player.setStereoWiden(
+                      enabled: false,
+                      width: _stereoWidenWidth,
+                      delayMs: _stereoWidenDelayMs * 100.0);
                 _saveEqState();
               },
               activeThumbColor: Colors.white,

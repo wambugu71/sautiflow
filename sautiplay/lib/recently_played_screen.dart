@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
+
 import 'models/recently_played_track.dart';
 import 'services/recently_played_service.dart';
 
@@ -225,75 +226,93 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
 
     return Scaffold(
       backgroundColor: bgDark,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              decoration: BoxDecoration(
-                color: bgDark.withOpacity(0.95),
-                border: Border(
-                  bottom: BorderSide(color: Colors.white.withOpacity(0.05)),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: LayoutBuilder(builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 800;
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1000.0),
+            child: SafeArea(
+              child: Column(
                 children: [
-                  const Text(
-                    'Recently Played',
-                    style: TextStyle(
-                      fontSize: 28, // Matches text-3xl roughly
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
+                  // Header
+                  Container(
+                    padding: EdgeInsets.fromLTRB(isDesktop ? 48 : 24,
+                        isDesktop ? 48 : 24, isDesktop ? 48 : 24, 16),
+                    decoration: BoxDecoration(
+                      color: bgDark.withOpacity(0.95),
+                      border: Border(
+                        bottom:
+                            BorderSide(color: Colors.white.withOpacity(0.05)),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Recently Played',
+                          style: TextStyle(
+                            fontSize:
+                                isDesktop ? 36 : 28, // Matches text-3xl roughly
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _history.isEmpty ? null : _clearHistory,
+                          style: TextButton.styleFrom(
+                            foregroundColor: primaryColor,
+                            textStyle: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: isDesktop ? 16 : 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30)),
+                          ),
+                          child: const Text('Clear History'),
+                        ),
+                      ],
                     ),
                   ),
-                  TextButton(
-                    onPressed: _history.isEmpty ? null : _clearHistory,
-                    style: TextButton.styleFrom(
-                      foregroundColor: primaryColor,
-                      textStyle: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
-                    ),
-                    child: const Text('Clear History'),
+
+                  // Content
+                  Expanded(
+                    child: _isLoading
+                        ? const Center(
+                            child:
+                                CircularProgressIndicator(color: primaryColor))
+                        : _history.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'No recent history.',
+                                  style: TextStyle(color: Color(0xFFA0A0A0)),
+                                ),
+                              )
+                            : RefreshIndicator(
+                                color: primaryColor,
+                                backgroundColor: bgDark,
+                                onRefresh: _loadHistory,
+                                child: ListView(
+                                  padding: EdgeInsets.only(
+                                      top: 16,
+                                      bottom: 120,
+                                      left: isDesktop ? 24 : 0,
+                                      right: isDesktop ? 24 : 0),
+                                  children: [
+                                    _buildSection('Today', _today),
+                                    _buildSection('Yesterday', _yesterday),
+                                    _buildSection(
+                                        'Earlier This Week', _earlier),
+                                  ],
+                                ),
+                              ),
                   ),
                 ],
               ),
             ),
-
-            // Content
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: primaryColor))
-                  : _history.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No recent history.',
-                            style: TextStyle(color: Color(0xFFA0A0A0)),
-                          ),
-                        )
-                      : RefreshIndicator(
-                          color: primaryColor,
-                          backgroundColor: bgDark,
-                          onRefresh: _loadHistory,
-                          child: ListView(
-                            padding:
-                                const EdgeInsets.only(top: 16, bottom: 120),
-                            children: [
-                              _buildSection('Today', _today),
-                              _buildSection('Yesterday', _yesterday),
-                              _buildSection('Earlier This Week', _earlier),
-                            ],
-                          ),
-                        ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }),
     );
   }
 }

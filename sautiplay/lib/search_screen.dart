@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
+import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+
 import 'album_detail_screen.dart';
 
 // ─ Colors (matching the existing app theme) ─
@@ -143,49 +144,64 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final filteredResults = _getFilteredResults();
 
-    return Scaffold(
-      backgroundColor: _bgDark,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildSearchHeader(),
-            _buildFilterChips(),
-            Expanded(
-              child: _isSearching
-                  ? Center(
-                      child: LoadingIndicatorM3E(
-                          color: _primary,
-                          containerColor: _primary.withAlpha(50)),
-                    )
-                  : _error != null
-                      ? _buildError()
-                      : _allResults.isEmpty
-                          ? _buildEmptyState()
-                          : _buildResultsList(filteredResults),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 800;
+        final contentMaxWidth = isDesktop ? 1000.0 : double.infinity;
+
+        return Scaffold(
+          backgroundColor: _bgDark,
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                child: Column(
+                  children: [
+                    _buildSearchHeader(isDesktop: isDesktop),
+                    _buildFilterChips(isDesktop: isDesktop),
+                    Expanded(
+                      child: _isSearching
+                          ? Center(
+                              child: LoadingIndicatorM3E(
+                                  color: _primary,
+                                  containerColor: _primary.withAlpha(50)),
+                            )
+                          : _error != null
+                              ? _buildError()
+                              : _allResults.isEmpty
+                                  ? _buildEmptyState(isDesktop: isDesktop)
+                                  : _buildResultsList(filteredResults,
+                                      isDesktop: isDesktop),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildSearchHeader() {
+  Widget _buildSearchHeader({bool isDesktop = false}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: EdgeInsets.fromLTRB(
+          isDesktop ? 32 : 16, isDesktop ? 32 : 16, isDesktop ? 32 : 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Search',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 28,
+              fontSize: isDesktop ? 36 : 28,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isDesktop ? 24 : 16),
           Container(
-            height: 48,
+            height: isDesktop ? 56 : 48,
             decoration: BoxDecoration(
               color: _surfaceDark,
               borderRadius: BorderRadius.circular(12),
@@ -196,18 +212,21 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: Row(
               children: [
-                const Padding(
-                  padding: EdgeInsets.only(left: 16, right: 8),
-                  child: Icon(Icons.search, color: Colors.white54),
+                Padding(
+                  padding: EdgeInsets.only(left: 16, right: isDesktop ? 16 : 8),
+                  child: Icon(Icons.search,
+                      color: Colors.white54, size: isDesktop ? 28 : 24),
                 ),
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    style: TextStyle(
+                        color: Colors.white, fontSize: isDesktop ? 18 : 16),
                     decoration: InputDecoration(
                       hintText: 'Songs, artists, albums...',
-                      hintStyle:
-                          TextStyle(color: Colors.white.withOpacity(0.4)),
+                      hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: isDesktop ? 18 : 16),
                       border: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.zero,
@@ -218,8 +237,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 if (_searchController.text.isNotEmpty)
                   IconButton(
-                    icon: const Icon(Icons.close,
-                        color: Colors.white54, size: 20),
+                    icon: Icon(Icons.close,
+                        color: Colors.white54, size: isDesktop ? 24 : 20),
                     onPressed: () {
                       _searchController.clear();
                       setState(() {
@@ -242,11 +261,12 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildFilterChips() {
+  Widget _buildFilterChips({bool isDesktop = false}) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 20 : 12),
       child: Row(
         children: _filters.map((filter) {
           final isSelected = _selectedFilter == filter;
@@ -256,8 +276,9 @@ class _SearchScreenState extends State<SearchScreen> {
               onTap: () => setState(() => _selectedFilter = filter),
               borderRadius: BorderRadius.circular(24),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 20 : 16,
+                    vertical: isDesktop ? 12 : 8),
                 decoration: BoxDecoration(
                   color: isSelected ? _primary : _surfaceDark,
                   borderRadius: BorderRadius.circular(24),
@@ -271,7 +292,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   style: TextStyle(
                     color: isSelected ? Colors.white : Colors.white70,
                     fontWeight: FontWeight.w500,
-                    fontSize: 14,
+                    fontSize: isDesktop ? 15 : 14,
                   ),
                 ),
               ),
@@ -282,18 +303,19 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState({bool isDesktop = false}) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search, size: 64, color: Colors.white.withOpacity(0.2)),
-          const SizedBox(height: 16),
+          Icon(Icons.search,
+              size: isDesktop ? 96 : 64, color: Colors.white.withOpacity(0.2)),
+          SizedBox(height: isDesktop ? 24 : 16),
           Text(
             'Find your favorite music',
             style: TextStyle(
               color: Colors.white.withOpacity(0.5),
-              fontSize: 16,
+              fontSize: isDesktop ? 20 : 16,
             ),
           ),
         ],
@@ -330,7 +352,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildResultsList(List<dynamic> results) {
+  Widget _buildResultsList(List<dynamic> results, {bool isDesktop = false}) {
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 120), // Space for mini player
       physics: const BouncingScrollPhysics(),
@@ -346,26 +368,28 @@ class _SearchScreenState extends State<SearchScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                padding: EdgeInsets.fromLTRB(isDesktop ? 32 : 16,
+                    isDesktop ? 24 : 16, isDesktop ? 32 : 16, 8),
                 child: Text(
                   'TOP RESULT',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.5),
-                    fontSize: 12,
+                    fontSize: isDesktop ? 14 : 12,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.2,
                   ),
                 ),
               ),
-              _buildTopResultItem(item),
+              _buildTopResultItem(item, isDesktop: isDesktop),
               if (results.length > 1)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                  padding: EdgeInsets.fromLTRB(isDesktop ? 32 : 16,
+                      isDesktop ? 32 : 24, isDesktop ? 32 : 16, 8),
                   child: Text(
                     'SONGS & MORE',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.5),
-                      fontSize: 12,
+                      fontSize: isDesktop ? 14 : 12,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2,
                     ),
@@ -375,12 +399,12 @@ class _SearchScreenState extends State<SearchScreen> {
           );
         }
 
-        return _buildStandardResultItem(item);
+        return _buildStandardResultItem(item, isDesktop: isDesktop);
       },
     );
   }
 
-  Widget _buildTopResultItem(dynamic item) {
+  Widget _buildTopResultItem(dynamic item, {bool isDesktop = false}) {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
@@ -390,13 +414,14 @@ class _SearchScreenState extends State<SearchScreen> {
     return InkWell(
       onTap: () => _handleItemTap(item),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 12),
         child: Row(
           children: [
             // Top result has a larger thumbnail
             Container(
-              width: 80,
-              height: 80,
+              width: isDesktop ? 120 : 80,
+              height: isDesktop ? 120 : 80,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 color: _surfaceDark,
@@ -427,15 +452,15 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: [
                   Text(
                     name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: isDesktop ? 22 : 18,
                       fontWeight: FontWeight.bold,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 6),
+                  SizedBox(height: isDesktop ? 10 : 6),
                   Row(
                     children: [
                       if (isExplicit) ...[
@@ -446,11 +471,11 @@ class _SearchScreenState extends State<SearchScreen> {
                             color: Colors.white.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text(
+                          child: Text(
                             'E',
                             style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 10,
+                                fontSize: isDesktop ? 12 : 10,
                                 fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -461,7 +486,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           subtitle,
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.6),
-                            fontSize: 14,
+                            fontSize: isDesktop ? 16 : 14,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -479,7 +504,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   _getTrailingText(item)!,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.5),
-                    fontSize: 12,
+                    fontSize: isDesktop ? 14 : 12,
                   ),
                 ),
               ),
@@ -493,7 +518,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildStandardResultItem(dynamic item) {
+  Widget _buildStandardResultItem(dynamic item, {bool isDesktop = false}) {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
@@ -503,15 +528,16 @@ class _SearchScreenState extends State<SearchScreen> {
     return InkWell(
       onTap: () => _handleItemTap(item),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 12),
         child: Row(
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: isDesktop ? 64 : 56,
+              height: isDesktop ? 64 : 56,
               decoration: BoxDecoration(
                 borderRadius: item is ArtistDetailed
-                    ? BorderRadius.circular(28)
+                    ? BorderRadius.circular(isDesktop ? 32 : 28)
                     : BorderRadius.circular(8),
                 color: _surfaceDark,
                 image: thumb != null
@@ -539,9 +565,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: [
                   Text(
                     name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
+                      fontSize: isDesktop ? 18 : 16,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
@@ -552,7 +578,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     subtitle,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.6),
-                      fontSize: 14,
+                      fontSize: isDesktop ? 15 : 14,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -572,7 +598,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   'Hi-Res',
                   style: TextStyle(
                       color: _primary,
-                      fontSize: 10,
+                      fontSize: isDesktop ? 12 : 10,
                       fontWeight: FontWeight.bold),
                 ),
               ),
@@ -584,11 +610,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   border: Border.all(color: Colors.white54),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Text(
+                child: Text(
                   'Lossless',
                   style: TextStyle(
                       color: Colors.white54,
-                      fontSize: 10,
+                      fontSize: isDesktop ? 12 : 10,
                       fontWeight: FontWeight.bold),
                 ),
               ),
@@ -599,7 +625,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   _getTrailingText(item)!,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.5),
-                    fontSize: 12,
+                    fontSize: isDesktop ? 14 : 12,
                   ),
                 ),
               ),

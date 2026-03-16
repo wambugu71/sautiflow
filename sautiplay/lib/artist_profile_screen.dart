@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
+import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+
 import 'album_detail_screen.dart'; // For TrackInfo + routing
 
 const _bgDark = Color(0xFF0a0a0a); // background-dark from HTML
@@ -106,11 +107,27 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgDark,
-      body: _isLoading
-          ? _buildLoading()
-          : _error != null
-              ? _buildError()
-              : _buildContent(),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = constraints.maxWidth >= 800;
+          final content = _isLoading
+              ? _buildLoading()
+              : _error != null
+                  ? _buildError()
+                  : _buildContent(isDesktop);
+
+          if (isDesktop) {
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1000.0),
+                child: content,
+              ),
+            );
+          }
+          return content;
+        },
+      ),
     );
   }
 
@@ -166,24 +183,25 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(bool isDesktop) {
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
-        _buildSliverAppBar(),
+        _buildSliverAppBar(isDesktop),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48.0 : 24.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 24),
-                _buildTopTracksSection(),
-                const SizedBox(height: 32),
-                _buildDiscographySection('Albums', _artistFull!.topAlbums),
+                _buildTopTracksSection(isDesktop),
                 const SizedBox(height: 32),
                 _buildDiscographySection(
-                    'Singles & EPs', _artistFull!.topSingles),
+                    'Albums', _artistFull!.topAlbums, isDesktop),
+                const SizedBox(height: 32),
+                _buildDiscographySection(
+                    'Singles & EPs', _artistFull!.topSingles, isDesktop),
                 const SizedBox(height: 32),
                 // Since bio isn't natively available in `ArtistFull` in dart_ytmusic_api,
                 // we'll rely on what's available or omit it. The HTML had it, but API doesn't.
@@ -196,7 +214,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
     );
   }
 
-  Widget _buildSliverAppBar() {
+  Widget _buildSliverAppBar(bool isDesktop) {
     // The HTML design uses a 45vh tall hero image with gradients
     final heroHeight = MediaQuery.of(context).size.height * 0.45;
 
@@ -377,7 +395,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
     );
   }
 
-  Widget _buildTopTracksSection() {
+  Widget _buildTopTracksSection(bool isDesktop) {
     if (_artistFull!.topSongs.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -482,7 +500,8 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
     );
   }
 
-  Widget _buildDiscographySection(String title, List<AlbumDetailed> albums) {
+  Widget _buildDiscographySection(
+      String title, List<AlbumDetailed> albums, bool isDesktop) {
     if (albums.isEmpty) return const SizedBox.shrink();
 
     return Column(

@@ -87,44 +87,87 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bgDark,
-      body: _loading
-          ? Center(
-              child: LoadingIndicatorM3E(
-                  color: _primary, containerColor: _primary.withAlpha(50)),
-            )
-          : _error != null
-              ? _buildError()
-              : RefreshIndicator(
-                  color: _primary,
-                  backgroundColor: _surfaceDark,
-                  onRefresh: () async {
-                    setState(() => _loading = true);
-                    await _loadHome();
-                  },
-                  child: CustomScrollView(
-                    physics: const BouncingScrollPhysics(
-                        parent: AlwaysScrollableScrollPhysics()),
-                    slivers: [
-                      // ── Header ──
-                      _buildHeader(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 800;
 
-                      // ── Sections ──
-                      for (final section in _sections) ...[
-                        SliverToBoxAdapter(
-                          child: _buildSectionHeader(section.title),
-                        ),
-                        SliverToBoxAdapter(
-                          child: _buildSectionContent(section),
-                        ),
-                      ],
+        return Scaffold(
+          backgroundColor: _bgDark,
+          body: _loading
+              ? Center(
+                  child: LoadingIndicatorM3E(
+                      color: _primary, containerColor: _primary.withAlpha(50)),
+                )
+              : _error != null
+                  ? _buildError()
+                  : RefreshIndicator(
+                      color: _primary,
+                      backgroundColor: _surfaceDark,
+                      onRefresh: () async {
+                        setState(() => _loading = true);
+                        await _loadHome();
+                      },
+                      child: isDesktop
+                          ? _buildDesktopLayout()
+                          : _buildMobileLayout(),
+                    ),
+        );
+      },
+    );
+  }
 
-                      // Bottom padding so content doesn't hide behind mini player
-                      const SliverToBoxAdapter(child: SizedBox(height: 140)),
-                    ],
-                  ),
-                ),
+  Widget _buildMobileLayout() {
+    return CustomScrollView(
+      physics:
+          const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+      slivers: [
+        // ── Header ──
+        _buildHeader(isDesktop: false),
+
+        // ── Sections ──
+        for (final section in _sections) ...[
+          SliverToBoxAdapter(
+            child: _buildSectionHeader(section.title, isDesktop: false),
+          ),
+          SliverToBoxAdapter(
+            child: _buildSectionContent(section),
+          ),
+        ],
+
+        // Bottom padding so content doesn't hide behind mini player
+        const SliverToBoxAdapter(child: SizedBox(height: 140)),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    return CustomScrollView(
+      physics:
+          const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+      slivers: [
+        // ── Header ──
+        _buildHeader(isDesktop: true),
+
+        // ── Sections ──
+        for (final section in _sections) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildSectionHeader(section.title, isDesktop: true),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildDesktopSectionContent(section),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 48)),
+        ],
+
+        // Bottom padding so content doesn't hide behind mini player
+        const SliverToBoxAdapter(child: SizedBox(height: 140)),
+      ],
     );
   }
 
@@ -172,15 +215,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader({bool isDesktop = false}) {
     return SliverAppBar(
       backgroundColor: _bgDark,
       pinned: true,
       floating: true,
       elevation: 0,
-      toolbarHeight: 80,
+      toolbarHeight: isDesktop ? 100 : 80,
       title: Padding(
-        padding: const EdgeInsets.only(left: 8.0),
+        padding: EdgeInsets.only(left: isDesktop ? 24.0 : 8.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -188,21 +231,21 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('WELCOME BACK',
                 style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: 11,
+                    fontSize: isDesktop ? 13 : 11,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1.5)),
             const SizedBox(height: 4),
             Text(_greeting(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: isDesktop ? 34 : 28,
                     fontWeight: FontWeight.bold)),
           ],
         ),
       ),
       actions: [
         Padding(
-          padding: const EdgeInsets.only(right: 24.0),
+          padding: EdgeInsets.only(right: isDesktop ? 32.0 : 24.0),
           child: Center(
             child: GestureDetector(
               onTap: () {
@@ -235,10 +278,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
+  Widget _buildSectionHeader(String title, {bool isDesktop = false}) {
     if (title.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+      padding:
+          EdgeInsets.fromLTRB(24, isDesktop ? 32 : 24, 24, isDesktop ? 16 : 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -246,9 +290,9 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: isDesktop ? 26 : 20,
                     fontWeight: FontWeight.bold)),
           ),
           /*    Text('VIEW ALL',
@@ -273,13 +317,26 @@ class _HomeScreenState extends State<HomeScreen> {
         separatorBuilder: (_, __) => const SizedBox(width: 16),
         itemBuilder: (context, i) {
           final item = section.contents[i];
-          return _buildContentTile(item);
+          return _buildContentTile(item, isDesktop: false);
         },
       ),
     );
   }
 
-  Widget _buildContentTile(dynamic item) {
+  Widget _buildDesktopSectionContent(HomeSection section) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: Wrap(
+        spacing: 24,
+        runSpacing: 32,
+        children: section.contents.map((item) {
+          return _buildContentTile(item, isDesktop: true);
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildContentTile(dynamic item, {bool isDesktop = false}) {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
@@ -296,7 +353,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       child: SizedBox(
-        width: 156,
+        width: isDesktop ? 200 : 156,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -346,9 +403,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                     color: Colors.white,
-                    fontSize: 13,
+                    fontSize: isDesktop ? 15 : 13,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
             // Subtitle
@@ -356,7 +413,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45), fontSize: 11)),
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: isDesktop ? 13 : 11)),
           ],
         ),
       ),

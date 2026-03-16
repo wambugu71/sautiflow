@@ -115,42 +115,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgDark,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            backgroundColor: _bgDark.withAlpha(230),
-            floating: true,
-            pinned: true,
-            title: const Text(
-              'Settings',
-              style: TextStyle(fontWeight: FontWeight.bold),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = constraints.maxWidth >= 800;
+          return Align(
+            alignment: isDesktop ? Alignment.topCenter : Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000.0),
+              child: CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    backgroundColor: _bgDark.withAlpha(230),
+                    floating: true,
+                    pinned: true,
+                    title: const Text(
+                      'Settings',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    centerTitle: true,
+                  ),
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 48.0 : 0.0),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        const SizedBox(height: 16),
+                        _buildSectionTitle('AUDIO QUALITY'),
+                        _buildAudioQualityCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('PLAYBACK'),
+                        _buildPlaybackCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('VISUALIZATION'),
+                        _buildVisualizationCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('STORAGE & DATA'),
+                        _buildStorageCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('ABOUT & LICENSES'),
+                        _buildAboutCard(context),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('DEBUG & LOGS'),
+                        _buildDebugAndLogsCard(),
+                        const SizedBox(height: 120),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            centerTitle: true,
-          ),
-          SliverList(
-            delegate: SliverChildListDelegate([
-              const SizedBox(height: 16),
-              _buildSectionTitle('AUDIO QUALITY'),
-              _buildAudioQualityCard(),
-              const SizedBox(height: 24),
-              _buildSectionTitle('PLAYBACK'),
-              _buildPlaybackCard(),
-              const SizedBox(height: 24),
-              _buildSectionTitle('VISUALIZATION'),
-              _buildVisualizationCard(),
-              const SizedBox(height: 24),
-              _buildSectionTitle('STORAGE & DATA'),
-              _buildStorageCard(),
-              const SizedBox(height: 24),
-              _buildSectionTitle('ABOUT & LICENSES'),
-              _buildAboutCard(context),
-              const SizedBox(height: 24),
-              _buildSectionTitle('DEBUG & LOGS'),
-              _buildDebugAndLogsCard(),
-              const SizedBox(height: 40),
-            ]),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

@@ -16,16 +16,16 @@ import 'home_screen.dart';
 import 'isolate_player.dart';
 import 'library_screen.dart';
 import 'mini_player.dart';
-import 'now_playing_screen.dart';
-import 'models/recently_played_track.dart';
 import 'models/liked_song.dart';
-import 'services/recently_played_service.dart';
+import 'models/recently_played_track.dart';
+import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
 import 'search_screen.dart';
+import 'services/app_state_service.dart';
+import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
 import 'streaming_service.dart';
-import 'services/app_state_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1089,6 +1089,10 @@ class _PlayerShellState extends State<PlayerShell> {
       context: context,
       isScrollControlled: true,
       useSafeArea: false,
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width,
+        maxHeight: MediaQuery.of(context).size.height,
+      ),
       builder: (context) {
         return ValueListenableBuilder<TrackMetadata>(
           valueListenable: _metadata,

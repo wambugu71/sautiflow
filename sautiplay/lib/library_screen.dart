@@ -262,13 +262,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     widget.onPlayFolder(paths);
   }
 
-  Widget _buildTab(int index, String title) {
+  Widget _buildTab(int index, String title, {bool isDesktop = false}) {
     final isSelected = _tabIndex == index;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _tabIndex = index),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: EdgeInsets.symmetric(vertical: isDesktop ? 10 : 6),
           decoration: BoxDecoration(
             color:
                 isSelected ? Colors.white.withOpacity(0.1) : Colors.transparent,
@@ -286,7 +286,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           alignment: Alignment.center,
           child: Text(title,
               style: TextStyle(
-                  fontSize: 14,
+                  fontSize: isDesktop ? 16 : 14,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                   color: isSelected ? Colors.white : const Color(0xFF94A3B8))),
         ),
@@ -303,138 +303,156 @@ class _LibraryScreenState extends State<LibraryScreen> {
     const Color textLight = Colors.white;
     const Color textDark = Color(0xFF94A3B8); // slate-400
 
-    return Scaffold(
-      backgroundColor: bgDark,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                // Header Region
-                Container(
-                  padding: const EdgeInsets.only(
-                      top: 24.0, left: 16.0, right: 16.0, bottom: 8.0),
-                  decoration: BoxDecoration(
-                    color: bgDark.withOpacity(0.95),
-                    border: Border(
-                      bottom: BorderSide(color: Colors.white.withOpacity(0.05)),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 800;
+        final contentMaxWidth = isDesktop ? 1000.0 : double.infinity;
+
+        return Scaffold(
+          backgroundColor: bgDark,
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                child: Stack(
+                  children: [
+                    Column(
+                      children: [
+                        // Header Region
+                        Container(
+                          padding: EdgeInsets.only(
+                              top: isDesktop ? 40.0 : 24.0,
+                              left: isDesktop ? 32.0 : 16.0,
+                              right: isDesktop ? 32.0 : 16.0,
+                              bottom: isDesktop ? 16.0 : 8.0),
+                          decoration: BoxDecoration(
+                            color: bgDark.withOpacity(0.95),
+                            border: Border(
+                              bottom: BorderSide(
+                                  color: Colors.white.withOpacity(0.05)),
+                            ),
+                          ),
+                          child: Column(
                             children: [
-                              /*  CircleAvatar(
-                                radius: 16,
-                                backgroundColor: surfaceColor,
-                                child: const Text('JD',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: textDark)),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Your Library',
+                                        style: TextStyle(
+                                          fontSize: isDesktop ? 34 : 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: textLight,
+                                          letterSpacing: -0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  IconButton(
+                                    onPressed: _addDirectory,
+                                    icon: Icon(Icons.add,
+                                        color: textDark,
+                                        size: isDesktop ? 32 : 24),
+                                    splashRadius: isDesktop ? 32 : 24,
+                                    tooltip: 'Add Local Folder',
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 12),*/
-                              const Text(
-                                'Your Library',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: textLight,
-                                  letterSpacing: -0.5,
+                              SizedBox(height: isDesktop ? 24 : 16),
+                              // Segmented Control
+                              Container(
+                                padding: EdgeInsets.all(isDesktop ? 6 : 4),
+                                decoration: BoxDecoration(
+                                  color: surfaceColor,
+                                  borderRadius:
+                                      BorderRadius.circular(isDesktop ? 12 : 8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    _buildTab(0, 'Playlists',
+                                        isDesktop: isDesktop),
+                                    _buildTab(1, 'Downloads',
+                                        isDesktop: isDesktop),
+                                    _buildTab(2, 'Artists',
+                                        isDesktop: isDesktop),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                          IconButton(
-                            onPressed: _addDirectory,
-                            icon: const Icon(Icons.add, color: textDark),
-                            splashRadius: 24,
-                            tooltip: 'Add Local Folder',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Segmented Control (Mock UI to match reference)
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: surfaceColor,
-                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Row(
-                          children: [
-                            _buildTab(0, 'Playlists'),
-                            _buildTab(1, 'Downloads'),
-                            _buildTab(2, 'Artists'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
 
-                // Main List Area
-                Expanded(
-                  child: _tabIndex == 0
-                      ? _buildPlaylistsTab(primaryColor, textDark)
-                      : (_tabIndex == 1
-                          ? _buildDownloadsTab(primaryColor, textDark)
-                          : _buildEmptyState(textDark,
-                              message: 'Artists section coming soon...')),
-                ),
-              ],
-            ),
-            if (_isLoading)
-              Container(
-                color: bgDark.withOpacity(0.5),
-                child: Center(
-                  child: LoadingIndicatorM3E(
-                      color: primaryColor,
-                      containerColor: primaryColor.withAlpha(50)),
+                        // Main List Area
+                        Expanded(
+                          child: _tabIndex == 0
+                              ? _buildPlaylistsTab(primaryColor, textDark,
+                                  isDesktop: isDesktop)
+                              : (_tabIndex == 1
+                                  ? _buildDownloadsTab(primaryColor, textDark,
+                                      isDesktop: isDesktop)
+                                  : _buildEmptyState(textDark,
+                                      message:
+                                          'Artists section coming soon...')),
+                        ),
+                      ],
+                    ),
+                    if (_isLoading)
+                      Container(
+                        color: bgDark.withOpacity(0.5),
+                        child: Center(
+                          child: LoadingIndicatorM3E(
+                              color: primaryColor,
+                              containerColor: primaryColor.withAlpha(50)),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-          ],
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildPlaylistsTab(Color primaryColor, Color textDark) {
+  Widget _buildPlaylistsTab(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
     if (_folders.isEmpty && !_isLoading) {
       return _buildEmptyState(textDark);
     }
     return ListView(
-      padding: const EdgeInsets.only(top: 16, bottom: 120),
+      padding: EdgeInsets.only(top: isDesktop ? 32 : 16, bottom: 120),
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32.0 : 16.0),
           child: ElevatedButton.icon(
             onPressed: _shufflePlayAll,
             icon: const Icon(Icons.shuffle, color: Colors.white),
-            label: const Text('Shuffle Play',
+            label: Text('Shuffle Play',
                 style: TextStyle(
-                    fontSize: 16,
+                    fontSize: isDesktop ? 18 : 16,
                     fontWeight: FontWeight.bold,
                     color: Colors.white)),
             style: ElevatedButton.styleFrom(
               backgroundColor: primaryColor,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: EdgeInsets.symmetric(vertical: isDesktop ? 20 : 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30)),
               elevation: 0,
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: isDesktop ? 24 : 16),
         _buildLibraryItem(
           title: 'Liked Songs',
           subtitle: 'Playlist • Saved Tracks',
           iconData: Icons.favorite,
-          iconGradient: LinearGradient(
+          iconGradient: const LinearGradient(
             colors: [Color(0xFF4527A0), Color(0xFF6A1B9A)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -449,8 +467,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             );
           },
           context: context,
+          isDesktop: isDesktop,
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: isDesktop ? 12 : 8),
         ..._folders.asMap().entries.map((entry) {
           final index = entry.key;
           final f = entry.value;
@@ -461,32 +480,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onTap: () => _playFolder(f['path'] as String),
             onLongPress: () => _removeFolder(index),
             context: context,
+            isDesktop: isDesktop,
           );
         }),
       ],
     );
   }
 
-  Widget _buildDownloadsTab(Color primaryColor, Color textDark) {
+  Widget _buildDownloadsTab(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
     return Column(
       children: [
         // Search & Sort Bar
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32.0 : 16.0,
+              vertical: isDesktop ? 16.0 : 8.0),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(
+                      color: Colors.white, fontSize: isDesktop ? 18 : 16),
                   decoration: InputDecoration(
                     hintText: 'Search downloaded songs...',
-                    hintStyle: TextStyle(color: textDark),
-                    prefixIcon: Icon(Icons.search, color: textDark),
+                    hintStyle: TextStyle(
+                        color: textDark, fontSize: isDesktop ? 18 : 16),
+                    prefixIcon: Icon(Icons.search,
+                        color: textDark, size: isDesktop ? 28 : 24),
                     filled: true,
                     fillColor: const Color(0xFF18232E),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -510,6 +536,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           child: Text(
                             choice,
                             style: TextStyle(
+                                fontSize: isDesktop ? 16 : 14,
                                 color: _currentSort == choice
                                     ? primaryColor
                                     : Colors.white),
@@ -526,14 +553,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   message: 'No songs found',
                   subMessage: _searchController.text.isNotEmpty
                       ? 'No matches for your search.'
-                      : 'Add local folders in the Playlists tab to view your songs here.')
+                      : 'Add local folders in the Playlists tab to view your songs here.',
+                  isDesktop: isDesktop)
               : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 120),
+                  padding: EdgeInsets.only(bottom: 120),
                   itemCount: _filteredSongs.length + 1,
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return Padding(
-                        padding: const EdgeInsets.all(16.0),
+                        padding: EdgeInsets.all(isDesktop ? 32.0 : 16.0),
                         child: ElevatedButton.icon(
                           onPressed: () {
                             if (_filteredSongs.isEmpty) return;
@@ -542,16 +570,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             paths.shuffle();
                             widget.onPlayFolder(paths);
                           },
-                          icon: const Icon(Icons.shuffle, color: Colors.white),
-                          label: const Text('Shuffle All',
+                          icon: Icon(Icons.shuffle,
+                              color: Colors.white, size: isDesktop ? 28 : 24),
+                          label: Text('Shuffle All',
                               style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: isDesktop ? 18 : 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryColor,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding: EdgeInsets.symmetric(
+                                vertical: isDesktop ? 20 : 14),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(30)),
                             elevation: 0,
@@ -567,13 +597,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       subtitle:
                           'Local Audio • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
                       customIcon: LocalAlbumArt(
-                          path: song.path, size: 64, borderRadius: 12),
+                          path: song.path,
+                          size: isDesktop ? 96 : 64,
+                          borderRadius: 12),
                       onTap: () {
                         final paths =
                             _filteredSongs.map((e) => e.path).toList();
                         widget.onPlayFolder(paths, initialIndex: realIndex);
                       },
                       context: context,
+                      isDesktop: isDesktop,
                     );
                   },
                 ),
@@ -584,26 +617,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildEmptyState(Color textDark,
       {String message = 'Your library is empty',
-      String subMessage = 'Tap the + button to add local music folders.'}) {
+      String subMessage = 'Tap the + button to add local music folders.',
+      bool isDesktop = false}) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.library_music_outlined,
-              size: 64, color: textDark.withOpacity(0.5)),
-          const SizedBox(height: 16),
+              size: isDesktop ? 96 : 64, color: textDark.withOpacity(0.5)),
+          SizedBox(height: isDesktop ? 24 : 16),
           Text(
             message,
             style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w600, color: textDark),
+                fontSize: isDesktop ? 24 : 18,
+                fontWeight: FontWeight.w600,
+                color: textDark),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isDesktop ? 12 : 8),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            padding: EdgeInsets.symmetric(horizontal: isDesktop ? 64.0 : 32.0),
             child: Text(
               subMessage,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: textDark.withOpacity(0.7)),
+              style: TextStyle(
+                  fontSize: isDesktop ? 16 : 14,
+                  color: textDark.withOpacity(0.7)),
             ),
           ),
         ],
@@ -621,6 +659,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Gradient? iconGradient,
     VoidCallback? onTap,
     VoidCallback? onLongPress,
+    bool isDesktop = false,
   }) {
     final isLossless = subtitle.contains('Lossless');
 
@@ -634,12 +673,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
             );
           },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: isDesktop ? 12.0 : 8.0),
         child: Row(
           children: [
             Container(
-              width: 64,
-              height: 64,
+              width: isDesktop ? 96 : 64,
+              height: isDesktop ? 96 : 64,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 color: const Color(0xFF18232E),
@@ -662,33 +703,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   (imageAsset == null && iconData != null
                       ? Center(
                           child: Icon(iconData,
-                              color: Colors.white.withOpacity(0.5), size: 32))
+                              color: Colors.white.withOpacity(0.5),
+                              size: isDesktop ? 48 : 32))
                       : null),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: isDesktop ? 24 : 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      fontSize: 16,
+                    style: TextStyle(
+                      fontSize: isDesktop ? 20 : 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: isDesktop ? 8 : 4),
                   Row(
                     children: [
                       if (subtitle.contains('Playlist') ||
                           subtitle.contains('Folder'))
-                        const Padding(
-                          padding: EdgeInsets.only(right: 6.0),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0),
                           child: Icon(Icons.download_done,
-                              size: 14, color: Colors.green),
+                              size: isDesktop ? 18 : 14, color: Colors.green),
                         ),
                       if (isLossless)
                         Container(
@@ -699,20 +741,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             color: const Color(0xFF18232E),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text(
+                          child: Text(
                             'LOSSLESS',
                             style: TextStyle(
-                                fontSize: 10,
+                                fontSize: isDesktop ? 12 : 10,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF94A3B8)),
+                                color: const Color(0xFF94A3B8)),
                           ),
                         ),
                       Expanded(
                         child: Text(
                           subtitle.replaceAll(' • Lossless', ''),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF94A3B8),
+                          style: TextStyle(
+                            fontSize: isDesktop ? 16 : 14,
+                            color: const Color(0xFF94A3B8),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -724,7 +766,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.more_vert, color: Color(0xFF94A3B8)),
+              icon: Icon(Icons.more_vert,
+                  color: const Color(0xFF94A3B8), size: isDesktop ? 28 : 24),
               onPressed: () {},
             ),
           ],
