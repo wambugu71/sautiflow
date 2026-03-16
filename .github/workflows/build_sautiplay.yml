@@ -33,6 +33,12 @@ jobs:
         working-directory: ./sautiplay
         run: flutter pub get
 
+      - name: Generate Splash & Launcher Icons
+        working-directory: ./sautiplay
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
       - name: Build Android APK
         working-directory: ./sautiplay
         run: flutter build apk --release --target-platform android-arm,android-arm64 --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
@@ -57,6 +63,12 @@ jobs:
       - name: Install dependencies
         working-directory: .\sautiplay
         run: flutter pub get
+
+      - name: Generate Splash & Launcher Icons
+        working-directory: .\sautiplay
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
 
       - name: Build Windows
         working-directory: .\sautiplay
@@ -91,6 +103,12 @@ jobs:
         working-directory: ./sautiplay
         run: flutter pub get
 
+      - name: Generate Splash & Launcher Icons
+        working-directory: ./sautiplay
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
       - name: Build Linux
         working-directory: ./sautiplay
         run: flutter build linux --release --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
@@ -120,6 +138,12 @@ jobs:
         working-directory: ./sautiplay
         run: flutter pub get
 
+      - name: Generate Splash & Launcher Icons
+        working-directory: ./sautiplay
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
       - name: Build macOS
         working-directory: ./sautiplay
         run: flutter build macos --release --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
@@ -148,6 +172,12 @@ jobs:
       - name: Install dependencies
         working-directory: ./sautiplay
         run: flutter pub get
+
+      - name: Generate Splash & Launcher Icons
+        working-directory: ./sautiplay
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
 
       - name: Build iOS
         working-directory: ./sautiplay
@@ -188,3 +218,4 @@ jobs:
             artifacts/ios-release/ios-release.zip
           draft: false
           prerelease: false
+
