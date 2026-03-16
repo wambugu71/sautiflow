@@ -1,0 +1,78 @@
+name: Build & Distribute (All Platforms)
+
+on:
+    push:
+        tags:
+            - "v*"
+    workflow_dispatch:
+
+jobs:
+    build:
+        name: Build ${{ matrix.platform }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      platform: android
+                      file_extension: apk
+                    - os: ubuntu-latest
+                      platform: linux
+                      file_extension: AppImage
+                    - os: windows-latest
+                      platform: windows
+                      file_extension: exe
+                    - os: macos-latest
+                      platform: macos
+                      file_extension: dmg
+
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            - name: Set up Flutter
+              uses: subosito/flutter-action@v2
+              with:
+                  channel: "stable"
+
+            # Platform-specific dependencies
+            - name: Install Linux dependencies
+              if: matrix.platform == 'linux' || matrix.platform == 'android'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+                  wget -O appimagetool "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+                  chmod +x appimagetool
+                  sudo mv appimagetool /usr/local/bin/
+
+            - name: Install macOS specific tools
+              if: matrix.platform == 'macos'
+              run: brew install create-dmg
+
+            # Install flutter_distributor
+            - name: Install flutter_distributor
+              run: dart pub global activate flutter_distributor
+
+            # Add Dart binaries to PATH
+            - name: Add to PATH (Linux/macOS)
+              if: runner.os != 'Windows'
+              run: echo "$HOME/.pub-cache/bin" >> $GITHUB_ENV
+
+            # Dependencies
+            - name: flutter pub get
+              working-directory: ./example
+              run: flutter pub get
+
+            # Build package via flutter_distributor
+            - name: Release Packages
+              working-directory: ./example
+              run: flutter_distributor release --name dev --jobs release-${{ matrix.platform }}
+
+            # Upload Artifacts
+            - name: Upload Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ matrix.platform }}-release
+                  path: example/dist/

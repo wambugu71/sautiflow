@@ -1,0 +1,24 @@
+env:
+  FLUTTER_ROOT: "~/flutter"
+
+output: "dist/"
+
+releases:
+  - name: dev
+    jobs:
+      - name: release-android
+        package:
+          platform: android
+          target: apk
+      - name: release-windows
+        package:
+          platform: windows
+          target: exe
+      - name: release-linux
+        package:
+          platform: linux
+          target: appimage
+      - name: release-macos
+        package:
+          platform: macos
+          target: dmg
