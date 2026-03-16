@@ -3,7 +3,7 @@ description: "Audio Player for audiophiles"
 
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
-version: 0.0.3
+version: 0.6.0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -40,7 +40,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
@@ -57,14 +56,14 @@ flutter_launcher_icons:
 flutter_native_splash:
   # This package generates native code to customize Flutter's default white native splash screen
   # with background color and splash image.
-  
+
   # general color for all platform (except android 12+):
-  color: "#101922"  ##====================================[REQUIRED]==========
+  color: "#101922" ##====================================[REQUIRED]==========
 
   # general image for all platform (except android 12+):
   image: assets/icon/splash.png
 
-  # hide notif bar on android. ios already hides it by default. 
+  # hide notif bar on android. ios already hides it by default.
   fullscreen: true
 
   #! ANDROID 12+ configuration:
@@ -73,7 +72,7 @@ flutter_native_splash:
     color: "#101922"
 
     # center-logo
-    image: assets/icon/splash.png    
+    image: assets/icon/splash.png
 
     # center-logo background color
     icon_background_color: "#101922"

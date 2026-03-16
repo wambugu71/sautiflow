@@ -2,6 +2,9 @@
 
 ![Sautiflow Logo](docs/assets/sautiflow.png)
 
+**[ Download Latest Sautiplay Real-world App Release](https://github.com/wambugu71/sautiflow/releases/latest)**
+*Check out the [Sautiplay Readme](sautiplay/README.md) to see a full production app built on this engine with advanced EQ, gapless playback, and native streaming.*
+
 Sautiflow is a cross-platform audio playback and processing engine for Dart and Flutter, powered by the C++ miniaudio library. It provides a high-level API for playlist management, gapless transitions, audio effects, and real-time status updates, all accessible via Dart FFI. Sautiflow supports native targets including Windows, Linux, Android, iOS, and macOS. Audiophiles and developers can leverage Sautiflow for building rich audio applications with advanced playback and processing capabilities.
 
 ## Features
@@ -151,6 +154,14 @@ For release/legal packaging, include third-party attributions from
 
 See [example/main.dart](example/main.dart) for a complete usage sample.
 
+## Support
+
+If you find this project useful, consider buying me a coffee! 
+
+<a href="https://buymeacoffee.com/wambugu" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
 Leave a star if you find this project useful! ⭐
 
 Project inspired by `just_audio` for simplicity and familiarity of API design, but built on a custom native engine with a focus on advanced audio processing features and real-time capabilities.
+
+
