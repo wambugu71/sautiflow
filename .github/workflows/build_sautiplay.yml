@@ -41,15 +41,19 @@ jobs:
 
       - name: Build Android APK
         working-directory: ./sautiplay
-        run: flutter build apk --release --target-platform android-arm,android-arm64 --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
-
-      - name: Upload Artifact
+        run: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+      
+      - name: Upload Artifact ARMv7
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
-          path: sautiplay/build/app/outputs/flutter-apk/app-release.apk
+          name: sautiflow_android_armv7
+          path: sautiplay/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
 
-  build-windows:
+      - name: Upload Artifact ARM64
+        uses: actions/upload-artifact@v4
+        with:
+          name: sautiflow_android_arm64
+          path: sautiplay/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
     name: Build Windows
     runs-on: windows-latest
     steps:
@@ -81,7 +85,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release
+          name: sautiflow_windows
           path: sautiplay\build\windows\x64\runner\Release.zip
 
   build-linux:
@@ -120,7 +124,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-release
+          name: sautiflow_linux
           path: sautiplay/build/linux/x64/release/release.tar.gz
 
   build-macos:
@@ -155,7 +159,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-release
+          name: sautiflow_macos
           path: sautiplay/build/macos/Build/Products/Release/macos-release.zip
 
   build-ios:
@@ -190,7 +194,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-release
+          name: sautiflow_ios
           path: sautiplay/build/ios/iphoneos/ios-release.zip
 
   create-release:
@@ -211,11 +215,13 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/android-apk/app-release.apk
-            artifacts/windows-release/Release.zip
-            artifacts/linux-release/release.tar.gz
-            artifacts/macos-release/macos-release.zip
-            artifacts/ios-release/ios-release.zip
+            artifacts/sautiflow_android_armv7/app-armeabi-v7a-release.apk
+            artifacts/sautiflow_android_arm64/app-arm64-v8a-release.apk
+            artifacts/sautiflow_windows/Release.zip
+            artifacts/sautiflow_linux/release.tar.gz
+            artifacts/sautiflow_macos/macos-release.zip
+            artifacts/sautiflow_ios/ios-release.zip
           draft: false
           prerelease: false
+
 
