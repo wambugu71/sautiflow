@@ -41,7 +41,7 @@ jobs:
 
       - name: Build Android APK
         working-directory: ./sautiplay
-        run: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+        run: flutter build apk --release --obfuscate --split-debug-info=build/debug_symbols --target-platform android-arm,android-arm64 --split-per-abi --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
       - name: Rename APK Artifacts
         working-directory: ./sautiplay
@@ -84,7 +84,7 @@ jobs:
 
       - name: Build Windows
         working-directory: .\sautiplay
-        run: flutter build windows --release --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+        run: flutter build windows --release --obfuscate --split-debug-info=build/debug_symbols --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
       - name: Compress Release
         working-directory: .\sautiplay\build\windows\x64\runner
@@ -123,7 +123,7 @@ jobs:
 
       - name: Build Linux
         working-directory: ./sautiplay
-        run: flutter build linux --release --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+        run: flutter build linux --release --obfuscate --split-debug-info=build/debug_symbols --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
       - name: Compress Release
         working-directory: ./sautiplay/build/linux/x64/release
@@ -158,7 +158,7 @@ jobs:
 
       - name: Build macOS
         working-directory: ./sautiplay
-        run: flutter build macos --release --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+        run: flutter build macos --release --obfuscate --split-debug-info=build/debug_symbols --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
       - name: Compress Release
         working-directory: ./sautiplay/build/macos/Build/Products/Release
@@ -193,7 +193,7 @@ jobs:
 
       - name: Build iOS
         working-directory: ./sautiplay
-        run: flutter build ios --release --no-codesign --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+        run: flutter build ios --release --obfuscate --split-debug-info=build/debug_symbols --no-codesign --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
       - name: Compress Release
         working-directory: ./sautiplay/build/ios/iphoneos
@@ -231,4 +231,3 @@ jobs:
             artifacts/sautiflow_ios/sautiflow_ios.zip
           draft: false
           prerelease: false
-
