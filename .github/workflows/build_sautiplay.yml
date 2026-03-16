@@ -42,18 +42,24 @@ jobs:
       - name: Build Android APK
         working-directory: ./sautiplay
         run: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
+
+      - name: Rename APK Artifacts
+        working-directory: ./sautiplay
+        run: |
+          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/flutter-apk/sautiflow_android_armv7.apk
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/sautiflow_android_arm64.apk
       
       - name: Upload Artifact ARMv7
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_android_armv7
-          path: sautiplay/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          path: sautiplay/build/app/outputs/flutter-apk/sautiflow_android_armv7.apk
 
       - name: Upload Artifact ARM64
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_android_arm64
-          path: sautiplay/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          path: sautiplay/build/app/outputs/flutter-apk/sautiflow_android_arm64.apk
 
   build-windows:
     name: Build Windows
@@ -82,13 +88,13 @@ jobs:
 
       - name: Compress Release
         working-directory: .\sautiplay\build\windows\x64\runner
-        run: Compress-Archive -Path Release -DestinationPath Release.zip
+        run: Compress-Archive -Path Release -DestinationPath sautiflow_windows.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_windows
-          path: sautiplay\build\windows\x64\runner\Release.zip
+          path: sautiplay\\build\\windows\\x64\\runner\\sautiflow_windows.zip
 
   build-linux:
     name: Build Linux
@@ -121,13 +127,13 @@ jobs:
 
       - name: Compress Release
         working-directory: ./sautiplay/build/linux/x64/release
-        run: tar -czvf release.tar.gz bundle
+        run: tar -czvf sautiflow_linux.tar.gz bundle
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_linux
-          path: sautiplay/build/linux/x64/release/release.tar.gz
+          path: sautiplay/build/linux/x64/release/sautiflow_linux.tar.gz
 
   build-macos:
     name: Build macOS
@@ -156,13 +162,13 @@ jobs:
 
       - name: Compress Release
         working-directory: ./sautiplay/build/macos/Build/Products/Release
-        run: zip -r macos-release.zip *.app
+        run: zip -r sautiflow_macos.zip *.app
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_macos
-          path: sautiplay/build/macos/Build/Products/Release/macos-release.zip
+          path: sautiplay/build/macos/Build/Products/Release/sautiflow_macos.zip
 
   build-ios:
     name: Build iOS
@@ -191,13 +197,13 @@ jobs:
 
       - name: Compress Release
         working-directory: ./sautiplay/build/ios/iphoneos
-        run: zip -r ios-release.zip Runner.app
+        run: zip -r sautiflow_ios.zip Runner.app
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_ios
-          path: sautiplay/build/ios/iphoneos/ios-release.zip
+          path: sautiplay/build/ios/iphoneos/sautiflow_ios.zip
 
   create-release:
     name: Create Release
@@ -217,14 +223,12 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/sautiflow_android_armv7/app-armeabi-v7a-release.apk
-            artifacts/sautiflow_android_arm64/app-arm64-v8a-release.apk
-            artifacts/sautiflow_windows/Release.zip
-            artifacts/sautiflow_linux/release.tar.gz
-            artifacts/sautiflow_macos/macos-release.zip
-            artifacts/sautiflow_ios/ios-release.zip
+            artifacts/sautiflow_android_armv7/sautiflow_android_armv7.apk
+            artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk
+            artifacts/sautiflow_windows/sautiflow_windows.zip
+            artifacts/sautiflow_linux/sautiflow_linux.tar.gz
+            artifacts/sautiflow_macos/sautiflow_macos.zip
+            artifacts/sautiflow_ios/sautiflow_ios.zip
           draft: false
           prerelease: false
-
-
 
