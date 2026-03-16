@@ -58,7 +58,7 @@ jobs:
             # Add Dart binaries to PATH
             - name: Add to PATH (Linux/macOS)
               if: runner.os != 'Windows'
-              run: echo "$HOME/.pub-cache/bin" >> $GITHUB_ENV
+              run: echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
             # Dependencies
             - name: flutter pub get
