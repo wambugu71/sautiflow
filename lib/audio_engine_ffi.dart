@@ -65,6 +65,49 @@ final class PlayerStatusNative extends ffi.Struct {
   external int loop_mode;
 }
 
+final class PipelineStateNative extends ffi.Struct {
+  @ffi.Int32()
+  external int input_format;
+  @ffi.Int32()
+  external int input_sample_rate;
+  @ffi.Int32()
+  external int input_channels;
+
+  @ffi.Int32()
+  external int processing_format;
+  @ffi.Int32()
+  external int processing_sample_rate;
+  @ffi.Int32()
+  external int processing_channels;
+
+  @ffi.Int32()
+  external int output_format;
+  @ffi.Int32()
+  external int output_sample_rate;
+  @ffi.Int32()
+  external int output_channels;
+
+  @ffi.Int32()
+  external int eq_enabled;
+  @ffi.Int32()
+  external int reverb_enabled;
+  @ffi.Int32()
+  external int limiter_enabled;
+  @ffi.Int32()
+  external int stereo_widen_enabled;
+  @ffi.Int32()
+  external int spatialization_enabled;
+  @ffi.Int32()
+  external int delay_enabled;
+
+  @ffi.Float()
+  external double gain;
+  @ffi.Float()
+  external double pan;
+  @ffi.Float()
+  external double pitch;
+}
+
 typedef _CreateEngineNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32, ffi.Int32);
 typedef _CreateEngineDart = ffi.Pointer<ffi.Void> Function(int, int);
@@ -125,6 +168,11 @@ typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _GetStatusNative = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
 typedef _GetStatusDart = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
+
+typedef _GetPipelineStateNative = PipelineStateNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetPipelineStateDart = PipelineStateNative Function(
+    ffi.Pointer<ffi.Void>);
 
 typedef _GetLastErrorNative = ffi.Pointer<ffi.Char> Function(
   ffi.Pointer<ffi.Void>,
@@ -380,6 +428,117 @@ class PlayerStatus {
   });
 }
 
+class PipelineAudioState {
+  final int inputFormat;
+  final int inputSampleRate;
+  final int inputChannels;
+  final int processingFormat;
+  final int processingSampleRate;
+  final int processingChannels;
+  final int outputFormat;
+  final int outputSampleRate;
+  final int outputChannels;
+
+  final bool eqEnabled;
+  final bool reverbEnabled;
+  final bool limiterEnabled;
+  final bool stereoWidenEnabled;
+  final bool spatializationEnabled;
+  final bool delayEnabled;
+
+  final double gain;
+  final double pan;
+  final double pitch;
+
+  const PipelineAudioState({
+    required this.inputFormat,
+    required this.inputSampleRate,
+    required this.inputChannels,
+    required this.processingFormat,
+    required this.processingSampleRate,
+    required this.processingChannels,
+    required this.outputFormat,
+    required this.outputSampleRate,
+    required this.outputChannels,
+    required this.eqEnabled,
+    required this.reverbEnabled,
+    required this.limiterEnabled,
+    required this.stereoWidenEnabled,
+    required this.spatializationEnabled,
+    required this.delayEnabled,
+    required this.gain,
+    required this.pan,
+    required this.pitch,
+  });
+
+  factory PipelineAudioState.fromNative(PipelineStateNative native) {
+    return PipelineAudioState(
+      inputFormat: native.input_format,
+      inputSampleRate: native.input_sample_rate,
+      inputChannels: native.input_channels,
+      processingFormat: native.processing_format,
+      processingSampleRate: native.processing_sample_rate,
+      processingChannels: native.processing_channels,
+      outputFormat: native.output_format,
+      outputSampleRate: native.output_sample_rate,
+      outputChannels: native.output_channels,
+      eqEnabled: native.eq_enabled != 0,
+      reverbEnabled: native.reverb_enabled != 0,
+      limiterEnabled: native.limiter_enabled != 0,
+      stereoWidenEnabled: native.stereo_widen_enabled != 0,
+      spatializationEnabled: native.spatialization_enabled != 0,
+      delayEnabled: native.delay_enabled != 0,
+      gain: native.gain,
+      pan: native.pan,
+      pitch: native.pitch,
+    );
+  }
+
+  factory PipelineAudioState.empty() {
+    return const PipelineAudioState(
+      inputFormat: 0,
+      inputSampleRate: 0,
+      inputChannels: 0,
+      processingFormat: 0,
+      processingSampleRate: 0,
+      processingChannels: 0,
+      outputFormat: 0,
+      outputSampleRate: 0,
+      outputChannels: 0,
+      eqEnabled: false,
+      reverbEnabled: false,
+      limiterEnabled: false,
+      stereoWidenEnabled: false,
+      spatializationEnabled: false,
+      delayEnabled: false,
+      gain: 0.0,
+      pan: 0.0,
+      pitch: 0.0,
+    );
+  }
+
+  String formatToString(int format) {
+    switch (format) {
+      case 1:
+        return '8-bit Unsigned';
+      case 2:
+        return '16-bit Signed';
+      case 3:
+        return '24-bit Signed';
+      case 4:
+        return '32-bit Signed';
+      case 5:
+        return '32-bit Float';
+      default:
+        return 'Unknown ($format)';
+    }
+  }
+
+  String get inputFormatString => formatToString(inputFormat);
+  String get processingFormatString => formatToString(processingFormat);
+  String get outputFormatString => formatToString(outputFormat);
+}
+
 class AudioEngineFFI {
   AudioEngineFFI({String? libraryPath})
       : _lib = openLibrary(libraryPath),
@@ -433,6 +592,10 @@ class AudioEngineFFI {
     );
     _getStatus = _lib.lookupFunction<_GetStatusNative, _GetStatusDart>(
       'ae_get_status',
+    );
+    _getPipelineState =
+        _lib.lookupFunction<_GetPipelineStateNative, _GetPipelineStateDart>(
+      'ae_get_pipeline_state',
     );
     _getLastError = _lib.lookupFunction<_GetLastErrorNative, _GetLastErrorDart>(
       'ae_get_last_error',
@@ -758,6 +921,7 @@ class AudioEngineFFI {
   late final _JumpDart _jumpTo;
   late final _JumpWithPositionDart _jumpToWithPosition;
   late final _GetStatusDart _getStatus;
+  late final _GetPipelineStateDart _getPipelineState;
   late final _GetLastErrorDart _getLastError;
   late final _ClearLastErrorDart _clearLastError;
   late final _SetIntDart _setLoopMode;
@@ -1144,6 +1308,11 @@ class AudioEngineFFI {
       shuffleEnabled: s.shuffle_enabled != 0,
       loopMode: LoopMode.values[s.loop_mode.clamp(0, 2)],
     );
+  }
+
+  PipelineAudioState getPipelineState() {
+    if (_engine == ffi.nullptr) return PipelineAudioState.empty();
+    return PipelineAudioState.fromNative(_getPipelineState(_engine));
   }
 
   String getLastError() {

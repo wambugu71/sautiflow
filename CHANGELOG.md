@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- **[Core]** Added new `getPipelineState()` API to query the true native C++ audio engine pipeline state.
+- Accurately tracks the flow from input source (sample rate, bit-depth format) -> internal DSP processing -> natively negotiated real hardware output format.
+- **[Apps/UI]** Implemented the pipeline state viewer (Info Button) inside the Sautiplay app EQ Screen.
+
 ## 0.6.0
 
 - **[DSP Effects]** Added new Stereo Widening feature using a hybrid Haas Effect + Mid/Side (M/S) Matrix algorithm.

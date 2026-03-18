@@ -389,6 +389,20 @@ class IsolateAudioPlayer {
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
 
+  Future<PipelineAudioState> getPipelineState() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getPipelineState',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as PipelineAudioState;
+  }
+
   Future<Map<String, dynamic>> getAudioProperties() async {
     final responsePort = ReceivePort();
     _send({
@@ -799,6 +813,14 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
+          break;
+        case 'getPipelineState':
+          final SendPort replyTo = message['replyTo'];
+          try {
+            replyTo.send(player.pipelineState);
+          } catch (e) {
+            replyTo.send({'error': e.toString()});
+          }
           break;
         case 'getAudioProperties':
           final SendPort replyTo = message['replyTo'];

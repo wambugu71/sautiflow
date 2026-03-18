@@ -156,6 +156,7 @@ class MiniAudioPlayer {
   int getCrossfadeDurationMs() => _engine.getCrossfadeDurationMs();
 
   PlayerStatus get status => _engine.getStatus();
+  PipelineAudioState get pipelineState => _engine.getPipelineState();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();

@@ -4168,4 +4168,53 @@ extern "C"
         engine->stereoWiden.updateParams(engine->sampleRate, clampf(width, 0.0f, 5.0f), clampf(delay_ms, 0.0f, 100.0f));
     }
 
+    AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine)
+    {
+        AEPipelineState state;
+        memset(&state, 0, sizeof(AEPipelineState));
+
+        if (!engine)
+        {
+            return state;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(engine->decoderMutex);
+            if (engine->currentDecoder)
+            {
+                state.input_format = engine->currentDecoder->converter.formatIn;
+                state.input_sample_rate = engine->currentDecoder->converter.sampleRateIn;
+                state.input_channels = engine->currentDecoder->converter.channelsIn;
+            }
+        }
+
+        state.processing_format = engine->device.playback.format;
+        state.processing_sample_rate = engine->sampleRate;
+        state.processing_channels = engine->channels;
+
+        state.output_format = engine->device.playback.internalFormat;
+        state.output_sample_rate = engine->device.playback.internalSampleRate;
+        state.output_channels = engine->device.playback.internalChannels;
+
+        {
+            std::lock_guard<std::mutex> lock(engine->fxMutex);
+            state.eq_enabled = engine->eqEnabled ? 1 : 0;
+            state.reverb_enabled = engine->reverbEnabled ? 1 : 0;
+            state.limiter_enabled = engine->limiterEnabled ? 1 : 0;
+            state.stereo_widen_enabled = engine->stereoWidenEnabled ? 1 : 0;
+            state.delay_enabled = engine->delayEnabled ? 1 : 0;
+            state.gain = engine->gain;
+            state.pan = engine->pan;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(engine->spatialMutex);
+            state.spatialization_enabled = engine->spatializationEnabled ? 1 : 0;
+        }
+
+        state.pitch = engine->pitchMultiplier.load();
+
+        return state;
+    }
+
 } // extern "C"

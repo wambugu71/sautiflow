@@ -81,6 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Engine Resampling and Dithering
   int _resampleAlgorithm = 0;
   int _ditherMode = 0;
+  int _eqBandCount = 10;
 
   @override
   void initState() {
@@ -90,6 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
+    final eqSaved = await AppStateService.instance.loadEqBands();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -97,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _streamOverWifi = saved.streamOverWifi;
       _resampleAlgorithm = saved.resampleAlgorithm;
       _ditherMode = saved.ditherMode;
+      _eqBandCount = eqSaved.bandCount;
     });
   }
 
@@ -145,6 +148,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 24),
                         _buildSectionTitle('PLAYBACK'),
                         _buildPlaybackCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('EQUALIZER'),
+                        _buildEqualizerCard(),
                         const SizedBox(height: 24),
                         _buildSectionTitle('VISUALIZATION'),
                         _buildVisualizationCard(),
@@ -511,6 +517,172 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           onTap: () => _showChannelsDialog(),
+        ),
+        const Divider(color: Colors.white10, height: 1),
+        // Visualization Card starts, lets insert our new EQ feature card in _buildAudioQualityCard OR _buildPlaybackCard.
+        // Wait, I will create a dedicated EQ Settings card.
+        // We'll add it after playback card in build.
+        // Let's modify SettingsScreen to rebuild the list with a new card.
+      ],
+    );
+  }
+
+  Widget _buildEqualizerCard() {
+    return _buildCard(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _primary.withAlpha(25),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.settings_input_composite,
+                        color: _primary, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Graphic Equalizer',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500)),
+                        SizedBox(height: 4),
+                        Text('Choose number of frequency bands',
+                            style: TextStyle(color: _textDark, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          setState(() => _eqBandCount = 10);
+                          final state =
+                              await AppStateService.instance.loadEqBands();
+                          await AppStateService.instance.saveEqBands(
+                            enabled: state.enabled,
+                            preset: state.preset,
+                            gains: List.filled(10, 0.0),
+                            preampDb: state.preampDb,
+                            bandCount: 10,
+                          );
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: _eqBandCount == 10
+                                ? _primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '10-Band',
+                            style: TextStyle(
+                              color:
+                                  _eqBandCount == 10 ? Colors.white : _textDark,
+                              fontWeight: _eqBandCount == 10
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          setState(() => _eqBandCount = 16);
+                          final state =
+                              await AppStateService.instance.loadEqBands();
+                          await AppStateService.instance.saveEqBands(
+                            enabled: state.enabled,
+                            preset: state.preset,
+                            gains: List.filled(16, 0.0),
+                            preampDb: state.preampDb,
+                            bandCount: 16,
+                          );
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: _eqBandCount == 16
+                                ? _primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '16-Band',
+                            style: TextStyle(
+                              color:
+                                  _eqBandCount == 16 ? Colors.white : _textDark,
+                              fontWeight: _eqBandCount == 16
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          setState(() => _eqBandCount = 32);
+                          final state =
+                              await AppStateService.instance.loadEqBands();
+                          await AppStateService.instance.saveEqBands(
+                            enabled: state.enabled,
+                            preset: state.preset,
+                            gains: List.filled(32, 0.0),
+                            preampDb: state.preampDb,
+                            bandCount: 32,
+                          );
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: _eqBandCount == 32
+                                ? _primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '32-Band',
+                            style: TextStyle(
+                              color:
+                                  _eqBandCount == 32 ? Colors.white : _textDark,
+                              fontWeight: _eqBandCount == 32
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

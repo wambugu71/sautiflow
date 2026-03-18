@@ -40,8 +40,8 @@ class _EqScreenState extends State<EqScreen> {
   // Master EQ
   bool _masterEqEnabled = true;
 
-  // 10-Band Graphic EQ Frequencies
-  final List<double> _eqFrequencies = [
+  // Graphic EQ Frequencies
+  List<double> _eqFrequencies = [
     32.0,
     60.0,
     125.0,
@@ -53,11 +53,99 @@ class _EqScreenState extends State<EqScreen> {
     8000.0,
     16000.0
   ];
-  final List<double> _eqGains = List.filled(10, 0.0);
+  List<double> _eqGains = List.filled(10, 0.0);
+
+  void _setupFrequencies(int bands) {
+    if (bands == 10) {
+      _eqFrequencies = [
+        32.0,
+        60.0,
+        125.0,
+        250.0,
+        500.0,
+        1000.0,
+        2000.0,
+        4000.0,
+        8000.0,
+        16000.0
+      ];
+    } else if (bands == 16) {
+      _eqFrequencies = [
+        25.0,
+        40.0,
+        63.0,
+        100.0,
+        160.0,
+        250.0,
+        400.0,
+        630.0,
+        1000.0,
+        1600.0,
+        2500.0,
+        4000.0,
+        6300.0,
+        10000.0,
+        16000.0,
+        20000.0
+      ];
+    } else if (bands == 32) {
+      _eqFrequencies = [
+        16.0,
+        20.0,
+        25.0,
+        31.5,
+        40.0,
+        50.0,
+        63.0,
+        80.0,
+        100.0,
+        125.0,
+        160.0,
+        200.0,
+        250.0,
+        315.0,
+        400.0,
+        500.0,
+        630.0,
+        800.0,
+        1000.0,
+        1250.0,
+        1600.0,
+        2000.0,
+        2500.0,
+        3150.0,
+        4000.0,
+        5000.0,
+        6300.0,
+        8000.0,
+        10000.0,
+        12500.0,
+        16000.0,
+        20000.0
+      ];
+    } else {
+      _eqFrequencies = [];
+      for (int i = 0; i < bands; i++) {
+        _eqFrequencies
+            .add((20.0 * math.pow(1000.0, i / (bands - 1))).roundToDouble());
+      }
+    }
+    if (_eqGains.length != bands) {
+      _eqGains = List.filled(bands, 0.0);
+    }
+  }
+
   String _activePreset = 'Flat';
 
   // Parametric EQ bands state
-  final List<EqBandConfig> _parametricBands = [];
+  final List<EqBandConfig> _parametricBands = [
+    const EqBandConfig(
+        type: EqBandType.lowshelf, frequencyHz: 120, gainDb: 0.0, slope: 1.0),
+    const EqBandConfig(
+        type: EqBandType.peak, frequencyHz: 1000, gainDb: 0.0, q: 1.2),
+    const EqBandConfig(
+        type: EqBandType.highshelf, frequencyHz: 9000, gainDb: 0.0, slope: 1.0),
+  ];
   bool _parametricEqEnabled = false;
 
   // Spatial Audio
@@ -79,9 +167,9 @@ class _EqScreenState extends State<EqScreen> {
 
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
-  double _tuneLow = 1.0;
-  double _tuneMid = 1.0;
-  double _tuneHigh = 1.0;
+  double _tuneLow = 0.0;
+  double _tuneMid = 0.0;
+  double _tuneHigh = 0.0;
 
   // Preamp
   double _preampDb = 0.0; // Simulated gain offset
@@ -110,6 +198,7 @@ class _EqScreenState extends State<EqScreen> {
   // Realtime Analyzer
   List<double> _analyzerValues = List<double>.filled(64, 0.0);
   StreamSubscription<Float32List>? _analyzerSub;
+  StreamSubscription<void>? _eqSettingsSub;
 
   // Soft Limiter
   bool _limiterEnabled = false;
@@ -122,6 +211,10 @@ class _EqScreenState extends State<EqScreen> {
     super.initState();
     _loadPreferences();
     _initEq();
+    _eqSettingsSub =
+        AppStateService.instance.eqSettingsChanged.stream.listen((_) {
+      if (mounted) _loadPreferences();
+    });
     _analyzerSub = widget.player.analyzerStream.listen((frame) {
       if (frame.isEmpty || !widget.analyzerEnabled) return;
       const targetBins = 64;
@@ -163,6 +256,7 @@ class _EqScreenState extends State<EqScreen> {
       // EQ bands
       _masterEqEnabled = eqBands.enabled;
       _activePreset = eqBands.preset;
+      _setupFrequencies(eqBands.bandCount);
       if (eqBands.gains.length == _eqGains.length) {
         for (int i = 0; i < _eqGains.length; i++) {
           _eqGains[i] = eqBands.gains[i];
@@ -214,6 +308,7 @@ class _EqScreenState extends State<EqScreen> {
 
     // Apply loaded state to the audio engine
     widget.player.setMultibandEqEnabled(_masterEqEnabled);
+    widget.player.initMultibandEq(_eqFrequencies);
     _applyEqGains();
     _applyStoredPreamp();
 
@@ -260,6 +355,7 @@ class _EqScreenState extends State<EqScreen> {
       preset: _activePreset,
       gains: List<double>.from(_eqGains),
       preampDb: _preampDb,
+      bandCount: _eqFrequencies.length,
     );
     AppStateService.instance.saveSpatialAudio(
       enabled: _spatialAudioEnabled,
@@ -317,6 +413,7 @@ class _EqScreenState extends State<EqScreen> {
   @override
   void dispose() {
     _analyzerSub?.cancel();
+    _eqSettingsSub?.cancel();
     super.dispose();
   }
 
@@ -335,61 +432,98 @@ class _EqScreenState extends State<EqScreen> {
   void _applyPreset(String preset) {
     setState(() {
       _activePreset = preset;
-      switch (preset) {
-        case 'Flat':
-          _eqGains.fillRange(0, _eqGains.length, 0.0);
-          break;
-        case 'Bass Boost':
-          _eqGains[0] = 6.0;
-          _eqGains[1] = 5.0;
-          _eqGains[2] = 3.0;
-          _eqGains.fillRange(3, 10, 0.0);
-          break;
-        case 'Vocal':
-          _eqGains.fillRange(0, 3, -2.0);
-          _eqGains[3] = 1.0;
-          _eqGains[4] = 3.0;
-          _eqGains[5] = 4.0;
-          _eqGains[6] = 3.0;
-          _eqGains[7] = 1.0;
-          _eqGains.fillRange(8, 10, -1.0);
-          break;
-        case 'Treble':
-          _eqGains.fillRange(0, 6, 0.0);
-          _eqGains[6] = 2.0;
-          _eqGains[7] = 4.0;
-          _eqGains[8] = 5.0;
-          _eqGains[9] = 6.0;
-          break;
-        case 'Rock':
-          _eqGains[0] = 5.0;
-          _eqGains[1] = 4.0;
-          _eqGains[2] = 2.0;
-          _eqGains[3] = -1.0;
-          _eqGains[4] = -2.0;
-          _eqGains[5] = -1.0;
-          _eqGains[6] = 1.0;
-          _eqGains[7] = 3.0;
-          _eqGains[8] = 4.0;
-          _eqGains[9] = 5.0;
-          break;
-        case 'Jazz':
-          _eqGains[0] = 4.0;
-          _eqGains[1] = 3.0;
-          _eqGains[2] = 1.0;
-          _eqGains[3] = 2.0;
-          _eqGains[4] = -2.0;
-          _eqGains[5] = -2.0;
-          _eqGains[6] = 0.0;
-          _eqGains[7] = 1.0;
-          _eqGains[8] = 3.0;
-          _eqGains[9] = 4.0;
-          break;
+      if (preset == 'Flat') {
+        _eqGains.fillRange(0, _eqGains.length, 0.0);
+      } else {
+        List<double> baseGains = List.filled(10, 0.0);
+        switch (preset) {
+          case 'Bass Boost':
+            baseGains = [6.0, 5.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            break;
+          case 'Vocal':
+            baseGains = [-2.0, -2.0, -2.0, 1.0, 3.0, 4.0, 3.0, 1.0, -1.0, -1.0];
+            break;
+          case 'Treble':
+            baseGains = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.0, 5.0, 6.0];
+            break;
+          case 'Rock':
+            baseGains = [5.0, 4.0, 2.0, -1.0, -2.0, -1.0, 1.0, 3.0, 4.0, 5.0];
+            break;
+          case 'Jazz':
+            baseGains = [4.0, 3.0, 1.0, 2.0, -2.0, -2.0, 0.0, 1.0, 3.0, 4.0];
+            break;
+        }
+
+        for (int i = 0; i < _eqGains.length; i++) {
+          double position = i / (_eqGains.length - 1);
+          double index10 = position * 9.0;
+          int lower = index10.floor();
+          int upper = index10.ceil();
+          double fraction = index10 - lower;
+          if (upper > 9) upper = 9;
+          _eqGains[i] =
+              baseGains[lower] * (1.0 - fraction) + baseGains[upper] * fraction;
+        }
       }
       _applyEqGains();
     });
     // Persist the new preset
     _saveEqState();
+  }
+
+  void _showPipelineInfo() async {
+    final state = await widget.player.getPipelineState();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: bgDarkColor,
+        title: const Text('Audio Pipeline State',
+            style: TextStyle(color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Input File Format',
+                  style: TextStyle(
+                      color: primaryColor, fontWeight: FontWeight.bold)),
+              Text(
+                  'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
+                  style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 16),
+              const Text('DSP Processing Format',
+                  style: TextStyle(
+                      color: primaryColor, fontWeight: FontWeight.bold)),
+              Text(
+                  'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
+                  style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 16),
+              const Text('Hardware Output Format',
+                  style: TextStyle(
+                      color: primaryColor, fontWeight: FontWeight.bold)),
+              Text(
+                  'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}',
+                  style: const TextStyle(color: Colors.white70)),
+              const SizedBox(height: 16),
+              const Text('Active DSP Nodes',
+                  style: TextStyle(
+                      color: primaryColor, fontWeight: FontWeight.bold)),
+              Text(
+                  'EQ: ${state.eqEnabled}\nReverb: ${state.reverbEnabled}\nLimiter: ${state.limiterEnabled}\nDelay: ${state.delayEnabled}\nStereo Widen: ${state.stereoWidenEnabled}\nSpatialization: ${state.spatializationEnabled}',
+                  style: const TextStyle(color: Colors.white70)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _resetAll() {
@@ -406,10 +540,10 @@ class _EqScreenState extends State<EqScreen> {
 
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
-      _tuneLow = 1.0;
-      _tuneMid = 1.0;
-      _tuneHigh = 1.0;
-      widget.player.setEq(low: 1.0, mid: 1.0, high: 1.0);
+      _tuneLow = 0.0;
+      _tuneMid = 0.0;
+      _tuneHigh = 0.0;
+      widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
 
       _preampDb = 0.0;
       widget.player.setGain(1.0); // 1.0 is 0dB
@@ -472,6 +606,10 @@ class _EqScreenState extends State<EqScreen> {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showPipelineInfo,
+          ),
           TextButton(
             onPressed: () => _resetAll(),
             child: const Text('Reset',
@@ -559,13 +697,13 @@ class _EqScreenState extends State<EqScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('10-Band Equalizer',
-                                style: TextStyle(
+                            Text('${_eqFrequencies.length}-Band Equalizer',
+                                style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold)),
                             const SizedBox(height: 2),
-                            Text('Enable 10-band EQ',
+                            Text('Enable ${_eqFrequencies.length}-band EQ',
                                 style: TextStyle(
                                     color: Colors.white.withOpacity(0.5),
                                     fontSize: 12)),
@@ -711,12 +849,63 @@ class _EqScreenState extends State<EqScreen> {
     );
   }
 
-  Widget _buildGraphicEqSliders() {
-    final List<Widget> sliders = [];
+  Future<void> _promptForValue({
+    required String title,
+    required double currentValue,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) async {
+    final controller =
+        TextEditingController(text: currentValue.toStringAsFixed(2));
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: surfaceDarkColor,
+          title: Text('Enter $title',
+              style: const TextStyle(color: Colors.white, fontSize: 16)),
+          content: TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(
+                decimal: true, signed: true),
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Value ($min to $max)',
+              labelStyle: const TextStyle(color: Colors.white54),
+              enabledBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white24)),
+              focusedBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: primaryColor)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child:
+                  const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            TextButton(
+              onPressed: () {
+                final val = double.tryParse(controller.text);
+                if (val != null) {
+                  onChanged(val.clamp(min, max));
+                }
+                Navigator.pop(context);
+              },
+              child: const Text('OK', style: TextStyle(color: primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-    // Preamp Slider
-    sliders.add(
-      Column(
+  Widget _buildGraphicEqSliders() {
+    // Preamp Slider (Independent of Graphic EQ toggle)
+    final Widget preampSlider = Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
         children: [
           SizedBox(
             height: 160,
@@ -724,15 +913,14 @@ class _EqScreenState extends State<EqScreen> {
               quarterTurns: 3,
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
+                  trackHeight: 6,
                   thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      const RoundSliderThumbShape(enabledThumbRadius: 8),
                   overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  activeTrackColor:
-                      _masterEqEnabled ? primaryColor : Colors.white,
+                      const RoundSliderOverlayShape(overlayRadius: 16),
+                  activeTrackColor: Colors.deepOrangeAccent,
                   inactiveTrackColor: Colors.white.withOpacity(0.1),
-                  thumbColor: Colors.white,
+                  thumbColor: Colors.deepOrangeAccent,
                 ),
                 child: Slider(
                   value: _preampDb,
@@ -750,7 +938,32 @@ class _EqScreenState extends State<EqScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onLongPress: () => _promptForValue(
+              title: 'PREAMP',
+              currentValue: _preampDb,
+              min: -12.0,
+              max: 12.0,
+              onChanged: (v) {
+                setState(() {
+                  _preampDb = v;
+                  double gain = math.pow(10, v / 20).toDouble();
+                  widget.player.setGain(gain);
+                });
+                _saveEqState();
+              },
+            ),
+            child: Text(
+              '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
+              style: const TextStyle(
+                color: Colors.deepOrangeAccent,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
           Text('PREAMP',
               style: TextStyle(
                   color: Colors.white.withOpacity(0.4),
@@ -760,14 +973,16 @@ class _EqScreenState extends State<EqScreen> {
       ),
     );
 
-    // 10-Band Sliders
-    sliders.addAll(
-      List.generate(10, (i) {
-        final freq = _eqFrequencies[i];
-        String label =
-            freq >= 1000 ? '${(freq / 1000).toInt()}k' : '${freq.toInt()}';
+    // Graphic Sliders (Dynamic based on band count)
+    final List<Widget> bandSliders = List.generate(_eqFrequencies.length, (i) {
+      final freq = _eqFrequencies[i];
+      String label = freq >= 1000
+          ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
+          : '${freq.toInt()}';
 
-        return Column(
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
           children: [
             SizedBox(
               height: 160,
@@ -781,40 +996,88 @@ class _EqScreenState extends State<EqScreen> {
                     overlayShape:
                         const RoundSliderOverlayShape(overlayRadius: 14),
                     activeTrackColor:
-                        _masterEqEnabled ? primaryColor : Colors.white,
+                        _masterEqEnabled ? primaryColor : Colors.white24,
                     inactiveTrackColor: Colors.white.withOpacity(0.1),
-                    thumbColor: Colors.white,
+                    thumbColor:
+                        _masterEqEnabled ? Colors.white : Colors.white24,
                   ),
                   child: Slider(
                     value: _eqGains[i],
                     min: -12.0,
                     max: 12.0,
-                    onChanged: (v) {
-                      setState(() {
-                        _eqGains[i] = v;
-                        _activePreset = 'Custom';
-                        widget.player.setMultibandEqBandGain(i, v);
-                      });
-                      _saveEqState();
-                    },
+                    onChanged: _masterEqEnabled
+                        ? (v) {
+                            setState(() {
+                              _eqGains[i] = v;
+                              _activePreset = 'Custom';
+                              widget.player.setMultibandEqBandGain(i, v);
+                            });
+                            _saveEqState();
+                          }
+                        : null,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onLongPress: _masterEqEnabled
+                  ? () => _promptForValue(
+                        title: 'Band Gain ($label)',
+                        currentValue: _eqGains[i],
+                        min: -12.0,
+                        max: 12.0,
+                        onChanged: (v) {
+                          setState(() {
+                            _eqGains[i] = v;
+                            _activePreset = 'Custom';
+                            widget.player.setMultibandEqBandGain(i, v);
+                          });
+                          _saveEqState();
+                        },
+                      )
+                  : null,
+              child: Text(
+                '${_eqGains[i] > 0 ? '+' : ''}${_eqGains[i].toStringAsFixed(1)} dB',
+                style: TextStyle(
+                  color: _masterEqEnabled ? primaryColor : Colors.white24,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
             Text(label,
                 style: TextStyle(
                     color: Colors.white.withOpacity(0.4),
                     fontSize: 10,
                     fontWeight: FontWeight.bold)),
           ],
-        );
-      }),
-    );
+        ),
+      );
+    });
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: sliders,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        preampSlider,
+        Container(
+          width: 1,
+          height: 190,
+          color: Colors.white.withOpacity(0.1),
+          margin: const EdgeInsets.only(right: 4),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: bandSliders,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -876,6 +1139,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.3,
               activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _roomSize = v);
@@ -890,6 +1154,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.15,
               activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _echo = v);
@@ -904,6 +1169,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.25,
               activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _reverbMix = v);
@@ -955,13 +1221,14 @@ class _EqScreenState extends State<EqScreen> {
               value: _stereoWidenEnabled,
               onChanged: (v) {
                 setState(() => _stereoWidenEnabled = v);
-                if (v)
+                if (v) {
                   _updateStereoWiden();
-                else
+                } else {
                   widget.player.setStereoWiden(
                       enabled: false,
                       width: _stereoWidenWidth,
                       delayMs: _stereoWidenDelayMs * 100.0);
+                }
                 _saveEqState();
               },
               activeThumbColor: Colors.white,
@@ -980,6 +1247,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.2, // Maps to 1.0
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              displayMultiplier: 5.0,
               valueFormatter: (v) => '${(v * 5.0).toStringAsFixed(1)}x',
               onChanged: (v) {
                 setState(() => _stereoWidenWidth = v * 5.0);
@@ -994,6 +1262,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.15,
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}ms',
               onChanged: (v) {
                 setState(() => _stereoWidenDelayMs = v);
@@ -1065,6 +1334,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.25,
               activeColor: _delayEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayTime = v);
@@ -1079,6 +1349,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.4,
               activeColor: _delayEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayFeedback = v);
@@ -1093,6 +1364,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.3,
               activeColor: _delayEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _delayMix = v);
@@ -1295,9 +1567,12 @@ class _EqScreenState extends State<EqScreen> {
             ModernAudioKnob(
               label: 'BASS',
               value: _tuneLow,
-              min: 0.01,
-              max: 4.0,
+              min: -24.0,
+              max: 12.0,
+              flatValue: 0.0,
               activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
               onChanged: (v) {
                 setState(() => _tuneLow = v);
                 if (_audioTuningEnabled) {
@@ -1310,9 +1585,12 @@ class _EqScreenState extends State<EqScreen> {
             ModernAudioKnob(
               label: 'MID',
               value: _tuneMid,
-              min: 0.01,
-              max: 4.0,
+              min: -24.0,
+              max: 12.0,
+              flatValue: 0.0,
               activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
               onChanged: (v) {
                 setState(() => _tuneMid = v);
                 if (_audioTuningEnabled) {
@@ -1325,9 +1603,12 @@ class _EqScreenState extends State<EqScreen> {
             ModernAudioKnob(
               label: 'TREBLE',
               value: _tuneHigh,
-              min: 0.01,
-              max: 4.0,
+              min: -24.0,
+              max: 12.0,
+              flatValue: 0.0,
               activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
               onChanged: (v) {
                 setState(() => _tuneHigh = v);
                 if (_audioTuningEnabled) {
@@ -1408,6 +1689,8 @@ class _EqScreenState extends State<EqScreen> {
                               gainDb: 0.0,
                               slope: 1.0),
                         ]);
+                      }
+                      if (v) {
                         widget.player.initMultibandFx(_parametricBands);
                       }
                       widget.player.setMultibandFxEnabled(v);
@@ -2006,6 +2289,7 @@ class _EqScreenState extends State<EqScreen> {
               max: 1.0,
               flatValue: 0.95,
               activeColor: _limiterEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: _limiterEnabled
                   ? (v) {
@@ -2060,6 +2344,8 @@ class ModernAudioKnob extends StatefulWidget {
   final ValueChanged<double> onChanged;
   final String Function(double)? valueFormatter;
   final Color activeColor;
+  final bool isPercentage;
+  final double displayMultiplier;
 
   const ModernAudioKnob({
     super.key,
@@ -2071,6 +2357,8 @@ class ModernAudioKnob extends StatefulWidget {
     required this.onChanged,
     this.valueFormatter,
     this.activeColor = primaryColor,
+    this.isPercentage = false,
+    this.displayMultiplier = 1.0,
   });
 
   @override
@@ -2092,13 +2380,16 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
         (widget.value - widget.min) / (widget.max - widget.min);
 
     String displayValue;
+    double dbValue = 0.0;
     if (widget.valueFormatter != null) {
       displayValue = widget.valueFormatter!(widget.value);
     } else {
-      double db =
+      // It's a dB value internally mapped via math.pow for gain elsewhere, or direct dB.
+      dbValue =
           20 * math.log(widget.value == 0 ? 0.0001 : widget.value) / math.ln10;
-      db = db.clamp(-24.0, 24.0);
-      displayValue = '${db > 0 ? '+' : ''}${db.toStringAsFixed(1)} dB';
+      dbValue = dbValue.clamp(-24.0, 24.0);
+      displayValue =
+          '${dbValue > 0 ? '+' : ''}${dbValue.toStringAsFixed(1)} dB';
     }
 
     return Column(
@@ -2123,11 +2414,107 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
-        Text(displayValue,
-            style: TextStyle(
-                color: widget.activeColor,
-                fontSize: 10,
-                fontFamily: 'monospace')),
+        GestureDetector(
+          onLongPress: () {
+            // Determine default text based on whether it's plain value or dB
+            String initialText = widget.value.toStringAsFixed(2);
+            double effectiveMultiplier =
+                widget.isPercentage ? 100.0 : widget.displayMultiplier;
+            int decimals = widget.isPercentage ? 0 : 1;
+
+            if (widget.isPercentage || widget.displayMultiplier != 1.0) {
+              initialText = (widget.value * effectiveMultiplier)
+                  .toStringAsFixed(decimals);
+            } else if (widget.valueFormatter == null) {
+              initialText = dbValue.toStringAsFixed(2);
+            }
+
+            final controller = TextEditingController(text: initialText);
+
+            // Determine input bounds for display
+            double displayMin = widget.min;
+            double displayMax = widget.max;
+            if (widget.isPercentage || widget.displayMultiplier != 1.0) {
+              displayMin = widget.min * effectiveMultiplier;
+              displayMax = widget.max * effectiveMultiplier;
+            } else if (widget.valueFormatter == null) {
+              displayMin = -24.0;
+              displayMax = 24.0;
+            }
+
+            // Also format the range correctly
+            String displayMinStr = displayMin.toStringAsFixed(decimals);
+            String displayMaxStr = displayMax.toStringAsFixed(decimals);
+            if (widget.valueFormatter == null &&
+                !widget.isPercentage &&
+                widget.displayMultiplier == 1.0) {
+              // dB case
+              displayMinStr = displayMin.toStringAsFixed(1);
+              displayMaxStr = displayMax.toStringAsFixed(1);
+            }
+
+            showDialog(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  backgroundColor: surfaceDarkColor,
+                  title: Text('Enter ${widget.label}',
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 16)),
+                  content: TextField(
+                    controller: controller,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true, signed: true),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Value ($displayMinStr to $displayMaxStr)',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white24)),
+                      focusedBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: primaryColor)),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel',
+                          style: TextStyle(color: Colors.white54)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        final val = double.tryParse(controller.text);
+                        if (val != null) {
+                          if (widget.isPercentage ||
+                              widget.displayMultiplier != 1.0) {
+                            widget.onChanged((val / effectiveMultiplier)
+                                .clamp(widget.min, widget.max));
+                          } else if (widget.valueFormatter == null) {
+                            // User entered dB, convert back to linear
+                            double linear = math.pow(10, val / 20).toDouble();
+                            widget.onChanged(
+                                linear.clamp(widget.min, widget.max));
+                          } else {
+                            // For audio tuning, the value itself is dB and formatter is now provided
+                            widget.onChanged(val.clamp(widget.min, widget.max));
+                          }
+                        }
+                        Navigator.pop(context);
+                      },
+                      child: const Text('OK',
+                          style: TextStyle(color: primaryColor)),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+          child: Text(displayValue,
+              style: TextStyle(
+                  color: widget.activeColor,
+                  fontSize: 10,
+                  fontFamily: 'monospace')),
+        ),
       ],
     );
   }

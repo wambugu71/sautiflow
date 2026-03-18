@@ -2350,10 +2350,62 @@ class _PlayerShellState extends State<PlayerShell> {
     return false;
   }
 
+  void _showPipelineInfo() {
+    final state = player.pipelineState;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Audio Pipeline State'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Input Source', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Format: ${state.inputFormatString}'),
+              Text('Sample Rate: ${state.inputSampleRate} Hz'),
+              Text('Channels: ${state.inputChannels}'),
+              const SizedBox(height: 12),
+              const Text('DSP Processing', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Format: ${state.processingFormatString}'),
+              Text('Sample Rate: ${state.processingSampleRate} Hz'),
+              Text('Channels: ${state.processingChannels}'),
+              const SizedBox(height: 12),
+              const Text('Hardware Output', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Format: ${state.outputFormatString}'),
+              Text('Sample Rate: ${state.outputSampleRate} Hz'),
+              Text('Channels: ${state.outputChannels}'),
+              const SizedBox(height: 12),
+              const Text('Active DSP Features', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('EQ: ${state.eqEnabled ? 'ON' : 'OFF'}'),
+              Text('Reverb: ${state.reverbEnabled ? 'ON' : 'OFF'}'),
+              Text('Limiter: ${state.limiterEnabled ? 'ON' : 'OFF'}'),
+              Text('Stereo Widen: ${state.stereoWidenEnabled ? 'ON' : 'OFF'}'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('MiniAudio Playlist Demo')),
+      appBar: AppBar(
+        title: const Text('MiniAudio Playlist Demo'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showPipelineInfo,
+            tooltip: 'Pipeline State',
+          )
+        ],
+      ),
       body: IndexedStack(
         index: _tabIndex,
         children: [_buildPlayerScreen(), _buildEqScreen(), _buildLogsScreen()],

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppStateService {
   AppStateService._();
   static final AppStateService instance = AppStateService._();
+
+  // Stream to notify listeners of EQ changes
+  final StreamController<void> eqSettingsChanged =
+      StreamController<void>.broadcast();
 
   // ─── Playback ───────────────────────────────────────────────────────────────
   static const _kQueueJson = 'sp_queue_json';
@@ -51,37 +56,62 @@ class AppStateService {
     await prefs.remove(_kQueuePositionMs);
   }
 
-  // ─── EQ – 10-band + Preamp ─────────────────────────────────────────────────
+  // ─── EQ – Graphic EQ + Preamp ─────────────────────────────────────────────────
   static const _kEqEnabled = 'sp_eq_enabled';
   static const _kEqPreset = 'sp_eq_preset';
   static const _kEqGains = 'sp_eq_gains';
   static const _kPreampDb = 'sp_preamp_db';
+  static const _kEqBandCount = 'sp_eq_band_count';
 
   Future<void> saveEqBands({
     required bool enabled,
     required String preset,
     required List<double> gains,
     required double preampDb,
+    required int bandCount,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    final prevBandCount = prefs.getInt(_kEqBandCount);
+
     await prefs.setBool(_kEqEnabled, enabled);
     await prefs.setString(_kEqPreset, preset);
     await prefs.setStringList(
         _kEqGains, gains.map((g) => g.toString()).toList());
     await prefs.setDouble(_kPreampDb, preampDb);
+    await prefs.setInt(_kEqBandCount, bandCount);
+
+    if (prevBandCount != null && prevBandCount != bandCount) {
+      eqSettingsChanged.add(null);
+    }
   }
 
-  Future<({bool enabled, String preset, List<double> gains, double preampDb})>
-      loadEqBands() async {
+  Future<
+      ({
+        bool enabled,
+        String preset,
+        List<double> gains,
+        double preampDb,
+        int bandCount
+      })> loadEqBands() async {
     final prefs = await SharedPreferences.getInstance();
     final enabled = prefs.getBool(_kEqEnabled) ?? true;
     final preset = prefs.getString(_kEqPreset) ?? 'Flat';
+    final bandCount = prefs.getInt(_kEqBandCount) ?? 10;
+
     final rawGains = prefs.getStringList(_kEqGains);
     final gains = rawGains != null
         ? rawGains.map((s) => double.tryParse(s) ?? 0.0).toList()
-        : List<double>.filled(10, 0.0);
+        : List<double>.filled(bandCount, 0.0);
+
     final preampDb = prefs.getDouble(_kPreampDb) ?? 0.0;
-    return (enabled: enabled, preset: preset, gains: gains, preampDb: preampDb);
+
+    return (
+      enabled: enabled,
+      preset: preset,
+      gains: gains,
+      preampDb: preampDb,
+      bandCount: bandCount
+    );
   }
 
   // ─── EQ – Spatial Audio / Reverb ──────────────────────────────────────────

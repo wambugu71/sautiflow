@@ -33,6 +33,28 @@ Import:
 import 'package:sautiflow/sautiflow.dart';
 ```
 
+### Querying the Audio Pipeline True State
+
+You can interrogate the engine to uncover the exact properties of the actively running audio pipeline. This is incredibly useful for audiophiles wanting to see the "true" negotiated hardware output formats, track their native input resolutions, and confirm spatializer or FX states.
+
+```dart
+final state = player.pipelineState;
+
+// Input Source File (e.g. decoded MP3 format)
+print('Input Format: ${state.inputFormatString} | ${state.inputChannels} channels');
+print('Input Sample Rate: ${state.inputSampleRate}Hz');
+
+// Sub-System DSP (Miniaudio processes FX primarily in 32-bit Float)
+print('DSP Format: ${state.processingFormatString}');
+
+// True hardware OS-negotiated driver output
+print('Speaker Format: ${state.outputFormatString} | ${state.outputSampleRate}Hz');
+
+// Enabled DSP Features currently actively shifting the stream
+print('Eq Enabled: ${state.eqEnabled}');
+print('Reverb Enabled: ${state.reverbEnabled}');
+```
+
 ### Example (playlist + controls)
 
 ```dart

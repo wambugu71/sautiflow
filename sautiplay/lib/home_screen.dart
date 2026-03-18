@@ -13,8 +13,13 @@ const _primary = Color(0xFF137fec);
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
       onPlayTracks;
+  final VoidCallback? onGoToDownloads;
 
-  const HomeScreen({super.key, this.onPlayTracks});
+  const HomeScreen({
+    super.key,
+    this.onPlayTracks,
+    this.onGoToDownloads,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -187,10 +192,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontSize: 16,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text(_error ?? '',
+            Text('An error occurred. Check your internet connection.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
+                    color: Colors.white.withValues(alpha: 0.4), fontSize: 13)),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: () {
@@ -205,6 +210,22 @@ class _HomeScreenState extends State<HomeScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: _primary,
                 foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () {
+                if (widget.onGoToDownloads != null) {
+                  widget.onGoToDownloads!();
+                }
+              },
+              icon: const Icon(Icons.library_music_rounded, size: 18),
+              label: const Text('Downloads & offline songs!'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24)),
               ),

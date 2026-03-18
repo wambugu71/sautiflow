@@ -71,6 +71,37 @@ extern "C"
         AE_EQ_BAND_HIGHSHELF = 4
     } AEEqBandType;
 
+    typedef struct AEPipelineState
+    {
+        // Input true format
+        int input_format;
+        int input_sample_rate;
+        int input_channels;
+
+        // DSP/Processing requested format
+        int processing_format;
+        int processing_sample_rate;
+        int processing_channels;
+
+        // Real Output Target Config (what the OS hardware negotiated)
+        int output_format;
+        int output_sample_rate;
+        int output_channels;
+
+        // Effects Enabled Flags
+        int eq_enabled;
+        int reverb_enabled;
+        int limiter_enabled;
+        int stereo_widen_enabled;
+        int spatialization_enabled;
+        int delay_enabled;
+
+        // Basic settings
+        float gain;
+        float pan;
+        float pitch;
+    } AEPipelineState;
+
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels);
     AE_API void ae_destroy_engine(AudioEngineHandle *engine);
 
@@ -104,6 +135,7 @@ extern "C"
     AE_API int ae_get_crossfade_duration_ms(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
+    AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
     AE_API const char *ae_get_last_error(AudioEngineHandle *engine);
     AE_API void ae_clear_last_error(AudioEngineHandle *engine);
 

@@ -1144,7 +1144,14 @@ class _PlayerShellState extends State<PlayerShell> {
       body: IndexedStack(
         index: _tabIndex,
         children: [
-          HomeScreen(onPlayTracks: _playOnlineTracks),
+          HomeScreen(
+            onPlayTracks: _playOnlineTracks,
+            onGoToDownloads: () {
+              setState(() {
+                _tabIndex = 4;
+              });
+            },
+          ),
           SearchScreen(onPlayTracks: _playOnlineTracks),
           RecentlyPlayedScreen(onPlayTracks: _playHistoryTracks),
           EqScreen(
