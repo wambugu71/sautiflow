@@ -20,14 +20,14 @@ dependencies:
     sdk: flutter
   audio_service: ^0.18.18
   audio_session: ^0.2.2
-  meta: ^1.12.0
+  meta: any
   http: ^1.6.0
   ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  lints: ^5.0.0
+  lints: any
 
 flutter:
   plugin:
