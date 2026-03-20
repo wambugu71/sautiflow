@@ -1,5 +1,6 @@
 # Changelog
-
+## 0.6.2
+Fix missing C++ headers in published package
 ## 0.6.1
 
 - **[Core]** Added new `getPipelineState()` API to query the true native C++ audio engine pipeline state.
