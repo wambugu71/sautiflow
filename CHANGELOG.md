@@ -1,6 +1,14 @@
 # Changelog
+
+## 0.6.3
+
+- **[Build]** Added unsigned iOS `.ipa` generation to the GitHub Actions workflow for sideloading iOS applications.
+- **[Docs]** Updated `sautiplay` README with instructions on how to install the `.ipa` using unsigned methods like Sideloadly or AltStore.
+
 ## 0.6.2
+
 Fix missing C++ headers in published package
+
 ## 0.6.1
 
 - **[Core]** Added new `getPipelineState()` API to query the true native C++ audio engine pipeline state.
