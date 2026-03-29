@@ -82,12 +82,15 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Update Packages
+        run: flutter pub upgrade -v
+
       - name: Generate Icons & Splash (if applicable)
         run: dart run flutter_launcher_icons
         continue-on-error: true
 
       - name: Build Windows
-        run: flutter build windows --release
+        run: flutter build windows --release --no-pub
 
       - name: Zip Windows Release
         run: Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath windows-release.zip
