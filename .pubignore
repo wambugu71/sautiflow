@@ -30,3 +30,9 @@ example/android/local.properties
 *.dll
 *.dylib
 test_*
+*.py
+analyze*
+example/android/build/
+example/macos/Flutter/
+native/windows/audio_engine.exp
+native/windows/audio_engine.lib
