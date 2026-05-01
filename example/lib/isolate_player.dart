@@ -145,6 +145,8 @@ class IsolateAudioPlayer {
   }
 
   void setGain(double gain) => _send({'cmd': 'setGain', 'gain': gain});
+  void setReplayGain(double gainDb) =>
+      _send({'cmd': 'setReplayGain', 'gainDb': gainDb});
   void setPan(double pan) => _send({'cmd': 'setPan', 'pan': pan});
   void setPitch(double pitch) => _send({'cmd': 'setPitch', 'pitch': pitch});
 
@@ -548,6 +550,9 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setGain':
           player.setGain(message['gain']);
+          break;
+        case 'setReplayGain':
+          player.setReplayGain(message['gainDb']);
           break;
         case 'setPan':
           player.setPan(message['pan']);

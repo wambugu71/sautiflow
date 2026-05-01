@@ -32,6 +32,9 @@ class NowPlayingScreen extends StatefulWidget {
   final String sourceType;
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
       onPlayTracks;
+  final bool analyzerEnabled;
+  final ValueChanged<bool> onAnalyzerEnabledChanged;
+  final String analyzerType;
 
   const NowPlayingScreen({
     super.key,
@@ -49,6 +52,9 @@ class NowPlayingScreen extends StatefulWidget {
     required this.onReorderQueue,
     required this.sourceType,
     this.onPlayTracks,
+    required this.analyzerEnabled,
+    required this.onAnalyzerEnabledChanged,
+    required this.analyzerType,
   });
 
   @override
@@ -56,6 +62,8 @@ class NowPlayingScreen extends StatefulWidget {
 }
 
 class _NowPlayingScreenState extends State<NowPlayingScreen> {
+  late bool _isAnalyzerEnabled;
+
   List<double> _analyzerValues = [];
   StreamSubscription? _analyzerSub;
 
@@ -69,40 +77,96 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   String _sampleRate = '...';
   String _channels = '...';
 
+  // ── Seek-state machine ────────────────────────────────────────────────────
+  //
+  // Phase 1 – DRAGGING: finger is on the slider.
+  //   _isDragging = true, _dragPositionMs = finger position.
+  //   → Slider shows _dragPositionMs. Zero seeks are fired.
+  //
+  // Phase 2 – SEEKING: finger lifted, seek command sent, waiting for engine.
+  //   _isDragging = false, _pendingSeekMs = target.
+  //   → Slider shows _pendingSeekMs so it doesn't bounce back.
+  //   → _onStatusChanged watches statusNotifier; clears _pendingSeekMs once
+  //     the engine's reported position lands within ~4 s of the target.
+  //
+  // Phase 3 – IDLE: engine confirmed position, or safety timeout fired.
+  //   _pendingSeekMs = null → Slider follows the engine normally.
+  bool _isDragging = false;
+  double _dragPositionMs = 0.0;
+  double? _pendingSeekMs; // non-null while seek is in-flight
+  Timer? _seekTimeoutTimer;
+
   @override
   void initState() {
     super.initState();
+    _isAnalyzerEnabled = widget.analyzerEnabled;
     _ytMusic.initialize();
     _fetchLyrics();
     _fetchAudioProperties();
 
-    // Ensure analyzer is enabled for visualization
-    widget.player.setAnalyzerEnabled(true);
+    _setupAnalyzer(_isAnalyzerEnabled);
 
-    _analyzerSub = widget.player.analyzerStream.listen((frame) {
-      if (frame.isEmpty) return;
-      const targetBins = 96;
-      final bins = List<double>.filled(targetBins, 0.0);
-      final srcLen = frame.length;
-      for (var i = 0; i < targetBins; i++) {
-        final from = (i * srcLen / targetBins).floor();
-        final to = ((i + 1) * srcLen / targetBins).ceil();
-        var sum = 0.0;
-        var count = 0;
-        for (var j = from; j < to && j < srcLen; j++) {
-          sum += frame[j].abs();
-          count++;
-        }
-        bins[i] = count > 0 ? sum / count : 0.0;
-      }
-      if (mounted) setState(() => _analyzerValues = bins);
-    });
+    // Watch engine status to detect when a pending seek has landed.
+    widget.statusNotifier.addListener(_onStatusChanged);
+  }
+
+  /// Called on every engine status poll (~200 ms).  Once the engine's reported
+  /// position is within 4 seconds of the seek target we consider the seek
+  /// landed and release the position override.
+  void _onStatusChanged() {
+    final target = _pendingSeekMs;
+    if (target == null) return;
+    final enginePosMs = widget.statusNotifier.value.positionSeconds * 1000.0;
+    if ((enginePosMs - target).abs() < 4000) {
+      _seekTimeoutTimer?.cancel();
+      if (mounted) setState(() => _pendingSeekMs = null);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant NowPlayingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.analyzerEnabled != widget.analyzerEnabled) {
+      _isAnalyzerEnabled = widget.analyzerEnabled;
+      _setupAnalyzer(_isAnalyzerEnabled);
+    }
   }
 
   @override
   void dispose() {
+    widget.statusNotifier.removeListener(_onStatusChanged);
+    _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
     super.dispose();
+  }
+
+  void _setupAnalyzer(bool enabled) {
+    if (enabled) {
+      widget.player.setAnalyzerEnabled(true);
+      _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
+        if (frame.isEmpty) return;
+        const targetBins = 96;
+        final bins = List<double>.filled(targetBins, 0.0);
+        final srcLen = frame.length;
+        for (var i = 0; i < targetBins; i++) {
+          final from = (i * srcLen / targetBins).floor();
+          final to = ((i + 1) * srcLen / targetBins).ceil();
+          var sum = 0.0;
+          var count = 0;
+          for (var j = from; j < to && j < srcLen; j++) {
+            sum += frame[j].abs();
+            count++;
+          }
+          bins[i] = count > 0 ? sum / count : 0.0;
+        }
+        if (mounted) setState(() => _analyzerValues = bins);
+      });
+    } else {
+      widget.player.setAnalyzerEnabled(false);
+      _analyzerSub?.cancel();
+      _analyzerSub = null;
+      if (mounted) setState(() => _analyzerValues = []);
+    }
   }
 
   Future<void> _fetchAudioProperties() async {
@@ -223,18 +287,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
 
         final duration =
             Duration(milliseconds: (baseDurationSecs * 1000).round());
-        final position =
-            Duration(milliseconds: (status.positionSeconds * 1000).round());
         final maxMs = duration.inMilliseconds <= 0
             ? 1.0
             : duration.inMilliseconds.toDouble();
-        final posMs = position.inMilliseconds
-            .clamp(
-                0, duration.inMilliseconds <= 0 ? 0 : duration.inMilliseconds)
-            .toDouble();
+        // Raw engine position in milliseconds (used as fallback when idle).
+        final posMs = status.positionSeconds * 1000.0;
 
-        // Sync lyrics
-        _lyricController.setProgress(position);
+        // Composite display position:
+        //   • While dragging          → finger position (_dragPositionMs)
+        //   • While seek in-flight    → frozen at seek target (_pendingSeekMs)
+        //   • Otherwise               → engine-reported position (posMs)
+        final displayPosMs = _isDragging
+            ? _dragPositionMs.clamp(0.0, maxMs)
+            : (_pendingSeekMs?.clamp(0.0, maxMs) ?? posMs);
+
+        // Sync lyrics to the display position so they follow the seek
+        // preview, not the (stale) engine position during a pending seek.
+        _lyricController
+            .setProgress(Duration(milliseconds: displayPosMs.toInt()));
 
         final title = widget.getTitle(status.currentIndex);
         final subtitle = widget.artist;
@@ -468,18 +538,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                     ),
                   );
 
-                  final visualizerWidget = _analyzerValues.isNotEmpty
-                      ? Padding(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: isDesktop ? 0.0 : 24.0,
-                              vertical: 24.0),
-                          child: SizedBox(
-                            height: 60,
-                            child:
-                                _buildVisualizer(primaryColor, _analyzerValues),
-                          ),
-                        )
-                      : const SizedBox(height: 108);
+                  final visualizerWidget = _isAnalyzerEnabled
+                      ? (_analyzerValues.isNotEmpty
+                          ? Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: isDesktop ? 0.0 : 24.0,
+                                  vertical: 24.0),
+                              child: SizedBox(
+                                height: 60,
+                                child: _buildVisualizer(
+                                    primaryColor, _analyzerValues),
+                              ),
+                            )
+                          : const SizedBox(height: 108))
+                      : const SizedBox.shrink();
 
                   final progressBarWidget = Padding(
                     padding: EdgeInsets.symmetric(
@@ -499,12 +571,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                 overlayRadius: 14.0),
                           ),
                           child: Slider(
-                            value: posMs,
+                            value: displayPosMs,
                             min: 0.0,
                             max: maxMs,
+                            onChangeStart: (v) {
+                              setState(() {
+                                _isDragging = true;
+                                _dragPositionMs = v;
+                              });
+                            },
                             onChanged: (v) {
+                              // Only update the local visual position — never
+                              // call seekTo here to avoid blocking the isolate.
+                              setState(() => _dragPositionMs = v);
+                            },
+                            onChangeEnd: (v) {
+                              _seekTimeoutTimer?.cancel();
+                              setState(() {
+                                _isDragging = false;
+                                _pendingSeekMs = v; // freeze slider here
+                              });
+                              // Single seek fired only when finger is lifted.
                               widget.player
                                   .seekTo(Duration(milliseconds: v.toInt()));
+                              // Safety net: release freeze after 45 s max.
+                              _seekTimeoutTimer =
+                                  Timer(const Duration(seconds: 45), () {
+                                if (mounted) {
+                                  setState(() => _pendingSeekMs = null);
+                                }
+                              });
                             },
                           ),
                         ),
@@ -513,7 +609,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(_fmt(position),
+                              Text(
+                                  _fmt(Duration(
+                                      milliseconds: displayPosMs.toInt())),
                                   style: const TextStyle(
                                       fontSize: 12,
                                       color: textDark,
@@ -620,8 +718,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                               MaterialPageRoute(
                                 builder: (context) => EqScreen(
                                   player: widget.player,
-                                  analyzerEnabled: true,
-                                  analyzerType: 'bar',
+                                  analyzerEnabled: _isAnalyzerEnabled,
+                                  analyzerType: widget.analyzerType,
                                 ),
                               ),
                             );
@@ -639,6 +737,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                             setState(() {
                               _showLyrics = !_showLyrics;
                             });
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            _isAnalyzerEnabled
+                                ? Icons.graphic_eq
+                                : Icons.multiline_chart,
+                            color:
+                                _isAnalyzerEnabled ? primaryColor : textLight,
+                            size: 26,
+                          ),
+                          onPressed: () {
+                            final newValue = !_isAnalyzerEnabled;
+                            setState(() {
+                              _isAnalyzerEnabled = newValue;
+                            });
+                            widget.onAnalyzerEnabledChanged(newValue);
+                            _setupAnalyzer(newValue);
                           },
                         ),
                         IconButton(
@@ -876,6 +992,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   void _showQueueSheet(BuildContext context) {
     const Color primaryColor = Color(0xFF137FEC);
     const Color sheetBg = Color(0xFF1C252E);
+    bool hasScrolled = false;
 
     showModalBottomSheet(
       context: context,
@@ -887,6 +1004,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           minChildSize: 0.3,
           maxChildSize: 0.9,
           builder: (_, scrollController) {
+            if (!hasScrolled) {
+              final playingIndex =
+                  widget.queue.indexWhere((t) => t.videoId == widget.videoId);
+              if (playingIndex > 0) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (scrollController.hasClients) {
+                    // Approximate Card height: 48 (image) + 8 (padding) + 6 (margin) = 62.
+                    // We use 68.0 to give a slight offset padding comfortably.
+                    scrollController.jumpTo(playingIndex * 68.0);
+                  }
+                });
+              }
+              hasScrolled = true;
+            }
+
             return Container(
               decoration: const BoxDecoration(
                 color: sheetBg,
@@ -975,16 +1107,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                       child: SizedBox(
                                         width: 48,
                                         height: 48,
-                                        child: track.thumbnailUrl != null
-                                            ? Image.network(
-                                                track.thumbnailUrl!,
+                                        child: isPlaying &&
+                                                widget.albumArt != null
+                                            ? Image.memory(
+                                                widget.albumArt!,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    const Icon(Icons.music_note,
-                                                        color: Colors.white54),
                                               )
-                                            : const Icon(Icons.music_note,
-                                                color: Colors.white54),
+                                            : track.thumbnailUrl != null
+                                                ? Image.network(
+                                                    track.thumbnailUrl!,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __,
+                                                            ___) =>
+                                                        const Icon(
+                                                            Icons.music_note,
+                                                            color:
+                                                                Colors.white54),
+                                                  )
+                                                : const Icon(Icons.music_note,
+                                                    color: Colors.white54),
                                       ),
                                     ),
                                     title: Text(

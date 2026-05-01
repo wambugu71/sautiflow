@@ -1,0 +1,1 @@
+﻿import 'dart:io'; import 'lib/isolate_player.dart'; void main() async { final p = IsolateAudioPlayer(); await p.init(enableSystemAudio: true); print('Initialized'); await Future.delayed(Duration(seconds: 2)); print('Done'); exit(0); }

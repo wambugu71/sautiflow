@@ -312,28 +312,50 @@ namespace
         float midGain = 1.0f;
         float highGain = 1.0f;
 
-        // Per-channel filter memory (supports up to 8 channels comfortably for desktop/mobile).
-        float lowMem[8] = {0};
-        float highMem[8] = {0};
-        float prevIn[8] = {0};
+        // 2nd-Order SVF Crossover for up to 8 channels
+        struct SVF
+        {
+            float ic1eq = 0.0f, ic2eq = 0.0f;
+            float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f, k = 0.0f;
+            void set(float cutoff, float sampleRate)
+            {
+                float g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
+                k = 1.0f / 0.5f; // Linkwitz-Riley-like Q = 0.5 for flat summing
+                a1 = 1.0f / (1.0f + g * (g + k));
+                a2 = g * a1;
+                a3 = g * a2;
+            }
+            void process(float input, float &lp, float &hp)
+            {
+                float v3 = input - ic2eq;
+                float v1 = a1 * ic1eq + a2 * v3;
+                float v2 = ic2eq + a2 * ic1eq + a3 * v3;
+                ic1eq = 2.0f * v1 - ic1eq;
+                ic2eq = 2.0f * v2 - ic2eq;
+                lp = v2;
+                hp = input - k * v1 - v2;
+            }
+        };
 
-        float lowAlpha = 0.0f;
-        float highAlpha = 0.0f;
+        SVF lowCross[8];  // Splits Bass from (Mid+High)
+        SVF highCross[8]; // Splits Mid from High
 
         void updateCoefficients(int sampleRate)
         {
-            const float lowCut = 220.0f;
-            const float highCut = 2200.0f;
-            const float twoPi = 6.28318530718f;
+            const float lowCut = 250.0f;   // Tighten bass crossover to focus on low punch
+            const float highCut = 2500.0f; // Separate harsh highs from warm mids
 
-            lowAlpha = (twoPi * lowCut) / (twoPi * lowCut + (float)sampleRate);
-            // High-pass one-pole: y[n] = a * (y[n-1] + x[n] - x[n-1])
-            highAlpha = (float)sampleRate / ((float)sampleRate + twoPi * highCut);
+            for (int c = 0; c < 8; ++c)
+            {
+                lowCross[c].set(lowCut, (float)sampleRate);
+                highCross[c].set(highCut, (float)sampleRate);
+            }
         }
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
             const int ch = std::min(channels, 8);
+
             for (ma_uint32 i = 0; i < frames; ++i)
             {
                 for (int c = 0; c < ch; ++c)
@@ -341,15 +363,17 @@ namespace
                     const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
                     const float x = interleaved[idx];
 
-                    float low = lowMem[c] + lowAlpha * (x - lowMem[c]);
-                    float high = highAlpha * (highMem[c] + x - prevIn[c]);
-                    float mid = x - low - high;
+                    float low, midHigh;
+                    float mid, high;
 
-                    lowMem[c] = low;
-                    highMem[c] = high;
-                    prevIn[c] = x;
+                    // 1. Split x into Bass (low) and everything else (midHigh)
+                    lowCross[c].process(x, low, midHigh);
 
-                    interleaved[idx] = low * lowGain + mid * midGain + high * highGain;
+                    // 2. Split everything else into Mid and High
+                    highCross[c].process(midHigh, mid, high);
+
+                    // Reconstruct with individual gains
+                    interleaved[idx] = (low * lowGain) + (mid * midGain) + (high * highGain);
                 }
             }
         }
@@ -662,7 +686,7 @@ namespace
                     targetGain = threshold / peak;
                 }
 
-                // Smooth the gain matching attack/release
+                // Smooth the gain matching attack/release (Averaging the bulk volume)
                 if (targetGain < gainEnvelope)
                 {
                     // Attack phase (gain is reducing)
@@ -674,11 +698,147 @@ namespace
                     gainEnvelope = releaseCoeff * gainEnvelope + (1.0f - releaseCoeff) * targetGain;
                 }
 
-                // Apply gain reduction
+                // Apply gain reduction and Analog Soft-Knee Saturation to catch the 2ms transient escapes
                 for (int c = 0; c < channels; ++c)
                 {
-                    interleaved[base + (size_t)c] *= gainEnvelope;
+                    float sample = interleaved[base + (size_t)c] * gainEnvelope;
+
+                    // The Soft-Knee Saturator guarantees that no transient escaping the 2ms attack can ever cross 1.0 (Digital 0dBFS)
+                    // We use poly saturation for absolute mathematical safety without harsh digital crackling
+                    if (sample > 1.0f)
+                        sample = 1.0f;
+                    else if (sample < -1.0f)
+                        sample = -1.0f;
+                    else if (sample > threshold)
+                    {
+                        float overshoot = sample - threshold;
+                        sample = threshold + (overshoot / (1.0f + (overshoot / (1.0f - threshold))));
+                    }
+                    else if (sample < -threshold)
+                    {
+                        float overshoot = -sample - threshold;
+                        sample = -(threshold + (overshoot / (1.0f + (overshoot / (1.0f - threshold)))));
+                    }
+
+                    interleaved[base + (size_t)c] = sample;
                 }
+            }
+        }
+    };
+
+    struct CrossfeedState
+    {
+        std::vector<float> delayL;
+        std::vector<float> delayR;
+        size_t writeIdx = 0;
+        int cachedSampleRate = 44100;
+
+        // Settings mapped per preset
+        float delayMs = 0.3f;
+        float crossoverFreq = 700.0f;
+        float feedLevel = 0.5f; // attenuation factor
+        float directLevel = 1.0f;
+
+        int currentPreset = 1;
+
+        // BS2B Low-Pass filters for the crossfeed
+        float lowPassL_y1 = 0;
+        float lowPassR_y1 = 0;
+        float alpha = 0.0f;
+
+        void reset(int sampleRate, int preset)
+        {
+            currentPreset = preset;
+            cachedSampleRate = sampleRate;
+
+            // Configure preset
+            if (preset == 1) // BS2B Weak (Chu Moy)
+            {
+                delayMs = 0.28f;
+                crossoverFreq = 700.0f;
+                feedLevel = 0.5f; // approx -6dB
+                directLevel = 1.0f;
+            }
+            else if (preset == 2) // BS2B Strong (Jmeier)
+            {
+                delayMs = 0.25f;
+                crossoverFreq = 700.0f;
+                feedLevel = 0.8f; // approx -2dB
+                directLevel = 1.0f;
+            }
+            else if (preset == 3) // Joe0bloggs approximation
+            {
+                delayMs = 0.4f;
+                crossoverFreq = 650.0f;
+                feedLevel = 0.65f;
+                directLevel = 0.9f; // Slightly reduces mono elements to build a wider bubble
+            }
+            else
+            {
+                // Default gracefully if off
+                delayMs = 0.3f;
+                crossoverFreq = 700.0f;
+                feedLevel = 0.0f;
+                directLevel = 1.0f;
+            }
+
+            size_t delaySamples = (size_t)((delayMs / 1000.0f) * sampleRate);
+            if (delaySamples == 0)
+                delaySamples = 1;
+            delayL.assign(delaySamples, 0.0f);
+            delayR.assign(delaySamples, 0.0f);
+            writeIdx = 0;
+
+            // Simple 1-pole LowPass Alpha
+            const float twoPi = 6.28318530718f;
+            alpha = (twoPi * crossoverFreq) / (twoPi * crossoverFreq + sampleRate);
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 2 || feedLevel <= 0.001f)
+                return;
+            if (delayL.empty() || delayR.empty())
+                return;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                size_t base = (size_t)i * channels;
+                float originalL = interleaved[base];
+                float originalR = interleaved[base + 1];
+
+                // Delay the signal
+                float dL = delayL[writeIdx];
+                float dR = delayR[writeIdx];
+                delayL[writeIdx] = originalL;
+                delayR[writeIdx] = originalR;
+
+                writeIdx++;
+                if (writeIdx >= delayL.size())
+                    writeIdx = 0;
+
+                // LPF the delayed opposite channel
+                lowPassL_y1 = lowPassL_y1 + alpha * (dR - lowPassL_y1);
+                lowPassR_y1 = lowPassR_y1 + alpha * (dL - lowPassR_y1);
+
+                float crossfedL = lowPassL_y1 * feedLevel;
+                float crossfedR = lowPassR_y1 * feedLevel;
+
+                float outL = (originalL * directLevel) + crossfedL;
+                float outR = (originalR * directLevel) + crossfedR;
+
+                // Simple peak normalization (since crossfeed intrinsically builds volume slightly in the lows)
+                float sumNormalizer = std::max(1.0f, (directLevel + feedLevel * 0.7f)); // Approximate normalization
+
+                // Note: For Joe0bloggs, we sometimes introduce an ultra-high shelf to offset the low build-up
+                if (currentPreset == 3)
+                {
+                    outL += originalL * 0.15f; // Minor high frequency "sparkle" bypass
+                    outR += originalR * 0.15f;
+                }
+
+                interleaved[base] = outL / sumNormalizer;
+                interleaved[base + 1] = outR / sumNormalizer;
             }
         }
     };
@@ -691,6 +851,34 @@ namespace
         float delayMs = 15.0f;
         int cachedSampleRate = 44100;
 
+        // Crossovers for Left and Right channels to split Bass from Mids/Highs
+        struct WidenCrossover
+        {
+            float ic1eq = 0.0f, ic2eq = 0.0f;
+            float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f, k = 0.0f;
+            void set(float cutoff, float sampleRate)
+            {
+                float g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
+                k = 1.0f / 0.7071f; // Q = 0.7071 (Butterworth)
+                a1 = 1.0f / (1.0f + g * (g + k));
+                a2 = g * a1;
+                a3 = g * a2;
+            }
+            void process(float input, float &lp, float &hp)
+            {
+                float v3 = input - ic2eq;
+                float v1 = a1 * ic1eq + a2 * v3;
+                float v2 = ic2eq + a2 * ic1eq + a3 * v3;
+                ic1eq = 2.0f * v1 - ic1eq;
+                ic2eq = 2.0f * v2 - ic2eq;
+                lp = v2;
+                hp = input - k * v1 - v2;
+            }
+        };
+
+        WidenCrossover crossL;
+        WidenCrossover crossR;
+
         void reset(int sampleRate)
         {
             cachedSampleRate = sampleRate;
@@ -699,6 +887,9 @@ namespace
                 delaySamples = 1;
             delayBuffer.assign(delaySamples, 0.0f);
             writeIdx = 0;
+
+            crossL.set(300.0f, (float)sampleRate); // 300Hz Crossover
+            crossR.set(300.0f, (float)sampleRate);
         }
 
         void updateParams(int sampleRate, float w, float dMs)
@@ -722,27 +913,342 @@ namespace
             {
                 size_t base = (size_t)i * channels;
 
-                // 1. Haas Effect (Delay the right channel slightly)
                 float originalL = interleaved[base];
                 float originalR = interleaved[base + 1];
 
-                // Read delayed right channel and write new right channel
-                float delayedR = delayBuffer[writeIdx];
-                delayBuffer[writeIdx] = originalR;
+                // 1. Split into Bass (low) and Mid/High (high) bands
+                float lowL, highL, lowR, highR;
+                crossL.process(originalL, lowL, highL);
+                crossR.process(originalR, lowR, highR);
+
+                // 2. Haas Effect (Delay the right channel slightly) ONLY on the High band
+                float delayedHighR = delayBuffer[writeIdx];
+                delayBuffer[writeIdx] = highR;
 
                 writeIdx++;
                 if (writeIdx >= delayBuffer.size())
                     writeIdx = 0;
 
-                // 2. Mid/Side Processing
-                float mid = (originalL + delayedR) * 0.5f;
-                float side = (originalL - delayedR) * 0.5f;
+                // 3. Mid/Side Processing strictly on the High band
+                float midHigh = (highL + delayedHighR) * 0.5f;
+                float sideHigh = (highL - delayedHighR) * 0.5f;
 
-                side *= width; // Widen
+                sideHigh *= width; // Widen the highs
 
-                // Recombine
-                interleaved[base] = mid + side;
-                interleaved[base + 1] = mid - side;
+                // Recombine widened highs
+                float processHighL = midHigh + sideHigh;
+                float processHighR = midHigh - sideHigh;
+
+                // 4. Mono-center the bass
+                float monoBass = (lowL + lowR) * 0.5f;
+
+                // Mix the mono-centered bass back with the ultra-wide highs
+                float outL = monoBass + processHighL;
+                float outR = monoBass + processHighR;
+
+                // 5. Soft clip to prevent 0dBFS clipping (crackling) when width is extreme
+                outL = std::tanh(outL);
+                outR = std::tanh(outR);
+
+                interleaved[base] = outL;
+                interleaved[base + 1] = outR;
+            }
+        }
+    };
+
+    struct DynamicExciterSVF
+    {
+        float ic1eq = 0.0f;
+        float ic2eq = 0.0f;
+        float g = 0.0f;
+        float k = 0.0f;
+        float a1 = 0.0f;
+        float a2 = 0.0f;
+        float a3 = 0.0f;
+
+        void set(float cutoff, float q, float sampleRate)
+        {
+            g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
+            k = 1.0f / q;
+            a1 = 1.0f / (1.0f + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+
+        void process(float input, float &lp, float &hp)
+        {
+            float v3 = input - ic2eq;
+            float v1 = a1 * ic1eq + a2 * v3;
+            float v2 = ic2eq + a2 * ic1eq + a3 * v3;
+            ic1eq = 2.0f * v1 - ic1eq;
+            ic2eq = 2.0f * v2 - ic2eq;
+            lp = v2;
+            hp = input - k * v1 - v2;
+        }
+    };
+
+    struct EnvelopeFollower
+    {
+        float releaseCoeff = 0.0f;
+        float envelope = 0.0f;
+
+        void set(float releaseMs, float sampleRate)
+        {
+            releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * sampleRate));
+        }
+
+        float process(float input)
+        {
+            float absIn = std::abs(input);
+            if (absIn > envelope)
+            {
+                envelope = absIn; // Fast attack
+            }
+            else
+            {
+                envelope = envelope * releaseCoeff + absIn * (1.0f - releaseCoeff);
+            }
+            return envelope;
+        }
+    };
+
+    struct DynamicBassState
+    {
+        DynamicExciterSVF filterL;
+        DynamicExciterSVF filterR;
+        EnvelopeFollower envL;
+        EnvelopeFollower envR;
+
+        int cachedSampleRate = 0;
+        float cutoffFreq = 120.0f;
+        float driveLevel = 1.0f;
+        float harmMix = 0.0f;
+
+        void init(int sampleRate)
+        {
+            cachedSampleRate = sampleRate;
+            cutoffFreq = 120.0f;
+            driveLevel = 1.0f;
+            harmMix = 0.0f;
+
+            filterL.set(cutoffFreq, 0.7071f, sampleRate);
+            filterR.set(cutoffFreq, 0.7071f, sampleRate);
+            envL.set(50.0f, sampleRate); // 50ms release
+            envR.set(50.0f, sampleRate);
+        }
+
+        void setPreset(int dPreset)
+        {
+            // Map the 19 presets to meaningful crossover frequencies (60Hz to 160Hz)
+            // Smaller presets target deep sub, larger target wider upper-bass
+            float cutoffMap[19] = {
+                60.0f, 65.0f, 70.0f, 75.0f, 80.0f,
+                85.0f, 90.0f, 95.0f, 100.0f, 105.0f,
+                110.0f, 115.0f, 120.0f, 125.0f, 130.0f,
+                140.0f, 150.0f, 160.0f, 180.0f};
+
+            if (dPreset >= 0 && dPreset < 19)
+            {
+                cutoffFreq = cutoffMap[dPreset];
+            }
+            else
+            {
+                cutoffFreq = 120.0f;
+            }
+
+            if (cachedSampleRate > 0)
+            {
+                filterL.set(cutoffFreq, 0.7071f, cachedSampleRate);
+                filterR.set(cutoffFreq, 0.7071f, cachedSampleRate);
+            }
+        }
+
+        void resetIfRateChanged(int sampleRate)
+        {
+            if (cachedSampleRate != sampleRate)
+            {
+                init(sampleRate);
+            }
+        }
+
+        void setBassGain(float gain)
+        {
+            // gain is 0 to 100
+            // Map to exciter drive (saturation factor) and harmonic mix
+            driveLevel = 1.0f + (gain * 0.05f); // 1.0 to 6.0
+            harmMix = gain * 0.02f;             // 0.0 to 2.0 additional volume for the saturated bass
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 2)
+                return; // Requires stereo
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                size_t base = (size_t)i * channels;
+                float left = interleaved[base];
+                float right = interleaved[base + 1];
+
+                float lpL, hpL, lpR, hpR;
+                filterL.process(left, lpL, hpL);
+                filterR.process(right, lpR, hpR);
+
+                // Track the low frequency amplitude
+                float envValL = envL.process(lpL);
+                float envValR = envR.process(lpR);
+
+                // Soft-clipping/saturation based on envelope and drive
+                // The tanh curve prevents clipping while creating rich harmonics
+                // We normalize by driveLevel to keep peak amplitude contained
+                float satL = std::tanh(lpL * driveLevel * (1.0f + envValL)) / std::max(1.0f, std::log(driveLevel + 1.0f));
+                float satR = std::tanh(lpR * driveLevel * (1.0f + envValR)) / std::max(1.0f, std::log(driveLevel + 1.0f));
+
+                // Recombine phase-coherently
+                float outSampleL = hpL + lpL + satL * harmMix;
+                float outSampleR = hpR + lpR + satR * harmMix;
+
+                // Final safety ceiling to prevent master channel clipping if harmMix is huge
+                outSampleL = std::tanh(outSampleL);
+                outSampleR = std::tanh(outSampleR);
+
+                interleaved[base] = outSampleL;
+                interleaved[base + 1] = outSampleR;
+            }
+        }
+    }; // end DynamicBassState
+
+    // ============================================================
+    // CrystalizerState
+    // Audiophile-grade transient edge reconstruction algorithm.
+    //
+    // Stage 1 — Transient Edge Reconstruction
+    //   Recovers detail that lossy codecs (MP3/AAC) discard by extracting
+    //   the inter-sample differences (signal derivative) and re-injecting them.
+    //   This improves attack precision, presence, and perceived resolution.
+    //
+    // Stage 2 — High-Shelf "Air" Enhancement (optional)
+    //   A gentle 2nd-order biquad high-shelf applied above ~8 kHz adds the
+    //   "open sky" quality missing from compressed audio.
+    //
+    // Stage 3 — Soft-Clip Guard
+    //   tanh saturation to prevent digital overs when intensity is high.
+    // ============================================================
+    struct CrystalizerState
+    {
+        float intensity = 0.5f;       // [0.0, 1.0] reconstruction strength
+        bool highShelfEnabled = true; // enable Stage 2 air shelf
+        float highShelfGainDb = 2.0f; // [0.0, 6.0] shelf boost in dB
+        int cachedSampleRate = 0;
+
+        // Per-channel previous sample for derivative calculation (up to 8 ch)
+        float prevSample[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+
+        // 2nd-order high-shelf biquad coefficients (computed once on init/param change)
+        // Using the Audio EQ Cookbook high-shelf formula
+        struct HighShelfBiquad
+        {
+            double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+            double a1 = 0.0, a2 = 0.0;
+            // Per-channel delay registers (up to 8 ch)
+            double x1[8] = {}, x2[8] = {}, y1[8] = {}, y2[8] = {};
+
+            void compute(double gainDb, double freqHz, double sampleRate)
+            {
+                const double A = std::pow(10.0, gainDb / 40.0);
+                const double w0 = 2.0 * 3.14159265358979323846 * freqHz / sampleRate;
+                const double cw = std::cos(w0);
+                const double sw = std::sin(w0);
+                // slope = 1 (standard Butterworth-matched)
+                const double alpha = sw / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / 1.0 - 1.0) + 2.0);
+                const double a0inv = 1.0 / ((A + 1.0) - (A - 1.0) * cw + 2.0 * std::sqrt(A) * alpha);
+
+                b0 = A * ((A + 1.0) + (A - 1.0) * cw + 2.0 * std::sqrt(A) * alpha) * a0inv;
+                b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cw) * a0inv;
+                b2 = A * ((A + 1.0) + (A - 1.0) * cw - 2.0 * std::sqrt(A) * alpha) * a0inv;
+                const double a1c = 2.0 * ((A - 1.0) - (A + 1.0) * cw) * a0inv;
+                const double a2c = ((A + 1.0) - (A - 1.0) * cw - 2.0 * std::sqrt(A) * alpha) * a0inv;
+                a1 = a1c;
+                a2 = a2c;
+                // clear delay registers
+                std::fill(x1, x1 + 8, 0.0);
+                std::fill(x2, x2 + 8, 0.0);
+                std::fill(y1, y1 + 8, 0.0);
+                std::fill(y2, y2 + 8, 0.0);
+            }
+
+            float process(float sample, int ch)
+            {
+                double x0 = (double)sample;
+                double y0 = b0 * x0 + b1 * x1[ch] + b2 * x2[ch] - a1 * y1[ch] - a2 * y2[ch];
+                x2[ch] = x1[ch];
+                x1[ch] = x0;
+                y2[ch] = y1[ch];
+                y1[ch] = y0;
+                return (float)y0;
+            }
+        } shelf;
+
+        void init(int sampleRate)
+        {
+            cachedSampleRate = sampleRate;
+            std::fill(prevSample, prevSample + 8, 0.f);
+            shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
+        }
+
+        void updateParams(int sampleRate, float newIntensity, bool newShelfEnabled, float newShelfGainDb)
+        {
+            intensity = clampf(newIntensity, 0.0f, 1.0f);
+            highShelfEnabled = newShelfEnabled;
+            highShelfGainDb = clampf(newShelfGainDb, 0.0f, 6.0f);
+
+            if (cachedSampleRate != sampleRate || newShelfGainDb != highShelfGainDb)
+            {
+                cachedSampleRate = sampleRate;
+                shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
+            }
+        }
+
+        void resetIfRateChanged(int sampleRate)
+        {
+            if (cachedSampleRate != sampleRate)
+                init(sampleRate);
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (intensity <= 0.0f)
+                return;
+
+            const int ch = std::min(channels, 8);
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
+                    float x = interleaved[idx];
+
+                    // Stage 1 — Transient edge reconstruction
+                    // diff captures the derivative (high-frequency / transient energy)
+                    const float diff = x - prevSample[c];
+                    prevSample[c] = x;
+                    x = x + diff * intensity;
+
+                    // Stage 2 — High-shelf "air" enhancement (optional)
+                    if (highShelfEnabled && intensity > 0.0f)
+                    {
+                        // Blend the shelf in proportion to intensity for smooth feel
+                        const float shelfOut = shelf.process(x, c);
+                        const float shelfBlend = intensity * 0.6f; // max 60% blend at full intensity
+                        x = x * (1.0f - shelfBlend) + shelfOut * shelfBlend;
+                    }
+
+                    // Stage 3 — Soft-clip guard (prevents overs at high intensity)
+                    x = std::tanh(x);
+
+                    interleaved[idx] = x;
+                }
             }
         }
     };
@@ -752,6 +1258,7 @@ namespace
 struct AudioEngineHandle
 {
     ma_device device{};
+    bool exclusiveModeEnabled{false};
 
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
@@ -834,6 +1341,7 @@ struct AudioEngineHandle
     bool lowshelfEnabled = false;
     bool highshelfEnabled = false;
     float gain = 1.0f;
+    float replayGainLinear = 1.0f; // Replay Gain multiplier (linear); 1.0 = no change
     float pan = 0.0f;
     EqState eq;
     ReverbState reverb;
@@ -885,6 +1393,19 @@ struct AudioEngineHandle
     // Stereo Widen Effect
     bool stereoWidenEnabled = false;
     StereoWidenState stereoWiden;
+
+    // Crossfeed (Headphone Virtualization)
+    bool crossfeedEnabled = false;
+    int crossfeedPreset = 1;
+    CrossfeedState crossfeed;
+
+    // Dynamic Bass
+    bool dynamicBassEnabled = false;
+    DynamicBassState dynamicBass;
+
+    // Crystalizer (audiophile transient reconstruction + air enhancement)
+    bool crystalizerEnabled = false;
+    CrystalizerState crystalizer;
 
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
@@ -1281,7 +1802,7 @@ static bool load_decoder_for_path(
         return false;
     }
 
-    ma_uint32 outCh = (e->outputChannels > 0) ? (ma_uint32)e->outputChannels : 2;
+    ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, (ma_uint32)e->sampleRate);
     static ma_decoding_backend_vtable *pCustomDecoders[] = {&g_ma_decoding_backend_vtable_mp4_aac};
     cfg.pCustomBackendUserData = nullptr;
@@ -1689,7 +2210,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pDevice->pUserData);
 
     float *processBuffer = nullptr;
-    ma_uint32 totalSamples = frameCount * (ma_uint32)e->outputChannels;
+    ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
 
     if (e->outputFormat == AE_FORMAT_F32)
     {
@@ -1773,7 +2294,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     else if (e->outputFormat == AE_FORMAT_S32)
                         configFormat = ma_format_s32;
 
-                    ma_uint32 outCh = (e->outputChannels > 0) ? (ma_uint32)e->outputChannels : 2;
+                    ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
                     ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
                     // Dynamically apply pitch if present
                     const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
@@ -1816,7 +2337,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
             ma_result r = ma_decoder_read_pcm_frames(
                 e->currentDecoder,
-                processBuffer + ((size_t)produced * (size_t)e->outputChannels),
+                processBuffer + ((size_t)produced * (size_t)e->channels),
                 (ma_uint64)(frameCount - produced),
                 &framesRead);
 
@@ -1913,8 +2434,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
             {
                 const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
-                const size_t base = (size_t)i * (size_t)e->outputChannels;
-                for (int c = 0; c < e->outputChannels; ++c)
+                const size_t base = (size_t)i * (size_t)e->channels;
+                for (int c = 0; c < e->channels; ++c)
                 {
                     processBuffer[base + (size_t)c] *= t;
                 }
@@ -1925,132 +2446,155 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
-        // Volume
-        if (e->gain != 1.0f)
+        if (!e->exclusiveModeEnabled)
         {
-            float vol = e->gain;
-            for (size_t i = 0; i < produced * e->outputChannels; ++i)
-                processBuffer[i] *= vol;
-        }
-
-        // Custom Fading (Wait Fade)
-        if (e->customFadeArmed.load(std::memory_order_acquire))
-        {
-            ma_uint64 fadeRemaining = e->customFadeFramesRemaining.load(std::memory_order_relaxed);
-            ma_uint64 fadeTotal = e->customFadeFramesTotal.load(std::memory_order_relaxed);
-            if (fadeRemaining > 0 && fadeTotal > 0)
+            // Volume (main gain × replay gain)
             {
-                const float volBeg = e->customFadeVolumeBeg.load(std::memory_order_relaxed);
-                const float volEnd = e->customFadeVolumeEnd.load(std::memory_order_relaxed);
-
-                ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
-                for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
+                const float vol = e->gain * e->replayGainLinear;
+                if (vol != 1.0f)
                 {
-                    const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
-                    const float currentVol = volBeg + (volEnd - volBeg) * t;
-                    const size_t base = (size_t)i * (size_t)e->outputChannels;
-                    for (int c = 0; c < e->outputChannels; ++c)
+                    for (size_t i = 0; i < produced * e->channels; ++i)
+                        processBuffer[i] *= vol;
+                }
+            }
+
+            // Custom Fading (Wait Fade)
+            if (e->customFadeArmed.load(std::memory_order_acquire))
+            {
+                ma_uint64 fadeRemaining = e->customFadeFramesRemaining.load(std::memory_order_relaxed);
+                ma_uint64 fadeTotal = e->customFadeFramesTotal.load(std::memory_order_relaxed);
+                if (fadeRemaining > 0 && fadeTotal > 0)
+                {
+                    const float volBeg = e->customFadeVolumeBeg.load(std::memory_order_relaxed);
+                    const float volEnd = e->customFadeVolumeEnd.load(std::memory_order_relaxed);
+
+                    ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+                    for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                     {
-                        processBuffer[base + (size_t)c] *= currentVol;
+                        const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                        const float currentVol = volBeg + (volEnd - volBeg) * t;
+                        const size_t base = (size_t)i * (size_t)e->channels;
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            processBuffer[base + (size_t)c] *= currentVol;
+                        }
+                        fadeRemaining -= 1;
                     }
-                    fadeRemaining -= 1;
-                }
-                e->customFadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
-                if (fadeRemaining == 0)
-                {
-                    e->customFadeArmed.store(false, std::memory_order_release);
+                    e->customFadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+                    if (fadeRemaining == 0)
+                    {
+                        e->customFadeArmed.store(false, std::memory_order_release);
+                    }
                 }
             }
-        }
 
-        // 3D Spatialization
-        bool spatialOn = false;
-        {
-            std::lock_guard<std::mutex> lock(e->spatialMutex);
-            spatialOn = e->spatializationEnabled && e->spatializerInitialized;
-        }
-
-        if (spatialOn)
-        {
-            std::lock_guard<std::mutex> lock(e->spatialMutex);
-            ma_spatializer_process_pcm_frames(&e->spatializer, &e->spatialListener, processBuffer, processBuffer, produced);
-        }
-
-        // Pan (Assume Stereo or more)
-        if (e->outputChannels >= 2 && e->pan != 0.0f)
-        {
-            float p = e->pan;
-            const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
-            const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
-            for (ma_uint32 i = 0; i < produced; ++i)
+            // 3D Spatialization
+            bool spatialOn = false;
             {
-                processBuffer[i * e->outputChannels] *= l;
-                processBuffer[i * e->outputChannels + 1] *= r;
+                std::lock_guard<std::mutex> lock(e->spatialMutex);
+                spatialOn = e->spatializationEnabled && e->spatializerInitialized;
             }
-        }
 
-        // Stereo Widen
-        if (e->stereoWidenEnabled)
-        {
-            e->stereoWiden.process(processBuffer, produced, e->outputChannels);
-        }
+            if (spatialOn)
+            {
+                std::lock_guard<std::mutex> lock(e->spatialMutex);
+                ma_spatializer_process_pcm_frames(&e->spatializer, &e->spatialListener, processBuffer, processBuffer, produced);
+            }
 
-        // Multiband EQ and mixed multiband FX
-        std::lock_guard<std::mutex> eqLock(e->eqMutex);
-        if (e->multibandEqEnabled)
-        {
-            e->process_multiband_eq(processBuffer, produced, e->outputChannels);
-        }
-        if (e->multibandFxEnabled)
-        {
-            e->process_multiband_fx(processBuffer, produced);
-        }
+            // Pan (Assume Stereo or more)
+            if (e->channels >= 2 && e->pan != 0.0f)
+            {
+                float p = e->pan;
+                const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
+                const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    processBuffer[i * e->channels] *= l;
+                    processBuffer[i * e->channels + 1] *= r;
+                }
+            }
 
-        // Custom Filter Elements
-        if (e->customLpf1Enabled)
-            (void)ma_lpf1_process_pcm_frames(&e->customLpf1, processBuffer, processBuffer, produced);
-        if (e->customHpf1Enabled)
-            (void)ma_hpf1_process_pcm_frames(&e->customHpf1, processBuffer, processBuffer, produced);
-        if (e->customBiquadEnabled)
-            (void)ma_biquad_process_pcm_frames(&e->customBiquad, processBuffer, processBuffer, produced);
+            if (e->crossfeedEnabled)
+            {
+                e->crossfeed.process(processBuffer, produced, e->channels);
+            }
 
-        // Existing Effects
-        // Note: passing e->outputChannels instead of e->channels
-        if (e->lowpassEnabled)
-            e->lowpass.processLowpass(processBuffer, produced, e->outputChannels);
-        if (e->highpassEnabled)
-            e->highpass.processHighpass(processBuffer, produced, e->outputChannels);
-        if (e->bandpassEnabled)
-            (void)ma_bpf2_process_pcm_frames(&e->bandpass, processBuffer, processBuffer, (ma_uint64)produced);
-        // Delay (Check channel layout support in DelayState - assumes stereo?)
-        if (e->delayEnabled)
-            e->delay.process(processBuffer, produced, e->outputChannels);
-        if (e->peakEqEnabled)
-            (void)ma_peak2_process_pcm_frames(&e->peakEq, processBuffer, processBuffer, (ma_uint64)produced);
-        if (e->notchEnabled)
-            (void)ma_notch2_process_pcm_frames(&e->notch, processBuffer, processBuffer, (ma_uint64)produced);
-        if (e->lowshelfEnabled)
-            (void)ma_loshelf2_process_pcm_frames(&e->lowshelf, processBuffer, processBuffer, (ma_uint64)produced);
-        if (e->highshelfEnabled)
-            (void)ma_hishelf2_process_pcm_frames(&e->highshelf, processBuffer, processBuffer, (ma_uint64)produced);
-        // Old 3-band EQ
-        if (e->eqEnabled)
-            e->eq.process(processBuffer, produced, e->outputChannels);
-        if (e->reverbEnabled)
-            e->reverb.process(processBuffer, produced, e->outputChannels);
+            // Stereo Widen
+            if (e->stereoWidenEnabled)
+            {
+                e->stereoWiden.process(processBuffer, produced, e->channels);
+            }
 
-        e->capture_analyzer_frames(processBuffer, produced, e->outputChannels);
+            // Dynamic Bass
+            if (e->dynamicBassEnabled)
+            {
+                e->dynamicBass.process(processBuffer, produced, e->channels);
+            }
 
-        // Limiter & Clipping Detection (run at the end of the chain before format conversion)
-        if (e->limiterEnabled)
-        {
-            e->limiter.process(processBuffer, produced, e->outputChannels);
-        }
+            // Crystalizer (transient edge reconstruction + air shelf)
+            if (e->crystalizerEnabled)
+            {
+                e->crystalizer.resetIfRateChanged(e->outputSampleRate > 0 ? e->outputSampleRate : e->sampleRate);
+                e->crystalizer.process(processBuffer, produced, e->channels);
+            }
+
+            // Multiband EQ and mixed multiband FX
+            std::lock_guard<std::mutex> eqLock(e->eqMutex);
+            if (e->multibandEqEnabled)
+            {
+                e->process_multiband_eq(processBuffer, produced, e->channels);
+            }
+            if (e->multibandFxEnabled)
+            {
+                e->process_multiband_fx(processBuffer, produced);
+            }
+
+            // Custom Filter Elements
+            if (e->customLpf1Enabled)
+                (void)ma_lpf1_process_pcm_frames(&e->customLpf1, processBuffer, processBuffer, produced);
+            if (e->customHpf1Enabled)
+                (void)ma_hpf1_process_pcm_frames(&e->customHpf1, processBuffer, processBuffer, produced);
+            if (e->customBiquadEnabled)
+                (void)ma_biquad_process_pcm_frames(&e->customBiquad, processBuffer, processBuffer, produced);
+
+            // Existing Effects
+            // Note: passing e->channels instead of e->channels
+            if (e->lowpassEnabled)
+                e->lowpass.processLowpass(processBuffer, produced, e->channels);
+            if (e->highpassEnabled)
+                e->highpass.processHighpass(processBuffer, produced, e->channels);
+            if (e->bandpassEnabled)
+                (void)ma_bpf2_process_pcm_frames(&e->bandpass, processBuffer, processBuffer, (ma_uint64)produced);
+            // Delay (Check channel layout support in DelayState - assumes stereo?)
+            if (e->delayEnabled)
+                e->delay.process(processBuffer, produced, e->channels);
+            if (e->peakEqEnabled)
+                (void)ma_peak2_process_pcm_frames(&e->peakEq, processBuffer, processBuffer, (ma_uint64)produced);
+            if (e->notchEnabled)
+                (void)ma_notch2_process_pcm_frames(&e->notch, processBuffer, processBuffer, (ma_uint64)produced);
+            if (e->lowshelfEnabled)
+                (void)ma_loshelf2_process_pcm_frames(&e->lowshelf, processBuffer, processBuffer, (ma_uint64)produced);
+            if (e->highshelfEnabled)
+                (void)ma_hishelf2_process_pcm_frames(&e->highshelf, processBuffer, processBuffer, (ma_uint64)produced);
+            // Old 3-band EQ
+            if (e->eqEnabled)
+                e->eq.process(processBuffer, produced, e->channels);
+            if (e->reverbEnabled)
+                e->reverb.process(processBuffer, produced, e->channels);
+
+            // Limiter & Clipping Detection (run at the end of the chain before format conversion)
+            if (e->limiterEnabled)
+            {
+                e->limiter.process(processBuffer, produced, e->channels);
+            }
+        } // End of !exclusiveModeEnabled bypass
+
+        e->capture_analyzer_frames(processBuffer, produced, e->channels);
 
         if (e->clippingDetectionEnabled.load(std::memory_order_relaxed))
         {
             uint64_t clippedCountLocal = 0;
-            const size_t numSamplesCheck = produced * e->outputChannels;
+            const size_t numSamplesCheck = produced * e->channels;
             for (size_t i = 0; i < numSamplesCheck; ++i)
             {
                 if (processBuffer[i] > 1.0f || processBuffer[i] < -1.0f)
@@ -2122,6 +2666,7 @@ extern "C"
         e->highpass.setHighpassCutoff(80.0f, sample_rate);
         e->delay.reset(sample_rate, channels);
         reinit_advanced_fx_filters(e);
+        e->crystalizer.init(sample_rate);
 
         // Initialize Spatializer
         ma_spatializer_config spatConfig = ma_spatializer_config_init(channels, channels);
@@ -2179,7 +2724,22 @@ extern "C"
             return nullptr;
         }
 
-        engine_log("engine created (sampleRate=%d channels=%d)", sample_rate, channels);
+        // Sync actual device-negotiated values back into the engine struct.
+        // ma_device_init may adjust channels/rate to what the hardware supports.
+        {
+            const int actualRate = (int)e->device.sampleRate;
+            const int actualCh   = (int)e->device.playback.channels;
+            if (actualRate > 0) e->sampleRate = actualRate;
+            if (actualCh > 0)
+            {
+                e->channels = actualCh;
+                // outputChannels tracks user preference; if the user set 0 (native),
+                // keep it as the resolved count so decoders always get a valid value.
+                if (e->outputChannels <= 0) e->outputChannels = actualCh;
+            }
+        }
+
+        engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
         e->worker = std::thread(worker_loop, e);
         return e;
     }
@@ -2915,6 +3475,18 @@ extern "C"
         e->gain = clampf(gain, 0.0f, 8.0f);
     }
 
+    // Applies a ReplayGain offset (in dB) on top of the main gain.
+    // gain_db == 0 means no adjustment. Positive boosts, negative attenuates.
+    AE_API void ae_set_replay_gain(AudioEngineHandle *e, float gain_db)
+    {
+        if (e == nullptr)
+            return;
+        // Convert dB to linear multiplier: 10^(dB/20)
+        const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->replayGainLinear = linear;
+    }
+
     AE_API void ae_set_pan(AudioEngineHandle *e, float pan_minus1_to_plus1)
     {
         if (e == nullptr)
@@ -3106,6 +3678,32 @@ extern "C"
         reinit_advanced_fx_filters(e);
     }
 
+    // --- Crystalizer ---
+
+    AE_API void ae_set_crystalizer_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->crystalizerEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_crystalizer_params(AudioEngineHandle *e, float intensity, int high_shelf_enabled, float high_shelf_gain_db)
+    {
+        if (e == nullptr)
+            return;
+        const int sr = (e->outputSampleRate > 0) ? e->outputSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->crystalizer.updateParams(sr, intensity, high_shelf_enabled != 0, high_shelf_gain_db);
+    }
+
+    AE_API float ae_get_crystalizer_intensity(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0f;
+        return e->crystalizer.intensity;
+    }
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -3160,16 +3758,52 @@ extern "C"
         if (e->resampleAlgorithm == 1)
         { // AE_RESAMPLE_ALGORITHM_CUSTOM
             cfg.resampling.algorithm = ma_resample_algorithm_custom;
+            cfg.resampling.pBackendVTable = &g_customResamplerVTable;
+            cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
         }
         else
         {
             cfg.resampling.algorithm = ma_resample_algorithm_linear;
         }
 
-        if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+        if (e->exclusiveModeEnabled)
         {
-            set_last_error(e, "Failed to re-initialize device with new config.");
-            return;
+            cfg.playback.shareMode = ma_share_mode_exclusive;
+            cfg.wasapi.noAutoConvertSRC = 1;
+            cfg.wasapi.noDefaultQualitySRC = 1;
+            cfg.alsa.noMMap = 0;
+            cfg.noPreSilencedOutputBuffer = 1;
+
+
+            if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+            {
+                engine_log("Hardware declined Exclusive Mode config, falling back to Shared Mode.");
+                e->exclusiveModeEnabled = false;
+
+                // Reset config for shared mode
+                cfg.playback.shareMode = ma_share_mode_shared;
+                cfg.wasapi.noAutoConvertSRC = 0;
+                cfg.wasapi.noDefaultQualitySRC = 0;
+                cfg.noPreSilencedOutputBuffer = 0;
+
+                if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+                {
+                    set_last_error(e, "Failed to re-initialize device after exclusive mode fallback.");
+                    return;
+                }
+            }
+            else
+            {
+                engine_log("Exclusive Mode initialized successfully.");
+            }
+        }
+        else
+        {
+            if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+            {
+                set_last_error(e, "Failed to re-initialize device with new config.");
+                return;
+            }
         }
 
         {
@@ -3256,6 +3890,8 @@ extern "C"
         {
             ma_device_start(&e->device);
         }
+
+        request_preload(e);
     }
 
     // --- Spatialization (3D Audio) ---
@@ -3407,7 +4043,25 @@ extern "C"
     }
 
     // Advanced Audio Controls
+    AE_API void ae_set_exclusive_mode(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        bool wantExclusive = (enabled != 0);
+        if (engine->exclusiveModeEnabled == wantExclusive)
+            return;
+
+        engine->exclusiveModeEnabled = wantExclusive;
+        restart_and_apply_config(engine);
+    }
+
+    AE_API int ae_get_exclusive_mode(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->exclusiveModeEnabled ? 1 : 0) : 0;
+    }
+
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
+
     {
         if (!engine)
             return;
@@ -4166,6 +4820,48 @@ extern "C"
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->stereoWidenEnabled = (enabled != 0);
         engine->stereoWiden.updateParams(engine->sampleRate, clampf(width, 0.0f, 5.0f), clampf(delay_ms, 0.0f, 100.0f));
+    }
+
+    AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedEnabled = (enabled != 0);
+        if (engine->crossfeedEnabled)
+        {
+            engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
+        }
+    }
+
+    AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedPreset = preset;
+        engine->crossfeed.reset(engine->sampleRate, preset);
+    }
+
+    AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->dynamicBassEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->dynamicBass.resetIfRateChanged(engine->sampleRate);
+        if (preset >= 0 && preset <= 18)
+        {
+            engine->dynamicBass.setPreset(preset);
+        }
+        engine->dynamicBass.setBassGain(gain);
     }
 
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine)

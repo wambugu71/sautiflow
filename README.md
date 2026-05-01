@@ -14,9 +14,24 @@ Sautiflow is a cross-platform audio playback and processing engine for Dart and 
 - Audiophile-grade resampling algorithms powered by `libsamplerate` (SRC Sinc Best/Medium/Fastest, ZOH, Linear)
 - Play/pause/stop/seek/next/previous/jump
 - Shuffle + loop modes (`off`, `all`, `one`)
-- FX chain: gain, pan, stereo widening, EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
+- FX chain: gain, pan, stereo widening, audiophile crossfeed (BS2B/Joe0bloggs), EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
 - Pollable player status and stream updates
 - Native targets: Windows, Linux, Android, iOS/macOS
+
+
+### Audiophile Headphone Crossfeed
+When listening to music originally mastered for stereo speakers on headphones, extreme stereo separation (classic L/R ping-pong) can cause listening fatigue since your left ear cannot hear the right speaker at all. Sautiflow features a mastering-grade Crossfeed algorithm with configurable presets:
+- **1. BS2B Weak:** Smooths out extreme stereo separation with minimal tonal change.
+- **2. BS2B Strong:** Stronger acoustic shadowing for extreme-panned old records (e.g. early Beatles).
+- **3. Joe0bloggs Realistic:** Delay-heavy, Linkwitz-style frequency shaping for a natural room-like experience on headphones.
+
+`dart
+// Enable crossfeed
+player.setCrossfeedEnabled(enabled: true);
+
+// Set preset (1 = BS2B Weak, 2 = BS2B Strong, 3 = Joe0bloggs)
+player.setCrossfeedPreset(preset: 3);
+`
 
 ## Audio Formats & Quality
 

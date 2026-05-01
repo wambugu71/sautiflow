@@ -88,6 +88,9 @@ class _PlayerShellState extends State<PlayerShell> {
   int _lastPublishedNowPlayingIndex = -1;
 
   bool _eqEnabled = false;
+  final bool _crossfeedEnabled = false;
+  final int _crossfeedPreset = 1;
+
   bool _reverbEnabled = false;
   bool _lowpassEnabled = false;
   bool _highpassEnabled = false;
@@ -157,6 +160,8 @@ class _PlayerShellState extends State<PlayerShell> {
   double _dlDelay = 240;
 
   bool _stereoWidenEnabled = false;
+  bool _crossfeedEnabled = false;
+  int _crossfeedPreset = 0;
   double _stereoWidenWidth = 1.5;
   double _stereoWidenDelayMs = 15.0;
 
@@ -1896,6 +1901,29 @@ class _PlayerShellState extends State<PlayerShell> {
             delayMs: _stereoWidenDelayMs,
           );
         }),
+
+        const Divider(),
+        SwitchListTile(
+          title: const Text('Enable Crossfeed (Headphone Surround)'),
+          value: _crossfeedEnabled,
+          onChanged: (v) {
+            setState(() => _crossfeedEnabled = v);
+            _player.setCrossfeed(
+              enabled: v,
+              preset: _crossfeedPreset,
+            );
+          },
+        ),
+        _slider('Crossfeed Preset\n0=Joe0bloggs, 1=BS2B-Weak, 2=BS2B-Strong',
+            _crossfeedPreset.toDouble(), 0, 2, (v) {
+          int preset = v.round();
+          setState(() => _crossfeedPreset = preset);
+          _player.setCrossfeed(
+            enabled: _crossfeedEnabled,
+            preset: _crossfeedPreset,
+          );
+        }),
+
         const Divider(),
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -2360,22 +2388,26 @@ class _PlayerShellState extends State<PlayerShell> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Input Source', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Input Source',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               Text('Format: ${state.inputFormatString}'),
               Text('Sample Rate: ${state.inputSampleRate} Hz'),
               Text('Channels: ${state.inputChannels}'),
               const SizedBox(height: 12),
-              const Text('DSP Processing', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('DSP Processing',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               Text('Format: ${state.processingFormatString}'),
               Text('Sample Rate: ${state.processingSampleRate} Hz'),
               Text('Channels: ${state.processingChannels}'),
               const SizedBox(height: 12),
-              const Text('Hardware Output', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Hardware Output',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               Text('Format: ${state.outputFormatString}'),
               Text('Sample Rate: ${state.outputSampleRate} Hz'),
               Text('Channels: ${state.outputChannels}'),
               const SizedBox(height: 12),
-              const Text('Active DSP Features', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Active DSP Features',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               Text('EQ: ${state.eqEnabled ? 'ON' : 'OFF'}'),
               Text('Reverb: ${state.reverbEnabled ? 'ON' : 'OFF'}'),
               Text('Limiter: ${state.limiterEnabled ? 'ON' : 'OFF'}'),

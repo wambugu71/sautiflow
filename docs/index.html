@@ -62,6 +62,7 @@
 
             <div class="nav-group">
                 <div class="nav-title">Audio FX</div>
+                <a href="#dynamic-bass" class="nav-item">Dynamic Bass</a>
                 <a href="#equalizer" class="nav-item">Equalizer (EQ)</a>
                 <a href="#mixed-multiband-fx" class="nav-item">Mixed Multiband FX</a>
                 <a href="#realtime-analyzer" class="nav-item">Realtime Analyzer</a>
@@ -137,10 +138,21 @@
 
             <section id="audio-formats">
                 <h2>Audio Formats & Quality</h2>
-                <p>Sautiflow is engineered with audiophile-grade fidelity in mind. It handles different audio formats natively within its C++ engine to provide the best possible acoustic reproduction:</p>
+                <p>Sautiflow is engineered with audiophile-grade fidelity in mind. It handles different audio formats
+                    natively within its C++ engine to provide the best possible acoustic reproduction:</p>
                 <ul>
-                    <li><strong>Lossy Formats (MP3, AAC, OGG etc.)</strong>: These formats are inherently compressed. Upon playback, Sautiflow <strong>upscales/upsamples</strong> the decoded bitstream internally (using 32-bit floating point math) ensuring that DSP operations—like EQ, reverb, and spatial width—have plenty of headroom and do not clip or introduce artificial artifacts typical of low-resolution math.</li>
-                    <li><strong>Lossless Formats (FLAC, WAV, ALAC, etc.)</strong>: These are mapped and processed <strong>raw</strong>. Sautiflow does <strong>not</strong> dynamically upscale them to guess lost data (since nothing is lost). It maintains their pristine bit-perfect original depth into the DSP chain. If the file's sample rate doesn't match your device's native hardware rate (e.g., streaming an 88.2kHz FLAC file on a 48kHz output device), Sautiflow employs high-fidelity <strong>resampling</strong> transparently using <code>libsamplerate</code> to match your hardware, avoiding quality loss while retaining original bit-depth fidelity.</li>
+                    <li><strong>Lossy Formats (MP3, AAC, OGG etc.)</strong>: These formats are inherently compressed.
+                        Upon playback, Sautiflow <strong>upscales/upsamples</strong> the decoded bitstream internally
+                        (using 32-bit floating point math) ensuring that DSP operations—like EQ, reverb, and spatial
+                        width—have plenty of headroom and do not clip or introduce artificial artifacts typical of
+                        low-resolution math.</li>
+                    <li><strong>Lossless Formats (FLAC, WAV, ALAC, etc.)</strong>: These are mapped and processed
+                        <strong>raw</strong>. Sautiflow does <strong>not</strong> dynamically upscale them to guess lost
+                        data (since nothing is lost). It maintains their pristine bit-perfect original depth into the
+                        DSP chain. If the file's sample rate doesn't match your device's native hardware rate (e.g.,
+                        streaming an 88.2kHz FLAC file on a 48kHz output device), Sautiflow employs high-fidelity
+                        <strong>resampling</strong> transparently using <code>libsamplerate</code> to match your
+                        hardware, avoiding quality loss while retaining original bit-depth fidelity.</li>
                 </ul>
             </section>
 
@@ -153,6 +165,7 @@
                     <li>Added mixed multiband FX chain API with per-band types via <code>EqBandType</code> and
                         <code>EqBandConfig</code>.
                     </li>
+                                          <li>Added <strong>Audiophile Crossfeed</strong> (BS2B Weak, BS2B Strong, Joe0bloggs Realistic) algorithm mappings.</li>
                     <li>Added realtime analyzer frame APIs, including stream and pull-style access.</li>
                     <li>Added crossfade controls: <code>setCrossfadeEnabled(bool)</code> and
                         <code>setCrossfadeDurationMs(int)</code>.
@@ -375,6 +388,35 @@ void main() async {
     );
   },
 );</code></pre>
+            </section>
+
+            <section id="dynamic-bass">
+                <h2>Dynamic Bass (ViperFX)</h2>
+                <p>Sautiflow integrates a powerful Dynamic Bass algorithm (based on ViperFX) that combines
+                    Mid/Side poles, lowpass filtering, and side-gain adjustments specifically tailored for various audio
+                    equipment.</p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Applying Dynamic Bass</h3>
+                    </div>
+                    <div class="api-body">
+                        <p>Configure the effect by selecting a preset and bass gain amount (0.0 to 100.0).</p>
+                        <pre><code class="language-dart">player.setDynamicBass(
+  enabled: true,
+  preset: 18,     // Presets range from 0 to 18 (e.g. Extreme Headphone, Common Earphone)
+  gain: 100.0,    // Sub-bass gain boost amount in percentage %
+);</code></pre>
+                        <p><strong>Available Presets:</strong></p>
+                        <ul>
+                            <li>0: Extreme Headphone (v2)</li>
+                            <li>1: High-end Headphone (v2)</li>
+                            <li>2: Common Headphone (v2)</li>
+                            <li>3: Low-end Headphone (v2)</li>
+                            <li>... up to 18 presets tailored for various outputs.</li>
+                        </ul>
+                    </div>
+                </div>
             </section>
 
             <section id="equalizer">

@@ -134,9 +134,21 @@ class IsolateAudioPlayer {
   void addAudioSource(AudioSource source) =>
       _send({'cmd': 'addAudioSource', 'source': source});
 
+  // Debounce timer for seek: collapses rapid seek calls (e.g. from system
+  // media controls) into a single command before hitting the isolate.
+  // The slider in NowPlayingScreen already uses onChangeEnd so this is a
+  // secondary safety net for programmatic callers.
+  Timer? _seekDebounceTimer;
+
   void seekTo(Duration position, {int? index}) {
-    _send(
-        {'cmd': 'seekTo', 'position': position.inMilliseconds, 'index': index});
+    _seekDebounceTimer?.cancel();
+    _seekDebounceTimer = Timer(const Duration(milliseconds: 80), () {
+      _send({
+        'cmd': 'seekTo',
+        'position': position.inMilliseconds,
+        'index': index
+      });
+    });
   }
 
   void seekToNext() => next();
@@ -264,6 +276,35 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setCrossfeed({required bool enabled, required int preset}) {
+    _send({'cmd': 'setCrossfeed', 'enabled': enabled, 'preset': preset});
+  }
+
+  void setDynamicBass(
+      {required bool enabled, required int preset, required double gain}) {
+    _send({
+      'cmd': 'setDynamicBass',
+      'enabled': enabled,
+      'preset': preset,
+      'gain': gain,
+    });
+  }
+
+  void setCrystalizer({
+    required bool enabled,
+    double intensity = 0.5,
+    bool highShelfEnabled = true,
+    double highShelfGainDb = 2.0,
+  }) {
+    _send({
+      'cmd': 'setCrystalizer',
+      'enabled': enabled,
+      'intensity': intensity,
+      'highShelfEnabled': highShelfEnabled,
+      'highShelfGainDb': highShelfGainDb,
+    });
+  }
+
   void setBandpass({bool? enabled, double? cutoffHz, double? q}) {
     _send({
       'cmd': 'setBandpass',
@@ -388,6 +429,23 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setOutputSampleRate', 'rate': rate});
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
+
+  void setExclusiveMode(bool enabled) =>
+      _send({'cmd': 'setExclusiveMode', 'enabled': enabled});
+
+  Future<bool> getExclusiveMode() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getExclusiveMode',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as bool;
+  }
 
   Future<PipelineAudioState> getPipelineState() async {
     final responsePort = ReceivePort();
@@ -613,6 +671,9 @@ void _isolateEntry(_IsolateInitData initData) {
           }
           break;
         case 'seekTo':
+          // Execute the seek synchronously inside the isolate.
+          // The UI layer (onChangeEnd slider) and the debounce timer on the
+          // sender side guarantee only one seek arrives at a time.
           player.seekTo(Duration(milliseconds: message['position']),
               index: message['index']);
           break;
@@ -663,6 +724,26 @@ void _isolateEntry(_IsolateInitData initData) {
               enabled: message['enabled'] ?? false,
               width: message['width'] ?? 1.5,
               delayMs: message['delayMs'] ?? 15.0);
+          break;
+        case 'setCrossfeed':
+          player.setCrossfeed(
+              enabled: message['enabled'] ?? false,
+              preset: message['preset'] ?? 0);
+          break;
+        case 'setDynamicBass':
+          player.setDynamicBass(
+              enabled: message['enabled'] ?? false,
+              preset: message['preset'] ?? 18,
+              gain: message['gain'] ?? 100.0);
+          break;
+        case 'setCrystalizer':
+          player.setCrystalizer(
+            enabled: message['enabled'] ?? false,
+            intensity: (message['intensity'] as num?)?.toDouble() ?? 0.5,
+            highShelfEnabled: message['highShelfEnabled'] ?? true,
+            highShelfGainDb:
+                (message['highShelfGainDb'] as num?)?.toDouble() ?? 2.0,
+          );
           break;
         case 'setBandpass':
           player.setBandpass(
@@ -732,8 +813,21 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'setEngineResampleAlgorithm':
-          player.setEngineResampleAlgorithm(
-              ResampleAlgorithm.values[message['algorithm'] ?? 0]);
+          // Changing the resample algorithm reinitialises the internal resampler
+          // which resets the playback cursor to 0.  Save the current position
+          // first and restore it after the change.
+          {
+            final statusBefore = player.status;
+            final posBefore = statusBefore.positionSeconds;
+            player.setEngineResampleAlgorithm(
+                ResampleAlgorithm.values[message['algorithm'] ?? 0]);
+            if (posBefore > 0) {
+              Future.microtask(() {
+                player
+                    .seekTo(Duration(milliseconds: (posBefore * 1000).round()));
+              });
+            }
+          }
           break;
         case 'setEngineDitherMode':
           player.setEngineDitherMode(message['mode'] ?? 0);
@@ -809,10 +903,33 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setOutputFormat(AudioFormat.values[message['format']]);
           break;
         case 'setOutputSampleRate':
-          player.setOutputSampleRate(message['rate']);
+          // Changing the output sample rate may reinitialise the audio device
+          // and reset the playback cursor.  Restore the position after.
+          {
+            final statusBefore = player.status;
+            final posBefore = statusBefore.positionSeconds;
+            player.setOutputSampleRate(message['rate']);
+            if (posBefore > 0) {
+              Future.microtask(() {
+                player
+                    .seekTo(Duration(milliseconds: (posBefore * 1000).round()));
+              });
+            }
+          }
           break;
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
+          break;
+        case 'setExclusiveMode':
+          player.setExclusiveMode(message['enabled'] == true);
+          break;
+        case 'getExclusiveMode':
+          final SendPort replyTo1 = message['replyTo'];
+          try {
+            replyTo1.send(player.getExclusiveMode());
+          } catch (e) {
+            replyTo1.send({'error': e.toString()});
+          }
           break;
         case 'getPipelineState':
           final SendPort replyTo = message['replyTo'];

@@ -160,6 +160,21 @@ class _EqScreenState extends State<EqScreen> {
   double _delayFeedback = 0.4;
   double _delayTime = 0.25;
 
+  // Dynamic Bass
+  bool _dynamicBassEnabled = false;
+  int _dynamicBassPreset = 12;
+  double _dynamicBassGain = 100.0;
+
+  // Crystalizer
+  bool _crystalizerEnabled = false;
+  double _crystalizerIntensity = 0.5;
+  bool _crystalizerHighShelf = true;
+  double _crystalizerShelfGain = 2.0;
+
+  // Audiophile Crossfeed
+  bool _crossfeedEnabled = false;
+  int _crossfeedPreset = 1;
+
   // Stereo Widen
   bool _stereoWidenEnabled = false;
   double _stereoWidenWidth = 1.5;
@@ -243,7 +258,10 @@ class _EqScreenState extends State<EqScreen> {
     final eqBands = await AppStateService.instance.loadEqBands();
     final spatial = await AppStateService.instance.loadSpatialAudio();
     final delay = await AppStateService.instance.loadDelay();
+    final dynamicBass = await AppStateService.instance.loadDynamicBass();
+    final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
+    final crossfeed = await AppStateService.instance.loadCrossfeed();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
     final lpf = await AppStateService.instance.loadCustomLpf();
@@ -275,6 +293,21 @@ class _EqScreenState extends State<EqScreen> {
       _delayMix = delay.mix;
       _delayFeedback = delay.feedback;
       _delayTime = delay.time;
+
+      // Dynamic Bass
+      _dynamicBassEnabled = dynamicBass.enabled;
+      _dynamicBassPreset = dynamicBass.preset;
+      _dynamicBassGain = dynamicBass.gain;
+
+      // Crystalizer
+      _crystalizerEnabled = crystalizer.enabled;
+      _crystalizerIntensity = crystalizer.intensity;
+      _crystalizerHighShelf = crystalizer.highShelfEnabled;
+      _crystalizerShelfGain = crystalizer.highShelfGainDb;
+
+      // Crossfeed
+      _crossfeedEnabled = crossfeed.enabled;
+      _crossfeedPreset = crossfeed.preset > 0 ? crossfeed.preset : 1;
 
       // Stereo Widen
       _stereoWidenEnabled = stereoWiden.enabled;
@@ -319,6 +352,15 @@ class _EqScreenState extends State<EqScreen> {
     if (_delayEnabled) {
       widget.player.setDelay(enabled: true);
       _updateDelay();
+    }
+    if (_dynamicBassEnabled) {
+      _updateDynamicBass();
+    }
+    if (_crystalizerEnabled) {
+      _updateCrystalizer();
+    }
+    if (_crossfeedEnabled) {
+      _updateCrossfeed();
     }
     if (_stereoWidenEnabled) {
       _updateStereoWiden();
@@ -368,6 +410,21 @@ class _EqScreenState extends State<EqScreen> {
       mix: _delayMix,
       feedback: _delayFeedback,
       time: _delayTime,
+    );
+    AppStateService.instance.saveDynamicBass(
+      enabled: _dynamicBassEnabled,
+      preset: _dynamicBassPreset,
+      gain: _dynamicBassGain,
+    );
+    AppStateService.instance.saveCrystalizer(
+      enabled: _crystalizerEnabled,
+      intensity: _crystalizerIntensity,
+      highShelfEnabled: _crystalizerHighShelf,
+      highShelfGainDb: _crystalizerShelfGain,
+    );
+    AppStateService.instance.saveCrossfeed(
+      enabled: _crossfeedEnabled,
+      preset: _crossfeedPreset,
     );
     AppStateService.instance.saveStereoWiden(
       enabled: _stereoWidenEnabled,
@@ -538,6 +595,21 @@ class _EqScreenState extends State<EqScreen> {
       _delayEnabled = false;
       widget.player.setDelay(enabled: false);
 
+      _dynamicBassEnabled = false;
+      _dynamicBassPreset = 12;
+      _dynamicBassGain = 100.0;
+      widget.player.setDynamicBass(
+        enabled: false,
+        preset: _dynamicBassPreset,
+        gain: _dynamicBassGain,
+      );
+
+      _crystalizerEnabled = false;
+      _crystalizerIntensity = 0.5;
+      _crystalizerHighShelf = true;
+      _crystalizerShelfGain = 2.0;
+      widget.player.setCrystalizer(enabled: false);
+
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
       _tuneLow = 0.0;
@@ -688,69 +760,12 @@ class _EqScreenState extends State<EqScreen> {
                       child: _buildAnalyzerSection(),
                     ),
 
-                  // Master Equalizer Switch
+                  // Graphic Equalizer Section
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${_eqFrequencies.length}-Band Equalizer',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 2),
-                            Text('Enable ${_eqFrequencies.length}-band EQ',
-                                style: TextStyle(
-                                    color: Colors.white.withOpacity(0.5),
-                                    fontSize: 12)),
-                          ],
-                        ),
-                        Switch(
-                          value: _masterEqEnabled,
-                          onChanged: (v) {
-                            setState(() => _masterEqEnabled = v);
-                            widget.player.setMultibandEqEnabled(v);
-                            _saveEqState();
-                          },
-                          activeThumbColor: Colors.white,
-                          activeTrackColor: primaryColor,
-                        ),
-                      ],
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildGraphicEqSection(),
                   ),
-
-                  // Presets Horizontal Scroller
-                  SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      children: [
-                        _buildPresetChip('Flat'),
-                        const SizedBox(width: 12),
-                        _buildPresetChip('Bass Boost'),
-                        const SizedBox(width: 12),
-                        _buildPresetChip('Vocal'),
-                        const SizedBox(width: 12),
-                        _buildPresetChip('Treble'),
-                        const SizedBox(width: 12),
-                        _buildPresetChip('Rock'),
-                        const SizedBox(width: 12),
-                        _buildPresetChip('Jazz'),
-                      ],
-                    ),
-                  ),
-
-                  // 10-Band Sliders
-                  Padding(
-                    padding: const EdgeInsets.only(
-                        top: 32, left: 20, right: 20, bottom: 40),
-                    child: _buildGraphicEqSliders(),
-                  ),
+                  const SizedBox(height: 16),
 
                   // Audio Tuning Section (3-Band)
                   Padding(
@@ -770,6 +785,27 @@ class _EqScreenState extends State<EqScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: _buildDelaySection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Dynamic Bass
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildDynamicBassSection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Crystalizer
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildCrystalizerSection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Audiophile Crossfeed
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildCrossfeedSection(),
                   ),
                   const SizedBox(height: 16),
 
@@ -898,6 +934,54 @@ class _EqScreenState extends State<EqScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildGraphicEqSection() {
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.equalizer, color: primaryColor, size: 20),
+      ),
+      title: '${_eqFrequencies.length}-Band Equalizer',
+      subtitle: 'Enable ${_eqFrequencies.length}-band EQ',
+      isEnabled: _masterEqEnabled,
+      onToggle: (v) {
+        setState(() => _masterEqEnabled = v);
+        widget.player.setMultibandEqEnabled(v);
+        _saveEqState();
+      },
+      children: [
+        SizedBox(
+          height: 36,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 0),
+            children: [
+              _buildPresetChip('Flat'),
+              const SizedBox(width: 12),
+              _buildPresetChip('Bass Boost'),
+              const SizedBox(width: 12),
+              _buildPresetChip('Vocal'),
+              const SizedBox(width: 12),
+              _buildPresetChip('Treble'),
+              const SizedBox(width: 12),
+              _buildPresetChip('Rock'),
+              const SizedBox(width: 12),
+              _buildPresetChip('Jazz'),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 32, bottom: 16),
+          child: _buildGraphicEqSliders(),
+        ),
+      ],
     );
   }
 
@@ -1082,53 +1166,27 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildSpatialAudioSection() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.2),
-                      shape: BoxShape.circle),
-                  child: const Icon(Icons.spatial_audio_off_outlined,
-                      color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Spatial Audio',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('Immersive soundstage',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _spatialAudioEnabled,
-              onChanged: (v) {
-                setState(() => _spatialAudioEnabled = v);
-                widget.player.setReverbEnabled(v);
-                if (v) _updateSpatialAudio();
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
+        child: const Icon(Icons.spatial_audio_off_outlined,
+            color: primaryColor, size: 20),
+      ),
+      title: 'Spatial Audio',
+      subtitle: 'Immersive soundstage',
+      isEnabled: _spatialAudioEnabled,
+      onToggle: (v) {
+        setState(() => _spatialAudioEnabled = v);
+        widget.player.setReverbEnabled(v);
+        if (v) _updateSpatialAudio();
+        _saveEqState();
+      },
+      children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -1183,60 +1241,299 @@ class _EqScreenState extends State<EqScreen> {
     );
   }
 
-  Widget _buildStereoWidenSection() {
-    return Column(
+  Widget _buildDynamicBassSection() {
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.waves, color: primaryColor, size: 20),
+      ),
+      title: 'Dynamic Bass',
+      subtitle: 'Powerful bass enhancement',
+      isEnabled: _dynamicBassEnabled,
+      onToggle: (v) {
+        setState(() => _dynamicBassEnabled = v);
+        if (v) {
+          _updateDynamicBass();
+        } else {
+          widget.player.setDynamicBass(
+              enabled: false,
+              preset: _dynamicBassPreset,
+              gain: _dynamicBassGain);
+        }
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'GAIN',
+              value: _dynamicBassGain / 100.0,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 1.0,
+              activeColor: _dynamicBassEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _dynamicBassGain = v * 100.0);
+                if (_dynamicBassEnabled) _updateDynamicBass();
+              },
+            ),
+            Column(
+              children: [
+                Text('PRESET',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: surfaceDarkColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border:
+                        Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                  ),
+                  child: DropdownButton<int>(
+                    value: _dynamicBassPreset,
+                    dropdownColor: surfaceDarkerColor,
+                    underline: const SizedBox(),
+                    icon:
+                        const Icon(Icons.arrow_drop_down, color: primaryColor),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    items: List.generate(19, (index) {
+                      // 0=60, 1=65, ... 18=180 mappings.
+                      int f = 60 + (index * 5); // Rough mapping for display
+                      if (index > 14) f = 130 + ((index - 14) * 10);
+                      if (index == 18) f = 180;
+                      return DropdownMenuItem(
+                          value: index, child: Text('$f Hz'));
+                    }),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _dynamicBassPreset = val);
+                        if (_dynamicBassEnabled) _updateDynamicBass();
+                        _saveEqState();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCrystalizerSection() {
+    const crystalColor = Color(0xFF00C9B1); // teal-cyan accent
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: const BoxDecoration(
+          color: Color(0x2600C9B1),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.auto_fix_high, color: crystalColor, size: 20),
+      ),
+      title: 'Crystalizer',
+      subtitle: 'Audiophile transient reconstruction',
+      isEnabled: _crystalizerEnabled,
+      onToggle: (v) {
+        setState(() => _crystalizerEnabled = v);
+        _updateCrystalizer();
+        _saveEqState();
+      },
+      children: [
+        // Knobs row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'INTENSITY',
+              value: _crystalizerIntensity,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _crystalizerEnabled ? crystalColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _crystalizerIntensity = v);
+                if (_crystalizerEnabled) _updateCrystalizer();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'AIR SHELF',
+              value: _crystalizerShelfGain,
+              min: 0.0,
+              max: 6.0,
+              flatValue: 2.0,
+              activeColor: _crystalizerHighShelf && _crystalizerEnabled
+                  ? crystalColor
+                  : Colors.white38,
+              valueFormatter: (v) =>
+                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                if (!_crystalizerHighShelf) return;
+                setState(() => _crystalizerShelfGain = v);
+                if (_crystalizerEnabled) _updateCrystalizer();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // High-shelf toggle
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'High-shelf "Air" boost',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Switch(
+              value: _crystalizerHighShelf,
+              activeThumbColor: crystalColor,
+              onChanged: (v) {
+                setState(() => _crystalizerHighShelf = v);
+                if (_crystalizerEnabled) _updateCrystalizer();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // Info chip
+        Center(
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0x1A00C9B1),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0x4000C9B1)),
+            ),
+            child: Text(
+              'Recovers transient detail & "air" lost in MP3/AAC compression',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 11,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCrossfeedSection() {
+
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withOpacity(0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.headphones, color: primaryColor, size: 20),
+      ),
+      title: 'Crossfeed',
+      subtitle: 'Simulate speaker listening',
+      isEnabled: _crossfeedEnabled,
+      onToggle: (v) {
+        setState(() => _crossfeedEnabled = v);
+        if (v) {
+          _updateCrossfeed();
+        } else {
+          widget.player.setCrossfeed(enabled: false, preset: _crossfeedPreset);
+        }
+        _saveEqState();
+      },
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withValues(alpha: 0.2),
-                      shape: BoxShape.circle),
-                  child: const Icon(Icons.compare_arrows,
-                      color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Stereo Stage',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('M/S & Haas width',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _stereoWidenEnabled,
-              onChanged: (v) {
-                setState(() => _stereoWidenEnabled = v);
-                if (v) {
-                  _updateStereoWiden();
-                } else {
-                  widget.player.setStereoWiden(
-                      enabled: false,
-                      width: _stereoWidenWidth,
-                      delayMs: _stereoWidenDelayMs * 100.0);
-                }
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
+            Text('Algorithm Preset',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.8), fontSize: 14)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: surfaceDarkColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
+              ),
+              child: DropdownButton<int>(
+                value: _crossfeedPreset,
+                dropdownColor: surfaceDarkerColor,
+                underline: const SizedBox(),
+                icon: const Icon(Icons.arrow_drop_down, color: primaryColor),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
+                  DropdownMenuItem(value: 2, child: Text('BS2B Strong')),
+                  DropdownMenuItem(value: 3, child: Text('Joe0bloggs 3D')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _crossfeedPreset = val);
+                    _updateCrossfeed();
+                    _saveEqState();
+                  }
+                },
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildStereoWidenSection() {
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.compare_arrows, color: primaryColor, size: 20),
+      ),
+      title: 'Stereo Stage',
+      subtitle: 'M/S & Haas width',
+      isEnabled: _stereoWidenEnabled,
+      onToggle: (v) {
+        setState(() => _stereoWidenEnabled = v);
+        if (v) {
+          _updateStereoWiden();
+        } else {
+          widget.player.setStereoWiden(
+              enabled: false,
+              width: _stereoWidenWidth,
+              delayMs: _stereoWidenDelayMs * 100.0);
+        }
+        _saveEqState();
+      },
+      children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -1277,53 +1574,26 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildDelaySection() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withValues(alpha: 0.2),
-                      shape: BoxShape.circle),
-                  child:
-                      const Icon(Icons.blur_on, color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Delay / Echo',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('Repeats & rhythms',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _delayEnabled,
-              onChanged: (v) {
-                setState(() => _delayEnabled = v);
-                widget.player.setDelay(enabled: v);
-                if (v) _updateDelay();
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
+        child: const Icon(Icons.blur_on, color: primaryColor, size: 20),
+      ),
+      title: 'Delay / Echo',
+      subtitle: 'Repeats & rhythms',
+      isEnabled: _delayEnabled,
+      onToggle: (v) {
+        setState(() => _delayEnabled = v);
+        widget.player.setDelay(enabled: v);
+        if (v) _updateDelay();
+        _saveEqState();
+      },
+      children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -1388,6 +1658,30 @@ class _EqScreenState extends State<EqScreen> {
     );
   }
 
+  void _updateDynamicBass() {
+    widget.player.setDynamicBass(
+      enabled: _dynamicBassEnabled,
+      preset: _dynamicBassPreset,
+      gain: _dynamicBassGain,
+    );
+  }
+
+  void _updateCrystalizer() {
+    widget.player.setCrystalizer(
+      enabled: _crystalizerEnabled,
+      intensity: _crystalizerIntensity,
+      highShelfEnabled: _crystalizerHighShelf,
+      highShelfGainDb: _crystalizerShelfGain,
+    );
+  }
+
+  void _updateCrossfeed() {
+    widget.player.setCrossfeed(
+      enabled: _crossfeedEnabled,
+      preset: _crossfeedPreset,
+    );
+  }
+
   void _updateStereoWiden() {
     // mapped _stereoWidenDelayMs mapping 0.0-1.0 to 0-100ms
     double delayMsMapping = _stereoWidenDelayMs * 100.0;
@@ -1409,53 +1703,27 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildTrue3dSection() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.2),
-                      shape: BoxShape.circle),
-                  child: const Icon(Icons.spatial_tracking,
-                      color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('True 3D Spatial Audio',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('X/Y/Z Source Placement',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _true3dEnabled,
-              onChanged: (v) {
-                setState(() => _true3dEnabled = v);
-                widget.player.setSpatializationEnabled(v);
-                if (v) _updateTrue3dPositions();
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
+        child:
+            const Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
+      ),
+      title: 'True 3D Spatial Audio',
+      subtitle: 'X/Y/Z Source Placement',
+      isEnabled: _true3dEnabled,
+      onToggle: (v) {
+        setState(() => _true3dEnabled = v);
+        widget.player.setSpatializationEnabled(v);
+        if (v) _updateTrue3dPositions();
+        _saveEqState();
+      },
+      children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -1512,55 +1780,28 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildAudioTuningSection() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withValues(alpha: 0.2),
-                      shape: BoxShape.circle),
-                  child: const Icon(Icons.tune, color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Audio Tuning',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('3-band EQ',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _audioTuningEnabled,
-              onChanged: (v) {
-                setState(() => _audioTuningEnabled = v);
-                widget.player.setEqEnabled(v);
-                if (v) {
-                  widget.player
-                      .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
-                }
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
+        child: const Icon(Icons.tune, color: primaryColor, size: 20),
+      ),
+      title: 'Audio Tuning',
+      subtitle: '3-band EQ',
+      isEnabled: _audioTuningEnabled,
+      onToggle: (v) {
+        setState(() => _audioTuningEnabled = v);
+        widget.player.setEqEnabled(v);
+        if (v) {
+          widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
+        }
+        _saveEqState();
+      },
+      children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -1629,81 +1870,71 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildParametricEqSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.tune, color: primaryColor, size: 20),
+      ),
+      title: 'Parametric EQ',
+      subtitle: 'Advanced mixed FX chain',
+      isEnabled: _parametricEqEnabled,
+      onToggle: (v) {
+        setState(() {
+          _parametricEqEnabled = v;
+          if (v && _parametricBands.isEmpty) {
+            _parametricBands.addAll([
+              const EqBandConfig(
+                  type: EqBandType.lowshelf,
+                  frequencyHz: 120,
+                  gainDb: 0.0,
+                  slope: 1.0),
+              const EqBandConfig(
+                  type: EqBandType.peak,
+                  frequencyHz: 1000,
+                  gainDb: 0.0,
+                  q: 1.2),
+              const EqBandConfig(
+                  type: EqBandType.highshelf,
+                  frequencyHz: 9000,
+                  gainDb: 0.0,
+                  slope: 1.0),
+            ]);
+          }
+          if (v) {
+            widget.player.initMultibandFx(_parametricBands);
+          }
+          widget.player.setMultibandFxEnabled(v);
+        });
+      },
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Parametric EQ',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
-                Text('Advanced mixed FX chain',
-                    style: TextStyle(color: Colors.white, fontSize: 12)),
-              ],
-            ),
-            Row(
-              children: [
-                if (true) // Keep Add button visible to allow configuring while off
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline,
-                        color: primaryColor),
-                    onPressed: () {
-                      setState(() {
-                        _parametricBands.add(const EqBandConfig(
-                          type: EqBandType.peak,
-                          frequencyHz: 1000,
-                          gainDb: 0.0,
-                          q: 1.2,
-                          slope: 1.0,
-                        ));
-                        _applyParametricBands();
-                      });
-                    },
-                  ),
-                Switch(
-                  value: _parametricEqEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _parametricEqEnabled = v;
-                      if (v && _parametricBands.isEmpty) {
-                        _parametricBands.addAll([
-                          const EqBandConfig(
-                              type: EqBandType.lowshelf,
-                              frequencyHz: 120,
-                              gainDb: 0.0,
-                              slope: 1.0),
-                          const EqBandConfig(
-                              type: EqBandType.peak,
-                              frequencyHz: 1000,
-                              gainDb: 0.0,
-                              q: 1.2),
-                          const EqBandConfig(
-                              type: EqBandType.highshelf,
-                              frequencyHz: 9000,
-                              gainDb: 0.0,
-                              slope: 1.0),
-                        ]);
-                      }
-                      if (v) {
-                        widget.player.initMultibandFx(_parametricBands);
-                      }
-                      widget.player.setMultibandFxEnabled(v);
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
+            TextButton.icon(
+              icon: const Icon(Icons.add_circle_outline, color: primaryColor),
+              label:
+                  const Text('Add Band', style: TextStyle(color: primaryColor)),
+              onPressed: () {
+                setState(() {
+                  _parametricBands.add(const EqBandConfig(
+                    type: EqBandType.peak,
+                    frequencyHz: 1000,
+                    gainDb: 0.0,
+                    q: 1.2,
+                    slope: 1.0,
+                  ));
+                  _applyParametricBands();
+                });
+              },
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         SizedBox(
           height: 220,
           child: ListView.builder(
@@ -1893,9 +2124,26 @@ class _EqScreenState extends State<EqScreen> {
   // ── Realtime Analyzer ──────────────────────────────────────────────
   Widget _buildAnalyzerSection() {
     if (!widget.analyzerEnabled) return const SizedBox.shrink();
-    return SizedBox(
-      height: 180,
-      child: _buildAnalyzerChart(),
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.bar_chart, color: primaryColor, size: 20),
+      ),
+      title: 'Real-time Analyzer',
+      subtitle: 'Audio spectrum viz',
+      isEnabled: true,
+      hasSwitch: false,
+      children: [
+        SizedBox(
+          height: 180,
+          child: _buildAnalyzerChart(),
+        ),
+      ],
     );
   }
 
@@ -1987,39 +2235,20 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildCustomFiltersSection() {
-    return Column(
-      children: [
-        // Title
-        Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                  color: primaryColor.withValues(alpha: 0.2),
-                  shape: BoxShape.circle),
-              child:
-                  const Icon(Icons.filter_list, color: primaryColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Custom Filters',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
-                Text('Real-Time LPF, HPF, Biquad',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
-                        fontSize: 12)),
-              ],
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
-
+        child: const Icon(Icons.filter_list, color: primaryColor, size: 20),
+      ),
+      title: 'Custom Filters',
+      subtitle: 'Real-Time LPF, HPF, Biquad',
+      hasSwitch: false,
+      children: [
         // LPF Section
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2230,54 +2459,25 @@ class _EqScreenState extends State<EqScreen> {
   }
 
   Widget _buildLimiterSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── Header ──────────────────────────────────────────────────────
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                      color: primaryColor.withValues(alpha: 0.2),
-                      shape: BoxShape.circle),
-                  child:
-                      const Icon(Icons.compress, color: primaryColor, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Soft Limiter',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
-                    Text('Prevent clipping & distortion',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-            Switch(
-              value: _limiterEnabled,
-              onChanged: (v) {
-                setState(() => _limiterEnabled = v);
-                _applyLimiter();
-                _saveEqState();
-              },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
-            ),
-          ],
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
         ),
-        const SizedBox(height: 24),
+        child: const Icon(Icons.compress, color: primaryColor, size: 20),
+      ),
+      title: 'Soft Limiter',
+      subtitle: 'Prevent clipping & distortion',
+      isEnabled: _limiterEnabled,
+      onToggle: (v) {
+        setState(() => _limiterEnabled = v);
+        _applyLimiter();
+        _saveEqState();
+      },
+      children: [
         // ── Three knobs ──────────────────────────────────────────────────
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -2600,5 +2800,111 @@ class _KnobPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _KnobPainter oldDelegate) {
     return oldDelegate.normalizedValue != normalizedValue;
+  }
+}
+
+class _CollapsibleSection extends StatefulWidget {
+  final Widget icon;
+  final String title;
+  final String subtitle;
+  final bool isEnabled;
+  final bool hasSwitch;
+  final ValueChanged<bool>? onToggle;
+  final List<Widget> children;
+
+  const _CollapsibleSection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.isEnabled = false,
+    this.hasSwitch = true,
+    this.onToggle,
+    required this.children,
+  });
+
+  @override
+  State<_CollapsibleSection> createState() => _CollapsibleSectionState();
+}
+
+class _CollapsibleSectionState extends State<_CollapsibleSection> {
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isExpanded = widget.isEnabled;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CollapsibleSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isEnabled && !oldWidget.isEnabled) {
+      _isExpanded = true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        InkWell(
+          onTap: () {
+            setState(() {
+              _isExpanded = !_isExpanded;
+            });
+          },
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    widget.icon,
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.title,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold)),
+                        Text(widget.subtitle,
+                            style:
+                                TextStyle(color: Colors.white54, fontSize: 12)),
+                      ],
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    if (widget.hasSwitch)
+                      Switch(
+                        value: widget.isEnabled,
+                        onChanged: widget.onToggle,
+                        activeThumbColor: Colors.white,
+                        activeTrackColor: primaryColor,
+                      ),
+                    if (widget.hasSwitch) const SizedBox(width: 8),
+                    Icon(
+                      _isExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      color: Colors.white54,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_isExpanded) ...[
+          const SizedBox(height: 16),
+          ...widget.children,
+        ],
+      ],
+    );
   }
 }

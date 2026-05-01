@@ -635,11 +635,10 @@ packages:
   sautiflow:
     dependency: "direct main"
     description:
-      name: sautiflow
-      sha256: "1ce68bf07ac9465cf6244f91649ad2a30e9e4338b5765ed82369cfaf7c19e5ad"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.6.2"
+      path: ".."
+      relative: true
+    source: path
+    version: "0.6.3"
   shared_preferences:
     dependency: "direct main"
     description:

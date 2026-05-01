@@ -41,7 +41,8 @@ target_compile_definitions(audio_engine PRIVATE
 
 # Suppress harmless warnings from third-party FAAD2 C code
 if(MSVC)
-  target_compile_options(audio_engine PRIVATE /std:c11)
+  # /FS forces synchronous PDB writes, preventing C1041 errors in parallel builds
+  target_compile_options(audio_engine PRIVATE /FS /std:c11)
   set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
     COMPILE_FLAGS "/wd4100 /wd4244 /wd4267 /wd4701 /wd4706"
   )

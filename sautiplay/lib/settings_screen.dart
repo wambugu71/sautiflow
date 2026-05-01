@@ -24,6 +24,8 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<bool> onCrossfadeEnabledChanged;
   final int crossfadeDurationMs;
   final ValueChanged<int> onCrossfadeDurationMsChanged;
+  final bool exclusiveMode;
+  final ValueChanged<bool> onExclusiveModeChanged;
 
   const SettingsScreen({
     super.key,
@@ -44,6 +46,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onCrossfadeEnabledChanged,
     required this.crossfadeDurationMs,
     required this.onCrossfadeDurationMsChanged,
+    required this.exclusiveMode,
+    required this.onExclusiveModeChanged,
     required this.logs,
     required this.logUpdateNotifier,
     required this.allowInvalidTls,
@@ -519,10 +523,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onTap: () => _showChannelsDialog(),
         ),
         const Divider(color: Colors.white10, height: 1),
-        // Visualization Card starts, lets insert our new EQ feature card in _buildAudioQualityCard OR _buildPlaybackCard.
-        // Wait, I will create a dedicated EQ Settings card.
-        // We'll add it after playback card in build.
-        // Let's modify SettingsScreen to rebuild the list with a new card.
+        SwitchListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          secondary: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(10),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.shield, color: Colors.white70, size: 20),
+          ),
+          title: const Text('True Bit-Perfect Output',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          subtitle: const Text('Bypass OS Mixer & DSP. Forces exclusive mode.',
+              style: TextStyle(color: _textDark, fontSize: 12)),
+          value: widget.exclusiveMode,
+          activeThumbColor: _primary,
+          onChanged: (val) async {
+            widget.player.setExclusiveMode(val);
+            await Future.delayed(const Duration(milliseconds: 150));
+            final actual = await widget.player.getExclusiveMode();
+            widget.onExclusiveModeChanged(actual);
+            if (val && !actual) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Hardware rejected Exclusive Mode. Falling back! Try changing Sample Rate/Format.',
+                          style: TextStyle(color: Colors.white))),
+                );
+              }
+            } else if (val && actual) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Exclusive Mode Enabled! DSP bypassed.',
+                          style: TextStyle(color: Colors.white))),
+                );
+              }
+            }
+          },
+        ),
       ],
     );
   }

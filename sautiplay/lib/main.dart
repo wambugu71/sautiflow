@@ -171,6 +171,8 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _crossfadeEnabled = false;
   int _crossfadeDurationMs = 250;
 
+  bool _exclusiveMode = false;
+
   bool _analyzerEnabled = false;
   String _analyzerType = 'area';
   int _analyzerSampleSize = 1024;
@@ -236,9 +238,11 @@ class _PlayerShellState extends State<PlayerShell> {
       _analyzerType = engine.analyzerType;
       _analyzerSampleSize = engine.analyzerSampleSize;
       _allowInvalidTlsForDownloads = engine.allowInvalidTls;
+      _exclusiveMode = engine.exclusiveMode;
     });
 
     // Apply basic engine settings
+    _player.setExclusiveMode(_exclusiveMode);
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);
     _player.setAnalyzerEnabled(_analyzerEnabled);
@@ -255,8 +259,9 @@ class _PlayerShellState extends State<PlayerShell> {
       // Perform restoration - similar to _playOnlineTracks but stay paused
       final sources = <AudioSource>[];
       for (final t in tracks) {
-        final uri = Uri.parse(
-            t.videoId.startsWith('http') ? t.videoId : 'file://${t.videoId}');
+        final uri = t.videoId.startsWith('http')
+            ? Uri.parse(t.videoId)
+            : Uri.file(t.videoId, windows: Platform.isWindows);
         final src = await _materializeSource(uri);
         if (src != null) {
           sources.add(src);
@@ -309,6 +314,7 @@ class _PlayerShellState extends State<PlayerShell> {
       analyzerType: _analyzerType,
       analyzerSampleSize: _analyzerSampleSize,
       allowInvalidTls: _allowInvalidTlsForDownloads,
+      exclusiveMode: _exclusiveMode,
     );
   }
 
@@ -1112,8 +1118,13 @@ class _PlayerShellState extends State<PlayerShell> {
                       _status.value.currentIndex >= 0 &&
                       _status.value.currentIndex < _playlist.length
                   ? (_onlineTrackMetadata[
-                          _playlist[_status.value.currentIndex].uri]
-                      ?.videoId)
+                              _playlist[_status.value.currentIndex].uri]
+                          ?.videoId ??
+                      (_playlist[_status.value.currentIndex].uri.scheme ==
+                              'file'
+                          ? _safeFilePathFromUri(
+                              _playlist[_status.value.currentIndex].uri)
+                          : null))
                   : null,
               getTitle: (index) => (index >= 0 && index < _playlist.length)
                   ? _nameFromSource(_playlist[index])
@@ -1130,6 +1141,13 @@ class _PlayerShellState extends State<PlayerShell> {
                   ? 'local'
                   : 'online',
               onPlayTracks: _playOnlineTracks,
+              analyzerEnabled: _analyzerEnabled,
+              analyzerType: _analyzerType,
+              onAnalyzerEnabledChanged: (v) {
+                setState(() => _analyzerEnabled = v);
+                _player.setAnalyzerEnabled(v);
+                _saveEngineSettings();
+              },
             );
           },
         );
@@ -1164,6 +1182,11 @@ class _PlayerShellState extends State<PlayerShell> {
             onPlayLikedSongs: _playLikedSongs,
           ),
           SettingsScreen(
+              exclusiveMode: _exclusiveMode,
+              onExclusiveModeChanged: (v) {
+                setState(() => _exclusiveMode = v);
+                _saveEngineSettings();
+              },
               player: _player,
               analyzerEnabled: _analyzerEnabled,
               onAnalyzerEnabledChanged: (v) {

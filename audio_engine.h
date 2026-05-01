@@ -144,6 +144,7 @@ extern "C"
     AE_API void ae_set_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
+    AE_API void ae_set_replay_gain(AudioEngineHandle *engine, float gain_db);
     AE_API void ae_set_pan(AudioEngineHandle *engine, float pan_minus1_to_plus1);
     AE_API void ae_set_pitch(AudioEngineHandle *engine, float pitch);
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *engine, int enabled);
@@ -153,6 +154,18 @@ extern "C"
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
     AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms);
+    AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset);
+    AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain);
+
+    // Crystalizer (audiophile transient reconstruction + air enhancement)
+    // intensity: [0.0, 1.0] — reconstruction strength (default 0.5)
+    // high_shelf_enabled: 1 = enable gentle 8kHz air shelf, 0 = off
+    // high_shelf_gain_db: [0.0, 6.0] — shelf boost amount in dB (default 2.0)
+    AE_API void ae_set_crystalizer_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_crystalizer_params(AudioEngineHandle *engine, float intensity, int high_shelf_enabled, float high_shelf_gain_db);
+    AE_API float ae_get_crystalizer_intensity(AudioEngineHandle *engine);
     AE_API void ae_set_bandpass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_bandpass_params(AudioEngineHandle *engine, float cutoff_hz, float q);
     AE_API void ae_set_peak_eq_enabled(AudioEngineHandle *engine, int enabled);
@@ -191,6 +204,9 @@ extern "C"
     AE_API void ae_set_end_callback(AudioEngineHandle *engine, AE_EndCallback callback, void *pUserData);
 
     // Advanced Audio Controls
+    AE_API void ae_set_exclusive_mode(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_exclusive_mode(AudioEngineHandle *engine);
+
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);
     AE_API int ae_get_output_format(AudioEngineHandle *engine);
 

@@ -70,6 +70,7 @@ compile_commands.json
 *.dll
 *.dylib
 *.exe
+*.py
 
 # -----------------------------
 # Logs

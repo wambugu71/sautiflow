@@ -237,6 +237,10 @@ typedef _SetSpatializationVec3Native = ffi.Void Function(
 typedef _SetSpatializationVec3Dart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
+typedef _SetSingleIntNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetSingleIntDart = void Function(ffi.Pointer<ffi.Void>, int);
+
 // Fading & Scheduling
 typedef _SetFadeInMillisecondsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Int32);
@@ -247,6 +251,25 @@ typedef _SetStereoWidenNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
 typedef _SetStereoWidenDart = void Function(
     ffi.Pointer<ffi.Void>, int, double, double);
+
+typedef _SetDynamicBassParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _SetDynamicBassParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
+
+// Crystalizer typedefs
+typedef _SetCrystalizerEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetCrystalizerEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _SetCrystalizerParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Int32, ffi.Float);
+typedef _SetCrystalizerParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, int, double);
+
+typedef _GetCrystalizerIntensityNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetCrystalizerIntensityDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetTimeInPcmFramesNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Uint64);
@@ -263,6 +286,13 @@ typedef _SetEndCallbackNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
     ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
 typedef _SetEndCallbackDart = void Function(ffi.Pointer<ffi.Void>,
     ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
+
+typedef _SetExclusiveModeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetExclusiveModeDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetExclusiveModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetExclusiveModeDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetOutputFormatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -644,6 +674,14 @@ class AudioEngineFFI {
     _setGain = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_gain',
     );
+    try {
+      _setReplayGain =
+          _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+        'ae_set_replay_gain',
+      );
+    } catch (_) {
+      _setReplayGain = null;
+    }
     _setPan = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_pan',
     );
@@ -678,6 +716,30 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetStereoWidenNative, _SetStereoWidenDart>(
       'ae_set_stereo_widen',
     );
+    _setCrossfeedEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_crossfeed_enabled',
+    );
+    _setCrossfeedPreset =
+        _lib.lookupFunction<_SetSingleIntNative, _SetSingleIntDart>(
+      'ae_set_crossfeed_preset',
+    );
+    _setDynamicBassEnabled =
+        _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+      'ae_set_dynamic_bass_enabled',
+    );
+    _setDynamicBassParams = _lib
+        .lookupFunction<_SetDynamicBassParamsNative, _SetDynamicBassParamsDart>(
+      'ae_set_dynamic_bass_params',
+    );
+    // Crystalizer
+    _setCrystalizerEnabled = _lib.lookupFunction<_SetCrystalizerEnabledNative,
+        _SetCrystalizerEnabledDart>('ae_set_crystalizer_enabled');
+    _setCrystalizerParams = _lib.lookupFunction<_SetCrystalizerParamsNative,
+        _SetCrystalizerParamsDart>('ae_set_crystalizer_params');
+    _getCrystalizerIntensity = _lib.lookupFunction<
+        _GetCrystalizerIntensityNative,
+        _GetCrystalizerIntensityDart>('ae_get_crystalizer_intensity');
     _setBandpassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_bandpass_enabled',
@@ -781,6 +843,14 @@ class AudioEngineFFI {
             'ae_set_end_callback');
 
     // Advanced Audio Features Bindings
+    _setExclusiveMode =
+        _lib.lookupFunction<_SetExclusiveModeNative, _SetExclusiveModeDart>(
+      'ae_set_exclusive_mode',
+    );
+    _getExclusiveMode =
+        _lib.lookupFunction<_GetExclusiveModeNative, _GetExclusiveModeDart>(
+      'ae_get_exclusive_mode',
+    );
     _setOutputFormat =
         _lib.lookupFunction<_SetOutputFormatNative, _SetOutputFormatDart>(
       'ae_set_output_format',
@@ -936,6 +1006,7 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setEqEnabled;
   late final _SetEqGainsDart _setEqGains;
   late final _SetSingleFloatDart _setGain;
+  _SetSingleFloatDart? _setReplayGain;
   late final _SetSingleFloatDart _setPan;
   late final _SetSingleFloatDart _setPitch;
   late final _SetFxEnabledDart _setLowpassEnabled;
@@ -945,6 +1016,15 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
   late final _SetStereoWidenDart _setStereoWiden;
+  late final _SetFxEnabledDart _setCrossfeedEnabled;
+  late final _SetSingleIntDart _setCrossfeedPreset;
+  late final _SetFxEnabledDart _setDynamicBassEnabled;
+  late final _SetDynamicBassParamsDart _setDynamicBassParams;
+
+  // Crystalizer
+  late final _SetCrystalizerEnabledDart _setCrystalizerEnabled;
+  late final _SetCrystalizerParamsDart _setCrystalizerParams;
+  late final _GetCrystalizerIntensityDart _getCrystalizerIntensity;
   late final _SetFxEnabledDart _setBandpassEnabled;
   late final _SetTwoFloatsDart _setBandpassParams;
   late final _SetFxEnabledDart _setPeakEqEnabled;
@@ -982,6 +1062,8 @@ class AudioEngineFFI {
   late final _SetEndCallbackDart _setEndCallback;
 
   // Advanced Audio Features
+  late final _SetExclusiveModeDart _setExclusiveMode;
+  late final _GetExclusiveModeDart _getExclusiveMode;
   late final _SetOutputFormatDart _setOutputFormat;
   late final _GetOutputFormatDart _getOutputFormat;
   late final _SetOutputRateDart _setOutputSampleRate;
@@ -1358,6 +1440,11 @@ class AudioEngineFFI {
     _setGain(_engine, gain);
   }
 
+  void setReplayGain(double gainDb) {
+    if (_engine == ffi.nullptr) return;
+    _setReplayGain?.call(_engine, gainDb);
+  }
+
   void setPan(double panMinus1ToPlus1) {
     if (_engine == ffi.nullptr) return;
     _setPan(_engine, panMinus1ToPlus1);
@@ -1409,6 +1496,29 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setStereoWiden(_engine, enabled ? 1 : 0, width, delayMs);
+  }
+
+  void setCrossfeedEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfeedEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setCrossfeedPreset(int preset) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfeedPreset(_engine, preset);
+  }
+
+  void setDynamicBassEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setDynamicBassEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  void setDynamicBassParams({
+    required int preset,
+    required double gain,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setDynamicBassParams(_engine, preset, gain);
   }
 
   void setBandpassEnabled(bool enabled) {
@@ -1592,6 +1702,16 @@ class AudioEngineFFI {
   }
 
   // Advanced Audio Features Helpers
+
+  void setExclusiveMode(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setExclusiveMode(_engine, enabled ? 1 : 0);
+  }
+
+  bool getExclusiveMode() {
+    if (_engine == ffi.nullptr) return false;
+    return _getExclusiveMode(_engine) != 0;
+  }
 
   void setOutputFormat(AudioFormat format) {
     if (_engine == ffi.nullptr) return;
@@ -1857,5 +1977,45 @@ class AudioEngineFFI {
     } finally {
       _freePtr(ptr.cast<ffi.Void>());
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Crystalizer
+  // ---------------------------------------------------------------------------
+
+  /// Enable or disable the Crystalizer effect.
+  ///
+  /// The Crystalizer reconstructs transient detail lost in lossy compression
+  /// (MP3/AAC) and optionally adds a gentle high-shelf "air" boost.
+  void setCrystalizerEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setCrystalizerEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  /// Configure the Crystalizer parameters.
+  ///
+  /// [intensity]          – transient reconstruction strength [0.0 – 1.0] (default 0.5).
+  ///                        Higher values add more transient detail and "crispness".
+  /// [highShelfEnabled]   – if `true`, a gentle 2nd-order high-shelf is applied
+  ///                        above 8 kHz to restore "air" lost in compression.
+  /// [highShelfGainDb]    – shelf boost in dB [0.0 – 6.0] (default 2.0).
+  void setCrystalizerParams({
+    double intensity = 0.5,
+    bool highShelfEnabled = true,
+    double highShelfGainDb = 2.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setCrystalizerParams(
+      _engine,
+      intensity,
+      highShelfEnabled ? 1 : 0,
+      highShelfGainDb,
+    );
+  }
+
+  /// Returns the current Crystalizer intensity in [0.0 – 1.0].
+  double getCrystalizerIntensity() {
+    if (_engine == ffi.nullptr) return 0.0;
+    return _getCrystalizerIntensity(_engine);
   }
 }

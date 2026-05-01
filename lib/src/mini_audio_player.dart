@@ -223,6 +223,15 @@ class MiniAudioPlayer {
 
   // --- Advanced Audio Controls ---
 
+  /// Request True Bit-Perfect Output (Exclusive Mode).
+  /// Bypasses the system mixer and locks the DAC to the exact requested format.
+  /// If the hardware rejects the format natively, it safely falls back to Shared mode.
+  /// This will momentarily restart the audio connection.
+  void setExclusiveMode(bool enabled) => _engine.setExclusiveMode(enabled);
+
+  /// Check if the engine is actually running in Exclusive Mode successfully.
+  bool getExclusiveMode() => _engine.getExclusiveMode();
+
   /// Set the desired output audio format (f32, s16, u8).
   /// This may cause the audio engine to restart.
   void setOutputFormat(AudioFormat format) => _engine.setOutputFormat(format);
@@ -300,6 +309,7 @@ class MiniAudioPlayer {
   }
 
   void setGain(double gain) => _engine.setGain(gain);
+  void setReplayGain(double gainDb) => _engine.setReplayGain(gainDb);
   void setVolume(double volume) => setGain(volume);
   void setPan(double pan) => _engine.setPan(pan);
   void setPitch(double pitch) => _engine.setPitch(pitch);
@@ -369,6 +379,40 @@ class MiniAudioPlayer {
     required double delayMs,
   }) {
     _engine.setStereoWiden(enabled: enabled, width: width, delayMs: delayMs);
+  }
+
+  void setCrossfeed({required bool enabled, required int preset}) {
+    _engine.setCrossfeedEnabled(enabled);
+    _engine.setCrossfeedPreset(preset);
+  }
+
+  void setDynamicBass({
+    required bool enabled,
+    int preset = 18,
+    double gain = 100.0,
+  }) {
+    _engine.setDynamicBassEnabled(enabled);
+    _engine.setDynamicBassParams(preset: preset, gain: gain);
+  }
+
+  /// Enable or disable the Crystalizer and set its parameters.
+  ///
+  /// [enabled]          – main on/off switch.
+  /// [intensity]        – transient reconstruction strength [0.0 – 1.0].
+  /// [highShelfEnabled] – add "air" high-shelf above 8 kHz.
+  /// [highShelfGainDb]  – shelf boost in dB [0.0 – 6.0].
+  void setCrystalizer({
+    required bool enabled,
+    double intensity = 0.5,
+    bool highShelfEnabled = true,
+    double highShelfGainDb = 2.0,
+  }) {
+    _engine.setCrystalizerEnabled(enabled);
+    _engine.setCrystalizerParams(
+      intensity: intensity,
+      highShelfEnabled: highShelfEnabled,
+      highShelfGainDb: highShelfGainDb,
+    );
   }
 
   void setBandpass({
