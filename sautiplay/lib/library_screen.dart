@@ -199,7 +199,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
-    final selectedDirectory = await FilePicker.platform.getDirectoryPath();
+    final selectedDirectory = await FilePicker.getDirectoryPath();
     if (selectedDirectory == null) return;
 
     // Check if duplicate
