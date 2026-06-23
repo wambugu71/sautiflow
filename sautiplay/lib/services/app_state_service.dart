@@ -5,12 +5,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Centralized service for persisting and restoring all app state across
 /// restarts: playback queue, EQ settings, and user preferences/settings.
+
+enum ReplayGainMode {
+  none,
+  track,
+  album
+}
 class AppStateService {
   AppStateService._();
   static final AppStateService instance = AppStateService._();
 
   // Stream to notify listeners of EQ changes
   final StreamController<void> eqSettingsChanged =
+      StreamController<void>.broadcast();
+
+  // Stream to notify listeners of ReplayGain changes
+  final StreamController<void> replayGainChanged =
       StreamController<void>.broadcast();
 
   // ─── Playback ───────────────────────────────────────────────────────────────
@@ -240,7 +250,7 @@ class AppStateService {
     return (
       enabled: prefs.getBool(_kDynamicBassEnabled) ?? false,
       preset: prefs.getInt(_kDynamicBassPreset) ?? 18,
-      gain: prefs.getDouble(_kDynamicBassGain) ?? 100.0,
+      gain: prefs.getDouble(_kDynamicBassGain) ?? 15.0,
     );
   }
 
@@ -509,6 +519,8 @@ class AppStateService {
   static const _kAnalyzerSampleSize = 'sp_analyzer_sample_size';
   static const _kAllowInvalidTls = 'sp_allow_invalid_tls';
   static const _kExclusiveMode = 'sp_exclusive_mode';
+  static const _kAnalyzerAutoFit = 'sp_analyzer_auto_fit';
+  static const _kAnalyzerShowGrids = 'sp_analyzer_show_grids';
 
   Future<void> saveEngineSettings({
     required int outputFormatIndex,
@@ -521,6 +533,8 @@ class AppStateService {
     required int analyzerSampleSize,
     required bool allowInvalidTls,
     required bool exclusiveMode,
+    required bool analyzerAutoFit,
+    required bool analyzerShowGrids,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
@@ -533,6 +547,8 @@ class AppStateService {
     await prefs.setInt(_kAnalyzerSampleSize, analyzerSampleSize);
     await prefs.setBool(_kAllowInvalidTls, allowInvalidTls);
     await prefs.setBool(_kExclusiveMode, exclusiveMode);
+    await prefs.setBool(_kAnalyzerAutoFit, analyzerAutoFit);
+    await prefs.setBool(_kAnalyzerShowGrids, analyzerShowGrids);
   }
 
   Future<
@@ -546,7 +562,9 @@ class AppStateService {
         String analyzerType,
         int analyzerSampleSize,
         bool allowInvalidTls,
-        bool exclusiveMode
+        bool exclusiveMode,
+        bool analyzerAutoFit,
+        bool analyzerShowGrids
       })> loadEngineSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -555,11 +573,13 @@ class AppStateService {
       channels: prefs.getInt(_kChannels) ?? 2,
       crossfadeEnabled: prefs.getBool(_kCrossfadeEnabled) ?? false,
       crossfadeMs: prefs.getInt(_kCrossfadeMs) ?? 250,
-      analyzerEnabled: prefs.getBool(_kAnalyzerEnabled) ?? false,
+      analyzerEnabled: prefs.getBool(_kAnalyzerEnabled) ?? true,
       analyzerType: prefs.getString(_kAnalyzerType) ?? 'area',
       analyzerSampleSize: prefs.getInt(_kAnalyzerSampleSize) ?? 1024,
       allowInvalidTls: prefs.getBool(_kAllowInvalidTls) ?? false,
       exclusiveMode: prefs.getBool(_kExclusiveMode) ?? false,
+      analyzerAutoFit: prefs.getBool(_kAnalyzerAutoFit) ?? true,
+      analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
     );
   }
 
@@ -595,7 +615,7 @@ class AppStateService {
         bool normalizeVolume,
         bool streamOverWifi,
         int resampleAlgorithm,
-        int ditherMode
+        int ditherMode,
       })> loadUiSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -606,5 +626,46 @@ class AppStateService {
       resampleAlgorithm: prefs.getInt(_kResampleAlgorithm) ?? 0,
       ditherMode: prefs.getInt(_kDitherMode) ?? 0,
     );
+  }
+
+  // ─── ViPER DSP Settings ───────────────────────────────────────────────────
+  static const _kViperFxState = 'sp_viper_fx_state';
+
+  Future<void> saveViperFxState(Map<String, dynamic> state) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kViperFxState, jsonEncode(state));
+  }
+
+  Future<Map<String, dynamic>> loadViperFxState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final str = prefs.getString(_kViperFxState);
+    if (str != null && str.isNotEmpty) {
+      try {
+        return jsonDecode(str) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  // ─── ReplayGain Settings ──────────────────────────────────────────────────
+  static const _kReplayGainMode = 'sp_replay_gain_mode';
+  static const _kReplayGainPreamp = 'sp_replay_gain_preamp';
+
+  Future<void> saveReplayGainSettings({
+    required ReplayGainMode mode,
+    required double preamp,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kReplayGainMode, mode.index);
+    await prefs.setDouble(_kReplayGainPreamp, preamp);
+    replayGainChanged.add(null);
+  }
+
+  Future<({ReplayGainMode mode, double preamp})> loadReplayGainSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeIndex = prefs.getInt(_kReplayGainMode) ?? 0;
+    final mode = ReplayGainMode.values.elementAtOrNull(modeIndex) ?? ReplayGainMode.none;
+    final preamp = prefs.getDouble(_kReplayGainPreamp) ?? 0.0;
+    return (mode: mode, preamp: preamp);
   }
 }

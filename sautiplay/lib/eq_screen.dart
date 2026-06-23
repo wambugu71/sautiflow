@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,7 +31,10 @@ class EqScreen extends StatefulWidget {
   State<EqScreen> createState() => _EqScreenState();
 }
 
-class _EqScreenState extends State<EqScreen> {
+class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   // Preferences
   bool _showWarningBanner = true;
 
@@ -163,7 +164,7 @@ class _EqScreenState extends State<EqScreen> {
   // Dynamic Bass
   bool _dynamicBassEnabled = false;
   int _dynamicBassPreset = 12;
-  double _dynamicBassGain = 100.0;
+  double _dynamicBassGain = 15.0;
 
   // Crystalizer
   bool _crystalizerEnabled = false;
@@ -209,10 +210,7 @@ class _EqScreenState extends State<EqScreen> {
   double _biquadA0 = 1.0;
   double _biquadA1 = 0.0;
   double _biquadA2 = 0.0;
-
-  // Realtime Analyzer
-  List<double> _analyzerValues = List<double>.filled(64, 0.0);
-  StreamSubscription<Float32List>? _analyzerSub;
+  // Subscriptions
   StreamSubscription<void>? _eqSettingsSub;
 
   // Soft Limiter
@@ -229,24 +227,6 @@ class _EqScreenState extends State<EqScreen> {
     _eqSettingsSub =
         AppStateService.instance.eqSettingsChanged.stream.listen((_) {
       if (mounted) _loadPreferences();
-    });
-    _analyzerSub = widget.player.analyzerStream.listen((frame) {
-      if (frame.isEmpty || !widget.analyzerEnabled) return;
-      const targetBins = 64;
-      final bins = List<double>.filled(targetBins, 0.0);
-      final srcLen = frame.length;
-      for (var i = 0; i < targetBins; i++) {
-        final from = (i * srcLen / targetBins).floor();
-        final to = ((i + 1) * srcLen / targetBins).ceil();
-        var sum = 0.0;
-        var count = 0;
-        for (var j = from; j < to && j < srcLen; j++) {
-          sum += frame[j].abs();
-          count++;
-        }
-        bins[i] = count > 0 ? sum / count : 0.0;
-      }
-      if (mounted) setState(() => _analyzerValues = bins);
     });
   }
 
@@ -469,7 +449,6 @@ class _EqScreenState extends State<EqScreen> {
 
   @override
   void dispose() {
-    _analyzerSub?.cancel();
     _eqSettingsSub?.cancel();
     super.dispose();
   }
@@ -530,6 +509,7 @@ class _EqScreenState extends State<EqScreen> {
 
   void _showPipelineInfo() async {
     final state = await widget.player.getPipelineState();
+    final latencyMs = await widget.player.getDeviceLatencyMs();
 
     if (!mounted) return;
 
@@ -561,7 +541,7 @@ class _EqScreenState extends State<EqScreen> {
                   style: TextStyle(
                       color: primaryColor, fontWeight: FontWeight.bold)),
               Text(
-                  'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}',
+                  'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
                   style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
               const Text('Active DSP Nodes',
@@ -597,7 +577,7 @@ class _EqScreenState extends State<EqScreen> {
 
       _dynamicBassEnabled = false;
       _dynamicBassPreset = 12;
-      _dynamicBassGain = 100.0;
+      _dynamicBassGain = 15.0;
       widget.player.setDynamicBass(
         enabled: false,
         preset: _dynamicBassPreset,
@@ -665,31 +645,10 @@ class _EqScreenState extends State<EqScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: bgDarkColor,
-      appBar: AppBar(
-        backgroundColor: surfaceDarkerColor.withOpacity(0.95),
-        elevation: 0,
-        title: const Text('Audio Effects',
-            style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: _showPipelineInfo,
-          ),
-          TextButton(
-            onPressed: () => _resetAll(),
-            child: const Text('Reset',
-                style: TextStyle(
-                    color: primaryColor, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+      appBar: null,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isDesktop = constraints.maxWidth >= 800;
@@ -702,6 +661,43 @@ class _EqScreenState extends State<EqScreen> {
                     isDesktop ? 48.0 : 0, 0, isDesktop ? 48.0 : 0, 120),
                 physics: const BouncingScrollPhysics(),
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16.0, right: 8.0, top: 16.0, bottom: 8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.info_outline, color: Colors.white54),
+                              onPressed: _showPipelineInfo,
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('Master EQ', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              tooltip: 'Reset All',
+                              onPressed: _resetAll,
+                            ),
+                            Switch(
+                              value: _masterEqEnabled,
+                              onChanged: (val) {
+                                setState(() => _masterEqEnabled = val);
+                                widget.player.setMultibandEqEnabled(val);
+                                _saveEqState();
+                              },
+                              activeThumbColor: Colors.white,
+                              activeTrackColor: primaryColor,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                   // Warning Banner
                   if (_showWarningBanner)
                     Container(
@@ -751,13 +747,6 @@ class _EqScreenState extends State<EqScreen> {
                           ),
                         ],
                       ),
-                    ),
-
-                  // Realtime Audio Analyzer (replaces old EQ chart)
-                  if (widget.analyzerEnabled)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                      child: _buildAnalyzerSection(),
                     ),
 
                   // Graphic Equalizer Section
@@ -2117,119 +2106,6 @@ class _EqScreenState extends State<EqScreen> {
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  // ── Realtime Analyzer ──────────────────────────────────────────────
-  Widget _buildAnalyzerSection() {
-    if (!widget.analyzerEnabled) return const SizedBox.shrink();
-    return _CollapsibleSection(
-      icon: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.bar_chart, color: primaryColor, size: 20),
-      ),
-      title: 'Real-time Analyzer',
-      subtitle: 'Audio spectrum viz',
-      isEnabled: true,
-      hasSwitch: false,
-      children: [
-        SizedBox(
-          height: 180,
-          child: _buildAnalyzerChart(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAnalyzerChart() {
-    final len = _analyzerValues.length;
-
-    if (widget.analyzerType == 'bar') {
-      // ── Bar Chart ──
-      final groups = <BarChartGroupData>[];
-      for (var i = 0; i < len; i++) {
-        final normalized = (_analyzerValues[i] * 6.0).clamp(0.0, 1.0);
-        groups.add(
-          BarChartGroupData(
-            x: i,
-            barRods: [
-              BarChartRodData(
-                toY: normalized,
-                width: math.max(
-                    1, (MediaQuery.of(context).size.width - 100) / len),
-                color: primaryColor.withValues(alpha: 0.85),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(2),
-                  topRight: Radius.circular(2),
-                ),
-                backDrawRodData: BackgroundBarChartRodData(
-                  show: true,
-                  toY: 1.0,
-                  color: Colors.white.withValues(alpha: 0.03),
-                ),
-              ),
-            ],
-          ),
-        );
-      }
-
-      return BarChart(
-        BarChartData(
-          maxY: 1,
-          minY: 0,
-          gridData: const FlGridData(show: false),
-          titlesData: const FlTitlesData(show: false),
-          borderData: FlBorderData(show: false),
-          barGroups: groups,
-          barTouchData: BarTouchData(enabled: false),
-        ),
-      );
-    }
-
-    // ── Area (Line) Chart ──
-    final spots = <FlSpot>[];
-    for (var i = 0; i < len; i++) {
-      final normalized = (_analyzerValues[i] * 6.0).clamp(0.0, 1.0);
-      spots.add(FlSpot(i.toDouble(), normalized));
-    }
-
-    return LineChart(
-      LineChartData(
-        minX: 0,
-        maxX: math.max(1, len - 1).toDouble(),
-        minY: 0,
-        maxY: 1,
-        gridData: const FlGridData(show: false),
-        titlesData: const FlTitlesData(show: false),
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.25,
-            color: primaryColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  primaryColor.withValues(alpha: 0.4),
-                  primaryColor.withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
-        ],
-        lineTouchData: const LineTouchData(enabled: false),
       ),
     );
   }

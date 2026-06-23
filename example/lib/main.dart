@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -826,8 +827,12 @@ class _PlayerShellState extends State<PlayerShell> {
       return;
     }
 
-    final String? selectedDirectory =
-        await FilePicker.platform.getDirectoryPath();
+    String? selectedDirectory;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      selectedDirectory = await getDirectoryPath();
+    } else {
+      selectedDirectory = await FilePicker.getDirectoryPath();
+    }
     if (selectedDirectory == null) return;
 
     final dir = Directory(selectedDirectory);
@@ -2405,6 +2410,7 @@ class _PlayerShellState extends State<PlayerShell> {
               Text('Format: ${state.outputFormatString}'),
               Text('Sample Rate: ${state.outputSampleRate} Hz'),
               Text('Channels: ${state.outputChannels}'),
+              Text('Est. Device Latency: ${player.deviceLatencyMs.toStringAsFixed(2)} ms'),
               const SizedBox(height: 12),
               const Text('Active DSP Features',
                   style: TextStyle(fontWeight: FontWeight.bold)),

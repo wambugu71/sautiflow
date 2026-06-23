@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
 
 import '../audio_engine_ffi.dart';
+import '../viper_dsp.dart';
 import 'miniaudio_filters.dart';
 import 'mobile_system_audio.dart';
 
@@ -17,6 +18,7 @@ class MiniAudioPlayer {
   }) : _engine = AudioEngineFFI(libraryPath: libraryPath);
 
   final AudioEngineFFI _engine;
+  late final ViperDsp _viper = ViperDsp(_engine);
   final Duration statusPollInterval;
   final Duration analyzerPollInterval;
 
@@ -56,6 +58,9 @@ class MiniAudioPlayer {
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
+
+  /// Provides direct access to all ViPER DSP features.
+  ViperDsp get viper => _viper;
 
   bool init({
     int sampleRate = 48000,
@@ -156,6 +161,7 @@ class MiniAudioPlayer {
   int getCrossfadeDurationMs() => _engine.getCrossfadeDurationMs();
 
   PlayerStatus get status => _engine.getStatus();
+  double get deviceLatencyMs => _engine.getDeviceLatencyMs();
   PipelineAudioState get pipelineState => _engine.getPipelineState();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();

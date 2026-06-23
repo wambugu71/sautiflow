@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart'; // For RootIsolateToken
 import 'package:sautiflow/sautiflow.dart';
+import 'package:sautiplay/services/wav_parser.dart';
+import 'package:sautiplay/services/vdc_parser.dart';
 
 /// A wrapper that runs [MiniAudioPlayer] in a separate isolate.
 class IsolateAudioPlayer {
@@ -161,6 +163,7 @@ class IsolateAudioPlayer {
   }
 
   void setGain(double gain) => _send({'cmd': 'setGain', 'gain': gain});
+  void setReplayGain(double gainDb) => _send({'cmd': 'setReplayGain', 'gainDb': gainDb});
   void setPan(double pan) => _send({'cmd': 'setPan', 'pan': pan});
   void setPitch(double pitch) => _send({'cmd': 'setPitch', 'pitch': pitch});
 
@@ -417,6 +420,37 @@ class IsolateAudioPlayer {
 
   void clearMultibandFx() => _send({'cmd': 'clearMultibandFx'});
 
+  // --- ViPER DSP ---
+  void setViperEnabled(bool enabled) => _send({'cmd': 'setViperEnabled', 'enabled': enabled});
+  void setViperSamplingRate(int sampleRate) => _send({'cmd': 'setViperSamplingRate', 'sampleRate': sampleRate});
+  void resetViperAll() => _send({'cmd': 'resetViperAll'});
+  void setViperMasterLimiter({required double threshold, required double outputVolume, required double channelPan}) => _send({'cmd': 'setViperMasterLimiter', 'threshold': threshold, 'outputVolume': outputVolume, 'channelPan': channelPan});
+  void setViperPlaybackGain({required bool enable, required double strength, required double maxGain, required double outputThreshold}) => _send({'cmd': 'setViperPlaybackGain', 'enable': enable, 'strength': strength, 'maxGain': maxGain, 'outputThreshold': outputThreshold});
+  void setViperLufs({required bool enable, required double target, required double maxGainDb, int speed = 1}) => _send({'cmd': 'setViperLufs', 'enable': enable, 'target': target, 'maxGainDb': maxGainDb, 'speed': speed});
+  void setViperFetCompressor({required bool enable, required double threshold, required double ratio, required double knee, required bool kneeAuto, required double gain, required bool gainAuto, required double attack, required bool attackAuto, required double release, required bool releaseAuto, required double kneeMulti, required double maxAttack, required double maxRelease, required double crest, required double adapt, required bool noClip}) => _send({'cmd': 'setViperFetCompressor', 'enable': enable, 'threshold': threshold, 'ratio': ratio, 'knee': knee, 'kneeAuto': kneeAuto, 'gain': gain, 'gainAuto': gainAuto, 'attack': attack, 'attackAuto': attackAuto, 'release': release, 'releaseAuto': releaseAuto, 'kneeMulti': kneeMulti, 'maxAttack': maxAttack, 'maxRelease': maxRelease, 'crest': crest, 'adapt': adapt, 'noClip': noClip});
+  void setViperBass({required bool enable, required int mode, required int frequencyHz, required double gain, required bool antiPop}) => _send({'cmd': 'setViperBass', 'enable': enable, 'mode': mode, 'frequencyHz': frequencyHz, 'gain': gain, 'antiPop': antiPop});
+  void setViperBassMono({required bool enable, required int mode, required int frequencyHz, required double gain, required bool antiPop}) => _send({'cmd': 'setViperBassMono', 'enable': enable, 'mode': mode, 'frequencyHz': frequencyHz, 'gain': gain, 'antiPop': antiPop});
+  void setViperPsychoacousticBass({required bool enable, required int cutoffHz, required int intensity, required int harmonicOrder, required int originalLevel}) => _send({'cmd': 'setViperPsychoacousticBass', 'enable': enable, 'cutoffHz': cutoffHz, 'intensity': intensity, 'harmonicOrder': harmonicOrder, 'originalLevel': originalLevel});
+  void setViperSpectrumExtension({required bool enable, required int strength, required double exciter}) => _send({'cmd': 'setViperSpectrumExtension', 'enable': enable, 'strength': strength, 'exciter': exciter});
+  void setViperConvolver({required bool enable, required double crossChannel}) => _send({'cmd': 'setViperConvolver', 'enable': enable, 'crossChannel': crossChannel});
+  void loadViperConvolver(String path) => _send({'cmd': 'loadViperConvolver', 'path': path});
+  void setViperDdc(bool enable) => _send({'cmd': 'setViperDdc', 'enable': enable});
+  void loadViperDdc(String path) => _send({'cmd': 'loadViperDdc', 'path': path});
+  void setViperFieldSurround({required bool enable, required double widening, required double midImage, required int depth}) => _send({'cmd': 'setViperFieldSurround', 'enable': enable, 'widening': widening, 'midImage': midImage, 'depth': depth});
+  void setViperDiffSurround({required bool enable, required double delay, required bool reverse, required double wetDryMix, required double lpCutoffHz}) => _send({'cmd': 'setViperDiffSurround', 'enable': enable, 'delay': delay, 'reverse': reverse, 'wetDryMix': wetDryMix, 'lpCutoffHz': lpCutoffHz});
+  void setViperStereoImager({required bool enable, required double lowWidth, required double midWidth, required double highWidth, required double lowCrossoverHz, required double highCrossoverHz}) => _send({'cmd': 'setViperStereoImager', 'enable': enable, 'lowWidth': lowWidth, 'midWidth': midWidth, 'highWidth': highWidth, 'lowCrossoverHz': lowCrossoverHz, 'highCrossoverHz': highCrossoverHz});
+  void setViperHeadphoneSurround({required bool enable, required int quality}) => _send({'cmd': 'setViperHeadphoneSurround', 'enable': enable, 'quality': quality});
+  void setViperReverb({required bool enable, required double roomSize, required double width, required double damp, required double wet, required double dry}) => _send({'cmd': 'setViperReverb', 'enable': enable, 'roomSize': roomSize, 'width': width, 'damp': damp, 'wet': wet, 'dry': dry});
+  void setViperDynamicSystem({required bool enable, required int xCoeffLow, required int xCoeffHigh, required int yCoeffLow, required int yCoeffHigh, required double sideGainLow, required double sideGainHigh, required double strength}) => _send({'cmd': 'setViperDynamicSystem', 'enable': enable, 'xCoeffLow': xCoeffLow, 'xCoeffHigh': xCoeffHigh, 'yCoeffLow': yCoeffLow, 'yCoeffHigh': yCoeffHigh, 'sideGainLow': sideGainLow, 'sideGainHigh': sideGainHigh, 'strength': strength});
+  void setViperClarity({required bool enable, required int mode, required double gain}) => _send({'cmd': 'setViperClarity', 'enable': enable, 'mode': mode, 'gain': gain});
+  void setViperCure({required bool enable, required int preset}) => _send({'cmd': 'setViperCure', 'enable': enable, 'preset': preset});
+  void setViperTubeSimulator(bool enable) => _send({'cmd': 'setViperTubeSimulator', 'enable': enable});
+  void setViperAnalogX({required bool enable, required int mode}) => _send({'cmd': 'setViperAnalogX', 'enable': enable, 'mode': mode});
+  void setViperSpeakerCorrection(bool enable) => _send({'cmd': 'setViperSpeakerCorrection', 'enable': enable});
+  void setViperMultibandCompressor({required bool enable, required List<double> crossoverFreqs, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperMultibandCompressor', 'enable': enable, 'crossoverFreqs': crossoverFreqs, 'bands': bands});
+  void setViperDynamicEq({required bool enable, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperDynamicEq', 'enable': enable, 'bands': bands});
+  void setViperEqualizer({required bool enable, required List<double> bandLevels}) => _send({'cmd': 'setViperEqualizer', 'enable': enable, 'bandLevels': bandLevels});
+
   void configureAnalyzer({int frameSize = 512}) =>
       _send({'cmd': 'configureAnalyzer', 'frameSize': frameSize});
 
@@ -445,6 +479,20 @@ class IsolateAudioPlayer {
       throw Exception(response['error']);
     }
     return response as bool;
+  }
+
+  Future<double> getDeviceLatencyMs() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getDeviceLatencyMs',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as double;
   }
 
   Future<PipelineAudioState> getPipelineState() async {
@@ -686,6 +734,9 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setGain':
           player.setGain(message['gain']);
+          break;
+        case 'setReplayGain':
+          player.setReplayGain(message['gainDb'] as double);
           break;
         case 'setPan':
           player.setPan(message['pan']);
@@ -939,6 +990,14 @@ void _isolateEntry(_IsolateInitData initData) {
             replyTo.send({'error': e.toString()});
           }
           break;
+        case 'getDeviceLatencyMs':
+          final SendPort replyTo2 = message['replyTo'];
+          try {
+            replyTo2.send(player.deviceLatencyMs);
+          } catch (e) {
+            replyTo2.send({'error': e.toString()});
+          }
+          break;
         case 'getAudioProperties':
           final SendPort replyTo = message['replyTo'];
           try {
@@ -1011,6 +1070,91 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'resetClippedSamplesCount':
           player.resetClippedSamplesCount();
           initData.sendPort.send({'type': 'clippedCount', 'count': 0});
+          break;
+        case 'setViperEnabled': player.viper.setEnabled(message['enabled']); break;
+        case 'setViperSamplingRate': player.viper.setSamplingRate(message['sampleRate']); break;
+        case 'resetViperAll': player.viper.reset(); break;
+        case 'setViperMasterLimiter': player.viper.setMasterLimiter(threshold: message['threshold'], outputVolume: message['outputVolume'], channelPan: message['channelPan']); break;
+        case 'setViperPlaybackGain': player.viper.setPlaybackGain(enable: message['enable'], strength: message['strength'], maxGain: message['maxGain'], outputThreshold: message['outputThreshold']); break;
+        case 'setViperLufs': player.viper.setLufs(enable: message['enable'], target: message['target'], maxGainDb: message['maxGainDb'], speed: ViperLufsSpeed.values[message['speed']]); break;
+        case 'setViperFetCompressor': player.viper.setFetCompressor(enable: message['enable'], threshold: message['threshold'] ?? 0.0, ratio: message['ratio'] ?? 2.0, knee: message['knee'] ?? 0.0, kneeAuto: message['kneeAuto'] ?? false, gain: message['gain'] ?? 0.0, gainAuto: message['gainAuto'] ?? false, attack: message['attack'] ?? 10.0, attackAuto: message['attackAuto'] ?? false, release: message['release'] ?? 100.0, releaseAuto: message['releaseAuto'] ?? false, kneeMulti: message['kneeMulti'] ?? 0.0, maxAttack: message['maxAttack'] ?? 100.0, maxRelease: message['maxRelease'] ?? 1000.0, crest: message['crest'] ?? 0.0, adapt: message['adapt'] ?? 0.0, noClip: message['noClip'] ?? false); break;
+        case 'setViperBass': player.viper.setBass(enable: message['enable'], mode: ViperBassMode.values[message['mode']], frequencyHz: message['frequencyHz'], gain: message['gain'], antiPop: message['antiPop']); break;
+        case 'setViperBassMono': player.viper.setBassMono(enable: message['enable'], mode: ViperBassMode.values[message['mode']], frequencyHz: message['frequencyHz'], gain: message['gain'], antiPop: message['antiPop']); break;
+        case 'setViperPsychoacousticBass': player.viper.setPsychoacousticBass(enable: message['enable'], cutoffHz: message['cutoffHz'], intensity: message['intensity'], harmonicOrder: message['harmonicOrder'], originalLevel: message['originalLevel']); break;
+        case 'setViperSpectrumExtension': player.viper.setSpectrumExtension(enable: message['enable'], strength: message['strength'], exciter: message['exciter']); break;
+        case 'setViperConvolver': player.viper.setConvolver(enable: message['enable'], crossChannel: message['crossChannel']); break;
+        case 'loadViperConvolver': 
+          try {
+            final samples = WavParser.parse(message['path']);
+            player.viper.loadConvolverKernel(samples, 2, 1); // Using 2 channels (stereo) and kernelId 1
+          } catch(e) {
+            initData.sendPort.send('[log]loadViperConvolver Error: $e');
+          }
+          break;
+        case 'setViperDdc': player.viper.setDdc(message['enable']); break;
+        case 'loadViperDdc':
+          try {
+            final ddcData = VdcParser.parse(message['path']);
+            player.viper.loadDdcCoefficients(
+              sections44100: ddcData['sections44100']!,
+              sections48000: ddcData['sections48000']!,
+              sectionCount: ddcData['sectionCount']![0].toInt()
+            );
+          } catch(e) {
+            initData.sendPort.send('[log]loadViperDdc Error: $e');
+          }
+          break;
+        case 'setViperFieldSurround': player.viper.setFieldSurround(enable: message['enable'], widening: message['widening'], midImage: message['midImage'], depth: message['depth']); break;
+        case 'setViperDiffSurround': player.viper.setDiffSurround(enable: message['enable'], delay: message['delay'], reverse: message['reverse'], wetDryMix: message['wetDryMix'], lpCutoffHz: message['lpCutoffHz']); break;
+        case 'setViperStereoImager': player.viper.setStereoImager(enable: message['enable'], lowWidth: message['lowWidth'], midWidth: message['midWidth'], highWidth: message['highWidth'], lowCrossoverHz: message['lowCrossoverHz'], highCrossoverHz: message['highCrossoverHz']); break;
+        case 'setViperHeadphoneSurround': player.viper.setHeadphoneSurround(enable: message['enable'], quality: message['quality']); break;
+        case 'setViperReverb': player.viper.setReverb(enable: message['enable'], roomSize: message['roomSize'], width: message['width'], damp: message['damp'], wet: message['wet'], dry: message['dry']); break;
+        case 'setViperDynamicSystem': player.viper.setDynamicSystem(enable: message['enable'], xCoeffLow: message['xCoeffLow'], xCoeffHigh: message['xCoeffHigh'], yCoeffLow: message['yCoeffLow'], yCoeffHigh: message['yCoeffHigh'], sideGainLow: message['sideGainLow'], sideGainHigh: message['sideGainHigh'], strength: message['strength']); break;
+        case 'setViperClarity': player.viper.setClarity(enable: message['enable'], mode: ViperClarityMode.values[message['mode']], gain: message['gain']); break;
+        case 'setViperCure': player.viper.setCure(enable: message['enable'], preset: ViperCureCrossfeedPreset.values[message['preset']]); break;
+        case 'setViperTubeSimulator': player.viper.setTubeSimulator(message['enable']); break;
+        case 'setViperAnalogX': player.viper.setAnalogX(enable: message['enable'], mode: ViperAnalogXMode.values[message['mode']]); break;
+        case 'setViperSpeakerCorrection': player.viper.setSpeakerCorrection(message['enable']); break;
+        case 'setViperMultibandCompressor':
+          final bands = (message['bands'] as List).map((m) => ViperMultibandCompressorBand(
+            enable: m['enable'] ?? false,
+            threshold: m['threshold'] ?? 0.0,
+            ratio: m['ratio'] ?? 0.0,
+            knee: m['knee'] ?? 0.0,
+            kneeAuto: m['kneeAuto'] ?? false,
+            gain: m['gain'] ?? 0.0,
+            gainAuto: m['gainAuto'] ?? false,
+            attack: m['attack'] ?? 0.0,
+            attackAuto: m['attackAuto'] ?? false,
+            release: m['release'] ?? 0.0,
+            releaseAuto: m['releaseAuto'] ?? false,
+            kneeMulti: m['kneeMulti'] ?? 0.0,
+            maxAttack: m['maxAttack'] ?? 0.0,
+            maxRelease: m['maxRelease'] ?? 0.0,
+            crest: m['crest'] ?? 0.0,
+            adapt: m['adapt'] ?? 0.0,
+            noClip: m['noClip'] ?? false,
+          )).toList();
+          player.viper.setMultibandCompressor(
+            enable: message['enable'],
+            crossoverFreqs: (message['crossoverFreqs'] as List).cast<double>(),
+            bands: bands,
+          );
+          break;
+        case 'setViperDynamicEq':
+          final bands = (message['bands'] as List).map((m) => ViperDynamicEqBand(
+            frequencyHz: m['frequencyHz'] ?? 1000.0,
+            q: m['q'] ?? 1.0,
+            gainDb: m['gainDb'] ?? 0.0,
+            thresholdDb: m['thresholdDb'] ?? 0.0,
+            attackMs: m['attackMs'] ?? 20.0,
+            releaseMs: m['releaseMs'] ?? 100.0,
+            filterType: m['filterType'] ?? 0,
+          )).toList();
+          player.viper.setDynamicEq(enable: message['enable'], bands: bands);
+          break;
+        case 'setViperEqualizer': 
+          player.viper.setEqualizer(enable: message['enable'], bandLevels: (message['bandLevels'] as List).cast<double>()); 
           break;
         case 'dispose':
           player.dispose();

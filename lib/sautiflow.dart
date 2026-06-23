@@ -15,3 +15,13 @@ export 'src/miniaudio_filters.dart'
     show MiniaudioFiltersFFI, ResampleAlgorithm, DitherMode;
 export 'src/mobile_system_audio.dart'
     show MiniAudioSystemAudioConfig, MiniAudioSystemAudioController;
+export 'viper_dsp.dart'
+    show
+        ViperDsp,
+        ViperBassMode,
+        ViperClarityMode,
+        ViperAnalogXMode,
+        ViperCureCrossfeedPreset,
+        ViperLufsSpeed,
+        ViperMultibandCompressorBand,
+        ViperDynamicEqBand;

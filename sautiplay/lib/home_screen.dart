@@ -14,18 +14,23 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
       onPlayTracks;
   final VoidCallback? onGoToDownloads;
+  final bool isNested;
 
   const HomeScreen({
     super.key,
     this.onPlayTracks,
     this.onGoToDownloads,
+    this.isNested = false,
   });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   final YTMusic _ytMusic = YTMusic();
   List<HomeSection> _sections = [];
   bool _loading = true;
@@ -92,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= 800;
@@ -127,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       slivers: [
         // ── Header ──
-        _buildHeader(isDesktop: false),
+        if (!widget.isNested) _buildHeader(isDesktop: false),
 
         // ── Sections ──
         for (final section in _sections) ...[
@@ -151,7 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       slivers: [
         // ── Header ──
-        _buildHeader(isDesktop: true),
+        if (!widget.isNested) _buildHeader(isDesktop: true),
 
         // ── Sections ──
         for (final section in _sections) ...[

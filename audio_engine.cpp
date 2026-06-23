@@ -15,6 +15,7 @@
 #include "audio_engine.h"
 #include <samplerate.h>
 #include "mp4_aac_decoder.h"
+#include "ViPERDSP/viper/ViPER.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1298,8 +1299,16 @@ struct AudioEngineHandle
     std::atomic<bool> isPlaying{false};
     std::atomic<bool> crossfadeEnabled{false};
     std::atomic<int> crossfadeDurationMs{250};
-    std::atomic<ma_uint64> transitionFadeInFramesRemaining{0};
-    std::atomic<ma_uint64> transitionFadeInFramesTotal{0};
+
+    // Crossfade State
+    std::atomic<bool> isCrossfading{false};
+    std::atomic<ma_uint64> crossfadeFramesRemaining{0};
+    std::atomic<ma_uint64> crossfadeFramesTotal{0};
+    ma_decoder* fadingOutDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+    NetworkStreamState* fadingOutStream = nullptr;
+#endif
+
     std::atomic<bool> pendingSeekValid{false};
     std::atomic<ma_uint64> pendingSeekFrame{0};
     std::atomic<int> pendingSeekIndex{-1};
@@ -1443,6 +1452,11 @@ struct AudioEngineHandle
 
     bool multibandFxEnabled = false;
     std::vector<FxBand> multibandFxBands;
+
+    // ViPER DSP Engine
+    bool viperEnabled = false;
+    std::mutex viperMutex;
+    ViPER viper;
 
     std::atomic<bool> analyzerEnabled{false};
     int analyzerFrameSize = 512;
@@ -1657,16 +1671,16 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
     const bool enabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
     if (!enabled)
     {
-        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
-        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
         return;
     }
 
     const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
     if (durationMs <= 0)
     {
-        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
-        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
         return;
     }
 
@@ -1674,13 +1688,13 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
     const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
     if (fadeFrames == 0)
     {
-        e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
-        e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
+        e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
         return;
     }
 
-    e->transitionFadeInFramesTotal.store(fadeFrames, std::memory_order_relaxed);
-    e->transitionFadeInFramesRemaining.store(fadeFrames, std::memory_order_relaxed);
+    e->crossfadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
+    e->crossfadeFramesRemaining.store(fadeFrames, std::memory_order_relaxed);
 }
 
 static void reinit_advanced_fx_filters(AudioEngineHandle *e)
@@ -1808,6 +1822,7 @@ static bool load_decoder_for_path(
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
     cfg.customBackendCount = 1;
+    cfg.seekPointCount = 100; // Build a seek table for fast MP3 seeking
 
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
     if (is_network_url(path))
@@ -2296,6 +2311,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
                     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
                     ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
+                    config.seekPointCount = 100; // Build a seek table for fast MP3 seeking
                     // Dynamically apply pitch if present
                     const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
                     if (pitch != 1.0f)
@@ -2331,6 +2347,61 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (!e->hasCurrent || e->currentDecoder == nullptr)
             {
                 break;
+            }
+
+            // Early Crossfade Trigger
+            if (e->crossfadeEnabled.load(std::memory_order_relaxed) && e->hasNext && !e->isCrossfading.load(std::memory_order_acquire))
+            {
+                ma_uint64 cursor = 0;
+                if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &cursor) == MA_SUCCESS)
+                {
+                    ma_uint64 length = e->currentLengthFrames;
+                    if (length > 0 && cursor <= length)
+                    {
+                        const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+                        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                        const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
+
+                        if (fadeFrames > 0 && (length - cursor) <= fadeFrames)
+                        {
+                            e->isCrossfading.store(true, std::memory_order_release);
+                            e->crossfadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
+                            e->crossfadeFramesRemaining.store(length - cursor, std::memory_order_relaxed);
+
+                            e->fadingOutDecoder = e->currentDecoder;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                            e->fadingOutStream = e->currentStream;
+#endif
+
+                            e->currentDecoder = e->nextDecoder;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                            e->currentStream = e->nextStream;
+#endif
+                            e->currentLengthFrames = e->nextLengthFrames;
+                            e->currentIndex = e->nextIndex;
+
+                            {
+                                std::lock_guard<std::mutex> pl(e->playlistMutex);
+                                set_order_cursor_for_index_locked(e, e->currentIndex);
+                            }
+
+                            e->hasNext = false;
+                            e->nextDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                            e->nextStream = nullptr;
+#endif
+                            e->nextIndex = -1;
+                            e->nextLengthFrames = 0;
+
+                            if (e->endCallback != nullptr)
+                            {
+                                e->endCallback(e->pEndCallbackUserData, e);
+                            }
+
+                            request_preload(e);
+                        }
+                    }
+                }
             }
 
             ma_uint64 framesRead = 0;
@@ -2426,10 +2497,53 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (produced > 0)
     {
-        ma_uint64 fadeRemaining = e->transitionFadeInFramesRemaining.load(std::memory_order_relaxed);
-        const ma_uint64 fadeTotal = e->transitionFadeInFramesTotal.load(std::memory_order_relaxed);
-        if (fadeRemaining > 0 && fadeTotal > 0)
+        ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
+        const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
+        
+        // MIXING FADEOUT DECODER (if active)
+        if (e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr) {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            
+            // Read from the old track
+            std::vector<float> mixBuf(produced * e->channels, 0.0f);
+            ma_uint64 oldFramesRead = 0;
+            ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf.data(), produced, &oldFramesRead);
+            
+            ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
+            {
+                const float tIn = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                const float tOut = 1.0f - tIn;
+                
+                const size_t base = (size_t)i * (size_t)e->channels;
+                for (int c = 0; c < e->channels; ++c)
+                {
+                    // If we successfully read frames from the old track, add them
+                    float outSample = (i < oldFramesRead) ? mixBuf[base + (size_t)c] : 0.0f;
+                    processBuffer[base + (size_t)c] = (processBuffer[base + (size_t)c] * tIn) + (outSample * tOut);
+                }
+                fadeRemaining -= 1;
+            }
+            e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+            
+            if (fadeRemaining == 0 || oldFramesRead == 0 || mixResult == MA_AT_END) {
+                // Crossfade complete
+                uninit_decoder_slot(
+                    e->fadingOutDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    , e->fadingOutStream
+#endif
+                );
+                e->fadingOutDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->fadingOutStream = nullptr;
+#endif
+                e->isCrossfading.store(false, std::memory_order_release);
+            }
+        } 
+        else if (fadeRemaining > 0 && fadeTotal > 0)
         {
+            // Simple gapless fade-in (e.g. from seek or if crossfading is disabled/unsupported for this track)
             ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
             {
@@ -2441,7 +2555,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
                 fadeRemaining -= 1;
             }
-            e->transitionFadeInFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+            e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
         }
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
@@ -2581,6 +2695,14 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->eq.process(processBuffer, produced, e->channels);
             if (e->reverbEnabled)
                 e->reverb.process(processBuffer, produced, e->channels);
+
+            if (e->viperEnabled)
+            {
+                std::lock_guard<std::mutex> lock(e->viperMutex);
+                std::vector<float> tmpBuffer(processBuffer, processBuffer + (produced * e->channels));
+                e->viper.Process(tmpBuffer, produced);
+                std::copy(tmpBuffer.begin(), tmpBuffer.end(), processBuffer);
+            }
 
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
             if (e->limiterEnabled)
@@ -3359,8 +3481,11 @@ extern "C"
         e->crossfadeEnabled.store(enabled != 0, std::memory_order_relaxed);
         if (enabled == 0)
         {
-            e->transitionFadeInFramesTotal.store(0, std::memory_order_relaxed);
-            e->transitionFadeInFramesRemaining.store(0, std::memory_order_relaxed);
+            e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
+            if (e->currentDecoder != nullptr)
+            {
+                e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -3383,6 +3508,17 @@ extern "C"
         if (e == nullptr)
             return 0;
         return clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+    }
+
+    AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0f;
+        if (e->device.sampleRate == 0)
+            return 0.0f;
+            
+        uint32_t frames = e->device.playback.internalPeriodSizeInFrames * e->device.playback.internalPeriods;
+        return (float)frames / (float)e->device.sampleRate * 1000.0f;
     }
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *e)
@@ -4911,6 +5047,399 @@ extern "C"
         state.pitch = engine->pitchMultiplier.load();
 
         return state;
+    }
+
+    // ==========================================
+    // ViPER DSP Integration Implementation
+    // ==========================================
+
+    AE_API void ae_viper_set_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viperEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_viper_set_sampling_rate(AudioEngineHandle *engine, int sample_rate)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.SetSamplingRate(sample_rate);
+    }
+
+    AE_API void ae_viper_reset(AudioEngineHandle *engine)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ResetAllEffects();
+        engine->viper.ResetBuffers();
+    }
+
+    AE_API void ae_viper_master_limiter(AudioEngineHandle *engine, float threshold, float output_volume, float channel_pan)
+    {
+        if (!engine) return;
+        viper::MasterLimiterParams p;
+        p.threshold = threshold;
+        p.output_volume = output_volume;
+        p.channel_pan = channel_pan;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyMasterLimiter(p);
+    }
+
+    AE_API void ae_viper_playback_gain(AudioEngineHandle *engine, int enable, float strength, float max_gain, float output_threshold)
+    {
+        if (!engine) return;
+        viper::PlaybackGainControlParams p;
+        p.enable = enable;
+        p.strength = strength;
+        p.max_gain = max_gain;
+        p.output_threshold = output_threshold;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyPlaybackGainControl(p);
+    }
+
+    AE_API void ae_viper_lufs(AudioEngineHandle *engine, int enable, float target, float max_gain_db, int speed)
+    {
+        if (!engine) return;
+        viper::LufsParams p;
+        p.enable = enable;
+        p.target = target;
+        p.max_gain = max_gain_db;
+        p.speed = speed;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyLufs(p);
+    }
+
+    AE_API void ae_viper_fet_compressor(AudioEngineHandle *engine, int enable, float threshold, float ratio, float knee, int knee_auto, float gain, int gain_auto, float attack, int attack_auto, float release, int release_auto, float knee_multi, float max_attack, float max_release, float crest, float adapt, int no_clip)
+    {
+        if (!engine) return;
+        viper::FetCompressorParams p;
+        p.enable = enable;
+        p.threshold = threshold;
+        p.ratio = ratio;
+        p.knee = knee;
+        p.knee_auto = knee_auto;
+        p.gain = gain;
+        p.gain_auto = gain_auto;
+        p.attack = attack;
+        p.attack_auto = attack_auto;
+        p.release = release;
+        p.release_auto = release_auto;
+        p.knee_multi = knee_multi;
+        p.max_attack = max_attack;
+        p.max_release = max_release;
+        p.crest = crest;
+        p.adapt = adapt;
+        p.no_clip = no_clip;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyFetCompressor(p);
+    }
+
+    AE_API void ae_viper_bass(AudioEngineHandle *engine, int enable, int mode, int frequency_hz, float gain, int anti_pop)
+    {
+        if (!engine) return;
+        viper::BassParams p;
+        p.enable = enable;
+        p.mode = mode;
+        p.frequency = (uint32_t)frequency_hz;
+        p.gain = gain;
+        p.anti_pop = anti_pop;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyBass(p);
+    }
+
+    AE_API void ae_viper_bass_mono(AudioEngineHandle *engine, int enable, int mode, int frequency_hz, float gain, int anti_pop)
+    {
+        if (!engine) return;
+        viper::BassMonoParams p;
+        p.enable = enable;
+        p.mode = mode;
+        p.frequency = (uint32_t)frequency_hz;
+        p.gain = gain;
+        p.anti_pop = anti_pop;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyBassMono(p);
+    }
+
+    AE_API void ae_viper_psychoacoustic_bass(AudioEngineHandle *engine, int enable, int cutoff_hz, int intensity, int harmonic_order, int original_level)
+    {
+        if (!engine) return;
+        viper::PsychoacousticBassParams p;
+        p.enable = enable;
+        p.cutoff = (uint32_t)cutoff_hz;
+        p.intensity = (uint32_t)intensity;
+        p.harmonic_order = (uint32_t)harmonic_order;
+        p.original_level = (uint32_t)original_level;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyPsychoacousticBass(p);
+    }
+
+    AE_API void ae_viper_spectrum_extension(AudioEngineHandle *engine, int enable, int strength, float exciter)
+    {
+        if (!engine) return;
+        viper::SpectrumExtensionParams p;
+        p.enable = enable;
+        p.strength = strength;
+        p.exciter = exciter;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplySpectrumExtension(p);
+    }
+
+    AE_API void ae_viper_equalizer(AudioEngineHandle *engine, int enable, int band_count, const float *band_levels)
+    {
+        if (!engine) return;
+        viper::EqualizerParams p;
+        p.enable = enable;
+        p.band_count = band_count;
+        if (band_levels) {
+            int count = (band_count > 31) ? 31 : band_count;
+            for(int i=0; i<count; i++) p.band_levels[i] = band_levels[i];
+        }
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyEqualizer(p);
+    }
+
+    AE_API void ae_viper_convolver(AudioEngineHandle *engine, int enable, float cross_channel)
+    {
+        if (!engine) return;
+        viper::ConvolverParams p;
+        p.enable = enable;
+        p.cross_channel = cross_channel;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyConvolver(p);
+    }
+
+    AE_API int ae_viper_load_convolver_kernel(AudioEngineHandle *engine, const float *samples, int frame_count, int channels, int kernel_id)
+    {
+        if (!engine || !samples) return 0;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        auto result = engine->viper.LoadConvolverKernel(samples, frame_count, channels, kernel_id);
+        return result.value_or(0);
+    }
+
+    AE_API void ae_viper_unload_convolver_kernel(AudioEngineHandle *engine)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.UnloadConvolverKernel();
+    }
+
+    AE_API void ae_viper_ddc(AudioEngineHandle *engine, int enable)
+    {
+        if (!engine) return;
+        viper::DdcParams p;
+        p.enable = enable;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyDdc(p);
+    }
+
+    AE_API void ae_viper_load_ddc_coefficients(AudioEngineHandle *engine, const float *sections44100, const float *sections48000, int section_count)
+    {
+        if (!engine || !sections44100 || !sections48000) return;
+        std::vector<viper::BiquadSection> s44;
+        std::vector<viper::BiquadSection> s48;
+        for(int i=0; i<section_count; i++) {
+            viper::BiquadSection sec;
+            sec[0] = sections44100[i*5+0];
+            sec[1] = sections44100[i*5+1];
+            sec[2] = sections44100[i*5+2];
+            sec[3] = sections44100[i*5+3];
+            sec[4] = sections44100[i*5+4];
+            s44.push_back(sec);
+            
+            viper::BiquadSection sec2;
+            sec2[0] = sections48000[i*5+0];
+            sec2[1] = sections48000[i*5+1];
+            sec2[2] = sections48000[i*5+2];
+            sec2[3] = sections48000[i*5+3];
+            sec2[4] = sections48000[i*5+4];
+            s48.push_back(sec2);
+        }
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.LoadDdcCoefficients(s44.data(), s48.data(), section_count);
+    }
+
+    AE_API void ae_viper_field_surround(AudioEngineHandle *engine, int enable, float widening, float mid_image, int depth)
+    {
+        if (!engine) return;
+        viper::FieldSurroundParams p;
+        p.enable = enable;
+        p.widening = widening;
+        p.mid_image = mid_image;
+        p.depth = depth;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyFieldSurround(p);
+    }
+
+    AE_API void ae_viper_diff_surround(AudioEngineHandle *engine, int enable, float delay, int reverse, float wet_dry_mix, float lp_cutoff_hz)
+    {
+        if (!engine) return;
+        viper::DiffSurroundParams p;
+        p.enable = enable;
+        p.delay = delay;
+        p.reverse = reverse;
+        p.wet_dry_mix = wet_dry_mix;
+        p.lp_cutoff = lp_cutoff_hz;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyDiffSurround(p);
+    }
+
+    AE_API void ae_viper_stereo_imager(AudioEngineHandle *engine, int enable, float low_width, float mid_width, float high_width, float low_crossover_hz, float high_crossover_hz)
+    {
+        if (!engine) return;
+        viper::StereoImagerParams p;
+        p.enable = enable;
+        p.low_width = low_width;
+        p.mid_width = mid_width;
+        p.high_width = high_width;
+        p.low_crossover = low_crossover_hz;
+        p.high_crossover = high_crossover_hz;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyStereoImager(p);
+    }
+
+    AE_API void ae_viper_headphone_surround(AudioEngineHandle *engine, int enable, int quality)
+    {
+        if (!engine) return;
+        viper::HeadphoneSurroundParams p;
+        p.enable = enable;
+        p.quality = quality;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyHeadphoneSurround(p);
+    }
+
+    AE_API void ae_viper_reverb(AudioEngineHandle *engine, int enable, float room_size, float width, float damp, float wet, float dry)
+    {
+        if (!engine) return;
+        viper::ReverbParams p;
+        p.enable = enable;
+        p.room_size = room_size;
+        p.width = width;
+        p.damp = damp;
+        p.wet = wet;
+        p.dry = dry;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyReverb(p);
+    }
+
+    AE_API void ae_viper_dynamic_system(AudioEngineHandle *engine, int enable, int x_coeff_low, int x_coeff_high, int y_coeff_low, int y_coeff_high, float side_gain_low, float side_gain_high, float strength)
+    {
+        if (!engine) return;
+        viper::DynamicSystemParams p;
+        p.enable = enable;
+        p.x_coeff_low = x_coeff_low;
+        p.x_coeff_high = x_coeff_high;
+        p.y_coeff_low = y_coeff_low;
+        p.y_coeff_high = y_coeff_high;
+        p.side_gain_low = side_gain_low;
+        p.side_gain_high = side_gain_high;
+        p.strength = strength;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyDynamicSystem(p);
+    }
+
+    AE_API void ae_viper_clarity(AudioEngineHandle *engine, int enable, int mode, float gain)
+    {
+        if (!engine) return;
+        viper::ClarityParams p;
+        p.enable = enable;
+        p.mode = mode;
+        p.gain = gain;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyClarity(p);
+    }
+
+    AE_API void ae_viper_cure(AudioEngineHandle *engine, int enable, int crossfeed_preset)
+    {
+        if (!engine) return;
+        viper::CureParams p;
+        p.enable = enable;
+        p.crossfeed_preset = crossfeed_preset;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyCure(p);
+    }
+
+    AE_API void ae_viper_tube_simulator(AudioEngineHandle *engine, int enable)
+    {
+        if (!engine) return;
+        viper::TubeSimulatorParams p;
+        p.enable = enable;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyTubeSimulator(p);
+    }
+
+    AE_API void ae_viper_analog_x(AudioEngineHandle *engine, int enable, int mode)
+    {
+        if (!engine) return;
+        viper::AnalogXParams p;
+        p.enable = enable;
+        p.mode = mode;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyAnalogX(p);
+    }
+
+    AE_API void ae_viper_speaker_correction(AudioEngineHandle *engine, int enable)
+    {
+        if (!engine) return;
+        viper::SpeakerCorrectionParams p;
+        p.enable = enable;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplySpeakerCorrection(p);
+    }
+
+    AE_API void ae_viper_multiband_compressor(AudioEngineHandle *engine, int enable, int band_count, const float *crossover_freqs, const float *band_params)
+    {
+        if (!engine) return;
+        viper::MultibandCompressorParams p;
+        p.enable = enable;
+        p.band_count = band_count;
+        if (crossover_freqs && band_params) {
+            for(int i=0; i<4; i++) p.crossover_frequencies[i] = crossover_freqs[i];
+            int count = (band_count > 5) ? 5 : band_count;
+            for(int i=0; i<count; i++) {
+                p.bands[i].enable = (band_params[i*17+0] != 0.0f);
+                p.bands[i].threshold = band_params[i*17+1];
+                p.bands[i].ratio = band_params[i*17+2];
+                p.bands[i].knee = band_params[i*17+3];
+                p.bands[i].knee_auto = (band_params[i*17+4] != 0.0f);
+                p.bands[i].gain = band_params[i*17+5];
+                p.bands[i].gain_auto = (band_params[i*17+6] != 0.0f);
+                p.bands[i].attack = band_params[i*17+7];
+                p.bands[i].attack_auto = (band_params[i*17+8] != 0.0f);
+                p.bands[i].release = band_params[i*17+9];
+                p.bands[i].release_auto = (band_params[i*17+10] != 0.0f);
+                p.bands[i].knee_multi = band_params[i*17+11];
+                p.bands[i].max_attack = band_params[i*17+12];
+                p.bands[i].max_release = band_params[i*17+13];
+                p.bands[i].crest = band_params[i*17+14];
+                p.bands[i].adapt = band_params[i*17+15];
+                p.bands[i].no_clip = (band_params[i*17+16] != 0.0f);
+            }
+        }
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyMultibandCompressor(p);
+    }
+
+    AE_API void ae_viper_dynamic_eq(AudioEngineHandle *engine, int enable, int band_count, const float *band_params)
+    {
+        if (!engine) return;
+        viper::DynamicEqParams p;
+        p.enable = enable;
+        p.band_count = band_count;
+        if (band_params) {
+            int count = (band_count > 8) ? 8 : band_count;
+            for(int i=0; i<count; i++) {
+                p.bands[i].frequency = band_params[i*7+0];
+                p.bands[i].q = band_params[i*7+1];
+                p.bands[i].gain = band_params[i*7+2];
+                p.bands[i].threshold = band_params[i*7+3];
+                p.bands[i].attack = band_params[i*7+4];
+                p.bands[i].release = band_params[i*7+5];
+                p.bands[i].filter_type = (int)band_params[i*7+6];
+            }
+        }
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyDynamicEq(p);
     }
 
 } // extern "C"

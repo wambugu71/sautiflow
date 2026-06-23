@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:path/path.dart' as p;
@@ -18,18 +19,23 @@ class LibraryScreen extends StatefulWidget {
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs; // NEW
+  final bool isNested;
 
   const LibraryScreen({
     super.key,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.isNested = false,
   });
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   static const String _prefsKey = 'sautiplay_library_folders';
 
   // State
@@ -199,7 +205,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
-    final selectedDirectory = await FilePicker.getDirectoryPath();
+    String? selectedDirectory;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      selectedDirectory = await getDirectoryPath();
+    } else {
+      selectedDirectory = await FilePicker.getDirectoryPath();
+    }
     if (selectedDirectory == null) return;
 
     // Check if duplicate
@@ -296,6 +307,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     // Theme colors from mockup
     const Color primaryColor = Color(0xFF137FEC);
     const Color bgDark = Color(0xFF101922);
@@ -322,7 +334,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         // Header Region
                         Container(
                           padding: EdgeInsets.only(
-                              top: isDesktop ? 40.0 : 24.0,
+                              top: widget.isNested ? 8.0 : (isDesktop ? 40.0 : 24.0),
                               left: isDesktop ? 32.0 : 16.0,
                               right: isDesktop ? 32.0 : 16.0,
                               bottom: isDesktop ? 16.0 : 8.0),
@@ -341,15 +353,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(
-                                        'Your Library',
-                                        style: TextStyle(
-                                          fontSize: isDesktop ? 34 : 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: textLight,
-                                          letterSpacing: -0.5,
+                                      if (!widget.isNested)
+                                        Text(
+                                          'Your Library',
+                                          style: TextStyle(
+                                            fontSize: isDesktop ? 34 : 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: textLight,
+                                            letterSpacing: -0.5,
+                                          ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                   IconButton(

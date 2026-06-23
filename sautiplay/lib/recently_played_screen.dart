@@ -249,15 +249,26 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Recently Played',
-                          style: TextStyle(
-                            fontSize:
-                                isDesktop ? 36 : 28, // Matches text-3xl roughly
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: -0.5,
-                          ),
+                        Row(
+                          children: [
+                            if (Navigator.canPop(context)) ...[
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(
+                              'Recently Played',
+                              style: TextStyle(
+                                fontSize:
+                                    isDesktop ? 36 : 28, // Matches text-3xl roughly
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          ],
                         ),
                         TextButton(
                           onPressed: _history.isEmpty ? null : _clearHistory,

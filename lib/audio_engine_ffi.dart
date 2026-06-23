@@ -166,6 +166,9 @@ typedef _SetIntDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetIntNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
 
+typedef _GetDeviceLatencyMsNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
+typedef _GetDeviceLatencyMsDart = double Function(ffi.Pointer<ffi.Void>);
+
 typedef _GetStatusNative = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
 typedef _GetStatusDart = PlayerStatusNative Function(ffi.Pointer<ffi.Void>);
 
@@ -620,6 +623,8 @@ class AudioEngineFFI {
         _lib.lookupFunction<_JumpWithPositionNative, _JumpWithPositionDart>(
       'ae_jump_to_with_position',
     );
+    _getDeviceLatencyMs = _lib.lookupFunction<_GetDeviceLatencyMsNative,
+        _GetDeviceLatencyMsDart>('ae_get_device_latency_ms');
     _getStatus = _lib.lookupFunction<_GetStatusNative, _GetStatusDart>(
       'ae_get_status',
     );
@@ -974,6 +979,7 @@ class AudioEngineFFI {
   }
 
   final ffi.DynamicLibrary _lib;
+  ffi.DynamicLibrary get library => _lib;
   late final _CreateEngineDart _createEngine;
   late final _DestroyEngineDart _destroyEngine;
   late final _SetPlaylistDart _setPlaylist;
@@ -990,6 +996,7 @@ class AudioEngineFFI {
   late final _SeekDart _seek;
   late final _JumpDart _jumpTo;
   late final _JumpWithPositionDart _jumpToWithPosition;
+  late final _GetDeviceLatencyMsDart _getDeviceLatencyMs;
   late final _GetStatusDart _getStatus;
   late final _GetPipelineStateDart _getPipelineState;
   late final _GetLastErrorDart _getLastError;
@@ -1107,6 +1114,7 @@ class AudioEngineFFI {
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
 
   ffi.Pointer<ffi.Void> _engine;
+  ffi.Pointer<ffi.Void> get enginePointer => _engine;
 
   ffi.Pointer<ffi.Char> _toNativeChar(String value) {
     final bytes = utf8.encode(value);
@@ -1390,6 +1398,11 @@ class AudioEngineFFI {
       shuffleEnabled: s.shuffle_enabled != 0,
       loopMode: LoopMode.values[s.loop_mode.clamp(0, 2)],
     );
+  }
+
+  double getDeviceLatencyMs() {
+    if (_engine == ffi.nullptr) return 0.0;
+    return _getDeviceLatencyMs(_engine);
   }
 
   PipelineAudioState getPipelineState() {

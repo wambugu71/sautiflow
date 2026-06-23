@@ -187,6 +187,10 @@ If you need emulator ABIs (`x86`, `x86_64`), add matching prebuilt curl artifact
 For release/legal packaging, include third-party attributions from
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Credits and Acknowledgements
+
+- **ViPER DSP Engine**: The ViPER DSP integration is based on reverse-engineered code. The original intellectual property belongs to Zhuhang and ViPER520 (ViPER4Android). Reverse engineering by [Martmists](https://github.com/Martmists-GH), [Iscle](https://github.com/iscle), and [likelikeslike](https://github.com/likelikeslike) ([AndroidAudioMods/ViPERFX_RE](https://github.com/AndroidAudioMods/ViPERFX_RE)). Please note this specific module carries no standard open source license (All Rights Reserved) and is intended for personal use only.
+
 ## Example
 
 See [example/main.dart](example/main.dart) for a complete usage sample.

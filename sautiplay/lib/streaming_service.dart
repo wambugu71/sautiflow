@@ -6,7 +6,10 @@ import 'package:flutter/foundation.dart';
 
 /// Resolves YouTube videoIds to streaming MP3 URLs via the Wambugu Music API.
 class StreamingService {
-  static const _streamUrl1 = String.fromEnvironment('STREAM_URL_1');
+  static const _streamUrl1 = String.fromEnvironment(
+    'STREAM_URL_1',
+    defaultValue: 'https://wambugu-music.vercel.app/download',
+  );
   static const _streamUrl2 = String.fromEnvironment('STREAM_URL_2');
 
   static List<String> get _baseUrls => [

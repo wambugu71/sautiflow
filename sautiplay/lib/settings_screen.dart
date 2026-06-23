@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sautiflow/sautiflow.dart';
 
+import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
 
@@ -12,6 +13,10 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<bool> onAnalyzerEnabledChanged;
   final String analyzerType;
   final ValueChanged<String> onAnalyzerTypeChanged;
+  final bool analyzerAutoFit;
+  final ValueChanged<bool> onAnalyzerAutoFitChanged;
+  final bool analyzerShowGrids;
+  final ValueChanged<bool> onAnalyzerShowGridsChanged;
   final int analyzerSampleSize;
   final ValueChanged<int> onAnalyzerSampleSizeChanged;
   final AudioFormat outputFormat;
@@ -34,6 +39,10 @@ class SettingsScreen extends StatefulWidget {
     required this.onAnalyzerEnabledChanged,
     required this.analyzerType,
     required this.onAnalyzerTypeChanged,
+    required this.analyzerAutoFit,
+    required this.onAnalyzerAutoFitChanged,
+    required this.analyzerShowGrids,
+    required this.onAnalyzerShowGridsChanged,
     required this.analyzerSampleSize,
     required this.onAnalyzerSampleSizeChanged,
     required this.outputFormat,
@@ -86,6 +95,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _resampleAlgorithm = 0;
   int _ditherMode = 0;
   int _eqBandCount = 10;
+  
+  // ReplayGain
+  ReplayGainMode _replayGainMode = ReplayGainMode.none;
+  double _replayGainPreamp = 0.0;
 
   @override
   void initState() {
@@ -96,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
+    final rgSaved = await AppStateService.instance.loadReplayGainSettings();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -104,7 +118,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _resampleAlgorithm = saved.resampleAlgorithm;
       _ditherMode = saved.ditherMode;
       _eqBandCount = eqSaved.bandCount;
+      _replayGainMode = rgSaved.mode;
+      _replayGainPreamp = rgSaved.preamp;
     });
+  }
+
+  void _persistReplayGainSettings() {
+    AppStateService.instance.saveReplayGainSettings(
+      mode: _replayGainMode,
+      preamp: _replayGainPreamp,
+    );
   }
 
   void _persistUiSettings() {
@@ -446,6 +469,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           onTap: () => _showOutputFormatDialog(),
+        ),
+        const Divider(color: Colors.white10, height: 1),
+        // ReplayGain Mode
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(10),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.equalizer, color: Colors.white70, size: 20),
+          ),
+          title: const Text('ReplayGain Mode',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          trailing: SizedBox(
+            width: 150,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    _replayGainMode == ReplayGainMode.none
+                        ? 'None'
+                        : _replayGainMode == ReplayGainMode.track
+                            ? 'Track'
+                            : 'Album',
+                    style: const TextStyle(color: _textDark, fontSize: 14),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right, color: _textDark, size: 20),
+              ],
+            ),
+          ),
+          onTap: () => _showReplayGainModeDialog(),
+        ),
+        const Divider(color: Colors.white10, height: 1),
+        // ReplayGain Preamp Knob
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'ReplayGain Preamp',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              ),
+              SizedBox(
+                width: 90,
+                child: ModernAudioKnob(
+                  label: 'GAIN',
+                  value: _replayGainPreamp,
+                  min: -15.0,
+                  max: 15.0,
+                  activeColor: _primary,
+                  valueFormatter: (v) => '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  onChanged: (val) {
+                    setState(() => _replayGainPreamp = val);
+                    _persistReplayGainSettings();
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
         const Divider(color: Colors.white10, height: 1),
         // Sample Rate
@@ -830,6 +920,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          const Divider(color: Colors.white10, height: 1),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            activeThumbColor: Colors.white,
+            activeTrackColor: Color(0xFF137fec),
+            inactiveThumbColor: Colors.white70,
+            inactiveTrackColor: Colors.white10,
+            title: const Text('Auto Fit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Dynamically adjust Y-axis scale', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            value: widget.analyzerAutoFit,
+            onChanged: widget.onAnalyzerAutoFitChanged,
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            activeThumbColor: Colors.white,
+            activeTrackColor: Color(0xFF137fec),
+            inactiveThumbColor: Colors.white70,
+            inactiveTrackColor: Colors.white10,
+            title: const Text('Show Grids', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            value: widget.analyzerShowGrids,
+            onChanged: widget.onAnalyzerShowGridsChanged,
           ),
           const Divider(color: Colors.white10, height: 1),
           // Sample Size
@@ -1391,7 +1505,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ));
   }
 
-  void _showDitherModeDialog() {
+  Future<void> _showReplayGainModeDialog() async {
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _cardDark,
+          title: const Text('ReplayGain Mode', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<ReplayGainMode>(
+                title: const Text('None', style: TextStyle(color: Colors.white)),
+                activeColor: _primary,
+                value: ReplayGainMode.none,
+                groupValue: _replayGainMode,
+                onChanged: (val) {
+                  setState(() => _replayGainMode = val!);
+                  _persistReplayGainSettings();
+                  Navigator.pop(context);
+                },
+              ),
+              RadioListTile<ReplayGainMode>(
+                title: const Text('Track', style: TextStyle(color: Colors.white)),
+                activeColor: _primary,
+                value: ReplayGainMode.track,
+                groupValue: _replayGainMode,
+                onChanged: (val) {
+                  setState(() => _replayGainMode = val!);
+                  _persistReplayGainSettings();
+                  Navigator.pop(context);
+                },
+              ),
+              RadioListTile<ReplayGainMode>(
+                title: const Text('Album', style: TextStyle(color: Colors.white)),
+                activeColor: _primary,
+                value: ReplayGainMode.album,
+                groupValue: _replayGainMode,
+                onChanged: (val) {
+                  setState(() => _replayGainMode = val!);
+                  _persistReplayGainSettings();
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showDitherModeDialog() async {
     showModalBottomSheet(
         context: context,
         backgroundColor: _cardDark,

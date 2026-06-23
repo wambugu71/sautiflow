@@ -2,7 +2,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yte;
 
 import 'models/liked_song.dart';
 import 'services/liked_songs_service.dart';
@@ -67,16 +66,23 @@ class TrackInfo {
     );
   }
 
-  /// From youtube_explode_dart Video
-  factory TrackInfo.fromYTExplodeVideo(yte.Video video) {
+  /// From dart_ytmusic_api VideoDetailed
+  factory TrackInfo.fromVideoDetailed(VideoDetailed video) {
+    String? thumb;
+    if (video.thumbnails.isNotEmpty) {
+      final sorted = List<ThumbnailFull>.from(video.thumbnails)
+        ..sort((a, b) => b.width.compareTo(a.width));
+      thumb = sorted.first.url;
+    }
     return TrackInfo(
-      videoId: video.id.value,
-      title: video.title,
-      artist: video.author,
-      thumbnailUrl: video.thumbnails.highResUrl,
-      durationSeconds: video.duration?.inSeconds,
+      videoId: video.videoId,
+      title: video.name,
+      artist: video.artist.name,
+      thumbnailUrl: thumb,
+      durationSeconds: video.duration,
     );
   }
+
 }
 
 class AlbumDetailScreen extends StatefulWidget {
@@ -166,30 +172,27 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         }
         if (mounted) setState(() => _loading = false);
       } else if (item is PlaylistDetailed) {
-        // Use youtube_explode_dart for playlists (dart_ytmusic_api is broken for RDCLAK IDs)
-        final ytExplode = yte.YoutubeExplode();
+        String pid = item.playlistId;
+        if (pid.startsWith('VL')) pid = pid.substring(2);
+
         try {
-          final List<TrackInfo> tracks = [];
-          await for (final video in ytExplode.playlists
-              .getVideos(yte.PlaylistId(item.playlistId))) {
-            tracks.add(TrackInfo.fromYTExplodeVideo(video));
-          }
+          await _ytMusic.initialize();
+          final playlistVideos = await _ytMusic.getPlaylistVideos(pid);
           if (mounted) {
             setState(() {
-              _tracks = tracks;
+              _tracks = playlistVideos.map((v) => TrackInfo.fromVideoDetailed(v)).toList();
               _loading = false;
+              _error = null;
             });
           }
         } catch (e) {
-          debugPrint('YTExplode getPlaylist failed: $e');
+          debugPrint('dart_ytmusic_api getPlaylistVideos failed: $e');
           if (mounted) {
             setState(() {
-              _error = e.toString();
+              _error = 'Could not load playlist tracks.';
               _loading = false;
             });
           }
-        } finally {
-          ytExplode.close();
         }
       } else if (item is SongDetailed) {
         // Show the song + load related tracks via getUpNexts

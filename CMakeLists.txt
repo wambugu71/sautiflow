@@ -4,13 +4,26 @@ project(audio_engine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_library(audio_engine SHARED audio_engine.cpp)
+file(GLOB VIPER_EFFECT_SRCS
+  ViPERDSP/viper/ViPER.cpp
+  ViPERDSP/viper/effects/*.cpp
+  ViPERDSP/viper/utils/*.cpp
+  ViPERDSP/viper/utils/*.c
+)
+
+add_library(audio_engine SHARED audio_engine.cpp ${VIPER_EFFECT_SRCS})
 
 set_target_properties(audio_engine PROPERTIES
   OUTPUT_NAME "sautiflow"
 )
 
-target_include_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(audio_engine PRIVATE 
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper
+  ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper/effects
+  ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper/utils
+)
 
 if (WIN32)
   target_compile_definitions(audio_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
