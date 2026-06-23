@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.5
+## 0.6.6
 
 - **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.
 - **[Apps/UI]** For `sautiplay`: added ViPER FX effects, implemented UI improvements, boosted performance, and fixed bugs.
