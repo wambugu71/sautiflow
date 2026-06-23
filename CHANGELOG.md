@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.5
+
+- **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.
+- **[Apps/UI]** For `sautiplay`: added ViPER FX effects, implemented UI improvements, boosted performance, and fixed bugs.
+
+## 0.6.4
+
+- Version bump for release.
+
 ## 0.6.3
 
 - **[Build]** Added unsigned iOS `.ipa` generation to the GitHub Actions workflow for sideloading iOS applications.

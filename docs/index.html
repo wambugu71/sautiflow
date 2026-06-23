@@ -70,6 +70,7 @@
                 <a href="#delay" class="nav-item">Delay</a>
                 <a href="#filters" class="nav-item">Filters</a>
                 <a href="#standalone-filters" class="nav-item">Standalone Filters</a>
+                <a href="#viper-dsp" class="nav-item" style="color: #c084fc; font-weight: 600;"><i class="fa-solid fa-bolt" style="margin-right: 5px;"></i> ViPER DSP Engine</a>
             </div>
 
             <div class="nav-group">
@@ -181,6 +182,9 @@
                         and crossfade controls.</li>
                     <li>Updated docs with implementation snippets for mixed multiband FX, realtime analyzer, crossfade,
                         and output sample-rate native mode.</li>
+                    <li><strong>New:</strong> Integrated the legendary <a href="#viper-dsp" style="color: #c084fc;">ViPER DSP Engine</a> with 25+ real-time algorithms (Headphone Surround, Tube Simulator, Psychoacoustic Bass, Multiband Dynamics).</li>
+                    <li><strong>Fixes:</strong> Fixed bugs and fixed crossfade in the native sautiflow audio engine.</li>
+                    <li><strong>Sautiplay:</strong> Added ViPER FX effects, UI improvements, performance boosts, and bug fixes to the Sautiplay app.</li>
                 </ul>
             </section>
 
@@ -812,6 +816,166 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
                 <p>Linked statically. Ensure `ffiPlugin` is enabled in your `pubspec.yaml`.</p>
             </section>
 
+            <section id="viper-dsp">
+                <h2>ViPER DSP Engine</h2>
+                <p>A completely typed, high-performance, FFI-bridged wrapper mapping advanced C++ audio algorithms directly into Dart. ViPER is fully integrated with Sautiflow's internal playback pipeline.</p>
+                
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Audiophile Profile Example</h3>
+                    </div>
+                    <div class="api-body">
+                        <pre><code class="language-dart">void setupAudiophileProfile(MiniAudioPlayer player) {
+  // 1. Wake up the beast
+  player.viper.setEnabled(true);
+  player.viper.setSamplingRate(player.getOutputSampleRate());
+
+  // 2. Dynamic Tube Saturation (Warmth)
+  player.viper.setTubeSimulator(true);
+  player.viper.setAnalogX(enable: true, mode: ViperAnalogXMode.moderate);
+
+  // 3. Bass Reconstruction
+  player.viper.setBass(
+    enable: true,
+    mode: ViperBassMode.pure,
+    frequencyHz: 60,
+    gain: 0.45,
+  );
+
+  // 4. High-frequency Air / Clarity
+  player.viper.setClarity(
+    enable: true,
+    mode: ViperClarityMode.natural,
+    gain: 0.2,
+  );
+
+  // 5. Protect the master out with LUFS normalization
+  player.viper.setLufs(
+    enable: true, 
+    target: -14.0, 
+    maxGainDb: 6.0,
+  );
+}</code></pre>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>Immersive Surround Example</h3>
+                    </div>
+                    <div class="api-body">
+                        <pre><code class="language-dart">void setupImmersiveSurround(MiniAudioPlayer player) {
+  player.viper.setEnabled(true);
+  
+  // 1. Headphone Surround (ViPER Headphone Engine)
+  // Re-creates the soundstage of speakers while wearing headphones, eliminating listening fatigue.
+  player.viper.setHeadphoneSurround(
+    enable: true,
+    quality: 1, // 0 = low, 1 = moderate, 2 = extreme
+  );
+
+  // 2. Field Surround
+  // Widens the 3D soundfield. Great for movies or expansive atmospheric music.
+  player.viper.setFieldSurround(
+    enable: true,
+    widening: 0.8,
+    midImage: 0.5,
+    depth: 1,
+  );
+
+  // 3. Differential Surround (Haas Effect)
+  // Delays one channel slightly to create a psychoacoustic widening effect.
+  player.viper.setDiffSurround(
+    enable: true,
+    delay: 5.5, // 5.5ms delay
+    reverse: false,
+    wetDryMix: 0.5, // 50% wet
+    lpCutoffHz: 12000,
+  );
+}</code></pre>
+                    </div>
+                </div>
+
+                <h3>Available API Features</h3>
+                <p>All ViPER DSP features are accessible through the <code>player.viper</code> getter. Here is the full list of supported algorithms:</p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>Core & Limits</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setEnabled(bool)</code> / <code>setSamplingRate(int)</code> - Engine state</li>
+                            <li><code>resetAll()</code> - Flush buffers and parameter states</li>
+                            <li><code>setMasterLimiter(threshold, outputVolume, channelPan)</code> - Absolute output protection</li>
+                            <li><code>setPlaybackGain(enable, strength, maxGain, outputThreshold)</code> - Auto-volume leveling</li>
+                            <li><code>setLufs(enable, target, maxGainDb, speed)</code> - Broadcast standard loudness targeting</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>Spatial & Surround</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setHeadphoneSurround(enable, quality)</code> - Eliminates "in-head" localization fatigue</li>
+                            <li><code>setDiffSurround(enable, delay, reverse, wetDryMix, lpCutoffHz)</code> - Psychoacoustic surround width</li>
+                            <li><code>setFieldSurround(enable, widening, midImage, depth)</code> - 3D Soundfield expansion</li>
+                            <li><code>setStereoImager(enable, lowWidth, midWidth, highWidth, crossovers...)</code> - Multiband stereo widening</li>
+                            <li><code>setConvolver(enable, crossChannel)</code> - Impulse Response convolution
+                                <pre><code class="language-dart">player.viper.loadConvolverKernel(float32Samples, channels, kernelId: 1);</code></pre>
+                            </li>
+                            <li><code>setReverb(enable, roomSize, width, damp, wet, dry)</code> - Natural room acoustics</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>Dynamics & Compression</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setFetCompressor(...)</code> - Studio-grade FET (Field Effect Transistor) emulation with knee, crest, and auto-gain</li>
+                            <li><code>setMultibandCompressor(enable, bands, crossovers)</code> - Surgical compression using up to 5 discrete frequency bands (List of <code>ViperMultibandCompressorBand</code>)</li>
+                            <li><code>setDynamicEq(enable, bands)</code> - EQ that reacts to audio levels in real-time (List of <code>ViperDynamicEqBand</code>)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>Bass & Clarity</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setBass(enable, mode, frequencyHz, gain, antiPop)</code> - Pure/Natural/Sub-woofer harmonic generation</li>
+                            <li><code>setBassMono(...)</code> - Centers bass frequencies to prevent phase issues on speakers</li>
+                            <li><code>setPsychoacousticBass(enable, cutoffHz, intensity, harmonicOrder...)</code> - Tricks the brain into hearing sub-bass on small phone speakers</li>
+                            <li><code>setClarity(enable, mode, gain)</code> - Natural/Ozone/XHiFi vocal and treble extraction</li>
+                            <li><code>setSpectrumExtension(enable, strength, exciter)</code> - Rebuilds high frequencies lost in MP3 compression</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>Analog & Emulation</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setTubeSimulator(enable)</code> - Odd-harmonic warmth modeling 6N1J tubes</li>
+                            <li><code>setAnalogX(enable, mode)</code> - Console coloration (slight, moderate, extreme)</li>
+                            <li><code>setCure(enable, crossfeedPreset)</code> - Advanced Crossfeed system for headphones</li>
+                            <li><code>setDynamicSystem(enable, xCoeff, yCoeff, sideGain, strength)</code> - High-end car audio / Hi-Fi equipment emulation</li>
+                            <li><code>setDdc(enable)</code> / <code>loadDdcCoefficients(...)</code> - Digital Device Correction for calibrating specific headphones</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
             <footer>
                 <p>&copy; <span id="year">2024</span> Sautiflow. Built with <i class="fa-solid fa-heart"
                         style="color: var(--accent-primary)"></i> and Dart.</p>
@@ -840,6 +1004,7 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
             <a href="#delay" class="toc-link">Delay</a>
             <a href="#filters" class="toc-link">Filters</a>
             <a href="#standalone-filters" class="toc-link">Standalone Filters</a>
+            <a href="#viper-dsp" class="toc-link" style="color: #c084fc;">ViPER DSP Engine</a>
             <a href="#crossfade" class="toc-link">Crossfade</a>
             <a href="#output-format" class="toc-link">Output Format</a>
             <a href="#android-setup" class="toc-link">Android Setup</a>
