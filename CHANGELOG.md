@@ -112,3 +112,8 @@ Fix missing C++ headers in published package
 - Playlist controls: play, pause, stop, seek, next, previous, jump, shuffle, loop.
 - Audio effects support: gain, pan, EQ, reverb, low/high-pass, delay.
 - Platform support: Android, iOS, macOS, Linux, and Windows.
+
+## 0.6.8
+- Fixed Linux build error (cmath / std::abs)
+- Fixed Windows build error (coroutine deprecation warning)
+

@@ -43,8 +43,8 @@ void FETCompressor::Process(float *samples, const uint32_t size) {
     if (!enable_ || size == 0) return;
 
     for (uint32_t i = 0; i < size * 2; i += 2) {
-        const double in_l = abs(samples[i]);
-        const double in_r = abs(samples[i + 1]);
+        const double in_l = std::abs(samples[i]);
+        const double in_r = std::abs(samples[i + 1]);
         const double in = std::fmax(in_l, in_r);
 
         const double out = ProcessSidechain(in);
