@@ -117,3 +117,7 @@ Fix missing C++ headers in published package
 - Fixed Linux build error (cmath / std::abs)
 - Fixed Windows build error (coroutine deprecation warning)
 
+
+## 0.6.9
+- CI deployment fix (bump version after successful publish)
+
