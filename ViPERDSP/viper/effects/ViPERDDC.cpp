@@ -1,3 +1,4 @@
+#include <cstring>
 #include <cstdint>
 #include "ViPERDDC.h"
 #include "../../include/log.h"

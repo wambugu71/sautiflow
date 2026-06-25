@@ -1,3 +1,4 @@
+#include <cstring>
 #include <cstdint>
 #include "Convolver.h"
 #include "../constants.h"

@@ -1,3 +1,4 @@
+#include <cstring>
 #include <cstdint>
 #include "AdaptiveBuffer.h"
 
