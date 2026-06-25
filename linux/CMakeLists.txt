@@ -6,10 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB FAAD2_SOURCES "../third_party/faad2/libfaad/*.c")
 file(GLOB LIBSAMPLERATE_SOURCES "../third_party/libsamplerate/src/*.c")
+file(GLOB VIPER_EFFECT_SRCS
+  "../ViPERDSP/viper/ViPER.cpp"
+  "../ViPERDSP/viper/effects/*.cpp"
+  "../ViPERDSP/viper/utils/*.cpp"
+  "../ViPERDSP/viper/utils/*.c"
+)
 
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../mp4_aac_decoder.cpp
+  ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
 )
@@ -20,6 +27,10 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/libfaad
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper
+  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/effects
+  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/utils
 )
 
 target_compile_definitions(audio_engine PRIVATE

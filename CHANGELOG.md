@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.7
+
+- **[Build]** Fixed missing ViPERDSP headers in Linux, macOS, and iOS builds.
+
 ## 0.6.6
 
 - **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.

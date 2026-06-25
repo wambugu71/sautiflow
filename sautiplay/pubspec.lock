@@ -779,10 +779,11 @@ packages:
   sautiflow:
     dependency: "direct main"
     description:
-      path: ".."
-      relative: true
-    source: path
-    version: "0.6.4"
+      name: sautiflow
+      sha256: fe494a0ef0430dd193cb0928e5c499b52c52e7fab29ad624921d974b34641b96
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.6.6"
   shared_preferences:
     dependency: "direct main"
     description:
