@@ -125,3 +125,7 @@ Fix missing C++ headers in published package
 ## 0.6.10
 - GitHub Actions CI workflow fix: remove branch triggers from publish workflow to fix pub.dev tag refType error
 
+
+## 0.6.11
+- Fix Linux build error: add missing cstdint include for uint32_t in TubeSimulator
+
