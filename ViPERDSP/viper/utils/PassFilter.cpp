@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "PassFilter.h"
 #include "../constants.h"
 

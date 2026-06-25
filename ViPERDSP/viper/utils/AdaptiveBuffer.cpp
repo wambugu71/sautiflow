@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "AdaptiveBuffer.h"
 
 AdaptiveBuffer::AdaptiveBuffer(const uint32_t channels, const uint32_t length) :

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "HiFi.h"
 #include "../constants.h"
 

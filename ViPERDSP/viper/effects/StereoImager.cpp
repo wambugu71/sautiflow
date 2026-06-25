@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "StereoImager.h"
 #include "../constants.h"
 

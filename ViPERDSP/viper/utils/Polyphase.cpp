@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Polyphase.h"
 #include "../constants.h"
 

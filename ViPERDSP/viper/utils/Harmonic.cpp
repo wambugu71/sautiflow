@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Harmonic.h"
 #include <cmath>
 #include <cstring>

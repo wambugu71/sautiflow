@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "CCombFilter.h"
 #include <cstring>
 

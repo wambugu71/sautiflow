@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "DynamicEQ.h"
 #include "../constants.h"
 #include <algorithm>

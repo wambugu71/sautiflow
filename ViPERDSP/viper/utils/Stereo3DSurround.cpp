@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Stereo3DSurround.h"
 
 Stereo3DSurround::Stereo3DSurround() :

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "CRevModel.h"
 
 CRevModel::CRevModel() {

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "MultiBiquad.h"
 #include <cmath>
 

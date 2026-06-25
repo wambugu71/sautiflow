@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Reverberation.h"
 
 Reverberation::Reverberation() :

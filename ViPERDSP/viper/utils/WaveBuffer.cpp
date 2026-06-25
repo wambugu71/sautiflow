@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "WaveBuffer.h"
 
 WaveBuffer::WaveBuffer(const uint32_t channels, const uint32_t length) :

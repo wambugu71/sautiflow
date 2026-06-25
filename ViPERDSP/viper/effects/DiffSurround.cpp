@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "DiffSurround.h"
 #include "../constants.h"
 

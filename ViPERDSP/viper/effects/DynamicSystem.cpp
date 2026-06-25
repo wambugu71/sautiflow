@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "DynamicSystem.h"
 #include "../constants.h"
 

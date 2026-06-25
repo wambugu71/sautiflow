@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "ViPERBass.h"
 #include "../constants.h"
 #include <cmath>

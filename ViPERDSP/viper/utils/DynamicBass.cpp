@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "DynamicBass.h"
 #include "../constants.h"
 

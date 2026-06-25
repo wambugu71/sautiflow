@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Convolver.h"
 #include "../constants.h"
 #include "../utils/Crc32.h"

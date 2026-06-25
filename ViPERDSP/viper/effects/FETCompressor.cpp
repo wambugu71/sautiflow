@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "FETCompressor.h"
 #include "../constants.h"
 #include <cmath>

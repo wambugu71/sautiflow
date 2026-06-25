@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "PolesFilter.h"
 #include "../constants.h"
 #include <cmath>

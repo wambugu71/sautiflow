@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "ViPER.h"
 #include "../include/ViPERParams.h"
 #include "../include/log.h"

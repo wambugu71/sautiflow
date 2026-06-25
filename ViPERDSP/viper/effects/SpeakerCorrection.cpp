@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "SpeakerCorrection.h"
 #include "../constants.h"
 

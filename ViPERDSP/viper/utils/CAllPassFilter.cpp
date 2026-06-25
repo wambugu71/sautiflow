@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "CAllPassFilter.h"
 #include <cstring>
 

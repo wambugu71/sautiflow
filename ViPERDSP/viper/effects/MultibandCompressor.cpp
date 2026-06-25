@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "MultibandCompressor.h"
 #include "../constants.h"
 

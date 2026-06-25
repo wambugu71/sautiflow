@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "ViPERClarity.h"
 #include "../constants.h"
 

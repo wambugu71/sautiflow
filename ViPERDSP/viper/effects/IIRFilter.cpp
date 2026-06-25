@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "IIRFilter.h"
 #include "../constants.h"
 #include <cmath>

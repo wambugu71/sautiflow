@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "SoftwareLimiter.h"
 #include "../constants.h"
 #include <cmath>

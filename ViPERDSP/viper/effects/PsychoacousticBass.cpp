@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "PsychoacousticBass.h"
 #include "../constants.h"
 #include <cmath>

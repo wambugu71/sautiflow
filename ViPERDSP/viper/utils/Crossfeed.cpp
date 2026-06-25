@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Crossfeed.h"
 #include "../constants.h"
 #include <cmath>

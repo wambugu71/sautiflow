@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "ViPERDDC.h"
 #include "../../include/log.h"
 #include "../constants.h"

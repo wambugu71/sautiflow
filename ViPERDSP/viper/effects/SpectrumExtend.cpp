@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "SpectrumExtend.h"
 #include "../constants.h"
 

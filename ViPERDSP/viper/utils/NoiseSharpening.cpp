@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "NoiseSharpening.h"
 #include "../constants.h"
 

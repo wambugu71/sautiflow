@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "Subwoofer.h"
 #include "../constants.h"
 #include <cmath>

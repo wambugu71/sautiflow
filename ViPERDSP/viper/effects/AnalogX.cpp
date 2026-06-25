@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "AnalogX.h"
 #include "../constants.h"
 #include <cstring>

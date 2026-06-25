@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "../utils/PConvSingle.h"
 #include "../utils/WaveBuffer.h"
 

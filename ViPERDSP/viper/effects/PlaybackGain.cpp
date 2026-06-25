@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "PlaybackGain.h"
 #include "../constants.h"
 #include <cmath>

@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "ColorfulMusic.h"
 #include "../constants.h"
 

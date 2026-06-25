@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "DepthSurround.h"
 #include "../constants.h"
 #include <cmath>

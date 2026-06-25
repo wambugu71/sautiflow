@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "FIR.h"
 
 FIR::FIR() :

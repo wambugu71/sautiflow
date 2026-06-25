@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "IIR_NOrder_BW_BP.h"
 
 IIR_NOrder_BW_BP::IIR_NOrder_BW_BP(const uint32_t order) {
