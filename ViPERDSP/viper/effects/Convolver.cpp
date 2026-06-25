@@ -1,6 +1,7 @@
 #include <cstring>
 #include <cstdint>
 #include "Convolver.h"
+#include <cstddef>
 #include "../constants.h"
 #include "../utils/Crc32.h"
 #include "../utils/WavReader.h"
