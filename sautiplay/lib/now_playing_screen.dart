@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_lyric/flutter_lyric.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:text_scroll/text_scroll.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
@@ -529,15 +530,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              TextScroll(
                                 title,
                                 style: const TextStyle(
                                   fontSize: 28,
                                   fontWeight: FontWeight.bold,
                                   color: textLight,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                mode: TextScrollMode.bouncing,
+                                velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
+                                delayBefore: const Duration(seconds: 1),
+                                pauseBetween: const Duration(seconds: 2),
+                                selectable: true,
                               ),
                               const SizedBox(height: 4),
                               InkWell(

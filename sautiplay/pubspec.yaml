@@ -28,6 +28,7 @@ dependencies:
   loading_indicator_m3e: ^0.1.1
   file_selector: ^1.1.0
   audio_metadata_reader: ^1.6.0
+  text_scroll: ^0.2.1
 
 dev_dependencies:
   flutter_test:
