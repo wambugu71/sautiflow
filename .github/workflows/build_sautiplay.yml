@@ -197,7 +197,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_linux_deb
-          path: sautiplay/**/*.deb
+          path: sautiplay/build/linux/x64/release/debian/*.deb
 
   build-macos:
     name: Build macOS
@@ -268,7 +268,7 @@ jobs:
             artifacts/sautiflow_windows/sautiflow_windows.zip
             artifacts/sautiflow_windows_msix/*.msix
             artifacts/sautiflow_linux/sautiflow_linux.tar.gz
-            artifacts/sautiflow_linux_deb/*.deb
+            artifacts/sautiflow_linux_deb/**/*.deb
             artifacts/sautiflow_macos/sautiflow_macos.zip
           draft: false
           prerelease: false
