@@ -112,7 +112,7 @@ jobs:
 
       - name: Create MSIX
         working-directory: .\sautiplay
-        run: dart run msix:create
+        run: dart run msix:create --install-certificate false
 
       - name: Compress Release
         working-directory: .\sautiplay\build\windows\x64\runner
@@ -133,7 +133,7 @@ jobs:
   build-linux:
     name: Build Linux
     needs: delay
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -171,7 +171,17 @@ jobs:
 
       - name: Create Debian Package
         working-directory: ./sautiplay
-        run: dart run flutter_to_debian
+        run: |
+          # Workaround for flutter_to_debian failing on dpkg -S diversion output
+          sudo mv /usr/bin/dpkg /usr/bin/dpkg.real
+          echo '#!/bin/bash' | sudo tee /usr/bin/dpkg
+          echo '/usr/bin/dpkg.real "$@" | grep -v "diversion"' | sudo tee -a /usr/bin/dpkg
+          sudo chmod +x /usr/bin/dpkg
+          
+          dart run flutter_to_debian
+          
+          # Restore dpkg
+          sudo mv /usr/bin/dpkg.real /usr/bin/dpkg
 
       - name: Compress Release
         working-directory: ./sautiplay/build/linux/x64/release
