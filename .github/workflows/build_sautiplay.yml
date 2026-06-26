@@ -110,15 +110,25 @@ jobs:
         working-directory: .\sautiplay
         run: flutter build windows --release --no-pub --obfuscate --split-debug-info=build/debug_symbols --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
+      - name: Create MSIX
+        working-directory: .\sautiplay
+        run: dart run msix:create
+
       - name: Compress Release
         working-directory: .\sautiplay\build\windows\x64\runner
         run: Compress-Archive -Path Release -DestinationPath sautiflow_windows.zip
 
-      - name: Upload Artifact
+      - name: Upload Artifact Zip
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_windows
-          path: sautiplay\\build\\windows\\x64\\runner\\sautiflow_windows.zip
+          path: sautiplay\build\windows\x64\runner\sautiflow_windows.zip
+
+      - name: Upload Artifact MSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: sautiflow_windows_msix
+          path: sautiplay\build\windows\x64\runner\Release\*.msix
 
   build-linux:
     name: Build Linux
@@ -159,15 +169,25 @@ jobs:
         working-directory: ./sautiplay
         run: flutter build linux --release --no-pub --obfuscate --split-debug-info=build/debug_symbols --dart-define="STREAM_URL_1=${{ secrets.STREAM_URL_1 }}" --dart-define="STREAM_URL_2=${{ secrets.STREAM_URL_2 }}"
 
+      - name: Create Debian Package
+        working-directory: ./sautiplay
+        run: dart run flutter_to_debian
+
       - name: Compress Release
         working-directory: ./sautiplay/build/linux/x64/release
         run: tar -czvf sautiflow_linux.tar.gz bundle
 
-      - name: Upload Artifact
+      - name: Upload Artifact Tar
         uses: actions/upload-artifact@v4
         with:
           name: sautiflow_linux
           path: sautiplay/build/linux/x64/release/sautiflow_linux.tar.gz
+
+      - name: Upload Artifact Debian
+        uses: actions/upload-artifact@v4
+        with:
+          name: sautiflow_linux_deb
+          path: sautiplay/**/*.deb
 
   build-macos:
     name: Build macOS
@@ -236,7 +256,9 @@ jobs:
             artifacts/sautiflow_android_armv7/sautiflow_android_armv7.apk
             artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk
             artifacts/sautiflow_windows/sautiflow_windows.zip
+            artifacts/sautiflow_windows_msix/*.msix
             artifacts/sautiflow_linux/sautiflow_linux.tar.gz
+            artifacts/sautiflow_linux_deb/*.deb
             artifacts/sautiflow_macos/sautiflow_macos.zip
           draft: false
           prerelease: false

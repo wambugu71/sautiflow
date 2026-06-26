@@ -161,6 +161,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.19.1"
+  console:
+    dependency: transitive
+    description:
+      name: console
+      sha256: e04e7824384c5b39389acdd6dc7d33f3efe6b232f6f16d7626f194f6a01ad69a
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   cookie_jar:
     dependency: transitive
     description:
@@ -403,6 +411,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_to_debian:
+    dependency: "direct dev"
+    description:
+      name: flutter_to_debian
+      sha256: d23534407334b331ce20fbaa8395b9ecc255d0c047136b8998715f36933ee696
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.2"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
@@ -416,6 +432,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.0"
+  get_it:
+    dependency: transitive
+    description:
+      name: get_it
+      sha256: "568d62f0e68666fb5d95519743b3c24a34c7f19d834b0658c46e26d778461f66"
+      url: "https://pub.dev"
+    source: hosted
+    version: "9.2.1"
   hooks:
     dependency: transitive
     description:
@@ -592,6 +616,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  mime_type:
+    dependency: transitive
+    description:
+      name: mime_type
+      sha256: d652b613e84dac1af28030a9fba82c0999be05b98163f9e18a0849c6e63838bb
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
+  msix:
+    dependency: "direct dev"
+    description:
+      name: msix
+      sha256: bed33b53662c7eac66dc4f9b4176d03140307e6a892ab21ce529be6f74393db0
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.17.0"
   objective_c:
     dependency: transitive
     description:
@@ -780,10 +820,10 @@ packages:
     dependency: "direct main"
     description:
       name: sautiflow
-      sha256: fe494a0ef0430dd193cb0928e5c499b52c52e7fab29ad624921d974b34641b96
+      sha256: b3cad8f684a7821dbc7d3c5c8a3fb6bd6ac36d5b8070829f6b4a703db3b68374
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.6"
+    version: "0.6.14"
   shared_preferences:
     dependency: "direct main"
     description:
