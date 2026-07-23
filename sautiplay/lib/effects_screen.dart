@@ -3,9 +3,10 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'isolate_player.dart';
-import 'viper_fx_screen.dart';
 import 'eq_screen.dart';
+import 'isolate_player.dart';
+import 'services/fft_processor.dart';
+import 'viper_fx_screen.dart';
 
 class EffectsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -13,6 +14,7 @@ class EffectsScreen extends StatefulWidget {
   final String analyzerType;
   final bool analyzerAutoFit;
   final bool analyzerShowGrids;
+  final bool analyzerLogScale;
   final int outputSampleRate;
 
   const EffectsScreen({
@@ -22,6 +24,7 @@ class EffectsScreen extends StatefulWidget {
     required this.analyzerType,
     required this.analyzerAutoFit,
     required this.analyzerShowGrids,
+    this.analyzerLogScale = true,
     required this.outputSampleRate,
   });
 
@@ -32,8 +35,8 @@ class EffectsScreen extends StatefulWidget {
 class _EffectsScreenState extends State<EffectsScreen> {
   List<double> _analyzerValues = [];
   List<double> _peakValues = [];
-  bool _isLogScale = true;
   StreamSubscription? _analyzerSub;
+  FftProcessor? _fftProcessor;
 
   @override
   void initState() {
@@ -57,23 +60,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   void _setupAnalyzer(bool enabled) {
     if (enabled) {
+      final sr = widget.outputSampleRate > 0 ? widget.outputSampleRate : 48000;
+      _fftProcessor ??= FftProcessor(sampleRate: sr);
       widget.player.setAnalyzerEnabled(true);
       _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
         if (frame.isEmpty) return;
-        const targetBins = 96;
-        final bins = List<double>.filled(targetBins, 0.0);
-        final srcLen = frame.length;
-        for (var i = 0; i < targetBins; i++) {
-          final from = (i * srcLen / targetBins).floor();
-          final to = ((i + 1) * srcLen / targetBins).ceil();
-          var sum = 0.0;
-          var count = 0;
-          for (var j = from; j < to && j < srcLen; j++) {
-            sum += frame[j].abs();
-            count++;
-          }
-          bins[i] = count > 0 ? sum / count : 0.0;
-        }
+        const targetBins = 60;
+        final bins = _fftProcessor!.processFrame(frame, targetBins: targetBins);
         if (mounted) {
           setState(() {
             _analyzerValues = bins;
@@ -84,7 +77,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
               if (bins[i] > _peakValues[i]) {
                 _peakValues[i] = bins[i];
               } else {
-                _peakValues[i] = math.max(0.0, _peakValues[i] - 0.015);
+                _peakValues[i] = math.max(0.0, _peakValues[i] - 0.02);
               }
             }
           });
@@ -93,6 +86,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
     } else {
       _analyzerSub?.cancel();
       _analyzerSub = null;
+      _fftProcessor?.reset();
       if (mounted) {
         setState(() {
           _analyzerValues = [];
@@ -117,12 +111,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
         final index = (i * step).floor().clamp(0, currentAnalyzerValues.length - 1);
         double val = currentAnalyzerValues[index];
         double peak = peakValues[index];
-        if (_isLogScale) {
-          val = math.log(val * 100 + 1) / math.log(101);
-          peak = math.log(peak * 100 + 1) / math.log(101);
-        } else {
-          val = val * 8.0;
-          peak = peak * 8.0;
+        if (!widget.analyzerLogScale) {
+          val = val * val;
+          peak = peak * peak;
         }
         visualData.add(val.clamp(0.0, 1.0));
         visualPeaks.add(peak.clamp(0.0, 1.0));
@@ -147,7 +138,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
         if (p > maxPeak) maxPeak = p;
       }
       dynamicMaxY = math.max(0.1, maxPeak * 1.2); // Add headroom
-      if (dynamicMaxY > 1.0 && !_isLogScale) dynamicMaxY = 1.0;
+      if (dynamicMaxY > 1.0 && !widget.analyzerLogScale) dynamicMaxY = 1.0;
     }
 
     final flTitlesData = FlTitlesData(
@@ -161,7 +152,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
           getTitlesWidget: (value, meta) {
             if (value == 0 || value >= dynamicMaxY) return const SizedBox.shrink();
             return Text(
-              _isLogScale ? '${(value * 100).toInt()} ds' : '${(value * 100).toInt()}%',
+              widget.analyzerLogScale ? '${(value * 100).toInt()} dB' : '${(value * 100).toInt()}%',
               style: const TextStyle(color: Colors.white54, fontSize: 9),
               textAlign: TextAlign.right,
             );
@@ -173,21 +164,26 @@ class _EffectsScreenState extends State<EffectsScreen> {
           showTitles: true,
           reservedSize: 20,
           getTitlesWidget: (value, meta) {
-            if (value % 10 != 0 || value == 0) return const SizedBox.shrink();
-            double freq = 20.0 + (value / (numBars - 1)) * (maxFreq - 20.0);
-            String label;
-            if (freq >= 1000) {
-              label = '${(freq / 1000).toStringAsFixed(1)}k';
-            } else {
-              label = '${freq.toInt()}';
+            final int idx = value.toInt();
+            // Display 6 evenly spaced logarithmic frequency ticks across 20Hz - 20kHz
+            if (idx == 0 || idx == 10 || idx == 22 || idx == 34 || idx == 46 || idx == (numBars - 1)) {
+              double freq = 20.0 * math.pow(maxFreq / 20.0, idx / (numBars - 1));
+              String label;
+              if (freq >= 1000) {
+                final k = freq / 1000;
+                label = k >= 10 ? '${k.round()}k' : '${k.toStringAsFixed(1)}k';
+              } else {
+                label = '${freq.round()}';
+              }
+              return Padding(
+                padding: const EdgeInsets.only(top: 6.0),
+                child: Text(
+                  label,
+                  style: const TextStyle(color: Colors.white54, fontSize: 9),
+                ),
+              );
             }
-            return Padding(
-              padding: const EdgeInsets.only(top: 6.0),
-              child: Text(
-                label,
-                style: const TextStyle(color: Colors.white54, fontSize: 9),
-              ),
-            );
+            return const SizedBox.shrink();
           },
         ),
       ),
@@ -308,24 +304,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                     if (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                const Text('Log Scale', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                Switch(
-                                  value: _isLogScale,
-                                  onChanged: (v) => setState(() => _isLogScale = v),
-                                  activeColor: primaryColor,
-                                ),
-                              ],
-                            ),
-                            SizedBox(
-                              height: 160,
-                              child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
-                            ),
-                          ],
+                        child: SizedBox(
+                          height: 160,
+                          child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
                         ),
                       ),
                     const TabBar(

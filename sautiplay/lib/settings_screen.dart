@@ -17,6 +17,8 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<bool> onAnalyzerAutoFitChanged;
   final bool analyzerShowGrids;
   final ValueChanged<bool> onAnalyzerShowGridsChanged;
+  final bool analyzerLogScale;
+  final ValueChanged<bool> onAnalyzerLogScaleChanged;
   final int analyzerSampleSize;
   final ValueChanged<int> onAnalyzerSampleSizeChanged;
   final AudioFormat outputFormat;
@@ -43,6 +45,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onAnalyzerAutoFitChanged,
     required this.analyzerShowGrids,
     required this.onAnalyzerShowGridsChanged,
+    required this.analyzerLogScale,
+    required this.onAnalyzerLogScaleChanged,
     required this.analyzerSampleSize,
     required this.onAnalyzerSampleSizeChanged,
     required this.outputFormat,
@@ -944,6 +948,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Show Grids', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
             value: widget.analyzerShowGrids,
             onChanged: widget.onAnalyzerShowGridsChanged,
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            activeThumbColor: Colors.white,
+            activeTrackColor: Color(0xFF137fec),
+            inactiveThumbColor: Colors.white70,
+            inactiveTrackColor: Colors.white10,
+            title: const Text('Log Scale', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Logarithmic decibel response curve', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            value: widget.analyzerLogScale,
+            onChanged: widget.onAnalyzerLogScaleChanged,
           ),
           const Divider(color: Colors.white10, height: 1),
           // Sample Size

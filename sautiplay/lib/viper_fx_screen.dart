@@ -48,8 +48,8 @@ class ViperFxScreen extends StatefulWidget {
       lowWidth: map['stereoLowWidth'] ?? 100.0,
       midWidth: map['stereoMidWidth'] ?? 100.0,
       highWidth: map['stereoHighWidth'] ?? 100.0,
-      lowCrossoverHz: 300.0,
-      highCrossoverHz: 3000.0,
+      lowCrossoverHz: (map['stereoLowCrossover'] as num?)?.toDouble() ?? 300.0,
+      highCrossoverHz: (map['stereoHighCrossover'] as num?)?.toDouble() ?? 3000.0,
     );
     player.setViperCure(
       enable: map['cureEnabled'] ?? false,
@@ -63,7 +63,7 @@ class ViperFxScreen extends StatefulWidget {
       enable: map['fieldSurroundEnabled'] ?? false,
       widening: map['fieldWidening'] ?? 0.5,
       midImage: map['fieldMidImage'] ?? 0.5,
-      depth: 2,
+      depth: (map['fieldDepth'] as num?)?.toInt() ?? 2,
     );
     player.setViperDiffSurround(
       enable: map['diffSurroundEnabled'] ?? false,
@@ -148,8 +148,8 @@ class ViperFxScreen extends StatefulWidget {
       enable: map['psychoBassEnabled'] ?? false,
       cutoffHz: (map['psychoCutoff'] as num?)?.round() ?? 80,
       intensity: (map['psychoIntensity'] as num?)?.round() ?? 50,
-      harmonicOrder: 2,
-      originalLevel: 100,
+      harmonicOrder: (map['psychoHarmonicOrder'] as num?)?.toInt() ?? 2,
+      originalLevel: (map['psychoOriginalLevel'] as num?)?.round() ?? 100,
     );
     player.setViperClarity(
       enable: map['clarityEnabled'] ?? false,
@@ -163,7 +163,8 @@ class ViperFxScreen extends StatefulWidget {
     );
 
     bool convolverEnabled = map['convolverEnabled'] ?? false;
-    player.setViperConvolver(enable: convolverEnabled, crossChannel: 0.0);
+    double convolverCrossChannel = (map['convolverCrossChannel'] as num?)?.toDouble() ?? 0.0;
+    player.setViperConvolver(enable: convolverEnabled, crossChannel: convolverCrossChannel);
     if (convolverEnabled && map['convolverFolder'] != null && map['selectedConvolverFile'] != null) {
       player.loadViperConvolver(p.join(map['convolverFolder'], map['selectedConvolverFile']));
     }
@@ -227,6 +228,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
   double _stereoLowWidth = 100.0;
   double _stereoMidWidth = 100.0;
   double _stereoHighWidth = 100.0;
+  double _stereoLowCrossover = 300.0;
+  double _stereoHighCrossover = 3000.0;
 
   bool _cureEnabled = false;
   int _curePreset = 0;
@@ -237,6 +240,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
   bool _fieldSurroundEnabled = false;
   double _fieldWidening = 0.5;
   double _fieldMidImage = 0.5;
+  int _fieldDepth = 2;
   
   bool _diffSurroundEnabled = false;
   double _diffDelay = 5.0; // ms
@@ -304,6 +308,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
   bool _psychoBassEnabled = false;
   double _psychoCutoff = 80.0;
   double _psychoIntensity = 50.0;
+  int _psychoHarmonicOrder = 2;
+  double _psychoOriginalLevel = 100.0;
   
   bool _clarityEnabled = false;
   int _clarityMode = 0; // 0: Natural, 1: Ozone+, 2: XHiFi
@@ -335,6 +341,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
   String? _selectedConvolverFile;
   List<String> _convolverFiles = [];
   bool _convolverEnabled = false;
+  double _convolverCrossChannel = 0.0;
 
   String? _ddcFolder;
   String? _selectedDdcFile;
@@ -383,6 +390,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       'stereoLowWidth': _stereoLowWidth,
       'stereoMidWidth': _stereoMidWidth,
       'stereoHighWidth': _stereoHighWidth,
+      'stereoLowCrossover': _stereoLowCrossover,
+      'stereoHighCrossover': _stereoHighCrossover,
       'cureEnabled': _cureEnabled,
       'curePreset': _curePreset,
       'headphoneSurroundEnabled': _headphoneSurroundEnabled,
@@ -390,6 +399,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       'fieldSurroundEnabled': _fieldSurroundEnabled,
       'fieldWidening': _fieldWidening,
       'fieldMidImage': _fieldMidImage,
+      'fieldDepth': _fieldDepth,
       'diffSurroundEnabled': _diffSurroundEnabled,
       'diffDelay': _diffDelay,
       'diffReverse': _diffReverse,
@@ -447,6 +457,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       'psychoBassEnabled': _psychoBassEnabled,
       'psychoCutoff': _psychoCutoff,
       'psychoIntensity': _psychoIntensity,
+      'psychoHarmonicOrder': _psychoHarmonicOrder,
+      'psychoOriginalLevel': _psychoOriginalLevel,
       'clarityEnabled': _clarityEnabled,
       'clarityMode': _clarityMode,
       'clarityGain': _clarityGain,
@@ -468,6 +480,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       'analogXMode': _analogXMode,
       'speakerCorrectionEnabled': _speakerCorrectionEnabled,
       'convolverEnabled': _convolverEnabled,
+      'convolverCrossChannel': _convolverCrossChannel,
       'convolverFolder': _convolverFolder,
       'selectedConvolverFile': _selectedConvolverFile,
       'ddcEnabled': _ddcEnabled,
@@ -490,16 +503,19 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     _lufsMaxGainDb = map['lufsMaxGainDb'] ?? _lufsMaxGainDb;
     _lufsSpeed = map['lufsSpeed'] ?? _lufsSpeed;
     _stereoImagerEnabled = map['stereoImagerEnabled'] ?? _stereoImagerEnabled;
-    _stereoLowWidth = map['stereoLowWidth'] ?? _stereoLowWidth;
-    _stereoMidWidth = map['stereoMidWidth'] ?? _stereoMidWidth;
-    _stereoHighWidth = map['stereoHighWidth'] ?? _stereoHighWidth;
+    _stereoLowWidth = (map['stereoLowWidth'] as num?)?.toDouble() ?? _stereoLowWidth;
+    _stereoMidWidth = (map['stereoMidWidth'] as num?)?.toDouble() ?? _stereoMidWidth;
+    _stereoHighWidth = (map['stereoHighWidth'] as num?)?.toDouble() ?? _stereoHighWidth;
+    _stereoLowCrossover = (map['stereoLowCrossover'] as num?)?.toDouble() ?? _stereoLowCrossover;
+    _stereoHighCrossover = (map['stereoHighCrossover'] as num?)?.toDouble() ?? _stereoHighCrossover;
     _cureEnabled = map['cureEnabled'] ?? _cureEnabled;
     _curePreset = map['curePreset'] ?? _curePreset;
     _headphoneSurroundEnabled = map['headphoneSurroundEnabled'] ?? _headphoneSurroundEnabled;
     _headphoneSurroundQuality = map['headphoneSurroundQuality'] ?? _headphoneSurroundQuality;
     _fieldSurroundEnabled = map['fieldSurroundEnabled'] ?? _fieldSurroundEnabled;
-    _fieldWidening = map['fieldWidening'] ?? _fieldWidening;
-    _fieldMidImage = map['fieldMidImage'] ?? _fieldMidImage;
+    _fieldWidening = (map['fieldWidening'] as num?)?.toDouble() ?? _fieldWidening;
+    _fieldMidImage = (map['fieldMidImage'] as num?)?.toDouble() ?? _fieldMidImage;
+    _fieldDepth = (map['fieldDepth'] as num?)?.toInt() ?? _fieldDepth;
     _diffSurroundEnabled = map['diffSurroundEnabled'] ?? _diffSurroundEnabled;
     _diffDelay = map['diffDelay'] ?? _diffDelay;
     _diffReverse = map['diffReverse'] ?? _diffReverse;
@@ -557,6 +573,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     _psychoBassEnabled = map['psychoBassEnabled'] ?? _psychoBassEnabled;
     _psychoCutoff = (map['psychoCutoff'] as num?)?.toDouble() ?? _psychoCutoff;
     _psychoIntensity = (map['psychoIntensity'] as num?)?.toDouble() ?? _psychoIntensity;
+    _psychoHarmonicOrder = (map['psychoHarmonicOrder'] as num?)?.toInt() ?? _psychoHarmonicOrder;
+    _psychoOriginalLevel = (map['psychoOriginalLevel'] as num?)?.toDouble() ?? _psychoOriginalLevel;
     _clarityEnabled = map['clarityEnabled'] ?? _clarityEnabled;
     _clarityMode = map['clarityMode'] ?? _clarityMode;
     _clarityGain = map['clarityGain'] ?? _clarityGain;
@@ -578,6 +596,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     _analogXMode = map['analogXMode'] ?? _analogXMode;
     _speakerCorrectionEnabled = map['speakerCorrectionEnabled'] ?? _speakerCorrectionEnabled;
     _convolverEnabled = map['convolverEnabled'] ?? _convolverEnabled;
+    _convolverCrossChannel = (map['convolverCrossChannel'] as num?)?.toDouble() ?? _convolverCrossChannel;
     _convolverFolder = map['convolverFolder'];
     _selectedConvolverFile = map['selectedConvolverFile'];
     _ddcEnabled = map['ddcEnabled'] ?? _ddcEnabled;
@@ -618,8 +637,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       lowWidth: _stereoLowWidth,
       midWidth: _stereoMidWidth,
       highWidth: _stereoHighWidth,
-      lowCrossoverHz: 300.0,
-      highCrossoverHz: 3000.0,
+      lowCrossoverHz: _stereoLowCrossover,
+      highCrossoverHz: _stereoHighCrossover,
     );
     widget.player.setViperCure(
       enable: _cureEnabled,
@@ -633,7 +652,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       enable: _fieldSurroundEnabled,
       widening: _fieldWidening,
       midImage: _fieldMidImage,
-      depth: 2,
+      depth: _fieldDepth,
     );
     widget.player.setViperDiffSurround(
       enable: _diffSurroundEnabled,
@@ -710,8 +729,8 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       enable: _psychoBassEnabled,
       cutoffHz: _psychoCutoff.round(),
       intensity: _psychoIntensity.round(),
-      harmonicOrder: 2,
-      originalLevel: 100,
+      harmonicOrder: _psychoHarmonicOrder,
+      originalLevel: _psychoOriginalLevel.round(),
     );
     widget.player.setViperClarity(
       enable: _clarityEnabled,
@@ -725,7 +744,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     );
     
     // Equalization
-    widget.player.setViperConvolver(enable: _convolverEnabled, crossChannel: 0.0);
+    widget.player.setViperConvolver(enable: _convolverEnabled, crossChannel: _convolverCrossChannel);
     widget.player.setViperDynamicEq(
       enable: _dynamicEqEnabled,
       bands: List.generate(5, (i) => {
@@ -859,15 +878,18 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
             title: 'Spatial & Surround',
             icon: Icons.surround_sound,
             children: [
-              _buildCard('Stereo Imager', 'Multiband width control', _stereoImagerEnabled, (v) { setState(() => _stereoImagerEnabled = v); _updateEngine(); }, child: Padding(
+              _buildCard('Stereo Imager', 'Multiband width & crossover control', _stereoImagerEnabled, (v) { setState(() => _stereoImagerEnabled = v); _updateEngine(); }, child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Wrap(
                   spacing: 16,
                   runSpacing: 16,
+                  alignment: WrapAlignment.center,
                   children: [
                     SizedBox(width: 75, child: ModernAudioKnob(label: 'LOW', value: _stereoLowWidth, min: 0.0, max: 200.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _stereoImagerEnabled ? (v) { setState(() => _stereoLowWidth = v); _updateEngine(); } : (_) {})),
                     SizedBox(width: 75, child: ModernAudioKnob(label: 'MID', value: _stereoMidWidth, min: 0.0, max: 200.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _stereoImagerEnabled ? (v) { setState(() => _stereoMidWidth = v); _updateEngine(); } : (_) {})),
                     SizedBox(width: 75, child: ModernAudioKnob(label: 'HIGH', value: _stereoHighWidth, min: 0.0, max: 200.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _stereoImagerEnabled ? (v) { setState(() => _stereoHighWidth = v); _updateEngine(); } : (_) {})),
+                    SizedBox(width: 75, child: ModernAudioKnob(label: 'LOW X-OVER', value: _stereoLowCrossover, min: 50.0, max: 1000.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}Hz', onChanged: _viperEnabled && _stereoImagerEnabled ? (v) { setState(() => _stereoLowCrossover = v); _updateEngine(); } : (_) {})),
+                    SizedBox(width: 75, child: ModernAudioKnob(label: 'HIGH X-OVER', value: _stereoHighCrossover, min: 1000.0, max: 10000.0, activeColor: primaryColor, valueFormatter: (v) => '${(v / 1000).toStringAsFixed(1)}kHz', onChanged: _viperEnabled && _stereoImagerEnabled ? (v) { setState(() => _stereoHighCrossover = v); _updateEngine(); } : (_) {})),
                   ],
                 ),
               )),
@@ -929,12 +951,41 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
               )),
               _buildCard('Field Surround', 'ColorfulMusic field expansion', _fieldSurroundEnabled, (v) { setState(() => _fieldSurroundEnabled = v); _updateEngine(); }, child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
+                child: Column(
                   children: [
-                    SizedBox(width: 75, child: ModernAudioKnob(label: 'WIDENING', value: _fieldWidening, min: 0.0, max: 1.0, activeColor: primaryColor, valueFormatter: (v) => '${(v * 100).round()}%', onChanged: _viperEnabled && _fieldSurroundEnabled ? (v) { setState(() => _fieldWidening = v); _updateEngine(); } : (_) {})),
-                    SizedBox(width: 75, child: ModernAudioKnob(label: 'MID IMG', value: _fieldMidImage, min: 0.0, max: 1.0, activeColor: primaryColor, valueFormatter: (v) => '${(v * 100).round()}%', onChanged: _viperEnabled && _fieldSurroundEnabled ? (v) { setState(() => _fieldMidImage = v); _updateEngine(); } : (_) {})),
+                    const Text('Surround Depth Level', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                    const SizedBox(height: 4),
+                    SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 0, label: Text('Lvl 1', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 1, label: Text('Lvl 2', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 2, label: Text('Lvl 3', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 3, label: Text('Lvl 4', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 4, label: Text('Lvl 5', style: TextStyle(fontSize: 10))),
+                      ],
+                      selected: {_fieldDepth},
+                      onSelectionChanged: _viperEnabled && _fieldSurroundEnabled ? (Set<int> newSelection) {
+                        setState(() => _fieldDepth = newSelection.first);
+                        _updateEngine();
+                      } : null,
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        selectedForegroundColor: primaryColor,
+                        selectedBackgroundColor: primaryColor.withAlpha(50),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        SizedBox(width: 75, child: ModernAudioKnob(label: 'WIDENING', value: _fieldWidening, min: 0.0, max: 1.0, activeColor: primaryColor, valueFormatter: (v) => '${(v * 100).round()}%', onChanged: _viperEnabled && _fieldSurroundEnabled ? (v) { setState(() => _fieldWidening = v); _updateEngine(); } : (_) {})),
+                        SizedBox(width: 75, child: ModernAudioKnob(label: 'MID IMG', value: _fieldMidImage, min: 0.0, max: 1.0, activeColor: primaryColor, valueFormatter: (v) => '${(v * 100).round()}%', onChanged: _viperEnabled && _fieldSurroundEnabled ? (v) { setState(() => _fieldMidImage = v); _updateEngine(); } : (_) {})),
+                      ],
+                    ),
                   ],
                 ),
               )),
@@ -1115,9 +1166,35 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
                 ]),
                 SwitchListTile(title: const Text('Anti-Pop', style: TextStyle(color: Colors.white70, fontSize: 11)), value: _bassMonoAntiPop, onChanged: _viperEnabled && _bassMonoEnabled ? (v) { setState(() => _bassMonoAntiPop = v); _updateEngine(); } : null, activeColor: primaryColor, dense: true, contentPadding: EdgeInsets.zero),
               ]))),
-              _buildCard('Psychoacoustic Bass', 'Harmonic synthesis', _psychoBassEnabled, (v) { setState(() => _psychoBassEnabled = v); _updateEngine(); }, child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Wrap(spacing: 16, runSpacing: 16, alignment: WrapAlignment.center, children: [
-                SizedBox(width: 75, child: ModernAudioKnob(label: 'CUTOFF', value: _psychoCutoff, min: 20.0, max: 120.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}Hz', onChanged: _viperEnabled && _psychoBassEnabled ? (v) { setState(() => _psychoCutoff = v); _updateEngine(); } : (_) {})),
-                SizedBox(width: 75, child: ModernAudioKnob(label: 'INTENS', value: _psychoIntensity, min: 0.0, max: 100.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _psychoBassEnabled ? (v) { setState(() => _psychoIntensity = v); _updateEngine(); } : (_) {})),
+              _buildCard('Psychoacoustic Bass', 'Harmonic synthesis', _psychoBassEnabled, (v) { setState(() => _psychoBassEnabled = v); _updateEngine(); }, child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(children: [
+                const Text('Harmonic Order', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                const SizedBox(height: 4),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 2, label: Text('2nd', style: TextStyle(fontSize: 10))),
+                    ButtonSegment(value: 3, label: Text('3rd', style: TextStyle(fontSize: 10))),
+                    ButtonSegment(value: 4, label: Text('4th', style: TextStyle(fontSize: 10))),
+                    ButtonSegment(value: 5, label: Text('5th', style: TextStyle(fontSize: 10))),
+                  ],
+                  selected: {_psychoHarmonicOrder},
+                  onSelectionChanged: _viperEnabled && _psychoBassEnabled ? (Set<int> newSelection) {
+                    setState(() => _psychoHarmonicOrder = newSelection.first);
+                    _updateEngine();
+                  } : null,
+                  style: SegmentedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: Colors.white,
+                    selectedForegroundColor: primaryColor,
+                    selectedBackgroundColor: primaryColor.withAlpha(50),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(spacing: 16, runSpacing: 16, alignment: WrapAlignment.center, children: [
+                  SizedBox(width: 75, child: ModernAudioKnob(label: 'CUTOFF', value: _psychoCutoff, min: 30.0, max: 150.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}Hz', onChanged: _viperEnabled && _psychoBassEnabled ? (v) { setState(() => _psychoCutoff = v); _updateEngine(); } : (_) {})),
+                  SizedBox(width: 75, child: ModernAudioKnob(label: 'INTENS', value: _psychoIntensity, min: 0.0, max: 100.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _psychoBassEnabled ? (v) { setState(() => _psychoIntensity = v); _updateEngine(); } : (_) {})),
+                  SizedBox(width: 75, child: ModernAudioKnob(label: 'ORIG BASS', value: _psychoOriginalLevel, min: 0.0, max: 100.0, activeColor: primaryColor, valueFormatter: (v) => '${v.round()}%', onChanged: _viperEnabled && _psychoBassEnabled ? (v) { setState(() => _psychoOriginalLevel = v); _updateEngine(); } : (_) {})),
+                ]),
               ]))),
               _buildCard('ViPER Clarity', 'Vocal and treble extraction', _clarityEnabled, (v) { setState(() => _clarityEnabled = v); _updateEngine(); }, child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(children: [
                 const Text('Mode', style: TextStyle(color: Colors.white70, fontSize: 11)),
@@ -1578,6 +1655,24 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
                   setState(() => _selectedConvolverFile = val);
                   _updateEngine();
                 } : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: SizedBox(
+                width: 100,
+                child: ModernAudioKnob(
+                  label: 'CROSS CH',
+                  value: _convolverCrossChannel,
+                  min: 0.0,
+                  max: 1.0,
+                  activeColor: primaryColor,
+                  valueFormatter: (v) => '${(v * 100).round()}%',
+                  onChanged: _viperEnabled && _convolverEnabled ? (v) {
+                    setState(() => _convolverCrossChannel = v);
+                    _updateEngine();
+                  } : (_) {},
+                ),
               ),
             ),
           ],

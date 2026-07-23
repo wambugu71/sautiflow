@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'widgets/adaptive_marquee_text.dart';
 
 class MiniPlayer extends StatelessWidget {
   final String title;
@@ -90,15 +91,17 @@ class MiniPlayer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        AdaptiveMarqueeText(
+                          text: title,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
+                          height: 20,
+                          velocity: 25.0,
+                          blankSpace: 30.0,
+                          pauseAfterRound: const Duration(seconds: 2),
                         ),
                         Text(
                           artist,

@@ -182,6 +182,7 @@ class _PlayerShellState extends State<PlayerShell> {
   int _analyzerSampleSize = 1024;
   bool _analyzerAutoFit = true;
   bool _analyzerShowGrids = true;
+  bool _analyzerLogScale = true;
 
   @override
   void initState() {
@@ -276,6 +277,7 @@ class _PlayerShellState extends State<PlayerShell> {
       _exclusiveMode = engine.exclusiveMode;
       _analyzerAutoFit = engine.analyzerAutoFit;
       _analyzerShowGrids = engine.analyzerShowGrids;
+      _analyzerLogScale = engine.analyzerLogScale;
     });
 
     // Apply basic engine settings
@@ -357,6 +359,7 @@ class _PlayerShellState extends State<PlayerShell> {
       exclusiveMode: _exclusiveMode,
       analyzerAutoFit: _analyzerAutoFit,
       analyzerShowGrids: _analyzerShowGrids,
+      analyzerLogScale: _analyzerLogScale,
     );
   }
 
@@ -1308,6 +1311,7 @@ class _PlayerShellState extends State<PlayerShell> {
             analyzerType: _analyzerType,
             analyzerAutoFit: _analyzerAutoFit,
             analyzerShowGrids: _analyzerShowGrids,
+            analyzerLogScale: _analyzerLogScale,
             outputSampleRate: _outputSampleRate,
           ),
           SettingsScreen(
@@ -1336,6 +1340,11 @@ class _PlayerShellState extends State<PlayerShell> {
               analyzerShowGrids: _analyzerShowGrids,
               onAnalyzerShowGridsChanged: (v) {
                 setState(() => _analyzerShowGrids = v);
+                _saveEngineSettings();
+              },
+              analyzerLogScale: _analyzerLogScale,
+              onAnalyzerLogScaleChanged: (v) {
+                setState(() => _analyzerLogScale = v);
                 _saveEngineSettings();
               },
               analyzerSampleSize: _analyzerSampleSize,

@@ -521,6 +521,7 @@ class AppStateService {
   static const _kExclusiveMode = 'sp_exclusive_mode';
   static const _kAnalyzerAutoFit = 'sp_analyzer_auto_fit';
   static const _kAnalyzerShowGrids = 'sp_analyzer_show_grids';
+  static const _kAnalyzerLogScale = 'sp_analyzer_log_scale';
 
   Future<void> saveEngineSettings({
     required int outputFormatIndex,
@@ -535,6 +536,7 @@ class AppStateService {
     required bool exclusiveMode,
     required bool analyzerAutoFit,
     required bool analyzerShowGrids,
+    required bool analyzerLogScale,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
@@ -549,6 +551,7 @@ class AppStateService {
     await prefs.setBool(_kExclusiveMode, exclusiveMode);
     await prefs.setBool(_kAnalyzerAutoFit, analyzerAutoFit);
     await prefs.setBool(_kAnalyzerShowGrids, analyzerShowGrids);
+    await prefs.setBool(_kAnalyzerLogScale, analyzerLogScale);
   }
 
   Future<
@@ -564,7 +567,8 @@ class AppStateService {
         bool allowInvalidTls,
         bool exclusiveMode,
         bool analyzerAutoFit,
-        bool analyzerShowGrids
+        bool analyzerShowGrids,
+        bool analyzerLogScale
       })> loadEngineSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -580,6 +584,7 @@ class AppStateService {
       exclusiveMode: prefs.getBool(_kExclusiveMode) ?? false,
       analyzerAutoFit: prefs.getBool(_kAnalyzerAutoFit) ?? true,
       analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
+      analyzerLogScale: prefs.getBool(_kAnalyzerLogScale) ?? true,
     );
   }
 
