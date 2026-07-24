@@ -362,6 +362,24 @@ extern "C"
 
     AE_API AETrackInfo ae_inspect_file(const char *file_path);
 
+    // Native Hardware Audio Engine Inspection
+    typedef struct AEHardwareInfo
+    {
+        char backend_name[32];       // "WASAPI", "AAudio", "OpenSL ES", "ALSA", "PulseAudio", "Core Audio", etc.
+        char device_name[256];       // Active soundcard friendly device name
+        int output_format;           // AEAudioFormat Enum (0=F32, 1=S16, 2=U8, 3=S24, 4=S32)
+        int bit_depth;               // Hardware bit depth (8, 16, 24, 32)
+        int is_float;                // 1 if 32-bit Float PCM, 0 if Int PCM
+        int sample_rate;             // Hardware output sample rate in Hz
+        int channels;                // Hardware output channels
+        uint32_t period_size_frames; // Hardware period frame size
+        uint32_t period_count;       // Hardware period count
+        double latency_ms;           // Real hardware buffer processing latency in milliseconds
+        int is_exclusive_mode;       // 1 if exclusive mode (WASAPI/ALSA), 0 if shared mode
+    } AEHardwareInfo;
+
+    AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine);
+
 #ifdef __cplusplus
 }
 #endif

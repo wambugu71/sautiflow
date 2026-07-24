@@ -509,6 +509,20 @@ class IsolateAudioPlayer {
     return response as PipelineAudioState;
   }
 
+  Future<AEHardwareInfo> getHardwareInfo() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getHardwareInfo',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as AEHardwareInfo;
+  }
+
   Future<Map<String, dynamic>> getAudioProperties() async {
     final responsePort = ReceivePort();
     _send({
@@ -1180,6 +1194,17 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setViperEqualizer': 
           player.viper.setEqualizer(enable: message['enable'], bandLevels: (message['bandLevels'] as List).cast<double>()); 
+          break;
+        case 'getHardwareInfo':
+          final replyTo = message['replyTo'] as SendPort?;
+          if (replyTo != null) {
+            try {
+              final info = player.getHardwareInfo();
+              replyTo.send(info);
+            } catch (e) {
+              replyTo.send({'error': e.toString()});
+            }
+          }
           break;
         case 'dispose':
           player.dispose();

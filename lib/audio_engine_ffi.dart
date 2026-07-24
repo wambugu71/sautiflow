@@ -187,6 +187,117 @@ class TrackNativeInfo {
   };
 }
 
+final class AEHardwareInfoNative extends ffi.Struct {
+  @ffi.Array(32)
+  external ffi.Array<ffi.Uint8> backend_name;
+
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> device_name;
+
+  @ffi.Int32()
+  external int output_format;
+
+  @ffi.Int32()
+  external int bit_depth;
+
+  @ffi.Int32()
+  external int is_float;
+
+  @ffi.Int32()
+  external int sample_rate;
+
+  @ffi.Int32()
+  external int channels;
+
+  @ffi.Uint32()
+  external int period_size_frames;
+
+  @ffi.Uint32()
+  external int period_count;
+
+  @ffi.Double()
+  external double latency_ms;
+
+  @ffi.Int32()
+  external int is_exclusive_mode;
+}
+
+class AEHardwareInfo {
+  final String backendName;
+  final String deviceName;
+  final AudioFormat outputFormat;
+  final int bitDepth;
+  final bool isFloat;
+  final int sampleRate;
+  final int channels;
+  final int periodSizeFrames;
+  final int periodCount;
+  final double latencyMs;
+  final bool isExclusiveMode;
+
+  const AEHardwareInfo({
+    required this.backendName,
+    required this.deviceName,
+    required this.outputFormat,
+    required this.bitDepth,
+    required this.isFloat,
+    required this.sampleRate,
+    required this.channels,
+    required this.periodSizeFrames,
+    required this.periodCount,
+    required this.latencyMs,
+    required this.isExclusiveMode,
+  });
+
+  factory AEHardwareInfo.fromNative(AEHardwareInfoNative native) {
+    final bBytes = <int>[];
+    for (int i = 0; i < 32; i++) {
+      final b = native.backend_name[i];
+      if (b == 0) break;
+      bBytes.add(b);
+    }
+    final dBytes = <int>[];
+    for (int i = 0; i < 256; i++) {
+      final b = native.device_name[i];
+      if (b == 0) break;
+      dBytes.add(b);
+    }
+
+    AudioFormat fmt = AudioFormat.f32;
+    if (native.output_format >= 0 && native.output_format < AudioFormat.values.length) {
+      fmt = AudioFormat.values[native.output_format];
+    }
+
+    return AEHardwareInfo(
+      backendName: String.fromCharCodes(bBytes).trim(),
+      deviceName: String.fromCharCodes(dBytes).trim(),
+      outputFormat: fmt,
+      bitDepth: native.bit_depth,
+      isFloat: native.is_float != 0,
+      sampleRate: native.sample_rate,
+      channels: native.channels,
+      periodSizeFrames: native.period_size_frames,
+      periodCount: native.period_count,
+      latencyMs: native.latency_ms,
+      isExclusiveMode: native.is_exclusive_mode != 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'backendName': backendName,
+    'deviceName': deviceName,
+    'outputFormat': outputFormat.name,
+    'bitDepth': bitDepth,
+    'isFloat': isFloat,
+    'sampleRate': sampleRate,
+    'channels': channels,
+    'periodSizeFrames': periodSizeFrames,
+    'periodCount': periodCount,
+    'latencyMs': latencyMs,
+    'isExclusiveMode': isExclusiveMode,
+  };
+}
+
 typedef _CreateEngineNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32, ffi.Int32);
 typedef _CreateEngineDart = ffi.Pointer<ffi.Void> Function(int, int);
@@ -481,6 +592,9 @@ typedef _SetMultibandFxBandsDart = void Function(
 
 typedef _InspectFileNative = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 typedef _InspectFileDart = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
+
+typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
+typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
 
 typedef _ClearMultibandFxNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _ClearMultibandFxDart = void Function(ffi.Pointer<ffi.Void>);
@@ -1066,6 +1180,14 @@ class AudioEngineFFI {
     } catch (_) {
       _inspectFile = null;
     }
+
+    try {
+      _getHardwareInfo = _lib.lookupFunction<_GetHardwareInfoNative, _GetHardwareInfoDart>(
+        'ae_get_hardware_info',
+      );
+    } catch (_) {
+      _getHardwareInfo = null;
+    }
   }
 
   final ffi.DynamicLibrary _lib;
@@ -1203,6 +1325,7 @@ class AudioEngineFFI {
   late final _FreeDart _free;
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
   _InspectFileDart? _inspectFile;
+  _GetHardwareInfoDart? _getHardwareInfo;
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
@@ -1430,6 +1553,26 @@ class AudioEngineFFI {
     } finally {
       _freePtr(c.cast<ffi.Void>());
     }
+  }
+
+  AEHardwareInfo getHardwareInfo() {
+    if (_engine == ffi.nullptr || _getHardwareInfo == null) {
+      return const AEHardwareInfo(
+        backendName: 'Unknown',
+        deviceName: 'Default Output Device',
+        outputFormat: AudioFormat.f32,
+        bitDepth: 32,
+        isFloat: true,
+        sampleRate: 48000,
+        channels: 2,
+        periodSizeFrames: 0,
+        periodCount: 0,
+        latencyMs: 0.0,
+        isExclusiveMode: false,
+      );
+    }
+    final native = _getHardwareInfo!(_engine);
+    return AEHardwareInfo.fromNative(native);
   }
 
   // Alias matching requested naming style.

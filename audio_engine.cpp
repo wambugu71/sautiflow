@@ -5577,4 +5577,88 @@ extern "C"
         return info;
     }
 
+    AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine)
+    {
+        AEHardwareInfo info;
+        std::memset(&info, 0, sizeof(AEHardwareInfo));
+
+        if (!engine)
+        {
+            return info;
+        }
+
+        ma_device *pDevice = &engine->device;
+        if (pDevice->pContext != nullptr)
+        {
+            const char *bname = ma_get_backend_name(pDevice->pContext->backend);
+            if (bname)
+            {
+                std::strncpy(info.backend_name, bname, sizeof(info.backend_name) - 1);
+            }
+        }
+        else
+        {
+            std::strncpy(info.backend_name, "Unknown", sizeof(info.backend_name) - 1);
+        }
+
+        if (pDevice->playback.name[0] != '\0')
+        {
+            std::strncpy(info.device_name, pDevice->playback.name, sizeof(info.device_name) - 1);
+        }
+        else
+        {
+            std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
+        }
+
+        ma_format hwFormat = pDevice->playback.internalFormat;
+        info.sample_rate = (int)pDevice->playback.internalSampleRate;
+        info.channels = (int)pDevice->playback.internalChannels;
+        info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
+        info.period_count = (uint32_t)pDevice->playback.internalPeriods;
+
+        info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
+
+        switch (hwFormat)
+        {
+        case ma_format_u8:
+            info.output_format = AE_FORMAT_U8;
+            info.bit_depth = 8;
+            info.is_float = 0;
+            break;
+        case ma_format_s16:
+            info.output_format = AE_FORMAT_S16;
+            info.bit_depth = 16;
+            info.is_float = 0;
+            break;
+        case ma_format_s24:
+            info.output_format = AE_FORMAT_S24;
+            info.bit_depth = 24;
+            info.is_float = 0;
+            break;
+        case ma_format_s32:
+            info.output_format = AE_FORMAT_S32;
+            info.bit_depth = 32;
+            info.is_float = 0;
+            break;
+        case ma_format_f32:
+            info.output_format = AE_FORMAT_F32;
+            info.bit_depth = 32;
+            info.is_float = 1;
+            break;
+        default:
+            info.output_format = AE_FORMAT_F32;
+            info.bit_depth = 32;
+            info.is_float = 1;
+            break;
+        }
+
+        if (info.sample_rate > 0)
+        {
+            double totalFrames = (double)info.period_size_frames * (double)info.period_count;
+            info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
+        }
+
+        return info;
+    }
+
 } // extern "C"

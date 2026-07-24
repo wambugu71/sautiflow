@@ -18,6 +18,7 @@ import 'isolate_player.dart';
 import 'models/liked_song.dart';
 import 'queue_screen.dart'; // NEW
 import 'services/audio_file_inspector.dart';
+import 'services/audio_hardware_inspector.dart';
 import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
@@ -430,6 +431,134 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     );
   }
 
+  Future<void> _showHardwareSpecsModal(BuildContext context) async {
+    final nativeInfo = await widget.player.getHardwareInfo();
+    final specs = AudioHardwareSpecs.fromNative(nativeInfo);
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF18232E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF137FEC).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.equalizer, color: Color(0xFF137FEC)),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'HARDWARE AUDIO OUTPUT SPECS',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                            color: Color(0xFF137FEC),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          specs.deviceName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(color: Colors.white12),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _buildSpecChip(Icons.api, 'Backend API', specs.backendName),
+                  _buildSpecChip(Icons.headset, 'Device Route', specs.deviceType),
+                  _buildSpecChip(Icons.speed, 'Sample Rate', specs.formattedSampleRate, isHiRes: specs.isHiResAudio),
+                  _buildSpecChip(Icons.high_quality, 'Bit Depth', specs.formattedBitDepth),
+                  _buildSpecChip(Icons.timer_outlined, 'Buffer Latency', specs.formattedLatency),
+                  _buildSpecChip(Icons.surround_sound, 'Channels', '${specs.channels} Ch (Stereo)'),
+                  _buildSpecChip(Icons.lock_outline, 'Mode', specs.isExclusiveMode ? 'Bit-Perfect Exclusive' : 'Shared Mixer'),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSpecChip(IconData icon, String label, String value, {bool isHiRes = false}) {
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHiRes ? const Color(0xFF137FEC).withOpacity(0.6) : Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: isHiRes ? const Color(0xFF137FEC) : Colors.white54),
+              const SizedBox(width: 6),
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: isHiRes ? const Color(0xFF137FEC) : Colors.white54,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<PlayerStatus>(
@@ -820,15 +949,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                                 style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
                                               ),
                                               // Audio Info Badge
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white.withValues(alpha: 0.1),
-                                                  borderRadius: BorderRadius.circular(16),
-                                                ),
-                                                child: Text(
-                                                  _buildAudioInfoBadgeText(trackPosition),
-                                                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                              GestureDetector(
+                                                onTap: () => _showHardwareSpecsModal(context),
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white.withValues(alpha: 0.1),
+                                                    borderRadius: BorderRadius.circular(16),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      const Icon(Icons.info_outline, size: 12, color: Colors.white70),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        _buildAudioInfoBadgeText(trackPosition),
+                                                        style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
                                               ),
                                               Text(
@@ -1132,15 +1271,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                     style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
                                   ),
                                   // Audio Info Badge
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '$trackPosition $_sampleRate ${widget.codec}'.toUpperCase(),
-                                      style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                  GestureDetector(
+                                    onTap: () => _showHardwareSpecsModal(context),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.info_outline, size: 10, color: Colors.white70),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '$trackPosition $_sampleRate ${widget.codec}'.toUpperCase(),
+                                            style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                   Text(

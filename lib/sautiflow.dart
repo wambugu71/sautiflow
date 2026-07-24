@@ -9,7 +9,8 @@ export 'audio_engine_ffi.dart'
         PlayerStatus,
         EqBandType,
         EqBandConfig,
-        TrackNativeInfo;
+        TrackNativeInfo,
+        AEHardwareInfo;
 export 'src/filters_api.dart';
 export 'src/mini_audio_player.dart' show MiniAudioPlayer;
 export 'src/miniaudio_filters.dart'
