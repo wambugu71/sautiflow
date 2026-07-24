@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'album_detail_screen.dart';
+import 'artist_profile_screen.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
@@ -26,6 +27,8 @@ class LibraryScreen extends StatefulWidget {
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs; // NEW
+  final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
+      onPlayTracks;
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
   final bool isNested;
@@ -34,6 +37,7 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.onPlayTracks,
     this.onQueueTrack,
     this.onDeleteTrack,
     this.isNested = false,
@@ -58,6 +62,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   // Search & Sort filters
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _artistSearchController = TextEditingController();
   String _currentSort = 'Name (A-Z)';
   static const List<String> _sortOptions = [
     'Name (A-Z)',
@@ -77,6 +82,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void dispose() {
     _searchController.dispose();
+    _artistSearchController.dispose();
     super.dispose();
   }
 
@@ -106,8 +112,25 @@ class _LibraryScreenState extends State<LibraryScreen>
       final paths = await _scanForAudioFiles(f['path'] as String);
       for (final path in paths) {
         try {
-          final stat = await File(path).stat();
-          allItems.add(LocalSongItem.fallback(path, stat.size, stat.modified));
+          final file = File(path);
+          final stat = await file.stat();
+          String? metaTitle;
+          String? metaArtist;
+          String? metaAlbum;
+          try {
+            final meta = amr.readMetadata(file, getImage: false);
+            if (meta.title != null && meta.title!.isNotEmpty) metaTitle = meta.title;
+            if (meta.artist != null && meta.artist!.isNotEmpty) metaArtist = meta.artist;
+            if (meta.album != null && meta.album!.isNotEmpty) metaAlbum = meta.album;
+          } catch (_) {}
+          allItems.add(LocalSongItem.fallback(
+            path,
+            stat.size,
+            stat.modified,
+            title: metaTitle,
+            artist: metaArtist,
+            album: metaAlbum,
+          ));
         } catch (_) {
           allItems.add(LocalSongItem.fallback(path, 0, DateTime.now()));
         }
@@ -595,9 +618,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                               : (_tabIndex == 1
                                   ? _buildDownloadsTab(primaryColor, textDark,
                                       isDesktop: isDesktop)
-                                  : _buildEmptyState(textDark,
-                                      message:
-                                          'Artists section coming soon...')),
+                                  : _buildArtistsTab(primaryColor, textDark,
+                                      isDesktop: isDesktop)),
                         ),
                       ],
                     ),
@@ -818,6 +840,109 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
   }
 
+  Widget _buildArtistsTab(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
+    final Map<String, List<LocalSongItem>> artistMap = {};
+    for (final song in _allSongs) {
+      final artist =
+          song.artist.trim().isNotEmpty ? song.artist.trim() : 'Unknown Artist';
+      artistMap.putIfAbsent(artist, () => []).add(song);
+    }
+
+    final query = _artistSearchController.text.trim().toLowerCase();
+    final artistKeys = artistMap.keys.where((a) {
+      if (query.isEmpty) return true;
+      return a.toLowerCase().contains(query);
+    }).toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return Column(
+      children: [
+        // Search bar for Artists
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: isDesktop ? 16.0 : 8.0,
+          ),
+          child: TextField(
+            controller: _artistSearchController,
+            style: TextStyle(
+                color: Colors.white, fontSize: isDesktop ? 18 : 16),
+            decoration: InputDecoration(
+              hintText: 'Search artists...',
+              hintStyle: TextStyle(
+                  color: textDark, fontSize: isDesktop ? 18 : 16),
+              prefixIcon: Icon(Icons.search,
+                  color: textDark, size: isDesktop ? 28 : 24),
+              filled: true,
+              fillColor: const Color(0xFF18232E),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            ),
+            onChanged: (v) => setState(() {}),
+          ),
+        ),
+
+        Expanded(
+          child: artistKeys.isEmpty && !_isLoading
+              ? _buildEmptyState(
+                  textDark,
+                  message: 'No artists found',
+                  subMessage: _artistSearchController.text.isNotEmpty
+                      ? 'No matches for "${_artistSearchController.text}".'
+                      : 'Add local folders in Playlists to view artists here.',
+                  isDesktop: isDesktop,
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 120),
+                  itemCount: artistKeys.length,
+                  itemBuilder: (context, index) {
+                    final artistName = artistKeys[index];
+                    final songs = artistMap[artistName] ?? [];
+                    final sampleSongPath =
+                        songs.isNotEmpty ? songs.first.path : null;
+
+                    return _buildLibraryItem(
+                      title: artistName,
+                      subtitle:
+                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
+                      iconData: Icons.person,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 96 : 64,
+                              borderRadius: 12)
+                          : null,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => LocalArtistDetailScreen(
+                              artistName: artistName,
+                              songs: songs,
+                              onPlayFolder: widget.onPlayFolder,
+                              onPlayTracks: widget.onPlayTracks,
+                              onQueueTrack: widget.onQueueTrack,
+                              onDeleteTrack: (path) {
+                                widget.onDeleteTrack?.call(path);
+                                _updateAllSongs();
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildEmptyState(Color textDark,
       {String message = 'Your library is empty',
       String subMessage = 'Tap the + button to add local music folders.',
@@ -984,5 +1109,307 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
+  }
+}
+
+class LocalArtistDetailScreen extends StatefulWidget {
+  final String artistName;
+  final List<LocalSongItem> songs;
+  final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
+      onPlayFolder;
+  final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
+      onPlayTracks;
+  final Function(TrackInfo track)? onQueueTrack;
+  final Function(String filePath)? onDeleteTrack;
+
+  const LocalArtistDetailScreen({
+    super.key,
+    required this.artistName,
+    required this.songs,
+    required this.onPlayFolder,
+    this.onPlayTracks,
+    this.onQueueTrack,
+    this.onDeleteTrack,
+  });
+
+  @override
+  State<LocalArtistDetailScreen> createState() =>
+      _LocalArtistDetailScreenState();
+}
+
+class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
+  late List<LocalSongItem> _artistSongs;
+
+  @override
+  void initState() {
+    super.initState();
+    _artistSongs = List.from(widget.songs);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bgDark = Color(0xFF101922);
+    const surfaceColor = Color(0xFF18232E);
+    const primaryColor = Color(0xFF137FEC);
+
+    return Scaffold(
+      backgroundColor: bgDark,
+      appBar: AppBar(
+        backgroundColor: bgDark,
+        elevation: 0,
+        title: Text(
+          widget.artistName,
+          style:
+              const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        actions: [
+          if (widget.onPlayTracks != null)
+            IconButton(
+              icon: const Icon(Icons.language, color: Colors.white70),
+              tooltip: 'View Online Discography',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ArtistProfileScreen(
+                      artistName: widget.artistName,
+                      onPlayTracks: widget.onPlayTracks,
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header Card
+            Container(
+              padding: const EdgeInsets.all(20),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _artistSongs.isNotEmpty
+                        ? LocalAlbumArt(
+                            path: _artistSongs.first.path,
+                            size: 64,
+                            borderRadius: 12)
+                        : const Icon(Icons.person,
+                            color: primaryColor, size: 36),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.artistName,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_artistSongs.length} Track${_artistSongs.length == 1 ? '' : 's'} • Local Library',
+                          style: const TextStyle(
+                              color: Color(0xFF94A3B8), fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      if (_artistSongs.isEmpty) return;
+                      final paths = _artistSongs.map((e) => e.path).toList();
+                      widget.onPlayFolder(paths, initialIndex: 0);
+                    },
+                    icon: const Icon(Icons.play_arrow, color: Colors.white),
+                    label: const Text('Play All'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Track List
+            Expanded(
+              child: _artistSongs.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No songs left for this artist.',
+                        style: TextStyle(color: Color(0xFF94A3B8)),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 120),
+                      itemCount: _artistSongs.length,
+                      itemBuilder: (context, index) {
+                        final song = _artistSongs[index];
+                        return ListTile(
+                          leading: LocalAlbumArt(
+                              path: song.path, size: 48, borderRadius: 8),
+                          title: Text(
+                            song.title,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            song.album,
+                            style: const TextStyle(
+                                color: Color(0xFF94A3B8), fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            final paths =
+                                _artistSongs.map((e) => e.path).toList();
+                            widget.onPlayFolder(paths, initialIndex: index);
+                          },
+                          trailing: SongOptionsMenuButton(
+                            onOptionSelected: (option) =>
+                                _handleDetailSongOption(song, option),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleDetailSongOption(
+      LocalSongItem song, SongOption option) async {
+    switch (option) {
+      case SongOption.queue:
+        if (widget.onQueueTrack != null) {
+          widget.onQueueTrack!(TrackInfo(
+            videoId: song.path,
+            title: song.title,
+            artist: song.artist,
+          ));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Added "${song.title}" to Queue')),
+          );
+        }
+        break;
+      case SongOption.info:
+        final file = File(song.path);
+        final fileInfo = await AudioFileInspector.inspect(song.path);
+        Duration d = Duration.zero;
+        Uint8List? art;
+        try {
+          final meta = amr.readMetadata(file, getImage: true);
+          if (meta.duration != null) d = meta.duration!;
+          if (meta.pictures.isNotEmpty) art = meta.pictures.first.bytes;
+        } catch (_) {}
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (_) => MusicInfoDialog(
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            albumArt: art,
+            sourceType: 'local',
+            videoId: song.path,
+            codec: fileInfo.codec,
+            sampleRate: fileInfo.formattedSampleRate,
+            channels: fileInfo.formattedChannels,
+            bitDepth: fileInfo.formattedBitDepth,
+            fileSizeBytes: song.sizeBytes,
+            duration: d,
+          ),
+        );
+        break;
+      case SongOption.share:
+        try {
+          await Share.shareXFiles([XFile(song.path)], text: song.title);
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not share: $e')),
+          );
+        }
+        break;
+      case SongOption.delete:
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF18232E),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
+            title: const Text('Delete Song Permanently?',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: Text(
+              'Are you sure you want to delete "${song.title}"? This action cannot be undone.',
+              style: const TextStyle(color: Color(0xFF94A3B8)),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Color(0xFF94A3B8)))),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Delete',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true) {
+          try {
+            await File(song.path).delete();
+            widget.onDeleteTrack?.call(song.path);
+            setState(() {
+              _artistSongs.removeWhere((s) => s.path == song.path);
+            });
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Deleted "${song.title}" permanently.')),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to delete: $e')),
+            );
+          }
+        }
+        break;
+    }
   }
 }

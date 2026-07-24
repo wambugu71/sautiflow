@@ -145,6 +145,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                       LibraryScreen(
                         onPlayFolder: widget.onPlayFolder,
                         onPlayLikedSongs: widget.onPlayLikedSongs,
+                        onPlayTracks: widget.onPlayTracks,
                         onQueueTrack: widget.onQueueTrack,
                         onDeleteTrack: widget.onDeleteTrack,
                         isNested: true,
