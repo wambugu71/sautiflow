@@ -68,6 +68,23 @@ print('Speaker Format: ${state.outputFormatString} | ${state.outputSampleRate}Hz
 // Enabled DSP Features currently actively shifting the stream
 print('Eq Enabled: ${state.eqEnabled}');
 print('Reverb Enabled: ${state.reverbEnabled}');
+
+### Native Track Metadata Inspection
+
+Sautiflow exports a high-speed C++ native file stream inspector (`player.inspectFile(path)`). It parses raw container headers (including FLAC `STREAMINFO` blocks and WAV `fmt ` chunks) without needing to decode full PCM streams, returning exact audio properties in microseconds:
+
+```dart
+final info = player.inspectFile('/path/to/song.flac');
+
+if (info != null) {
+  print('Sample Rate: ${info.sampleRate} Hz');    // e.g. 96000 Hz, 192000 Hz
+  print('Bit Depth:   ${info.bitDepth} bits');    // e.g. 24-bit, 32-bit
+  print('Float PCM:   ${info.isFloat}');         // true for 32-bit Float WAV
+  print('Channels:    ${info.channels}');        // 2 (Stereo), 1 (Mono)
+  print('Bitrate:     ${info.bitrateKbps} kbps');// e.g. 1411 kbps, 2304 kbps
+  print('Codec:       ${info.formatName}');     // "FLAC", "WAV", "MP3"
+}
+```
 ```
 
 ### Example (playlist + controls)

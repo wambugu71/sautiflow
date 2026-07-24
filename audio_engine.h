@@ -347,6 +347,21 @@ extern "C"
     AE_API uint64_t ae_resampler_get_input_latency(AEResampler *resampler);
     AE_API uint64_t ae_resampler_get_output_latency(AEResampler *resampler);
 
+    // Native Track Inspection
+    typedef struct AETrackInfo
+    {
+        int sample_rate;        // Native decoder sample rate (Hz)
+        int bit_depth;          // Native decoder bit depth (bits)
+        int channels;           // Native decoder channel count
+        int bitrate_kbps;       // Native average bitrate (kbps)
+        int is_float;           // 1 if 32-bit float, 0 if int PCM
+        double duration_secs;   // Track duration in seconds
+        int64_t file_size_bytes;// File size in bytes
+        char format_name[32];   // Container/Codec name ("FLAC", "WAV", "MP3", "AAC", etc.)
+    } AETrackInfo;
+
+    AE_API AETrackInfo ae_inspect_file(const char *file_path);
+
 #ifdef __cplusplus
 }
 #endif

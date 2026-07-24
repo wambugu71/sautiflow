@@ -5442,4 +5442,139 @@ extern "C"
         engine->viper.ApplyDynamicEq(p);
     }
 
+    AE_API AETrackInfo ae_inspect_file(const char *file_path)
+    {
+        AETrackInfo info;
+        std::memset(&info, 0, sizeof(info));
+        if (!file_path || file_path[0] == '\0')
+        {
+            return info;
+        }
+
+        // 1. Open file to read header & get file size
+        FILE *f = nullptr;
+#if defined(_WIN32) || defined(_WIN64)
+        std::wstring wpath = utf8_to_wstring(file_path);
+        f = _wfopen(wpath.c_str(), L"rb");
+#else
+        f = std::fopen(file_path, "rb");
+#endif
+        if (!f) return info;
+
+        std::fseek(f, 0, SEEK_END);
+        info.file_size_bytes = (int64_t)std::ftell(f);
+        std::fseek(f, 0, SEEK_SET);
+
+        size_t bufSize = (info.file_size_bytes > 1048576) ? 1048576 : (size_t)info.file_size_bytes;
+        std::vector<unsigned char> bytes(bufSize);
+        size_t readBytes = std::fread(bytes.data(), 1, bufSize, f);
+        std::fclose(f);
+
+        // 2. Format extension check
+        std::string pathStr(file_path);
+        size_t dotIdx = pathStr.rfind('.');
+        if (dotIdx != std::string::npos && dotIdx + 1 < pathStr.size())
+        {
+            std::string ext = pathStr.substr(dotIdx + 1);
+            for (auto &c : ext) c = (char)std::toupper((unsigned char)c);
+            std::snprintf(info.format_name, sizeof(info.format_name), "%s", ext.c_str());
+        }
+        else
+        {
+            std::snprintf(info.format_name, sizeof(info.format_name), "AUDIO");
+        }
+
+        // 3. Binary header inspection for exact native parameters
+        // A. FLAC header check
+        int flacOffset = -1;
+        for (size_t i = 0; i + 4 <= readBytes; i++)
+        {
+            if (bytes[i] == 'f' && bytes[i+1] == 'L' && bytes[i+2] == 'a' && bytes[i+3] == 'C')
+            {
+                flacOffset = (int)i;
+                break;
+            }
+        }
+        if (flacOffset != -1 && (size_t)flacOffset + 42 <= readBytes)
+        {
+            size_t pos = (size_t)flacOffset + 4; // Skip 'fLaC'
+            while (pos + 4 <= readBytes)
+            {
+                unsigned char h0 = bytes[pos];
+                bool isLast = (h0 & 0x80) != 0;
+                int blockType = h0 & 0x7F;
+                size_t len = ((size_t)bytes[pos+1] << 16) | ((size_t)bytes[pos+2] << 8) | bytes[pos+3];
+                pos += 4;
+
+                if (blockType == 0 && pos + 34 <= readBytes) // STREAMINFO block
+                {
+                    unsigned char b10 = bytes[pos + 10];
+                    unsigned char b11 = bytes[pos + 11];
+                    unsigned char b12 = bytes[pos + 12];
+                    unsigned char b13 = bytes[pos + 13];
+
+                    info.sample_rate = (int)((b10 << 12) | (b11 << 4) | ((b12 & 0xF0) >> 4));
+                    info.channels = (int)(((b12 & 0x0E) >> 1) + 1);
+                    info.bit_depth = (int)((((b12 & 0x01) << 4) | ((b13 & 0xF0) >> 4)) + 1);
+                    info.is_float = 0;
+                    std::snprintf(info.format_name, sizeof(info.format_name), "FLAC");
+                    break;
+                }
+                if (isLast) break;
+                pos += len;
+            }
+        }
+
+        // B. WAV header check
+        if (info.sample_rate == 0 && readBytes >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F')
+        {
+            for (size_t i = 0; i + 24 <= readBytes; i++)
+            {
+                if (bytes[i] == 'f' && bytes[i+1] == 'm' && bytes[i+2] == 't' && bytes[i+3] == ' ')
+                {
+                    int audioFormat = bytes[i + 8] | (bytes[i + 9] << 8);
+                    info.channels = bytes[i + 10] | (bytes[i + 11] << 8);
+                    info.sample_rate = bytes[i + 12] | (bytes[i + 13] << 8) | (bytes[i + 14] << 16) | (bytes[i + 15] << 24);
+                    info.bit_depth = bytes[i + 22] | (bytes[i + 23] << 8);
+                    info.is_float = (audioFormat == 3) ? 1 : 0;
+                    std::snprintf(info.format_name, sizeof(info.format_name), info.is_float ? "WAV (Float)" : "WAV");
+                    break;
+                }
+            }
+        }
+
+        // C. Fallback to miniaudio decoder if sample_rate not resolved by header parser
+        ma_decoder decoder;
+        ma_decoder_config config = ma_decoder_config_init(ma_format_unknown, 0, 0);
+        ma_result res = MA_ERROR;
+
+#if defined(_WIN32) || defined(_WIN64)
+        res = ma_decoder_init_file_w(wpath.c_str(), &config, &decoder);
+#else
+        res = ma_decoder_init_file(file_path, &config, &decoder);
+#endif
+
+        if (res == MA_SUCCESS)
+        {
+            if (info.sample_rate <= 0) info.sample_rate = (int)decoder.outputSampleRate;
+            if (info.channels <= 0) info.channels = (int)decoder.outputChannels;
+            if (info.bit_depth <= 0) info.bit_depth = 16;
+
+            ma_uint64 frameCount = 0;
+            if (ma_decoder_get_length_in_pcm_frames(&decoder, &frameCount) == MA_SUCCESS && info.sample_rate > 0)
+            {
+                info.duration_secs = (double)frameCount / (double)info.sample_rate;
+            }
+            ma_decoder_uninit(&decoder);
+        }
+
+        // D. Calculate exact average bitrate in kbps
+        if (info.duration_secs > 0 && info.file_size_bytes > 0)
+        {
+            info.bitrate_kbps = (int)(((info.file_size_bytes * 8.0) / info.duration_secs) / 1000.0);
+        }
+
+        return info;
+    }
+
 } // extern "C"

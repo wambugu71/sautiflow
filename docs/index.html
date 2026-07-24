@@ -58,6 +58,7 @@
                 <a href="#playback-controls" class="nav-item">Playback Controls</a>
                 <a href="#playlist-management" class="nav-item">Playlist Management</a>
                 <a href="#player-status" class="nav-item">Player Status</a>
+                <a href="#native-track-inspector" class="nav-item">Native Track Inspector</a>
             </div>
 
             <div class="nav-group">
@@ -124,6 +125,11 @@
                         <div class="feature-icon"><i class="fa-solid fa-microchip"></i></div>
                         <h4>Pro Pipeline State</h4>
                         <p>Query true internal flow from native input formats to hardware negotiated device outputs.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+                        <h4>Native Track Inspector</h4>
+                        <p>Extract exact stream sample rate, bit depth (24-bit/32-bit float), channels & bitrate directly via C++ FFI.</p>
                     </div>
                 </div>
 
@@ -392,6 +398,79 @@ void main() async {
     );
   },
 );</code></pre>
+            </section>
+
+            <section id="native-track-inspector">
+                <h2>Native C++ Track Inspector</h2>
+                <p>
+                    Sautiflow includes a high-speed native stream inspector (<code>ae_inspect_file</code>) exported directly via C++ FFI.
+                    It parses raw binary container headers (including FLAC <code>STREAMINFO</code> blocks and WAV <code>fmt </code> chunks) and
+                    queries the miniaudio decoder engine without needing to decode full PCM frames.
+                </p>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h3>inspectFile</h3>
+                        <span class="api-signature">TrackNativeInfo? inspectFile(String filePath)</span>
+                    </div>
+                    <div class="api-body">
+                        <p>Inspects a local audio file and returns exact stream specifications instantly.</p>
+                        <pre><code class="language-dart">import 'package:sautiflow/sautiflow.dart';
+
+void inspectTrack(MiniAudioPlayer player, String filePath) {
+  final info = player.inspectFile(filePath);
+
+  if (info != null) {
+    print('Sample Rate: ${info.sampleRate} Hz');    // e.g. 96000 Hz, 192000 Hz
+    print('Bit Depth:   ${info.bitDepth} bits');    // e.g. 24-bit, 32-bit
+    print('Float PCM:   ${info.isFloat}');         // true for 32-bit Float WAV
+    print('Channels:    ${info.channels}');        // 2 (Stereo) or 1 (Mono)
+    print('Bitrate:     ${info.bitrateKbps} kbps');// e.g. 1411 kbps, 2304 kbps
+    print('Codec:       ${info.formatName}');     // "FLAC", "WAV", "MP3", "AAC"
+    print('Duration:    ${info.durationSecs}s');  // Track duration in seconds
+    print('File Size:   ${info.fileSizeBytes} B'); // Exact size on disk
+  }
+}</code></pre>
+
+                        <table class="param-table">
+                            <tr>
+                                <th>Field</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                            </tr>
+                            <tr>
+                                <td class="param-name">sampleRate</td>
+                                <td class="param-type">int</td>
+                                <td>True native source sample rate (e.g. 44100, 48000, 88200, 96000, 192000 Hz)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">bitDepth</td>
+                                <td class="param-type">int</td>
+                                <td>Native PCM sample bit resolution (8, 16, 24, 32)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">isFloat</td>
+                                <td class="param-type">bool</td>
+                                <td><code>true</code> if audio data is 32-bit IEEE floating point PCM</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">channels</td>
+                                <td class="param-type">int</td>
+                                <td>Channel count (1 = Mono, 2 = Stereo, 6 = 5.1 Surround)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">bitrateKbps</td>
+                                <td class="param-type">int</td>
+                                <td>Calculated average bitrate in kilobits per second (kbps)</td>
+                            </tr>
+                            <tr>
+                                <td class="param-name">formatName</td>
+                                <td class="param-type">String</td>
+                                <td>Container format or codec string (e.g. "FLAC", "WAV", "MP3")</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <section id="dynamic-bass">

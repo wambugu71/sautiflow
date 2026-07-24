@@ -523,6 +523,21 @@ class IsolateAudioPlayer {
     return response as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>?> inspectFile(String path) async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'inspectFile',
+      'path': path,
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      return null;
+    }
+    return response as Map<String, dynamic>?;
+  }
+
   void pushStream(String url) => _send({'cmd': 'pushStream', 'url': url});
 
   bool isNetworkStreamingSupported() => _networkStreamingSupported;
@@ -1006,6 +1021,16 @@ void _isolateEntry(_IsolateInitData initData) {
               'format': player.getOutputFormat().name,
               'sampleRate': player.getOutputSampleRate(),
             });
+          } catch (e) {
+            replyTo.send({'error': e.toString()});
+          }
+          break;
+        case 'inspectFile':
+          final SendPort replyTo = message['replyTo'];
+          try {
+            final path = message['path'] as String;
+            final info = player.inspectFile(path);
+            replyTo.send(info?.toJson());
           } catch (e) {
             replyTo.send({'error': e.toString()});
           }

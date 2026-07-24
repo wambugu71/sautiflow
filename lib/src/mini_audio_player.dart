@@ -165,6 +165,7 @@ class MiniAudioPlayer {
   PipelineAudioState get pipelineState => _engine.getPipelineState();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
+  TrackNativeInfo? inspectFile(String path) => _engine.inspectFile(path);
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
   int getPushStreamBufferedBytes() => _engine.getPushStreamBufferedBytes();
   int getAnalyzerFrameSize() => _engine.getAnalyzerFrameSize();

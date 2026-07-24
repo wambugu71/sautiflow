@@ -8,7 +8,8 @@ export 'audio_engine_ffi.dart'
         LoopMode,
         PlayerStatus,
         EqBandType,
-        EqBandConfig;
+        EqBandConfig,
+        TrackNativeInfo;
 export 'src/filters_api.dart';
 export 'src/mini_audio_player.dart' show MiniAudioPlayer;
 export 'src/miniaudio_filters.dart'

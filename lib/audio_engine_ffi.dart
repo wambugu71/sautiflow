@@ -108,6 +108,85 @@ final class PipelineStateNative extends ffi.Struct {
   external double pitch;
 }
 
+final class AETrackInfoNative extends ffi.Struct {
+  @ffi.Int32()
+  external int sample_rate;
+
+  @ffi.Int32()
+  external int bit_depth;
+
+  @ffi.Int32()
+  external int channels;
+
+  @ffi.Int32()
+  external int bitrate_kbps;
+
+  @ffi.Int32()
+  external int is_float;
+
+  @ffi.Double()
+  external double duration_secs;
+
+  @ffi.Int64()
+  external int file_size_bytes;
+
+  @ffi.Array(32)
+  external ffi.Array<ffi.Uint8> format_name;
+}
+
+class TrackNativeInfo {
+  final int sampleRate;
+  final int bitDepth;
+  final int channels;
+  final int bitrateKbps;
+  final bool isFloat;
+  final double durationSecs;
+  final int fileSizeBytes;
+  final String formatName;
+
+  const TrackNativeInfo({
+    required this.sampleRate,
+    required this.bitDepth,
+    required this.channels,
+    required this.bitrateKbps,
+    required this.isFloat,
+    required this.durationSecs,
+    required this.fileSizeBytes,
+    required this.formatName,
+  });
+
+  factory TrackNativeInfo.fromNative(AETrackInfoNative native) {
+    final bytes = <int>[];
+    for (int i = 0; i < 32; i++) {
+      final b = native.format_name[i];
+      if (b == 0) break;
+      bytes.add(b);
+    }
+    final fmtStr = String.fromCharCodes(bytes).trim();
+    return TrackNativeInfo(
+      sampleRate: native.sample_rate,
+      bitDepth: native.bit_depth,
+      channels: native.channels,
+      bitrateKbps: native.bitrate_kbps,
+      isFloat: native.is_float != 0,
+      durationSecs: native.duration_secs,
+      fileSizeBytes: native.file_size_bytes,
+      formatName: fmtStr.isNotEmpty ? fmtStr : 'AUDIO',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'sampleRate': sampleRate,
+    'bitDepth': bitDepth,
+    'channels': channels,
+    'bitrateKbps': bitrateKbps,
+    'isFloat': isFloat,
+    'durationSecs': durationSecs,
+    'fileSizeBytes': fileSizeBytes,
+    'formatName': formatName,
+  };
+}
+
 typedef _CreateEngineNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32, ffi.Int32);
 typedef _CreateEngineDart = ffi.Pointer<ffi.Void> Function(int, int);
@@ -399,6 +478,9 @@ typedef _SetMultibandFxBandsDart = void Function(
   ffi.Pointer<ffi.Float>,
   ffi.Pointer<ffi.Int32>,
 );
+
+typedef _InspectFileNative = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
+typedef _InspectFileDart = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 
 typedef _ClearMultibandFxNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _ClearMultibandFxDart = void Function(ffi.Pointer<ffi.Void>);
@@ -976,6 +1058,14 @@ class AudioEngineFFI {
     } catch (_) {
       _getNetworkStreamingSupport = null;
     }
+
+    try {
+      _inspectFile = _lib.lookupFunction<_InspectFileNative, _InspectFileDart>(
+        'ae_inspect_file',
+      );
+    } catch (_) {
+      _inspectFile = null;
+    }
   }
 
   final ffi.DynamicLibrary _lib;
@@ -1112,6 +1202,7 @@ class AudioEngineFFI {
   late final _MallocDart _malloc;
   late final _FreeDart _free;
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
+  _InspectFileDart? _inspectFile;
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
@@ -1328,6 +1419,17 @@ class AudioEngineFFI {
   int getCrossfadeDurationMs() {
     if (_engine == ffi.nullptr) return 0;
     return _getCrossfadeDurationMs(_engine);
+  }
+
+  TrackNativeInfo? inspectFile(String path) {
+    if (_inspectFile == null) return null;
+    final c = _toNativeChar(path);
+    try {
+      final native = _inspectFile!(c);
+      return TrackNativeInfo.fromNative(native);
+    } finally {
+      _freePtr(c.cast<ffi.Void>());
+    }
   }
 
   // Alias matching requested naming style.

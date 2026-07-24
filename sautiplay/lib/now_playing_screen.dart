@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -16,9 +17,11 @@ import 'effects_screen.dart';
 import 'isolate_player.dart';
 import 'models/liked_song.dart';
 import 'queue_screen.dart'; // NEW
+import 'services/audio_file_inspector.dart';
 import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
+import 'widgets/music_info_dialog.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   final ValueNotifier<PlayerStatus> statusNotifier;
@@ -90,6 +93,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   String _originalBitDepth = '';
   String _sampleRate = '...';
   String _channels = '...';
+  String? _detectedCodec;
+
+  String? _customTitle;
+  String? _customArtist;
+  String _customAlbum = 'Unknown Album';
+  String _customGenre = 'Unknown Genre';
+  String _customYear = '';
+  String _customTrackNum = '';
 
   // ── Seek-state machine ────────────────────────────────────────────────────
   //
@@ -177,77 +188,104 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     }
   }
 
-  Future<String?> _getOriginalBitDepth(String path) async {
-    try {
-      final ext = path.split('.').last.toLowerCase();
-      if (ext == 'mp3' || ext == 'm4a' || ext == 'aac' || ext == 'ogg') {
-        return '16 bit';
-      }
-      
-      final file = File(path);
-      if (!file.existsSync()) return null;
 
-      final raf = file.openSync();
-      try {
-        if (ext == 'flac') {
-          final header = raf.readSync(4);
-          if (String.fromCharCodes(header) == 'fLaC') {
-            final blockHeader = raf.readSync(4);
-            final blockType = blockHeader[0] & 0x7F;
-            final blockLength = (blockHeader[1] << 16) | (blockHeader[2] << 8) | blockHeader[3];
-            if (blockType == 0 && blockLength == 34) {
-              final streamInfo = raf.readSync(34);
-              final b12 = streamInfo[12];
-              final b13 = streamInfo[13];
-              final bitsPerSample = (((b12 & 0x01) << 4) | ((b13 & 0xF0) >> 4)) + 1;
-              return '$bitsPerSample bit';
-            }
-          }
-        } else if (ext == 'wav') {
-          raf.setPositionSync(34);
-          final bits = raf.readSync(2);
-          final bitsPerSample = bits[0] | (bits[1] << 8);
-          return '$bitsPerSample bit';
-        }
-      } finally {
-        raf.closeSync();
-      }
-    } catch (_) {}
-    return null;
+
+  String _formatSampleRate(int rateHz) {
+    if (rateHz <= 0) return '44.1 kHz';
+    if (rateHz % 1000 == 0) {
+      return '${rateHz ~/ 1000}.0 kHz';
+    }
+    final double kHz = rateHz / 1000.0;
+    return '${kHz.toStringAsFixed(1)} kHz';
   }
 
   Future<void> _fetchAudioProperties() async {
     _fileSizeBytes = 0;
     _originalBitDepth = '';
-    
+    _detectedCodec = null;
+
     try {
       final props = await widget.player.getAudioProperties();
-      
-      if (widget.sourceType == 'local' && widget.videoId != null) {
+      final pipelineState = await widget.player.getPipelineState();
+      String? sampleRateStr;
+      String? channelsStr;
+      String? depthStr;
+      String? codecStr;
+
+      String? cleanPath = widget.videoId;
+      if (cleanPath != null && cleanPath.startsWith('file://')) {
+        cleanPath = Uri.tryParse(cleanPath)?.toFilePath();
+      }
+
+      if (cleanPath != null) {
         try {
-          final file = File(widget.videoId!);
+          final file = File(cleanPath);
           if (file.existsSync()) {
             _fileSizeBytes = file.lengthSync();
+            final info = await AudioFileInspector.inspectNative(widget.player, cleanPath);
+            sampleRateStr = info.formattedSampleRate;
+            depthStr = info.formattedBitDepth;
+            channelsStr = info.formattedChannels;
+            codecStr = info.codec;
+
+            try {
+              final metadata = readMetadata(file, getImage: false);
+              if (metadata.album != null && metadata.album!.isNotEmpty) {
+                _customAlbum = metadata.album!;
+              }
+              if (metadata.genres.isNotEmpty && metadata.genres.first.isNotEmpty) {
+                _customGenre = metadata.genres.first;
+              }
+              if (metadata.year != null) {
+                _customYear = metadata.year.toString();
+              }
+              if (metadata.trackNumber != null) {
+                _customTrackNum = metadata.trackNumber.toString();
+              }
+            } catch (_) {}
           }
-          final depth = await _getOriginalBitDepth(widget.videoId!);
-          if (mounted && depth != null) {
-            setState(() {
-              _originalBitDepth = depth;
-            });
-          }
-        } catch (_) {}
-      } else {
-        // Fallback for streams where file size is unavailable
-        if (mounted) setState(() { _originalBitDepth = '16 bit'; });
+        } catch (e) {
+          debugPrint('[NowPlaying] Audio file inspector error: $e');
+        }
+      }
+
+      // Fallback to live native pipeline state if file inspector didn't run or missed
+      if (sampleRateStr == null && pipelineState.inputSampleRate > 0) {
+        sampleRateStr = _formatSampleRate(pipelineState.inputSampleRate);
+      }
+      if (channelsStr == null && pipelineState.inputChannels > 0) {
+        channelsStr = pipelineState.inputChannels == 1 ? 'MONO' : 'STEREO';
+      }
+      if (depthStr == null) {
+        switch (pipelineState.inputFormat) {
+          case 0:
+            depthStr = '32 bit float';
+            break;
+          case 3:
+            depthStr = '24 bit';
+            break;
+          case 4:
+            depthStr = '32 bit';
+            break;
+          case 2:
+            depthStr = '8 bit';
+            break;
+          case 1:
+          default:
+            depthStr = '16 bit';
+            break;
+        }
       }
 
       if (mounted) {
         setState(() {
-          final int rate = props['sampleRate'] as int? ?? 48000;
-          _sampleRate = '${rate ~/ 1000}KHZ';
+          final int rate = props['sampleRate'] as int? ?? 44100;
+          _sampleRate = sampleRateStr ?? _formatSampleRate(rate);
 
           final int channels = props['channels'] as int? ?? 2;
-          _channels = channels == 1 ? 'MONO' : 'STEREO';
+          _channels = channelsStr ?? (channels == 1 ? 'MONO' : 'STEREO');
+          _originalBitDepth = depthStr ?? '16 bit';
+          _detectedCodec = codecStr;
         });
       }
     } catch (e) {
@@ -255,15 +293,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     }
   }
 
-  String _formatAudioDepth(String raw) {
-    final lower = raw.toLowerCase();
-    if (lower.contains('f32')) return '32 bit float';
-    if (lower.contains('s32')) return '32 bit';
-    if (lower.contains('s24')) return '24 bit';
-    if (lower.contains('s16')) return '16 bit';
-    if (lower.contains('u8')) return '8 bit';
-    return raw.toUpperCase();
+  String _buildAudioInfoBadgeText(String trackPosition) {
+    final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
+    final codecPart = _detectedCodec ?? widget.codec;
+    return '$trackPosition $depthPart$_sampleRate $codecPart'.toUpperCase();
   }
+
+
 
   Future<void> _fetchLyrics() async {
     if (widget.videoId == null) return;
@@ -340,6 +376,60 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     }
   }
 
+  void _showMusicInfoDialog(BuildContext context) {
+    final status = widget.statusNotifier.value;
+    final overrideSecs = widget.durationOverride;
+    final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
+        ? overrideSecs.toDouble()
+        : status.durationSeconds;
+    final duration = Duration(milliseconds: (baseDurationSecs * 1000).round());
+    final rawTitle = widget.getTitle(status.currentIndex);
+
+    showDialog(
+      context: context,
+      builder: (context) => MusicInfoDialog(
+        title: _customTitle ?? rawTitle,
+        artist: _customArtist ?? widget.artist,
+        album: _customAlbum,
+        genre: _customGenre,
+        year: _customYear,
+        trackNumber: _customTrackNum,
+        albumArt: widget.albumArt,
+        sourceType: widget.sourceType,
+        videoId: widget.videoId,
+        codec: _detectedCodec ?? widget.codec,
+        sampleRate: _sampleRate,
+        channels: _channels,
+        bitDepth: _originalBitDepth,
+        fileSizeBytes: _fileSizeBytes,
+        duration: duration,
+        onSaveTags: ({
+          required String title,
+          required String artist,
+          required String album,
+          required String genre,
+          required String year,
+          required String trackNumber,
+        }) {
+          setState(() {
+            _customTitle = title.isNotEmpty ? title : null;
+            _customArtist = artist.isNotEmpty ? artist : null;
+            _customAlbum = album;
+            _customGenre = genre;
+            _customYear = year;
+            _customTrackNum = trackNumber;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Song tags updated successfully'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<PlayerStatus>(
@@ -375,9 +465,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
         _lyricController
             .setProgress(Duration(milliseconds: displayPosMs.toInt()));
 
-        final title = widget.getTitle(status.currentIndex);
-        final subtitle = widget.artist;
-        final sourceType = widget.sourceType;
+        final rawTitle = widget.getTitle(status.currentIndex);
+        final title = _customTitle ?? rawTitle;
+        final subtitle = _customArtist ?? widget.artist;
 
         // Theme colors matching the HTML mockup
         const Color primaryColor = Color(0xFF137FEC);
@@ -588,8 +678,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                                       ),
                                                     ),
                                                     const SizedBox(width: 16),
-                                                    // More options
-                                                    const Icon(Icons.more_vert, color: Colors.white, size: 32),
+                                                     // More options
+                                                     IconButton(
+                                                       icon: const Icon(Icons.more_vert, color: Colors.white, size: 32),
+                                                       onPressed: () => _showMusicInfoDialog(context),
+                                                       tooltip: 'Song Info & Tags',
+                                                     ),
                                                   ],
                                                 ),
                                               ],
@@ -733,7 +827,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                                   borderRadius: BorderRadius.circular(16),
                                                 ),
                                                 child: Text(
-                                                  '$trackPosition $_sampleRate ${widget.codec}'.toUpperCase(),
+                                                  _buildAudioInfoBadgeText(trackPosition),
                                                   style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                                                 ),
                                               ),
@@ -939,7 +1033,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                           ),
                                           const SizedBox(width: 8),
                                           // More options
-                                          const Icon(Icons.more_vert, color: Colors.white),
+                                          IconButton(
+                                            icon: const Icon(Icons.more_vert, color: Colors.white),
+                                            onPressed: () => _showMusicInfoDialog(context),
+                                            tooltip: 'Song Info & Tags',
+                                          ),
                                         ],
                                       ),
                                     ],

@@ -11,7 +11,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  sautiflow: 0.6.14
+  sautiflow:
+    path: ../
   file_picker: ^11.0.2
   permission_handler: ^12.0.1
   fl_chart: ^1.2.0
@@ -40,6 +41,10 @@ dev_dependencies:
   flutter_native_splash: ^2.4.4
   msix: ^3.17.0
   flutter_to_debian: ^2.0.2
+
+dependency_overrides:
+  sautiflow:
+    path: ../
 
 flutter:
   uses-material-design: true

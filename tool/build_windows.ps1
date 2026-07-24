@@ -6,25 +6,84 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "Building Windows DLL..."
 
-$curlCflags = ""
-$curlLibs = ""
+$curlArgs = @()
 try {
     $null = (Get-Command pkg-config -ErrorAction Stop)
     pkg-config --exists libcurl
     if ($LASTEXITCODE -eq 0) {
-        $curlCflags = "-DAE_ENABLE_CURL=1 " + (pkg-config --cflags libcurl)
-        $curlLibs = (pkg-config --libs libcurl)
+        $cflags = (pkg-config --cflags libcurl).Trim()
+        $libs = (pkg-config --libs libcurl).Trim()
+        $curlArgs += "-DAE_ENABLE_CURL=1"
+        if ($cflags) { $curlArgs += ($cflags -split "\s+") }
+        if ($libs) { $curlArgs += ($libs -split "\s+") }
         Write-Host "libcurl detected: enabling native URL byte-streaming"
     }
 }
 catch {
 }
 
-if ([string]::IsNullOrWhiteSpace($curlCflags)) {
+if ($curlArgs.Count -eq 0) {
     Write-Host "libcurl not found: building without native URL byte-streaming"
 }
 
-g++ -std=c++17 -O2 -shared -o audio_engine.dll audio_engine.cpp $curlCflags -static-libgcc -static-libstdc++ -lwinmm -lpthread $curlLibs
+# Create temporary obj directory
+$objDir = "build\obj"
+New-Item -ItemType Directory -Force -Path $objDir | Out-Null
+Remove-Item "$objDir\*" -Force -Recurse -ErrorAction SilentlyContinue
+
+$includes = @(
+    "-I.",
+    "-Ithird_party",
+    "-Ithird_party/faad2/include",
+    "-Ithird_party/faad2/libfaad",
+    "-Ithird_party/libsamplerate/include",
+    "-IViPERDSP/include",
+    "-IViPERDSP/viper",
+    "-IViPERDSP/viper/effects",
+    "-IViPERDSP/viper/utils"
+)
+
+$defines = @(
+    "-D_USE_MATH_DEFINES",
+    "-DNOMINMAX",
+    "-DWIN32_LEAN_AND_MEAN",
+    '-DPACKAGE_VERSION=\"2.11.1\"',
+    '-DPACKAGE=\"libsamplerate\"',
+    '-DVERSION=\"0.2.2\"',
+    '-DHAVE_INTTYPES_H=1',
+    '-DHAVE_MEMCPY=1',
+    '-DHAVE_STRING_H=1',
+    '-DHAVE_STDBOOL_H=1',
+    '-DHAVE_STRINGS_H=1',
+    '-DHAVE_SYS_TYPES_H=1'
+)
+
+Write-Host "Compiling C sources with gcc..."
+$cFiles = Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c", "ViPERDSP/viper/utils/*.c" | Select-Object -ExpandProperty FullName
+foreach ($f in $cFiles) {
+    $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"
+    $objPath = Join-Path $objDir $objName
+    gcc -O2 -c $f -o $objPath @includes @defines
+    if ($LASTEXITCODE -ne 0) { throw "gcc failed on $f" }
+}
+
+Write-Host "Compiling C++ sources with g++..."
+$cppFiles = @(
+    "audio_engine.cpp",
+    "mp4_aac_decoder.cpp"
+) + (Get-ChildItem -Path "ViPERDSP/viper/*.cpp", "ViPERDSP/viper/effects/*.cpp", "ViPERDSP/viper/utils/*.cpp" | Select-Object -ExpandProperty FullName)
+
+foreach ($f in $cppFiles) {
+    $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"
+    $objPath = Join-Path $objDir $objName
+    g++ -std=c++17 -O2 -c $f -o $objPath @includes @defines @curlArgs
+    if ($LASTEXITCODE -ne 0) { throw "g++ failed on $f" }
+}
+
+Write-Host "Linking audio_engine.dll..."
+$allObjs = Get-ChildItem -Path "$objDir\*.o" | Select-Object -ExpandProperty FullName
+g++ -std=c++17 -O2 -shared -o audio_engine.dll @allObjs @curlArgs -static-libgcc -static-libstdc++ -lwinmm -lpthread
+if ($LASTEXITCODE -ne 0) { throw "Linking failed" }
 
 New-Item -ItemType Directory -Force -Path "build\windows" | Out-Null
 Copy-Item "audio_engine.dll" "build\windows\audio_engine.dll" -Force
