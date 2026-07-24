@@ -15,6 +15,8 @@ class CombinedHomeScreen extends StatefulWidget {
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs;
+  final Function(TrackInfo track)? onQueueTrack;
+  final Function(String filePath)? onDeleteTrack;
 
   const CombinedHomeScreen({
     super.key,
@@ -22,6 +24,8 @@ class CombinedHomeScreen extends StatefulWidget {
     this.onGoToDownloads,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.onQueueTrack,
+    this.onDeleteTrack,
   });
 
   @override
@@ -141,6 +145,8 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                       LibraryScreen(
                         onPlayFolder: widget.onPlayFolder,
                         onPlayLikedSongs: widget.onPlayLikedSongs,
+                        onQueueTrack: widget.onQueueTrack,
+                        onDeleteTrack: widget.onDeleteTrack,
                         isNested: true,
                       ),
                     ],

@@ -31,6 +31,7 @@ dependencies:
   audio_metadata_reader: ^1.6.0
   text_scroll: ^0.2.1
   marquee: ^2.2.1
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

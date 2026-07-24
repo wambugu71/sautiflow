@@ -1,30 +1,41 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'album_detail_screen.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
+import 'services/audio_file_inspector.dart';
 import 'widgets/local_album_art.dart';
+import 'widgets/music_info_dialog.dart';
+import 'widgets/song_options_menu.dart';
 
 class LibraryScreen extends StatefulWidget {
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs; // NEW
+  final Function(TrackInfo track)? onQueueTrack;
+  final Function(String filePath)? onDeleteTrack;
   final bool isNested;
 
   const LibraryScreen({
     super.key,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.onQueueTrack,
+    this.onDeleteTrack,
     this.isNested = false,
   });
 
@@ -271,6 +282,183 @@ class _LibraryScreenState extends State<LibraryScreen>
     final paths = _allSongs.map((e) => e.path).toList();
     paths.shuffle();
     widget.onPlayFolder(paths);
+  }
+
+  Future<void> _handleSongOption(LocalSongItem song, SongOption option) async {
+    switch (option) {
+      case SongOption.queue:
+        _queueSong(song);
+        break;
+      case SongOption.info:
+        await _showSongInfo(song);
+        break;
+      case SongOption.share:
+        await _shareSong(song);
+        break;
+      case SongOption.delete:
+        await _confirmAndDeleteSong(song);
+        break;
+    }
+  }
+
+  void _queueSong(LocalSongItem song) {
+    final track = TrackInfo(
+      videoId: song.path,
+      title: song.title,
+      artist: song.artist != 'Unknown Artist' ? song.artist : 'Local File',
+      thumbnailUrl: null,
+    );
+    if (widget.onQueueTrack != null) {
+      widget.onQueueTrack!(track);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${song.title}" to Queue (Play Next)'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Player queue control unavailable.')),
+      );
+    }
+  }
+
+  Future<void> _showSongInfo(LocalSongItem song) async {
+    final file = File(song.path);
+    String artist = song.artist;
+    String title = song.title;
+    String album = 'Unknown Album';
+    String genre = 'Unknown Genre';
+    String year = '';
+    String trackNumber = '';
+    Uint8List? albumArt;
+    Duration duration = Duration.zero;
+
+    final fileInfo = await AudioFileInspector.inspect(song.path);
+
+    try {
+      if (file.existsSync()) {
+        final meta = amr.readMetadata(file, getImage: true);
+        if (meta.title != null && meta.title!.isNotEmpty) title = meta.title!;
+        if (meta.artist != null && meta.artist!.isNotEmpty) artist = meta.artist!;
+        if (meta.album != null && meta.album!.isNotEmpty) album = meta.album!;
+        if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
+          genre = meta.genres.first;
+        }
+        if (meta.year != null) year = meta.year.toString();
+        if (meta.trackNumber != null) trackNumber = meta.trackNumber.toString();
+        if (meta.pictures.isNotEmpty) albumArt = meta.pictures.first.bytes;
+        if (meta.duration != null) duration = meta.duration!;
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (_) => MusicInfoDialog(
+        title: title,
+        artist: artist,
+        album: album,
+        genre: genre,
+        year: year,
+        trackNumber: trackNumber,
+        albumArt: albumArt,
+        sourceType: 'local',
+        videoId: song.path,
+        codec: fileInfo.codec,
+        sampleRate: fileInfo.formattedSampleRate,
+        channels: fileInfo.formattedChannels,
+        bitDepth: fileInfo.formattedBitDepth,
+        fileSizeBytes: song.sizeBytes,
+        duration: duration,
+      ),
+    );
+  }
+
+  Future<void> _shareSong(LocalSongItem song) async {
+    final file = File(song.path);
+    if (!file.existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Audio file does not exist on disk.')),
+      );
+      return;
+    }
+    try {
+      final xfile = XFile(song.path);
+      await Share.shareXFiles([xfile], text: song.title);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not share file: $e')),
+      );
+    }
+  }
+
+  Future<void> _confirmAndDeleteSong(LocalSongItem song) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18232E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Delete Song Permanently?',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Are you sure you want to delete "${song.title}"? The file will be permanently removed from your storage.',
+          style: const TextStyle(color: Color(0xFF94A3B8)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final file = File(song.path);
+      if (file.existsSync()) {
+        await file.delete();
+      }
+
+      setState(() {
+        _allSongs.removeWhere((s) => s.path == song.path);
+        _filteredSongs.removeWhere((s) => s.path == song.path);
+      });
+
+      if (widget.onDeleteTrack != null) {
+        widget.onDeleteTrack!(song.path);
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${song.title}" permanently.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete file: $e')),
+      );
+    }
   }
 
   Widget _buildTab(int index, String title, {bool isDesktop = false}) {
@@ -618,6 +806,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                             _filteredSongs.map((e) => e.path).toList();
                         widget.onPlayFolder(paths, initialIndex: realIndex);
                       },
+                      onOptionSelected: (option) =>
+                          _handleSongOption(song, option),
                       context: context,
                       isDesktop: isDesktop,
                     );
@@ -672,6 +862,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     Gradient? iconGradient,
     VoidCallback? onTap,
     VoidCallback? onLongPress,
+    ValueChanged<SongOption>? onOptionSelected,
     bool isDesktop = false,
   }) {
     final isLossless = subtitle.contains('Lossless');
@@ -778,11 +969,17 @@ class _LibraryScreenState extends State<LibraryScreen>
                 ],
               ),
             ),
-            IconButton(
-              icon: Icon(Icons.more_vert,
-                  color: const Color(0xFF94A3B8), size: isDesktop ? 28 : 24),
-              onPressed: () {},
-            ),
+            if (onOptionSelected != null)
+              SongOptionsMenuButton(
+                iconSize: isDesktop ? 28 : 24,
+                onOptionSelected: onOptionSelected,
+              )
+            else
+              IconButton(
+                icon: Icon(Icons.more_vert,
+                    color: const Color(0xFF94A3B8), size: isDesktop ? 28 : 24),
+                onPressed: () {},
+              ),
           ],
         ),
       ),

@@ -1108,6 +1108,62 @@ class _PlayerShellState extends State<PlayerShell> {
     });
   }
 
+  Future<void> _queueNextTrack(TrackInfo track) async {
+    final uri = track.videoId.startsWith('http')
+        ? Uri.parse(track.videoId)
+        : Uri.file(track.videoId, windows: Platform.isWindows);
+
+    final src = await _materializeSource(uri);
+    if (src == null) {
+      _logs.insert(0, '[queue] Failed to materialize source for: ${track.title}');
+      return;
+    }
+
+    if (src.uri.scheme != 'file') {
+      _onlineTrackMetadata[src.uri] = track;
+    }
+
+    final currentIdx = _status.value.currentIndex;
+    final insertIdx = (currentIdx >= 0 && currentIdx < _playlist.length)
+        ? currentIdx + 1
+        : _playlist.length;
+
+    setState(() {
+      if (insertIdx >= _currentUiQueue.length) {
+        _currentUiQueue.add(track);
+        _playlist.add(src);
+      } else {
+        _currentUiQueue.insert(insertIdx, track);
+        _playlist.insert(insertIdx, src);
+      }
+    });
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: currentIdx >= 0 ? currentIdx : 0,
+      initialPosition: Duration(seconds: _status.value.positionSeconds.toInt()),
+      useLazyPreparation: true,
+    );
+
+    _saveQueue();
+    _logs.insert(0, '[queue] Appended to Play Next: ${track.title}');
+  }
+
+  void _handleDeletedTrack(String filePath) {
+    setState(() {
+      _currentUiQueue.removeWhere((t) => t.videoId == filePath);
+      _playlist.removeWhere((src) {
+        if (src.uri.scheme == 'file') {
+          final p = _safeFilePathFromUri(src.uri);
+          return p != null && p == filePath;
+        }
+        return false;
+      });
+    });
+    _saveQueue();
+    _logs.insert(0, '[delete] Removed deleted track from active queue: $filePath');
+  }
+
   /// Plays tracks selected from the Recently Played history list.
   Future<void> _playHistoryTracks(
     List<RecentlyPlayedTrack> tracks, {
@@ -1304,6 +1360,8 @@ class _PlayerShellState extends State<PlayerShell> {
             },
             onPlayFolder: _playFolder,
             onPlayLikedSongs: _playLikedSongs,
+            onQueueTrack: _queueNextTrack,
+            onDeleteTrack: _handleDeletedTrack,
           ),
           EffectsScreen(
             player: _player,
