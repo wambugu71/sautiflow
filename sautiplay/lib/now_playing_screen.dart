@@ -439,75 +439,96 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFF18232E),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24.0, 16.0, 24.0, 24.0),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF137FEC).withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.equalizer, color: Color(0xFF137FEC)),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'HARDWARE AUDIO OUTPUT SPECS',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
-                            color: Color(0xFF137FEC),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          specs.deviceName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF137FEC).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.equalizer, color: Color(0xFF137FEC)),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'HARDWARE AUDIO OUTPUT SPECS',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                                color: Color(0xFF137FEC),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              specs.deviceName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(color: Colors.white12),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _buildSpecChip(Icons.api, 'Backend API', specs.backendName),
+                      _buildSpecChip(Icons.headset, 'Device Route', specs.deviceType),
+                      _buildSpecChip(Icons.speed, 'Sample Rate', specs.formattedSampleRate, isHiRes: specs.isHiResAudio),
+                      _buildSpecChip(Icons.high_quality, 'Bit Depth', specs.formattedBitDepth),
+                      _buildSpecChip(Icons.timer_outlined, 'Buffer Latency', specs.formattedLatency),
+                      _buildSpecChip(Icons.surround_sound, 'Channels', '${specs.channels} Ch (Stereo)'),
+                      _buildSpecChip(Icons.lock_outline, 'Mode', specs.isExclusiveMode ? 'Bit-Perfect Exclusive' : 'Shared Mixer'),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                 ],
               ),
-              const SizedBox(height: 20),
-              const Divider(color: Colors.white12),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _buildSpecChip(Icons.api, 'Backend API', specs.backendName),
-                  _buildSpecChip(Icons.headset, 'Device Route', specs.deviceType),
-                  _buildSpecChip(Icons.speed, 'Sample Rate', specs.formattedSampleRate, isHiRes: specs.isHiResAudio),
-                  _buildSpecChip(Icons.high_quality, 'Bit Depth', specs.formattedBitDepth),
-                  _buildSpecChip(Icons.timer_outlined, 'Buffer Latency', specs.formattedLatency),
-                  _buildSpecChip(Icons.surround_sound, 'Channels', '${specs.channels} Ch (Stereo)'),
-                  _buildSpecChip(Icons.lock_outline, 'Mode', specs.isExclusiveMode ? 'Bit-Perfect Exclusive' : 'Shared Mixer'),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
+            ),
           ),
         );
       },
@@ -519,10 +540,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
       width: 160,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isHiRes ? const Color(0xFF137FEC).withOpacity(0.6) : Colors.white.withOpacity(0.08),
+          color: isHiRes ? const Color(0xFF137FEC).withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.08),
         ),
       ),
       child: Column(
@@ -532,13 +553,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
             children: [
               Icon(icon, size: 14, color: isHiRes ? const Color(0xFF137FEC) : Colors.white54),
               const SizedBox(width: 6),
-              Text(
-                label.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: isHiRes ? const Color(0xFF137FEC) : Colors.white54,
-                  letterSpacing: 0.5,
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isHiRes ? const Color(0xFF137FEC) : Colors.white54,
+                    letterSpacing: 0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
