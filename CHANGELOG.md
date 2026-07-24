@@ -1,10 +1,10 @@
 # Changelog
 
-## 0.6.7
+## 0.6.15
 
-- **[Build]** Fixed missing ViPERDSP headers in Linux, macOS, and iOS builds.
-
-## 0.6.6
+- **[Core/FFI]** Added real-time native hardware output inspection API (`AEHardwareInfo` & `ae_get_hardware_info`).
+  - Exposes active audio backend (`WASAPI`, `AAudio`, `Core Audio`, `PulseAudio`, `ALSA`), negotiated hardware sample rate, bit depth, buffer frame size, latency in ms, active soundcard device name, and exclusive mode status.
+- **[Apps/UI]** Added interactive Hardware Audio Output & Device Inspector modal sheet to `sautiplay` Now Playing Screen.
 
 - **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.
 - **[Apps/UI]** For `sautiplay`: added ViPER FX effects, implemented UI improvements, boosted performance, and fixed bugs.
