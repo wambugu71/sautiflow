@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.16
+
+- Fixed minor bugs and improved performance and stability.
+- Updated sautiplay app to use the latest version of sautiflow.
 ## 0.6.15
 
 - **[Core/FFI]** Added real-time native hardware output inspection API (`AEHardwareInfo` & `ae_get_hardware_info`).
