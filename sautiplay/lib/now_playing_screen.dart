@@ -1296,24 +1296,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                     style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
                                   ),
                                   // Audio Info Badge
-                                  GestureDetector(
-                                    onTap: () => _showHardwareSpecsModal(context),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.info_outline, size: 10, color: Colors.white70),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            '$trackPosition $_sampleRate ${widget.codec}'.toUpperCase(),
-                                            style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                  Flexible(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                      child: GestureDetector(
+                                        onTap: () => _showHardwareSpecsModal(context),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(12),
                                           ),
-                                        ],
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.info_outline, size: 10, color: Colors.white70),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  _buildAudioInfoBadgeText(trackPosition),
+                                                  style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
