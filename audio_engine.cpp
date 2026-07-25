@@ -5577,6 +5577,156 @@ extern "C"
         return info;
     }
 
+#if defined(__ANDROID__)
+    #include <jni.h>
+
+    static JavaVM* g_androidJavaVM = nullptr;
+
+    extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
+    {
+        (void)reserved;
+        g_androidJavaVM = vm;
+        return JNI_VERSION_1_6;
+    }
+
+    static void query_android_hardware_info(AEHardwareInfo* info)
+    {
+        if (g_androidJavaVM == nullptr || info == nullptr)
+            return;
+
+        JNIEnv* env = nullptr;
+        bool needsDetach = false;
+        jint getEnvResult = g_androidJavaVM->GetEnv((void**)&env, JNI_VERSION_1_6);
+        if (getEnvResult == JNI_EDETACHED)
+        {
+            if (g_androidJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+            {
+                needsDetach = true;
+            }
+            else
+            {
+                return;
+            }
+        }
+        else if (getEnvResult != JNI_OK || env == nullptr)
+        {
+            return;
+        }
+
+        do
+        {
+            jclass activityThreadClass = env->FindClass("android/app/ActivityThread");
+            if (!activityThreadClass) { env->ExceptionClear(); break; }
+
+            jmethodID currentActivityThreadMethod = env->GetStaticMethodID(activityThreadClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
+            if (!currentActivityThreadMethod) { env->ExceptionClear(); break; }
+
+            jobject activityThread = env->CallStaticObjectMethod(activityThreadClass, currentActivityThreadMethod);
+            if (!activityThread) break;
+
+            jmethodID getApplicationMethod = env->GetMethodID(activityThreadClass, "getApplication", "()Landroid/app/Application;");
+            if (!getApplicationMethod) { env->ExceptionClear(); break; }
+
+            jobject context = env->CallObjectMethod(activityThread, getApplicationMethod);
+            if (!context) break;
+
+            jclass contextClass = env->FindClass("android/content/Context");
+            if (!contextClass) { env->ExceptionClear(); break; }
+
+            jfieldID audioServiceField = env->GetStaticFieldID(contextClass, "AUDIO_SERVICE", "Ljava/lang/String;");
+            if (!audioServiceField) { env->ExceptionClear(); break; }
+
+            jobject audioServiceName = env->GetStaticObjectField(contextClass, audioServiceField);
+            if (!audioServiceName) break;
+
+            jmethodID getSystemServiceMethod = env->GetMethodID(contextClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+            if (!getSystemServiceMethod) { env->ExceptionClear(); break; }
+
+            jobject audioManager = env->CallObjectMethod(context, getSystemServiceMethod, audioServiceName);
+            if (!audioManager) break;
+
+            jclass audioManagerClass = env->FindClass("android/media/AudioManager");
+            if (!audioManagerClass) { env->ExceptionClear(); break; }
+
+            jmethodID getDevicesMethod = env->GetMethodID(audioManagerClass, "getDevices", "(I)[Landroid/media/AudioDeviceInfo;");
+            if (!getDevicesMethod) { env->ExceptionClear(); break; }
+
+            jobjectArray deviceArray = (jobjectArray)env->CallObjectMethod(audioManager, getDevicesMethod, 2 /* GET_DEVICES_OUTPUTS */);
+            if (!deviceArray) break;
+
+            jsize deviceCount = env->GetArrayLength(deviceArray);
+            if (deviceCount <= 0) break;
+
+            jclass deviceInfoClass = env->FindClass("android/media/AudioDeviceInfo");
+            if (!deviceInfoClass) { env->ExceptionClear(); break; }
+
+            jmethodID getProductNameMethod = env->GetMethodID(deviceInfoClass, "getProductName", "()Ljava/lang/CharSequence;");
+            jmethodID getTypeMethod = env->GetMethodID(deviceInfoClass, "getType", "()I");
+            jclass charSeqClass = env->FindClass("java/lang/CharSequence");
+            jmethodID toStringMethod = (charSeqClass && getProductNameMethod) ? env->GetMethodID(charSeqClass, "toString", "()Ljava/lang/String;") : nullptr;
+
+            jobject selectedDevice = nullptr;
+            int selectedPriority = -1;
+
+            for (jsize i = 0; i < deviceCount; ++i)
+            {
+                jobject dev = env->GetObjectArrayElement(deviceArray, i);
+                if (!dev) continue;
+
+                int devType = getTypeMethod ? env->CallIntMethod(dev, getTypeMethod) : 0;
+                int priority = 1;
+                if (devType == 11 || devType == 22) priority = 4; // TYPE_USB_DEVICE / TYPE_USB_HEADSET
+                else if (devType == 8 || devType == 26) priority = 3; // TYPE_BLUETOOTH_A2DP / TYPE_BLUETOOTH_LE
+                else if (devType == 3 || devType == 4) priority = 2; // TYPE_WIRED_HEADSET / TYPE_WIRED_HEADPHONES
+
+                if (priority > selectedPriority)
+                {
+                    selectedPriority = priority;
+                    if (selectedDevice) env->DeleteLocalRef(selectedDevice);
+                    selectedDevice = dev;
+                }
+                else
+                {
+                    env->DeleteLocalRef(dev);
+                }
+            }
+
+            if (selectedDevice && toStringMethod && getProductNameMethod)
+            {
+                jobject nameSeq = env->CallObjectMethod(selectedDevice, getProductNameMethod);
+                if (nameSeq)
+                {
+                    jstring nameStr = (jstring)env->CallObjectMethod(nameSeq, toStringMethod);
+                    if (nameStr)
+                    {
+                        const char* utf = env->GetStringUTFChars(nameStr, nullptr);
+                        if (utf && std::strlen(utf) > 0)
+                        {
+                            std::strncpy(info->device_name, utf, sizeof(info->device_name) - 1);
+                            info->device_name[sizeof(info->device_name) - 1] = '\0';
+                        }
+                        if (utf) env->ReleaseStringUTFChars(nameStr, utf);
+                        env->DeleteLocalRef(nameStr);
+                    }
+                    env->DeleteLocalRef(nameSeq);
+                }
+                env->DeleteLocalRef(selectedDevice);
+            }
+
+        } while (false);
+
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+        }
+
+        if (needsDetach)
+        {
+            g_androidJavaVM->DetachCurrentThread();
+        }
+    }
+#endif
+
     AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine)
     {
         AEHardwareInfo info;
@@ -5657,6 +5807,10 @@ extern "C"
             double totalFrames = (double)info.period_size_frames * (double)info.period_count;
             info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
         }
+
+#if defined(__ANDROID__)
+        query_android_hardware_info(&info);
+#endif
 
         return info;
     }
