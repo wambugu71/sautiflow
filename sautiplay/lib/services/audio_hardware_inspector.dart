@@ -108,23 +108,53 @@ class AudioHardwareSpecs {
 class AudioHardwareInspector {
   static const MethodChannel _channel = MethodChannel('com.wambugu.sautiflow/hardware');
 
-  static AudioHardwareSpecs inspect(MiniAudioPlayer player) {
+  static AudioHardwareSpecs inspect(dynamic player) {
     final nativeInfo = player.getHardwareInfo();
-    return AudioHardwareSpecs.fromNative(nativeInfo);
+    if (nativeInfo is AEHardwareInfo) {
+      return AudioHardwareSpecs.fromNative(nativeInfo);
+    }
+    return const AudioHardwareSpecs(
+      backendName: 'Audio Backend',
+      deviceName: 'Default Soundcard',
+      sampleRate: 48000,
+      bitDepth: 32,
+      isFloat: true,
+      channels: 2,
+      periodSizeFrames: 0,
+      periodCount: 0,
+      latencyMs: 0.0,
+      isExclusiveMode: false,
+      deviceType: 'Speakers / Output Device',
+    );
   }
 
-  static Future<AudioHardwareSpecs> inspectAsync(MiniAudioPlayer player) async {
+  static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
     if (Platform.isAndroid) {
       try {
         final Map<dynamic, dynamic>? res = await _channel.invokeMapMethod<String, dynamic>('getHardwareAudioSpecs');
         if (res != null) {
-          final native = player.getHardwareInfo();
-          final String devName = res['deviceName']?.toString() ?? native.deviceName;
-          final int sRate = (res['sampleRate'] as num?)?.toInt() ?? native.sampleRate;
-          final int bDepth = (res['bitDepth'] as num?)?.toInt() ?? native.bitDepth;
-          final bool isFl = (res['isFloat'] as bool?) ?? native.isFloat;
+          final rawNative = await player.getHardwareInfo();
+          final AEHardwareInfo hwInfo = (rawNative is AEHardwareInfo)
+              ? rawNative
+              : const AEHardwareInfo(
+                  backendName: 'AAudio',
+                  deviceName: 'Default Output Device',
+                  outputFormat: AudioFormat.f32,
+                  bitDepth: 32,
+                  isFloat: true,
+                  sampleRate: 48000,
+                  channels: 2,
+                  periodSizeFrames: 0,
+                  periodCount: 0,
+                  latencyMs: 0.0,
+                  isExclusiveMode: false,
+                );
+          final String devName = res['deviceName']?.toString() ?? hwInfo.deviceName;
+          final int sRate = (res['sampleRate'] as num?)?.toInt() ?? hwInfo.sampleRate;
+          final int bDepth = (res['bitDepth'] as num?)?.toInt() ?? hwInfo.bitDepth;
+          final bool isFl = (res['isFloat'] as bool?) ?? hwInfo.isFloat;
           final String devType = res['deviceType']?.toString() ?? 'Speakers / Output Device';
-          final double latMs = (res['latencyMs'] as num?)?.toDouble() ?? native.latencyMs;
+          final double latMs = (res['latencyMs'] as num?)?.toDouble() ?? hwInfo.latencyMs;
 
           return AudioHardwareSpecs(
             backendName: 'AAudio / Android HAL',
@@ -133,7 +163,7 @@ class AudioHardwareInspector {
             bitDepth: bDepth > 0 ? bDepth : 32,
             isFloat: isFl,
             channels: 2,
-            periodSizeFrames: (res['periodSizeFrames'] as num?)?.toInt() ?? native.periodSizeFrames,
+            periodSizeFrames: (res['periodSizeFrames'] as num?)?.toInt() ?? hwInfo.periodSizeFrames,
             periodCount: 2,
             latencyMs: latMs,
             isExclusiveMode: false,
@@ -141,9 +171,25 @@ class AudioHardwareInspector {
           );
         }
       } catch (_) {
-        // Fallback to C++ native inspect on MethodChannel error
+        // Fallback
       }
     }
-    return inspect(player);
+    final rawNative = await player.getHardwareInfo();
+    if (rawNative is AEHardwareInfo) {
+      return AudioHardwareSpecs.fromNative(rawNative);
+    }
+    return const AudioHardwareSpecs(
+      backendName: 'Audio Backend',
+      deviceName: 'Default Soundcard',
+      sampleRate: 48000,
+      bitDepth: 32,
+      isFloat: true,
+      channels: 2,
+      periodSizeFrames: 0,
+      periodCount: 0,
+      latencyMs: 0.0,
+      isExclusiveMode: false,
+      deviceType: 'Speakers / Output Device',
+    );
   }
 }
