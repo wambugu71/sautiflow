@@ -52,12 +52,15 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   bool get wantKeepAlive => true;
   static const String _prefsKey = 'sautiplay_library_folders';
+  static const String _cachedSongsKey = 'sautiplay_library_cached_songs';
 
   // State
   List<Map<String, dynamic>> _folders = [];
   List<LocalSongItem> _allSongs = [];
   List<LocalSongItem> _filteredSongs = [];
   bool _isLoading = true;
+  bool _isScanning = false;
+  String _scanStatus = 'Checking library for changes...';
   int _tabIndex = 0;
 
   // Search & Sort filters
@@ -95,54 +98,146 @@ class _LibraryScreenState extends State<LibraryScreen>
           .map((item) => jsonDecode(item) as Map<String, dynamic>)
           .toList();
 
+      final cachedSongsData = prefs.getStringList(_cachedSongsKey) ?? [];
+      final loadedSongs = <LocalSongItem>[];
+      for (final jsonStr in cachedSongsData) {
+        try {
+          final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+          loadedSongs.add(LocalSongItem.fromJson(map));
+        } catch (_) {}
+      }
+
       setState(() {
         _folders = loadedFolders;
+        _allSongs = loadedSongs;
+        _isLoading = false; // Show cached songs immediately!
+        _applySearchAndSort();
       });
-      await _updateAllSongs();
+
+      // Run non-blocking delta scan in the background
+      await _smartScanFolders(showFullLoading: loadedSongs.isEmpty && loadedFolders.isNotEmpty);
     } catch (e) {
       debugPrint('Error loading folders: $e');
       setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _updateAllSongs() async {
-    setState(() => _isLoading = true);
-    final allItems = <LocalSongItem>[];
+  Future<void> _saveCachedSongs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final strList = _allSongs.map((s) => jsonEncode(s.toJson())).toList();
+      await prefs.setStringList(_cachedSongsKey, strList);
+    } catch (e) {
+      debugPrint('Error saving cached songs: $e');
+    }
+  }
+
+  Future<void> _smartScanFolders({bool showFullLoading = false}) async {
+    if (_folders.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _allSongs = [];
+          _filteredSongs = [];
+          _isLoading = false;
+          _isScanning = false;
+        });
+      }
+      await _saveCachedSongs();
+      return;
+    }
+
+    if (showFullLoading) {
+      setState(() => _isLoading = true);
+    } else {
+      setState(() {
+        _isScanning = true;
+        _scanStatus = 'Checking folders for updates...';
+      });
+    }
+
+    final existingSongsMap = <String, LocalSongItem>{
+      for (final song in _allSongs) song.path: song
+    };
+
+    final updatedSongs = <LocalSongItem>[];
+    bool changesDetected = false;
+    int newSongsScanned = 0;
+
     for (final f in _folders) {
-      final paths = await _scanForAudioFiles(f['path'] as String);
-      for (final path in paths) {
+      final folderPath = f['path'] as String;
+      final audioPaths = await _scanForAudioFiles(folderPath);
+
+      if (f['count'] != audioPaths.length) {
+        f['count'] = audioPaths.length;
+        changesDetected = true;
+      }
+
+      for (final path in audioPaths) {
         try {
           final file = File(path);
           final stat = await file.stat();
-          String? metaTitle;
-          String? metaArtist;
-          String? metaAlbum;
-          try {
-            final meta = amr.readMetadata(file, getImage: false);
-            if (meta.title != null && meta.title!.isNotEmpty) metaTitle = meta.title;
-            if (meta.artist != null && meta.artist!.isNotEmpty) metaArtist = meta.artist;
-            if (meta.album != null && meta.album!.isNotEmpty) metaAlbum = meta.album;
-          } catch (_) {}
-          allItems.add(LocalSongItem.fallback(
-            path,
-            stat.size,
-            stat.modified,
-            title: metaTitle,
-            artist: metaArtist,
-            album: metaAlbum,
-          ));
+          final existing = existingSongsMap[path];
+
+          // Re-use cached metadata if file size and modified timestamp match
+          if (existing != null &&
+              existing.sizeBytes == stat.size &&
+              existing.lastModified.millisecondsSinceEpoch == stat.modified.millisecondsSinceEpoch) {
+            updatedSongs.add(existing);
+          } else {
+            changesDetected = true;
+            newSongsScanned++;
+            if (mounted && !showFullLoading) {
+              setState(() {
+                _scanStatus = 'Scanning new songs ($newSongsScanned)...';
+              });
+            }
+
+            String? metaTitle;
+            String? metaArtist;
+            String? metaAlbum;
+            try {
+              final meta = amr.readMetadata(file, getImage: false);
+              if (meta.title != null && meta.title!.isNotEmpty) metaTitle = meta.title;
+              if (meta.artist != null && meta.artist!.isNotEmpty) metaArtist = meta.artist;
+              if (meta.album != null && meta.album!.isNotEmpty) metaAlbum = meta.album;
+            } catch (_) {}
+
+            updatedSongs.add(LocalSongItem.fallback(
+              path,
+              stat.size,
+              stat.modified,
+              title: metaTitle,
+              artist: metaArtist,
+              album: metaAlbum,
+            ));
+          }
         } catch (_) {
-          allItems.add(LocalSongItem.fallback(path, 0, DateTime.now()));
+          updatedSongs.add(LocalSongItem.fallback(path, 0, DateTime.now()));
         }
       }
     }
+
+    if (updatedSongs.length != _allSongs.length) {
+      changesDetected = true;
+    }
+
     if (mounted) {
       setState(() {
-        _allSongs = allItems;
+        _allSongs = updatedSongs;
         _isLoading = false;
+        _isScanning = false;
         _applySearchAndSort();
       });
     }
+
+    if (changesDetected) {
+      await _saveFolders();
+      await _saveCachedSongs();
+    }
+  }
+
+  Future<void> _updateAllSongs() async {
+    await _smartScanFolders(showFullLoading: false);
   }
 
   void _applySearchAndSort() {
@@ -464,6 +559,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         _allSongs.removeWhere((s) => s.path == song.path);
         _filteredSongs.removeWhere((s) => s.path == song.path);
       });
+      await _saveCachedSongs();
 
       if (widget.onDeleteTrack != null) {
         widget.onDeleteTrack!(song.path);
@@ -493,12 +589,12 @@ class _LibraryScreenState extends State<LibraryScreen>
           padding: EdgeInsets.symmetric(vertical: isDesktop ? 10 : 6),
           decoration: BoxDecoration(
             color:
-                isSelected ? Colors.white.withOpacity(0.1) : Colors.transparent,
+                isSelected ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 2,
                       offset: const Offset(0, 1),
                     ),
@@ -550,10 +646,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                               right: isDesktop ? 32.0 : 16.0,
                               bottom: isDesktop ? 16.0 : 8.0),
                           decoration: BoxDecoration(
-                            color: bgDark.withOpacity(0.95),
+                            color: bgDark.withValues(alpha: 0.95),
                             border: Border(
                               bottom: BorderSide(
-                                  color: Colors.white.withOpacity(0.05)),
+                                  color: Colors.white.withValues(alpha: 0.05)),
                             ),
                           ),
                           child: Column(
@@ -606,6 +702,45 @@ class _LibraryScreenState extends State<LibraryScreen>
                                   ],
                                 ),
                               ),
+                              if (_isScanning) ...[
+                                SizedBox(height: isDesktop ? 12 : 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: surfaceColor,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                        color: primaryColor.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: LoadingIndicatorM3E(
+                                          color: primaryColor,
+                                          containerColor:
+                                              primaryColor.withAlpha(40),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          _scanStatus,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: textDark,
+                                            fontSize: isDesktop ? 14 : 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -625,7 +760,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                     ),
                     if (_isLoading)
                       Container(
-                        color: bgDark.withOpacity(0.5),
+                        color: bgDark.withValues(alpha: 0.5),
                         child: Center(
                           child: LoadingIndicatorM3E(
                               color: primaryColor,
@@ -952,7 +1087,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.library_music_outlined,
-              size: isDesktop ? 96 : 64, color: textDark.withOpacity(0.5)),
+              size: isDesktop ? 96 : 64, color: textDark.withValues(alpha: 0.5)),
           SizedBox(height: isDesktop ? 24 : 16),
           Text(
             message,
@@ -969,7 +1104,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: isDesktop ? 16 : 14,
-                  color: textDark.withOpacity(0.7)),
+                  color: textDark.withValues(alpha: 0.7)),
             ),
           ),
         ],
@@ -1022,7 +1157,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                 gradient: iconGradient,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
+                    color: Colors.black.withValues(alpha: 0.2),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -1032,7 +1167,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   (imageAsset == null && iconData != null
                       ? Center(
                           child: Icon(iconData,
-                              color: Colors.white.withOpacity(0.5),
+                              color: Colors.white.withValues(alpha: 0.5),
                               size: isDesktop ? 48 : 32))
                       : null),
             ),

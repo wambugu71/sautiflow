@@ -27,4 +27,28 @@ class LocalSongItem {
       lastModified: modified,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'path': path,
+      'title': title,
+      'artist': artist,
+      'album': album,
+      'sizeBytes': sizeBytes,
+      'lastModified': lastModified.toIso8601String(),
+    };
+  }
+
+  factory LocalSongItem.fromJson(Map<String, dynamic> json) {
+    return LocalSongItem(
+      path: json['path'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      artist: json['artist'] as String? ?? 'Unknown Artist',
+      album: json['album'] as String? ?? 'Unknown Album',
+      sizeBytes: json['sizeBytes'] as int? ?? 0,
+      lastModified: json['lastModified'] != null
+          ? (DateTime.tryParse(json['lastModified'] as String) ?? DateTime.now())
+          : DateTime.now(),
+    );
+  }
 }
