@@ -451,8 +451,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _showHardwareSpecsModal(BuildContext context) async {
-    final nativeInfo = await widget.player.getHardwareInfo();
-    final specs = AudioHardwareSpecs.fromNative(nativeInfo);
+    final specs = await AudioHardwareInspector.inspectAsync(widget.player);
 
     if (!context.mounted) return;
 

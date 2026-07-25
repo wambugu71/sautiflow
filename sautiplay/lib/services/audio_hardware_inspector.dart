@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 /// Comprehensive snapshot of active output audio hardware specifications.
@@ -104,8 +106,44 @@ class AudioHardwareSpecs {
 
 /// Service to inspect active hardware audio specifications and device routes
 class AudioHardwareInspector {
+  static const MethodChannel _channel = MethodChannel('com.wambugu.sautiflow/hardware');
+
   static AudioHardwareSpecs inspect(MiniAudioPlayer player) {
     final nativeInfo = player.getHardwareInfo();
     return AudioHardwareSpecs.fromNative(nativeInfo);
+  }
+
+  static Future<AudioHardwareSpecs> inspectAsync(MiniAudioPlayer player) async {
+    if (Platform.isAndroid) {
+      try {
+        final Map<dynamic, dynamic>? res = await _channel.invokeMapMethod<String, dynamic>('getHardwareAudioSpecs');
+        if (res != null) {
+          final native = player.getHardwareInfo();
+          final String devName = res['deviceName']?.toString() ?? native.deviceName;
+          final int sRate = (res['sampleRate'] as num?)?.toInt() ?? native.sampleRate;
+          final int bDepth = (res['bitDepth'] as num?)?.toInt() ?? native.bitDepth;
+          final bool isFl = (res['isFloat'] as bool?) ?? native.isFloat;
+          final String devType = res['deviceType']?.toString() ?? 'Speakers / Output Device';
+          final double latMs = (res['latencyMs'] as num?)?.toDouble() ?? native.latencyMs;
+
+          return AudioHardwareSpecs(
+            backendName: 'AAudio / Android HAL',
+            deviceName: devName.isNotEmpty ? devName : 'Default Soundcard',
+            sampleRate: sRate > 0 ? sRate : 48000,
+            bitDepth: bDepth > 0 ? bDepth : 32,
+            isFloat: isFl,
+            channels: 2,
+            periodSizeFrames: (res['periodSizeFrames'] as num?)?.toInt() ?? native.periodSizeFrames,
+            periodCount: 2,
+            latencyMs: latMs,
+            isExclusiveMode: false,
+            deviceType: devType,
+          );
+        }
+      } catch (_) {
+        // Fallback to C++ native inspect on MethodChannel error
+      }
+    }
+    return inspect(player);
   }
 }
