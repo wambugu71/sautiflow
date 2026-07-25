@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:typed_data';
 
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart'; // For RootIsolateToken
 import 'package:sautiflow/sautiflow.dart';
+import 'package:sautiplay/services/desktop_system_audio.dart';
 import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/vdc_parser.dart';
 
@@ -26,6 +28,7 @@ class IsolateAudioPlayer {
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
 
   MiniAudioSystemAudioController? _systemAudio;
+  DesktopSystemAudioController? _desktopAudio;
 
   Future<void> init({bool enableSystemAudio = true}) async {
     // Spawn the isolate
@@ -40,21 +43,37 @@ class IsolateAudioPlayer {
 
     // Initialize system audio controller on the main isolate
     if (enableSystemAudio) {
-      _systemAudio = MiniAudioSystemAudioController(
-        statusStream: statusStream,
-        onPlay: play,
-        onPause: pause,
-        onStop: stop,
-        onNext: next,
-        onPrevious: previous,
-        onSeek: (pos) => seekTo(pos),
-        onSetGain: setGain,
-      );
-      await _systemAudio!.enable(
-        config: const MiniAudioSystemAudioConfig(
-          androidNotificationIcon: 'mipmap/launcher_icon',
-        ),
-      );
+      if (Platform.isAndroid || Platform.isIOS) {
+        _systemAudio = MiniAudioSystemAudioController(
+          statusStream: statusStream,
+          onPlay: play,
+          onPause: pause,
+          onStop: stop,
+          onNext: next,
+          onPrevious: previous,
+          onSeek: (pos) => seekTo(pos),
+          onSetGain: setGain,
+        );
+        await _systemAudio!.enable(
+          config: const MiniAudioSystemAudioConfig(
+            androidNotificationIcon: 'mipmap/launcher_icon',
+          ),
+        );
+      } else if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        _desktopAudio = DesktopSystemAudioController(
+          onPlay: play,
+          onPause: pause,
+          onNext: next,
+          onPrevious: previous,
+          onSeek: (pos) => seekTo(pos),
+        );
+        await _desktopAudio!.enable();
+
+        _statusController.stream.listen((status) {
+          _desktopAudio?.updatePlaybackStatus(status.isPlaying);
+        });
+      }
     }
 
     // Listen for messages from the isolate
@@ -106,6 +125,8 @@ class IsolateAudioPlayer {
   void dispose() {
     _send({'cmd': 'dispose'});
     _isolate?.kill();
+    _systemAudio?.disable();
+    _desktopAudio?.dispose();
     _statusController.close();
     _logController.close();
     _analyzerController.close();
@@ -567,6 +588,17 @@ class IsolateAudioPlayer {
     String? album,
     String? artUri,
   }) async {
+    if (_desktopAudio != null) {
+      await _desktopAudio!.updateNowPlaying(
+        id: id,
+        title: title,
+        artist: artist,
+        duration: duration,
+        album: album,
+        artUri: artUri,
+      );
+    }
+
     if (_systemAudio != null) {
       final systemAudio = _systemAudio as dynamic;
       if (artUri != null && artUri.isNotEmpty) {

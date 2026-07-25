@@ -5,14 +5,17 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_windows
+  local_notifier
   permission_handler_windows
   share_plus
+  system_tray
   url_launcher_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
   sautiflow
+  smtc_windows
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

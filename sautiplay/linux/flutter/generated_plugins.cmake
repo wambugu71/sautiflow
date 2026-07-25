@@ -5,6 +5,8 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_linux
+  local_notifier
+  system_tray
   url_launcher_linux
 )
 
