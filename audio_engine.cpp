@@ -1655,6 +1655,10 @@ struct AudioEngineHandle
     // Temporary buffer for format conversion/resampling if needed
     std::vector<float> conversionBuffer;
 
+    // Pre-allocated scratch buffers for audio thread to avoid real-time heap allocations
+    std::vector<float> viperScratchBuffer;
+    std::vector<float> crossfadeMixBuffer;
+
     std::mutex errorMutex;
     std::string lastError;
 
@@ -2380,10 +2384,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
 
-                            {
-                                std::lock_guard<std::mutex> pl(e->playlistMutex);
-                                set_order_cursor_for_index_locked(e, e->currentIndex);
-                            }
+                            // Order cursor update is handled safely on the worker thread via request_preload
 
                             e->hasNext = false;
                             e->nextDecoder = nullptr;
@@ -2457,10 +2458,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
 
-                    {
-                        std::lock_guard<std::mutex> pl(e->playlistMutex);
-                        set_order_cursor_for_index_locked(e, e->currentIndex);
-                    }
+                    // Order cursor update is handled safely on the worker thread via request_preload
 
                     e->hasNext = false;
                     e->nextDecoder = nullptr;
@@ -2504,10 +2502,16 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         if (e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr) {
             std::lock_guard<std::mutex> d(e->decoderMutex);
             
-            // Read from the old track
-            std::vector<float> mixBuf(produced * e->channels, 0.0f);
+            // Read from the old track using pre-allocated mix buffer
+            const size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
+            if (e->crossfadeMixBuffer.size() < neededMixSamples)
+            {
+                e->crossfadeMixBuffer.resize(neededMixSamples);
+            }
+            std::fill(e->crossfadeMixBuffer.begin(), e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
+            float *mixBuf = e->crossfadeMixBuffer.data();
             ma_uint64 oldFramesRead = 0;
-            ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf.data(), produced, &oldFramesRead);
+            ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
             
             ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
@@ -2699,9 +2703,51 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (e->viperEnabled)
             {
                 std::lock_guard<std::mutex> lock(e->viperMutex);
-                std::vector<float> tmpBuffer(processBuffer, processBuffer + (produced * e->channels));
-                e->viper.Process(tmpBuffer, produced);
-                std::copy(tmpBuffer.begin(), tmpBuffer.end(), processBuffer);
+                const size_t neededStereoSamples = (size_t)produced * 2;
+                if (e->viperScratchBuffer.size() < neededStereoSamples)
+                {
+                    e->viperScratchBuffer.resize(neededStereoSamples);
+                }
+                float *vBuf = e->viperScratchBuffer.data();
+
+                if (e->channels == 2)
+                {
+                    std::memcpy(vBuf, processBuffer, neededStereoSamples * sizeof(float));
+                    e->viper.Process(e->viperScratchBuffer, produced);
+                    std::memcpy(processBuffer, vBuf, neededStereoSamples * sizeof(float));
+                }
+                else if (e->channels == 1)
+                {
+                    // Mono -> Stereo Upmix for ViPER DSP -> Mono Downmix back
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        float mono = processBuffer[i];
+                        vBuf[i * 2]     = mono;
+                        vBuf[i * 2 + 1] = mono;
+                    }
+                    e->viper.Process(e->viperScratchBuffer, produced);
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        processBuffer[i] = (vBuf[i * 2] + vBuf[i * 2 + 1]) * 0.5f;
+                    }
+                }
+                else if (e->channels > 2)
+                {
+                    // Multi-channel (>2): Extract L/R (ch 0 & 1) for ViPER, keep surround channels intact
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        size_t base = (size_t)i * (size_t)e->channels;
+                        vBuf[i * 2]     = processBuffer[base];
+                        vBuf[i * 2 + 1] = processBuffer[base + 1];
+                    }
+                    e->viper.Process(e->viperScratchBuffer, produced);
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        size_t base = (size_t)i * (size_t)e->channels;
+                        processBuffer[base]     = vBuf[i * 2];
+                        processBuffer[base + 1] = vBuf[i * 2 + 1];
+                    }
+                }
             }
 
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
@@ -3891,7 +3937,7 @@ extern "C"
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
 
-        if (e->resampleAlgorithm == 1)
+        if (e->resampleAlgorithm > 0)
         { // AE_RESAMPLE_ALGORITHM_CUSTOM
             cfg.resampling.algorithm = ma_resample_algorithm_custom;
             cfg.resampling.pBackendVTable = &g_customResamplerVTable;
@@ -3949,6 +3995,11 @@ extern "C"
             e->update_multiband_fx_filters();
             std::lock_guard<std::mutex> fx(e->fxMutex);
             reinit_advanced_fx_filters(e);
+        }
+        if (e->viperEnabled)
+        {
+            std::lock_guard<std::mutex> lock(e->viperMutex);
+            e->viper.SetSamplingRate(e->sampleRate);
         }
 
         // Re-initialize active decoders to match new outCh so miniaudio downmixes properly
