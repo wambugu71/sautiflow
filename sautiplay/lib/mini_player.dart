@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'widgets/adaptive_marquee_text.dart';
 
-class MiniPlayer extends StatelessWidget {
+class MiniPlayer extends StatefulWidget {
   final String title;
   final String artist;
   final Uint8List? albumArt;
@@ -25,9 +25,47 @@ class MiniPlayer extends StatelessWidget {
   });
 
   @override
+  State<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<MiniPlayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rotationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 20),
+    );
+    if (widget.isPlaying) {
+      _rotationController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(MiniPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying != oldWidget.isPlaying) {
+      if (widget.isPlaying) {
+        _rotationController.repeat();
+      } else {
+        _rotationController.stop();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _rotationController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.onTap,
       child: Container(
         height: 64,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -51,7 +89,7 @@ class MiniPlayer extends StatelessWidget {
           children: [
             // Top Progress Bar
             LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
+              value: widget.progress.clamp(0.0, 1.0),
               minHeight: 2,
               backgroundColor: Colors.transparent,
               valueColor:
@@ -70,19 +108,30 @@ class MiniPlayer extends StatelessWidget {
                       color: const Color(0xFF137fec)
                           .withValues(alpha: 0.2), // primaryColor
                       borderRadius: BorderRadius.circular(12),
-                      image: albumArt != null
-                          ? DecorationImage(
-                              image: MemoryImage(albumArt!),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
                     ),
-                    child: albumArt == null
-                        ? const Icon(
-                            Icons.music_note,
-                            color: Color(0xFF137fec),
-                          )
-                        : null,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                          ? Container(
+                              decoration: BoxDecoration(
+                                image: DecorationImage(
+                                  image: MemoryImage(widget.albumArt!),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            )
+                          : RotationTransition(
+                              turns: _rotationController,
+                              child: Container(
+                                decoration: const BoxDecoration(
+                                  image: DecorationImage(
+                                    image: AssetImage('assets/icon/splash.png'),
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
                   ),
                   const SizedBox(width: 16),
                   // Track Info
@@ -92,7 +141,7 @@ class MiniPlayer extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         AdaptiveMarqueeText(
-                          text: title,
+                          text: widget.title,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -104,7 +153,7 @@ class MiniPlayer extends StatelessWidget {
                           pauseAfterRound: const Duration(seconds: 2),
                         ),
                         Text(
-                          artist,
+                          widget.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -117,9 +166,9 @@ class MiniPlayer extends StatelessWidget {
                   ),
                   // Controls
                   IconButton(
-                    onPressed: onPlayPause,
+                    onPressed: widget.onPlayPause,
                     icon: Icon(
-                      isPlaying
+                      widget.isPlaying
                           ? Icons.pause_circle_filled
                           : Icons.play_circle_filled,
                       size: 32,
@@ -127,7 +176,7 @@ class MiniPlayer extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: onNext,
+                    onPressed: widget.onNext,
                     icon: const Icon(
                       Icons.skip_next,
                       size: 28,

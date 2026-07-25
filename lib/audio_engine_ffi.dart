@@ -596,6 +596,9 @@ typedef _InspectFileDart = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
 typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
 
+typedef _RegisterAndroidJvmNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _RegisterAndroidJvmDart = void Function(ffi.Pointer<ffi.Void>);
+
 typedef _ClearMultibandFxNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _ClearMultibandFxDart = void Function(ffi.Pointer<ffi.Void>);
 
@@ -1188,6 +1191,14 @@ class AudioEngineFFI {
     } catch (_) {
       _getHardwareInfo = null;
     }
+
+    try {
+      _registerAndroidJvm = _lib.lookupFunction<_RegisterAndroidJvmNative, _RegisterAndroidJvmDart>(
+        'ae_register_android_jvm',
+      );
+    } catch (_) {
+      _registerAndroidJvm = null;
+    }
   }
 
   final ffi.DynamicLibrary _lib;
@@ -1326,6 +1337,7 @@ class AudioEngineFFI {
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
+  _RegisterAndroidJvmDart? _registerAndroidJvm;
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
@@ -1573,6 +1585,12 @@ class AudioEngineFFI {
     }
     final native = _getHardwareInfo!(_engine);
     return AEHardwareInfo.fromNative(native);
+  }
+
+  void registerAndroidJvm(ffi.Pointer<ffi.Void> vm) {
+    if (_registerAndroidJvm != null && vm != ffi.nullptr) {
+      _registerAndroidJvm!(vm);
+    }
   }
 
   // Alias matching requested naming style.

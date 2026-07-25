@@ -174,16 +174,16 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
                         color: primaryColor.withValues(alpha: 0.2),
-                        image: widget.albumArt != null
+                        image: widget.albumArt != null && widget.albumArt!.isNotEmpty
                             ? DecorationImage(
                                 image: MemoryImage(widget.albumArt!),
                                 fit: BoxFit.cover,
                               )
-                            : null,
+                            : const DecorationImage(
+                                image: AssetImage('assets/icon/splash.png'),
+                                fit: BoxFit.cover,
+                              ),
                       ),
-                      child: widget.albumArt == null
-                          ? const Icon(Icons.music_note, color: primaryColor, size: 28)
-                          : null,
                     ),
                     const SizedBox(width: 14),
                     // Title & Artist & Source Badge

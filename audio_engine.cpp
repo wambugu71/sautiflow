@@ -5640,6 +5640,11 @@ extern "C"
         return JNI_VERSION_1_6;
     }
 
+    AE_API void ae_register_android_jvm(void *vm)
+    {
+        if (vm) g_androidJavaVM = (JavaVM*)vm;
+    }
+
     static void query_android_hardware_info(AEHardwareInfo* info)
     {
         if (g_androidJavaVM == nullptr || info == nullptr)
@@ -5699,6 +5704,52 @@ extern "C"
             jclass audioManagerClass = env->FindClass("android/media/AudioManager");
             if (!audioManagerClass) { env->ExceptionClear(); break; }
 
+            jmethodID getPropertyMethod = env->GetMethodID(audioManagerClass, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
+            if (getPropertyMethod)
+            {
+                jstring propKey = env->NewStringUTF("android.media.property.OUTPUT_SAMPLE_RATE");
+                if (propKey)
+                {
+                    jstring rateStr = (jstring)env->CallObjectMethod(audioManager, getPropertyMethod, propKey);
+                    if (rateStr)
+                    {
+                        const char* rateUtf = env->GetStringUTFChars(rateStr, nullptr);
+                        if (rateUtf)
+                        {
+                            int parsedRate = std::atoi(rateUtf);
+                            if (parsedRate > 0)
+                            {
+                                info->sample_rate = parsedRate;
+                            }
+                            env->ReleaseStringUTFChars(rateStr, rateUtf);
+                        }
+                        env->DeleteLocalRef(rateStr);
+                    }
+                    env->DeleteLocalRef(propKey);
+                }
+
+                jstring bufKey = env->NewStringUTF("android.media.property.OUTPUT_FRAMES_PER_BUFFER");
+                if (bufKey)
+                {
+                    jstring bufStr = (jstring)env->CallObjectMethod(audioManager, getPropertyMethod, bufKey);
+                    if (bufStr)
+                    {
+                        const char* bufUtf = env->GetStringUTFChars(bufStr, nullptr);
+                        if (bufUtf)
+                        {
+                            int parsedFrames = std::atoi(bufUtf);
+                            if (parsedFrames > 0)
+                            {
+                                info->period_size_frames = (uint32_t)parsedFrames;
+                            }
+                            env->ReleaseStringUTFChars(bufStr, bufUtf);
+                        }
+                        env->DeleteLocalRef(bufStr);
+                    }
+                    env->DeleteLocalRef(bufKey);
+                }
+            }
+
             jmethodID getDevicesMethod = env->GetMethodID(audioManagerClass, "getDevices", "(I)[Landroid/media/AudioDeviceInfo;");
             if (!getDevicesMethod) { env->ExceptionClear(); break; }
 
@@ -5713,6 +5764,7 @@ extern "C"
 
             jmethodID getProductNameMethod = env->GetMethodID(deviceInfoClass, "getProductName", "()Ljava/lang/CharSequence;");
             jmethodID getTypeMethod = env->GetMethodID(deviceInfoClass, "getType", "()I");
+            jmethodID getEncodingsMethod = env->GetMethodID(deviceInfoClass, "getEncodings", "()[I");
             jclass charSeqClass = env->FindClass("java/lang/CharSequence");
             jmethodID toStringMethod = (charSeqClass && getProductNameMethod) ? env->GetMethodID(charSeqClass, "toString", "()Ljava/lang/String;") : nullptr;
 
@@ -5742,26 +5794,75 @@ extern "C"
                 }
             }
 
-            if (selectedDevice && toStringMethod && getProductNameMethod)
+            if (selectedDevice)
             {
-                jobject nameSeq = env->CallObjectMethod(selectedDevice, getProductNameMethod);
-                if (nameSeq)
+                if (toStringMethod && getProductNameMethod)
                 {
-                    jstring nameStr = (jstring)env->CallObjectMethod(nameSeq, toStringMethod);
-                    if (nameStr)
+                    jobject nameSeq = env->CallObjectMethod(selectedDevice, getProductNameMethod);
+                    if (nameSeq)
                     {
-                        const char* utf = env->GetStringUTFChars(nameStr, nullptr);
-                        if (utf && std::strlen(utf) > 0)
+                        jstring nameStr = (jstring)env->CallObjectMethod(nameSeq, toStringMethod);
+                        if (nameStr)
                         {
-                            std::strncpy(info->device_name, utf, sizeof(info->device_name) - 1);
-                            info->device_name[sizeof(info->device_name) - 1] = '\0';
+                            const char* utf = env->GetStringUTFChars(nameStr, nullptr);
+                            if (utf && std::strlen(utf) > 0)
+                            {
+                                std::strncpy(info->device_name, utf, sizeof(info->device_name) - 1);
+                                info->device_name[sizeof(info->device_name) - 1] = '\0';
+                            }
+                            if (utf) env->ReleaseStringUTFChars(nameStr, utf);
+                            env->DeleteLocalRef(nameStr);
                         }
-                        if (utf) env->ReleaseStringUTFChars(nameStr, utf);
-                        env->DeleteLocalRef(nameStr);
+                        env->DeleteLocalRef(nameSeq);
                     }
-                    env->DeleteLocalRef(nameSeq);
                 }
+
+                if (getEncodingsMethod)
+                {
+                    jintArray encArray = (jintArray)env->CallObjectMethod(selectedDevice, getEncodingsMethod);
+                    if (encArray)
+                    {
+                        jsize encLen = env->GetArrayLength(encArray);
+                        jint* encs = env->GetIntArrayElements(encArray, nullptr);
+                        if (encs)
+                        {
+                            int maxBitDepth = 16;
+                            bool isFloat = false;
+                            for (jsize e = 0; e < encLen; ++e)
+                            {
+                                jint fmtVal = encs[e];
+                                if (fmtVal == 4) { // ENCODING_PCM_FLOAT
+                                    isFloat = true;
+                                    if (32 > maxBitDepth) maxBitDepth = 32;
+                                } else if (fmtVal == 21) { // ENCODING_PCM_24BIT_PACKED
+                                    if (24 > maxBitDepth) maxBitDepth = 24;
+                                } else if (fmtVal == 22) { // ENCODING_PCM_32BIT
+                                    if (32 > maxBitDepth) maxBitDepth = 32;
+                                } else if (fmtVal == 2) { // ENCODING_PCM_16BIT
+                                    if (16 > maxBitDepth) maxBitDepth = 16;
+                                }
+                            }
+                            if (maxBitDepth > 0) info->bit_depth = maxBitDepth;
+                            info->is_float = isFloat ? 1 : 0;
+                            if (isFloat) info->output_format = AE_FORMAT_F32;
+                            else if (maxBitDepth == 24) info->output_format = AE_FORMAT_S24;
+                            else if (maxBitDepth == 32) info->output_format = AE_FORMAT_S32;
+                            else if (maxBitDepth == 16) info->output_format = AE_FORMAT_S16;
+
+                            env->ReleaseIntArrayElements(encArray, encs, JNI_ABORT);
+                        }
+                        env->DeleteLocalRef(encArray);
+                    }
+                }
+
                 env->DeleteLocalRef(selectedDevice);
+            }
+
+            if (info->sample_rate > 0 && info->period_size_frames > 0)
+            {
+                uint32_t periods = (info->period_count > 0) ? info->period_count : 2;
+                double totalFrames = (double)info->period_size_frames * (double)periods;
+                info->latency_ms = (totalFrames / (double)info->sample_rate) * 1000.0;
             }
 
         } while (false);
@@ -5775,6 +5876,11 @@ extern "C"
         {
             g_androidJavaVM->DetachCurrentThread();
         }
+    }
+#else
+    AE_API void ae_register_android_jvm(void *vm)
+    {
+        (void)vm;
     }
 #endif
 

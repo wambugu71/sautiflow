@@ -379,6 +379,7 @@ extern "C"
     } AEHardwareInfo;
 
     AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine);
+    AE_API void ae_register_android_jvm(void *vm);
 
 #ifdef __cplusplus
 }

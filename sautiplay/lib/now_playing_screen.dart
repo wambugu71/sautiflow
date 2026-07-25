@@ -76,8 +76,10 @@ class NowPlayingScreen extends StatefulWidget {
   State<NowPlayingScreen> createState() => _NowPlayingScreenState();
 }
 
-class _NowPlayingScreenState extends State<NowPlayingScreen> {
+class _NowPlayingScreenState extends State<NowPlayingScreen>
+    with SingleTickerProviderStateMixin {
   late bool _isAnalyzerEnabled;
+  late final AnimationController _rotationController;
 
   final ValueNotifier<List<double>> _analyzerValuesNotifier = ValueNotifier([]);
   StreamSubscription? _analyzerSub;
@@ -131,6 +133,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
 
     _setupAnalyzer(_isAnalyzerEnabled);
 
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 20),
+    );
+
     // Watch engine status to detect when a pending seek has landed.
     widget.statusNotifier.addListener(_onStatusChanged);
   }
@@ -139,9 +146,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   /// position is within 4 seconds of the seek target we consider the seek
   /// landed and release the position override.
   void _onStatusChanged() {
+    final status = widget.statusNotifier.value;
+    if (status.isPlaying) {
+      if (!_rotationController.isAnimating) {
+        _rotationController.repeat();
+      }
+    } else {
+      if (_rotationController.isAnimating) {
+        _rotationController.stop();
+      }
+    }
+
     final target = _pendingSeekMs;
     if (target == null) return;
-    final enginePosMs = widget.statusNotifier.value.positionSeconds * 1000.0;
+    final enginePosMs = status.positionSeconds * 1000.0;
     if ((enginePosMs - target).abs() < 4000) {
       _seekTimeoutTimer?.cancel();
       if (mounted) setState(() => _pendingSeekMs = null);
@@ -167,6 +185,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
     _analyzerValuesNotifier.dispose();
+    _rotationController.dispose();
     super.dispose();
   }
 
@@ -589,6 +608,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     return ValueListenableBuilder<PlayerStatus>(
       valueListenable: widget.statusNotifier,
       builder: (context, status, _) {
+        if (status.isPlaying) {
+          if (!_rotationController.isAnimating) {
+            _rotationController.repeat();
+          }
+        } else {
+          if (_rotationController.isAnimating) {
+            _rotationController.stop();
+          }
+        }
+
         final overrideSecs = widget.durationOverride;
         final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
             ? overrideSecs.toDouble()
@@ -710,12 +739,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                                     offset: const Offset(0, 10),
                                                   ),
                                                 ],
-                                                image: widget.albumArt != null
-                                                    ? DecorationImage(
-                                                        image: MemoryImage(widget.albumArt!),
-                                                        fit: BoxFit.cover,
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(32.0),
+                                                child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                                                    ? Container(
+                                                        decoration: BoxDecoration(
+                                                          image: DecorationImage(
+                                                            image: MemoryImage(widget.albumArt!),
+                                                            fit: BoxFit.cover,
+                                                          ),
+                                                        ),
                                                       )
-                                                    : null,
+                                                    : RotationTransition(
+                                                        turns: _rotationController,
+                                                        child: Container(
+                                                          decoration: const BoxDecoration(
+                                                            image: DecorationImage(
+                                                              image: AssetImage('assets/icon/splash.png'),
+                                                              fit: BoxFit.cover,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
                                               ),
                                             ),
                                           ),
@@ -1074,12 +1120,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(24.0),
                                       color: surfaceColor,
-                                      image: widget.albumArt != null
-                                          ? DecorationImage(
-                                              image: MemoryImage(widget.albumArt!),
-                                              fit: BoxFit.cover,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(24.0),
+                                      child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                                          ? Container(
+                                              decoration: BoxDecoration(
+                                                image: DecorationImage(
+                                                  image: MemoryImage(widget.albumArt!),
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              ),
                                             )
-                                          : null,
+                                          : RotationTransition(
+                                              turns: _rotationController,
+                                              child: Container(
+                                                decoration: const BoxDecoration(
+                                                  image: DecorationImage(
+                                                    image: AssetImage('assets/icon/splash.png'),
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
                                     ),
                                   ),
                                 ),

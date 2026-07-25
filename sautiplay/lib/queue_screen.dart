@@ -365,18 +365,11 @@ class _QueueScreenState extends State<QueueScreen> {
 
   Widget _buildFallbackArt() {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withValues(alpha: 0.12),
-            Colors.white.withValues(alpha: 0.04),
-          ],
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/icon/splash.png'),
+          fit: BoxFit.cover,
         ),
-      ),
-      child: const Center(
-        child: Icon(Icons.music_note, color: Colors.white38, size: 22),
       ),
     );
   }
