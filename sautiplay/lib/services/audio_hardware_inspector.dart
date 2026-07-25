@@ -131,8 +131,8 @@ class AudioHardwareInspector {
   static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
     if (Platform.isAndroid) {
       try {
-        final Map<dynamic, dynamic>? res = await _channel.invokeMapMethod<String, dynamic>('getHardwareAudioSpecs');
-        if (res != null) {
+        final res = await _channel.invokeMethod('getHardwareAudioSpecs');
+        if (res is Map) {
           final rawNative = await player.getHardwareInfo();
           final AEHardwareInfo hwInfo = (rawNative is AEHardwareInfo)
               ? rawNative
