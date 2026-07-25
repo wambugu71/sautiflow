@@ -12,7 +12,6 @@ import 'package:flutter_lyric/flutter_lyric.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
-import 'artist_profile_screen.dart'; // NEW
 import 'effects_screen.dart';
 import 'isolate_player.dart';
 import 'models/liked_song.dart';
@@ -80,7 +79,7 @@ class NowPlayingScreen extends StatefulWidget {
 class _NowPlayingScreenState extends State<NowPlayingScreen> {
   late bool _isAnalyzerEnabled;
 
-  List<double> _analyzerValues = [];
+  final ValueNotifier<List<double>> _analyzerValuesNotifier = ValueNotifier([]);
   StreamSubscription? _analyzerSub;
   FftProcessor? _fftProcessor;
 
@@ -167,6 +166,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     widget.statusNotifier.removeListener(_onStatusChanged);
     _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
+    _analyzerValuesNotifier.dispose();
     super.dispose();
   }
 
@@ -178,14 +178,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
       _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
         if (frame.isEmpty) return;
         final bins = _fftProcessor!.processFrame(frame, targetBins: 96);
-        if (mounted) setState(() => _analyzerValues = bins);
+        _analyzerValuesNotifier.value = bins;
       });
     } else {
       widget.player.setAnalyzerEnabled(false);
       _analyzerSub?.cancel();
       _analyzerSub = null;
       _fftProcessor?.reset();
-      if (mounted) setState(() => _analyzerValues = []);
+      _analyzerValuesNotifier.value = [];
     }
   }
 
@@ -650,7 +650,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          primaryColor.withOpacity(0.15),
+                          primaryColor.withValues(alpha: 0.15),
                           bgColor,
                         ],
                       ),
@@ -1432,7 +1432,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           BarChartRodData(
             toY:
                 math.max(0.05, visualData[i]), // Minimum height to show the bar
-            color: primaryColor.withOpacity(0.7 + (visualData[i] * 0.3)),
+            color: primaryColor.withValues(alpha: 0.7 + (visualData[i] * 0.3)),
             width: 4,
             borderRadius: BorderRadius.circular(2),
           ),

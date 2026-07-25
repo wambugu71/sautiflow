@@ -18,8 +18,8 @@ jobs:
     name: Delay for Package Publish
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for 10 minutes to allow package publishing
-        run: sleep 600
+      - name: Wait for 7 minutes to allow package publishing
+        run: sleep 420
 
   build-android:
     name: Build Android

@@ -13,15 +13,12 @@ import 'package:sautiflow/sautiflow.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'combined_home_screen.dart';
 import 'effects_screen.dart';
-import 'home_screen.dart';
 import 'isolate_player.dart';
-import 'library_screen.dart';
 import 'mini_player.dart';
 import 'models/liked_song.dart';
 import 'models/recently_played_track.dart';
 import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
-import 'search_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
@@ -557,13 +554,13 @@ class _PlayerShellState extends State<PlayerShell> {
               // Fallback to directory images
               final dir = File(filePath).parent;
               if (dir.existsSync()) {
-                final files = dir.listSync();
+                final files = await dir.list().toList();
                 for (final f in files) {
                   if (f is File) {
                     final lowerPath = f.path.toLowerCase();
                     if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || 
                         lowerPath.endsWith('.png') || lowerPath.endsWith('.webp')) {
-                      albumArt = f.readAsBytesSync();
+                      albumArt = await f.readAsBytes();
                       break;
                     }
                   }
@@ -962,16 +959,7 @@ class _PlayerShellState extends State<PlayerShell> {
           if (src != null && mounted) {
             _onlineTrackMetadata[src.uri] = remainingTracks[i];
             setState(() => _playlist.add(src));
-            _player.setAudioSources(
-              _playlist,
-              initialIndex: _status.value.currentIndex >= 0
-                  ? _status.value.currentIndex
-                  : 0,
-              initialPosition: Duration(
-                seconds: _status.value.positionSeconds.toInt(),
-              ),
-              useLazyPreparation: true,
-            );
+            _player.addAudioSource(src);
           }
         } catch (e) {
           _logs.insert(0,
@@ -1092,7 +1080,9 @@ class _PlayerShellState extends State<PlayerShell> {
             newPlaylist.add(existingSrc);
           }
         }
-        _playlist.addAll(newPlaylist);
+        _playlist
+          ..clear()
+          ..addAll(newPlaylist);
 
         final currentIndex = _status.value.currentIndex;
         _player.setAudioSources(
