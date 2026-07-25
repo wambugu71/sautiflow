@@ -51,9 +51,12 @@ class MainActivity : FlutterActivity() {
                         for (dev in devices) {
                             val type = dev.type
                             var priority = 1
-                            if (type == AudioDeviceInfo.TYPE_USB_DEVICE || type == AudioDeviceInfo.TYPE_USB_HEADSET) priority = 4
-                            else if (type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || (Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLUETOOTH_LE)) priority = 3
-                            else if (type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES) priority = 2
+                            // 11 = TYPE_USB_DEVICE, 22 = TYPE_USB_HEADSET
+                            if (type == 11 || type == 22) priority = 4
+                            // 8 = TYPE_BLUETOOTH_A2DP, 26 = TYPE_BLUETOOTH_LE
+                            else if (type == 8 || type == 26) priority = 3
+                            // 3 = TYPE_WIRED_HEADSET, 4 = TYPE_WIRED_HEADPHONES
+                            else if (type == 3 || type == 4) priority = 2
 
                             if (priority > selectedPriority) {
                                 selectedPriority = priority
@@ -67,11 +70,11 @@ class MainActivity : FlutterActivity() {
                                 deviceName = name
                             }
                             val devType = dev.type
-                            if (devType == AudioDeviceInfo.TYPE_USB_DEVICE || devType == AudioDeviceInfo.TYPE_USB_HEADSET) {
+                            if (devType == 11 || devType == 22) {
                                 deviceType = "USB DAC"
-                            } else if (devType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || (Build.VERSION.SDK_INT >= 31 && devType == AudioDeviceInfo.TYPE_BLUETOOTH_LE)) {
+                            } else if (devType == 8 || devType == 26) {
                                 deviceType = "Bluetooth Wireless"
-                            } else if (devType == AudioDeviceInfo.TYPE_WIRED_HEADSET || devType == AudioDeviceInfo.TYPE_WIRED_HEADPHONES) {
+                            } else if (devType == 3 || devType == 4) {
                                 deviceType = "3.5mm Headphone Jack"
                             }
 
@@ -79,14 +82,15 @@ class MainActivity : FlutterActivity() {
                             var maxBits = 16
                             var floatFmt = false
                             for (enc in encodings) {
-                                if (enc == AudioFormat.ENCODING_PCM_FLOAT) {
+                                // 4 = ENCODING_PCM_FLOAT, 21 = ENCODING_PCM_24BIT_PACKED, 22 = ENCODING_PCM_32BIT, 2 = ENCODING_PCM_16BIT
+                                if (enc == 4) {
                                     floatFmt = true
                                     if (32 > maxBits) maxBits = 32
-                                } else if (Build.VERSION.SDK_INT >= 31 && enc == AudioFormat.ENCODING_PCM_24BIT_PACKED) {
+                                } else if (enc == 21) {
                                     if (24 > maxBits) maxBits = 24
-                                } else if (Build.VERSION.SDK_INT >= 31 && enc == AudioFormat.ENCODING_PCM_32BIT) {
+                                } else if (enc == 22) {
                                     if (32 > maxBits) maxBits = 32
-                                } else if (enc == AudioFormat.ENCODING_PCM_16BIT) {
+                                } else if (enc == 2) {
                                     if (16 > maxBits) maxBits = 16
                                 }
                             }
