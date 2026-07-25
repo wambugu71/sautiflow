@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.17
+
+- **[Android]** Added MethodChannel hardware audio inspection for Android `AudioServiceActivity` in `sautiplay`.
+- **[Android]** Fixed JNI reflection hidden API restrictions on Android 9+ and resolved `IsolateAudioPlayer` inspection compatibility.
+
 ## 0.6.16
 
 - Fixed minor bugs and improved performance and stability.
