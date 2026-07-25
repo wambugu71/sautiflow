@@ -32,6 +32,7 @@ dependencies:
   text_scroll: ^0.2.1
   marquee: ^2.2.1
   share_plus: ^10.1.4
+  mini_music_visualizer: ^1.1.4
 
   # Desktop Media Controls & Notifications
   smtc_windows: ^1.1.0

@@ -1403,6 +1403,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildVisualizer(
       Color primaryColor, List<double> currentAnalyzerValues) {
     // Determine how many bars we want based on what fits nicely
@@ -1464,6 +1465,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           albumArt: widget.albumArt,
           onPlayQueueIndex: widget.onPlayQueueIndex,
           onReorderQueue: widget.onReorderQueue,
+          statusNotifier: widget.statusNotifier,
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
