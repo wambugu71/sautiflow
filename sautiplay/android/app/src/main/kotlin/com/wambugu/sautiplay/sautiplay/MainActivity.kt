@@ -12,12 +12,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback  // Top-level class, NOT AudioManager.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -30,7 +32,12 @@ class MainActivity : AudioServiceActivity() {
         private const val TAG = "SautiHardware"
         private const val METHOD_CHANNEL = "com.wambugu.sautiflow/hardware"
         private const val EVENT_CHANNEL = "com.wambugu.sautiflow/hardware_stream"
-        private const val REQUEST_BT_PERMISSION = 7749 // arbitrary unique request code
+        private const val REQUEST_BT_PERMISSION = 7749
+
+        // ACTION_CODEC_CONFIG_CHANGED was added in API 28 — use raw string to avoid
+        // compileSdk issues on older toolchain versions
+        private const val ACTION_CODEC_CONFIG_CHANGED =
+            "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED"
 
         init {
             try {
@@ -53,19 +60,10 @@ class MainActivity : AudioServiceActivity() {
     private var bluetoothA2dp: BluetoothA2dp? = null
     private var bluetoothAdapter: BluetoothAdapter? = null
 
-    // AudioDeviceCallback for wired / USB route changes (API 23+)
-    private val audioDeviceCallback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        object : AudioManager.AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
-                Log.d(TAG, "AudioDevicesAdded: ${addedDevices.map { it.type }}")
-                pushCurrentSpecs()
-            }
-            override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
-                Log.d(TAG, "AudioDevicesRemoved: ${removedDevices.map { it.type }}")
-                pushCurrentSpecs()
-            }
-        }
-    } else null
+    // AudioDeviceCallback — declared lazily so API-23 guard works at the call site
+    // (the callback field itself is fine to reference at any API since the class is
+    //  in android.media.AudioDeviceCallback from API 23 onward)
+    private var audioDeviceCallback: AudioDeviceCallback? = null
 
     // BroadcastReceiver for Bluetooth A2DP connection and codec changes
     private val bluetoothReceiver = object : BroadcastReceiver() {
@@ -75,7 +73,7 @@ class MainActivity : AudioServiceActivity() {
                     Log.d(TAG, "BT A2DP connection state changed")
                     pushCurrentSpecs()
                 }
-                BluetoothA2dp.ACTION_CODEC_CONFIG_CHANGED -> {
+                ACTION_CODEC_CONFIG_CHANGED -> {
                     Log.d(TAG, "BT codec config changed")
                     pushCurrentSpecs()
                 }
@@ -132,7 +130,6 @@ class MainActivity : AudioServiceActivity() {
             override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
                 Log.d(TAG, "EventChannel: Flutter subscribed")
                 eventSink = sink
-                // Push current snapshot immediately on subscribe
                 pushCurrentSpecs()
             }
             override fun onCancel(arguments: Any?) {
@@ -146,7 +143,7 @@ class MainActivity : AudioServiceActivity() {
     override fun onStart() {
         super.onStart()
         setupAudioDeviceCallback()
-        requestBluetoothPermissionIfNeeded() // requests then calls setupBluetoothProfile inside
+        requestBluetoothPermissionIfNeeded()
         registerBluetoothReceiver()
     }
 
@@ -159,9 +156,8 @@ class MainActivity : AudioServiceActivity() {
 
     /**
      * On Android 12+ (API 31), BLUETOOTH_CONNECT is a runtime permission.
-     * We request it silently here — the system dialog appears once and is then
-     * remembered.  On older Android versions permission is not required and
-     * we proceed directly to profile setup.
+     * We request it here — the system dialog appears once and is remembered.
+     * On older Android versions no runtime permission is required.
      */
     private fun requestBluetoothPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -169,7 +165,6 @@ class MainActivity : AudioServiceActivity() {
                     this, Manifest.permission.BLUETOOTH_CONNECT
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                // Already have permission — connect to profile straight away
                 setupBluetoothProfile()
             } else {
                 Log.d(TAG, "Requesting BLUETOOTH_CONNECT permission")
@@ -177,10 +172,9 @@ class MainActivity : AudioServiceActivity() {
                     arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
                     REQUEST_BT_PERMISSION
                 )
-                // setupBluetoothProfile() will be called from onRequestPermissionsResult
+                // setupBluetoothProfile() called from onRequestPermissionsResult
             }
         } else {
-            // Pre-Android 12: no runtime permission needed
             setupBluetoothProfile()
         }
     }
@@ -197,13 +191,11 @@ class MainActivity : AudioServiceActivity() {
             if (granted) {
                 Log.d(TAG, "BLUETOOTH_CONNECT granted — connecting BT profile")
                 setupBluetoothProfile()
-                // Push updated specs now that BT info is accessible
-                pushCurrentSpecs()
             } else {
                 Log.d(TAG, "BLUETOOTH_CONNECT denied — BT codec/name unavailable")
-                // Still push specs without BT details (graceful degradation)
-                pushCurrentSpecs()
             }
+            // Push updated specs either way
+            pushCurrentSpecs()
         }
     }
 
@@ -211,10 +203,19 @@ class MainActivity : AudioServiceActivity() {
     private fun setupAudioDeviceCallback() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            audioDeviceCallback?.let {
-                audioManager.registerAudioDeviceCallback(it, mainHandler)
-                Log.d(TAG, "AudioDeviceCallback registered")
+            val cb = object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
+                    Log.d(TAG, "AudioDevicesAdded: ${addedDevices.map { it.type }}")
+                    pushCurrentSpecs()
+                }
+                override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
+                    Log.d(TAG, "AudioDevicesRemoved: ${removedDevices.map { it.type }}")
+                    pushCurrentSpecs()
+                }
             }
+            audioDeviceCallback = cb
+            audioManager.registerAudioDeviceCallback(cb, mainHandler)
+            Log.d(TAG, "AudioDeviceCallback registered")
         }
     }
 
@@ -222,6 +223,7 @@ class MainActivity : AudioServiceActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             audioDeviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
+            audioDeviceCallback = null
         }
     }
 
@@ -251,7 +253,7 @@ class MainActivity : AudioServiceActivity() {
     private fun registerBluetoothReceiver() {
         val filter = IntentFilter().apply {
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
-            addAction(BluetoothA2dp.ACTION_CODEC_CONFIG_CHANGED)
+            addAction(ACTION_CODEC_CONFIG_CHANGED)
             addAction(BluetoothDevice.ACTION_NAME_CHANGED)
         }
         try {
@@ -270,13 +272,12 @@ class MainActivity : AudioServiceActivity() {
         try {
             unregisterReceiver(bluetoothReceiver)
         } catch (e: Exception) {
-            // Already unregistered
+            // Already unregistered or never registered
         }
     }
 
     // ── Core Logic ────────────────────────────────────────────────────────────
 
-    /** Push the current snapshot to Flutter via the EventChannel. */
     private fun pushCurrentSpecs() {
         mainHandler.post {
             try {
@@ -288,12 +289,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /**
-     * Builds the full device specification map.
-     * On Android M+ checks all output devices and picks the highest-priority
-     * active one (USB DAC > BT A2DP > Wired headphone > Builtin speaker).
-     * Also queries BluetoothA2dp for codec info when BT is the active route.
-     */
     private fun buildSpecsMap(): Map<String, Any?> {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val sampleRate = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
@@ -312,7 +307,6 @@ class MainActivity : AudioServiceActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
 
-            // Priority: USB DAC (4) > BT A2DP (3) > BT LE (3) > Wired headphone/headset (2) > Builtin (1)
             var bestPriority = -1
             var bestDevice: AudioDeviceInfo? = null
 
@@ -331,23 +325,21 @@ class MainActivity : AudioServiceActivity() {
                 selectedDeviceTypeCode = dev.type
                 deviceType = mapDeviceType(dev.type)
 
-                // Bit depth from supported encodings
                 val (depth, float) = bestEncodingFromDevice(dev)
                 bitDepth = depth
                 isFloat = float
             }
         }
 
-        // Bluetooth codec info — only when A2DP is the active route
+        // Bluetooth codec — only when BT is the active route
         if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-            selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */) {
+            selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE, API 31+ */
+        ) {
             val btInfo = queryBluetoothCodec()
             btCodec = btInfo?.first
             btDeviceName = btInfo?.second
             btSampleRate = btInfo?.third
             btBitDepth = btInfo?.fourth
-
-            // Prefer the BT device name from BluetoothA2dp over the AudioDeviceInfo name
             if (!btDeviceName.isNullOrBlank()) deviceName = btDeviceName!!
         }
 
@@ -372,7 +364,6 @@ class MainActivity : AudioServiceActivity() {
         )
     }
 
-    /** Returns device priority for output routing selection (higher = more preferred). */
     private fun devicePriority(type: Int): Int = when (type) {
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_HEADSET -> 4
@@ -384,7 +375,6 @@ class MainActivity : AudioServiceActivity() {
         else -> 0
     }
 
-    /** Maps an AudioDeviceInfo type constant to a human-readable route string. */
     private fun mapDeviceType(type: Int): String = when (type) {
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_HEADSET -> "USB DAC"
@@ -400,76 +390,84 @@ class MainActivity : AudioServiceActivity() {
         else -> "Speakers / Output Device"
     }
 
-    /** Returns (bitDepth, isFloat) from the device's supported encodings list. */
     private fun bestEncodingFromDevice(dev: AudioDeviceInfo): Pair<Int, Boolean> {
         var maxBits = 16
         var isFloat = false
         for (enc in dev.encodings) {
             when (enc) {
-                4 /* ENCODING_PCM_FLOAT */ -> {
-                    isFloat = true
-                    if (32 > maxBits) maxBits = 32
-                }
+                4  /* ENCODING_PCM_FLOAT */        -> { isFloat = true; if (32 > maxBits) maxBits = 32 }
                 21 /* ENCODING_PCM_24BIT_PACKED */ -> if (24 > maxBits) maxBits = 24
-                22 /* ENCODING_PCM_32BIT */ -> if (32 > maxBits) maxBits = 32
-                2 /* ENCODING_PCM_16BIT */ -> if (16 > maxBits) maxBits = 16
+                22 /* ENCODING_PCM_32BIT */        -> if (32 > maxBits) maxBits = 32
+                2  /* ENCODING_PCM_16BIT */        -> if (16 > maxBits) maxBits = 16
             }
         }
         return Pair(maxBits, isFloat)
     }
 
     /**
-     * Queries the BluetoothA2dp profile for the active connected device and codec.
-     * Returns (codecName, deviceName, sampleRateHz, bitDepth) or null if not available.
-     * Requires BLUETOOTH_CONNECT on Android 12+.
+     * Queries BluetoothA2dp for the active connected device and its codec.
+     * Returns (codecName, deviceName, sampleRateHz, bitDepth) or null.
+     * getCodecStatus() requires API 26 — gated with @RequiresApi.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun queryBluetoothCodecApi26(
+        a2dp: BluetoothA2dp,
+        device: BluetoothDevice,
+        deviceName: String
+    ): Quadruple<String, String, Int, Int> {
+        val codecStatus = a2dp.getCodecStatus(device)
+            ?: return Quadruple("SBC", deviceName, 44100, 16)
+        val config: BluetoothCodecConfig = codecStatus.codecConfig
+
+        val codecName = when (config.codecType) {
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC    -> "SBC"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC    -> "AAC"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX   -> "aptX"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC   -> "LDAC"
+            6 /* SOURCE_CODEC_TYPE_LC3 — API 33+ */       -> "LC3"
+            7 /* SOURCE_CODEC_TYPE_OPUS */                -> "Opus"
+            else                                          -> "SBC"
+        }
+
+        val sampleRate = when (config.sampleRate) {
+            BluetoothCodecConfig.SAMPLE_RATE_44100  -> 44100
+            BluetoothCodecConfig.SAMPLE_RATE_48000  -> 48000
+            BluetoothCodecConfig.SAMPLE_RATE_88200  -> 88200
+            BluetoothCodecConfig.SAMPLE_RATE_96000  -> 96000
+            BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
+            BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
+            else                                    -> 44100
+        }
+
+        val bits = when (config.bitsPerSample) {
+            BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
+            BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
+            BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
+            else                                    -> 16
+        }
+
+        return Quadruple(codecName, deviceName, sampleRate, bits)
+    }
+
     private fun queryBluetoothCodec(): Quadruple<String, String, Int, Int>? {
         if (!hasBtPermission()) return null
         val a2dp = bluetoothA2dp ?: return null
 
         return try {
+            @Suppress("DEPRECATION")
             val connectedDevices: List<BluetoothDevice> = a2dp.connectedDevices
             if (connectedDevices.isEmpty()) return null
 
             val device = connectedDevices.first()
-            val deviceName = device.name ?: "Bluetooth Device"
+            @Suppress("DEPRECATION")
+            val name = device.name ?: "Bluetooth Device"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val codecStatus = a2dp.getCodecStatus(device) ?: return Quadruple("SBC", deviceName, 44100, 16)
-                val config: BluetoothCodecConfig = codecStatus.codecConfig
-
-                val codecName = when (config.codecType) {
-                    BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC -> "SBC"
-                    BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC -> "AAC"
-                    BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX -> "aptX"
-                    BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
-                    BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC -> "LDAC"
-                    6 /* SOURCE_CODEC_TYPE_LC3 — API 33+ */ -> "LC3"
-                    7 /* SOURCE_CODEC_TYPE_OPUS */ -> "Opus"
-                    else -> "SBC"
-                }
-
-                val sampleRate = when (config.sampleRate) {
-                    BluetoothCodecConfig.SAMPLE_RATE_44100 -> 44100
-                    BluetoothCodecConfig.SAMPLE_RATE_48000 -> 48000
-                    BluetoothCodecConfig.SAMPLE_RATE_88200 -> 88200
-                    BluetoothCodecConfig.SAMPLE_RATE_96000 -> 96000
-                    BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
-                    BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
-                    else -> 44100
-                }
-
-                val bits = when (config.bitsPerSample) {
-                    BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
-                    BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
-                    BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
-                    else -> 16
-                }
-
-                Quadruple(codecName, deviceName, sampleRate, bits)
+                queryBluetoothCodecApi26(a2dp, device, name)
             } else {
-                // Pre-Oreo: can't query codec, just return device name with SBC assumption
-                Quadruple("SBC", deviceName, 44100, 16)
+                // Pre-Oreo: codec info not available, return device name with SBC
+                Quadruple("SBC", name, 44100, 16)
             }
         } catch (e: Exception) {
             Log.w(TAG, "queryBluetoothCodec error: ${e.message}")
@@ -479,13 +477,14 @@ class MainActivity : AudioServiceActivity() {
 
     private fun hasBtPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
-                PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
         } else {
-            true // Permission not required on < Android 12
+            true
         }
     }
 }
 
-/** Simple 4-tuple data class (Kotlin stdlib only has Triple). */
+/** Simple 4-tuple (Kotlin stdlib only has Triple). */
 data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
