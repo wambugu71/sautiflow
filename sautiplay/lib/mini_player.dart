@@ -123,11 +123,11 @@ class _MiniPlayerState extends State<MiniPlayer>
                           : RotationTransition(
                               turns: _rotationController,
                               child: Container(
-                                decoration: const BoxDecoration(
-                                  image: DecorationImage(
-                                    image: AssetImage('assets/icon/splash.png'),
-                                    fit: BoxFit.cover,
-                                  ),
+                                color: const Color(0xFF137fec).withValues(alpha: 0.2),
+                                padding: const EdgeInsets.all(6.0),
+                                child: Image.asset(
+                                  'assets/icon/splash.png',
+                                  fit: BoxFit.contain,
                                 ),
                               ),
                             ),

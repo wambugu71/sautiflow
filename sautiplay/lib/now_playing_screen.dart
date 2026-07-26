@@ -1012,16 +1012,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         ),
                                                       )
                                                     : RotationTransition(
-                                                        turns: _rotationController,
-                                                        child: Container(
-                                                          decoration: const BoxDecoration(
-                                                            image: DecorationImage(
-                                                              image: AssetImage('assets/icon/splash.png'),
-                                                              fit: BoxFit.cover,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
+                                                         turns: _rotationController,
+                                                         child: Container(
+                                                           color: surfaceColor,
+                                                           padding: const EdgeInsets.all(32.0),
+                                                           child: Image.asset(
+                                                             'assets/icon/splash.png',
+                                                             fit: BoxFit.contain,
+                                                           ),
+                                                         ),
+                                                       ),
                                               ),
                                             ),
                                           ),
@@ -1372,40 +1372,43 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           flex: 5,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                            child: Stack(
-                              children: [
-                                // Album Art Image
-                                Positioned.fill(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(24.0),
-                                      color: surfaceColor,
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(24.0),
-                                      child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
-                                          ? Container(
-                                              decoration: BoxDecoration(
-                                                image: DecorationImage(
-                                                  image: MemoryImage(widget.albumArt!),
-                                                  fit: BoxFit.cover,
-                                                ),
-                                              ),
-                                            )
-                                          : RotationTransition(
-                                              turns: _rotationController,
-                                              child: Container(
-                                                decoration: const BoxDecoration(
-                                                  image: DecorationImage(
-                                                    image: AssetImage('assets/icon/splash.png'),
-                                                    fit: BoxFit.cover,
+                            child: Center(
+                              child: AspectRatio(
+                                aspectRatio: 1.0,
+                                child: Stack(
+                                  children: [
+                                    // Album Art Image
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(24.0),
+                                          color: surfaceColor,
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(24.0),
+                                          child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                                              ? Container(
+                                                  decoration: BoxDecoration(
+                                                    image: DecorationImage(
+                                                      image: MemoryImage(widget.albumArt!),
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                                  ),
+                                                )
+                                              : RotationTransition(
+                                                  turns: _rotationController,
+                                                  child: Container(
+                                                    color: surfaceColor,
+                                                    padding: const EdgeInsets.all(24.0),
+                                                    child: Image.asset(
+                                                      'assets/icon/splash.png',
+                                                      fit: BoxFit.contain,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            ),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
                                 // Gradient Overlay at the bottom
                                 Positioned(
                                   bottom: 0,
@@ -1534,6 +1537,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             ),
                           ),
                         ),
+                      ),
+                    ),
                         
                         const SizedBox(height: 32),
                         
