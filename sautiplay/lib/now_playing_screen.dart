@@ -88,6 +88,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool _showLyrics = false;
   String? _lyricsRaw;
   bool _isLoadingLyrics = false;
+
+  // ── Live hardware specs (updates on route change) ─────────────────────────
+  AudioHardwareSpecs? _hardwareSpecs;
+  StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
   final LyricController _lyricController = LyricController();
   final YTMusic _ytMusic = YTMusic();
 
@@ -132,6 +136,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fetchAudioProperties();
 
     _setupAnalyzer(_isAnalyzerEnabled);
+    _subscribeHardwareStream();
 
     _rotationController = AnimationController(
       vsync: this,
@@ -184,9 +189,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     widget.statusNotifier.removeListener(_onStatusChanged);
     _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
+    _hardwareSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
     super.dispose();
+  }
+
+  void _subscribeHardwareStream() {
+    _hardwareSub?.cancel();
+    _hardwareSub = AudioHardwareInspector.hardwareStream(widget.player).listen(
+      (specs) {
+        if (mounted) setState(() => _hardwareSpecs = specs);
+      },
+      onError: (_) {/* ignore — stream errors are handled in the service */},
+    );
   }
 
   void _setupAnalyzer(bool enabled) {
@@ -450,11 +466,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  Future<void> _showHardwareSpecsModal(BuildContext context) async {
-    final specs = await AudioHardwareInspector.inspectAsync(widget.player);
-
-    if (!context.mounted) return;
-
+  void _showHardwareSpecsModal(BuildContext context) {
+    // Use cached specs if available; otherwise show loading state
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -463,94 +476,325 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (context) {
-        return ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24.0, 16.0, 24.0, 24.0),
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            // Mirror the parent's live specs into the sheet via a local stream
+            return StreamBuilder<AudioHardwareSpecs>(
+              initialData: _hardwareSpecs,
+              stream: AudioHardwareInspector.hardwareStream(widget.player),
+              builder: (context, snapshot) {
+                final specs = snapshot.data ?? _hardwareSpecs;
+                return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.92,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20.0, 16.0, 20.0, 24.0),
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: specs == null
+                          ? const SizedBox(
+                              height: 160,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                    color: Color(0xFF137FEC)),
+                              ),
+                            )
+                          : _buildHardwareSheetContent(specs),
                     ),
                   ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF137FEC).withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.equalizer, color: Color(0xFF137FEC)),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'HARDWARE AUDIO OUTPUT SPECS',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                                color: Color(0xFF137FEC),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              specs.deviceName,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  const Divider(color: Colors.white12),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _buildSpecChip(Icons.api, 'Backend API', specs.backendName),
-                      _buildSpecChip(Icons.headset, 'Device Route', specs.deviceType),
-                      _buildSpecChip(Icons.speed, 'Sample Rate', specs.formattedSampleRate, isHiRes: specs.isHiResAudio),
-                      _buildSpecChip(Icons.high_quality, 'Bit Depth', specs.formattedBitDepth),
-                      _buildSpecChip(Icons.timer_outlined, 'Buffer Latency', specs.formattedLatency),
-                      _buildSpecChip(Icons.surround_sound, 'Channels', '${specs.channels} Ch (Stereo)'),
-                      _buildSpecChip(Icons.lock_outline, 'Mode', specs.isExclusiveMode ? 'Bit-Perfect Exclusive' : 'Shared Mixer'),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
+                );
+              },
+            );
+          },
         );
       },
     );
+  }
+
+  Widget _buildHardwareSheetContent(AudioHardwareSpecs specs) {
+    const primaryColor = Color(0xFF137FEC);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Drag handle ──────────────────────────────────────────────────────
+        Center(
+          child: Container(
+            width: 36,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        // ── Header row ───────────────────────────────────────────────────────
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.equalizer, color: primaryColor),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'AUDIO OUTPUT CHAIN',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      color: primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    specs.isBluetooth
+                        ? (specs.bluetoothDeviceName ?? specs.deviceName)
+                        : specs.deviceName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            // Live indicator dot
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: const Color(0xFF22C55E),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF22C55E).withValues(alpha: 0.5),
+                    blurRadius: 6,
+                    spreadRadius: 1,
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              'LIVE',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF22C55E),
+                letterSpacing: 1.0,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const Divider(color: Colors.white12),
+        const SizedBox(height: 16),
+
+        // ── Signal Chain ─────────────────────────────────────────────────────
+        const Text(
+          'SIGNAL CHAIN',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.0,
+            color: Colors.white38,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildSignalChain(specs),
+        const SizedBox(height: 20),
+        const Divider(color: Colors.white12),
+        const SizedBox(height: 16),
+
+        // ── Detail Chips ─────────────────────────────────────────────────────
+        const Text(
+          'HARDWARE SPECS',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.0,
+            color: Colors.white38,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _buildSpecChip(Icons.api, 'Backend', specs.backendName),
+            _buildSpecChip(
+              Icons.headset,
+              'Route',
+              specs.deviceType,
+            ),
+            _buildSpecChip(
+              Icons.speed,
+              'Sample Rate',
+              specs.formattedSampleRate,
+              isHiRes: specs.isHiResAudio,
+            ),
+            _buildSpecChip(
+              Icons.high_quality,
+              'Bit Depth',
+              specs.formattedBitDepth,
+            ),
+            _buildSpecChip(
+              Icons.timer_outlined,
+              'Buffer Latency',
+              specs.formattedLatency,
+            ),
+            _buildSpecChip(
+              Icons.surround_sound,
+              'Channels',
+              '${specs.channels} Ch (Stereo)',
+            ),
+            _buildSpecChip(
+              Icons.lock_outline,
+              'Mode',
+              specs.isExclusiveMode ? 'Bit-Perfect Exclusive' : 'Shared Mixer',
+            ),
+            if (specs.bluetoothCodec != null)
+              _buildSpecChip(
+                Icons.bluetooth_audio,
+                'BT Codec',
+                specs.formattedBtCodec ?? specs.bluetoothCodec!,
+                isHiRes: specs.bluetoothCodec == 'LDAC' ||
+                    specs.bluetoothCodec == 'aptX HD' ||
+                    specs.bluetoothCodec == 'LC3',
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildSignalChain(AudioHardwareSpecs specs) {
+    final nodes = specs.signalChain;
+    return SizedBox(
+      height: 90,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: nodes.length,
+        separatorBuilder: (_, __) => _buildChainArrow(),
+        itemBuilder: (context, i) => _buildChainNode(nodes[i]),
+      ),
+    );
+  }
+
+  Widget _buildChainArrow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 16,
+              height: 1.5,
+              color: Colors.white24,
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 10,
+              color: Colors.white38,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChainNode(SignalChainNode node) {
+    const primaryColor = Color(0xFF137FEC);
+    final accent = node.isHighlight ? primaryColor : Colors.white24;
+    final labelColor = node.isHighlight ? primaryColor : Colors.white70;
+
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: node.isHighlight
+            ? primaryColor.withValues(alpha: 0.12)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: accent.withValues(alpha: node.isHighlight ? 0.6 : 0.3),
+          width: node.isHighlight ? 1.5 : 1.0,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            _iconDataForNode(node.icon),
+            size: 18,
+            color: labelColor,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            node.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: labelColor,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (node.sublabel != null) ...
+            [
+              const SizedBox(height: 2),
+              Text(
+                node.sublabel!,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: node.isHighlight
+                      ? primaryColor.withValues(alpha: 0.8)
+                      : Colors.white38,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  IconData _iconDataForNode(SignalChainIcon icon) {
+    switch (icon) {
+      case SignalChainIcon.backend:
+        return Icons.developer_board;
+      case SignalChainIcon.bluetooth:
+        return Icons.bluetooth_audio;
+      case SignalChainIcon.wiredHeadphone:
+        return Icons.headphones;
+      case SignalChainIcon.usbDac:
+        return Icons.usb;
+      case SignalChainIcon.speaker:
+        return Icons.speaker;
+      case SignalChainIcon.hdmi:
+        return Icons.tv;
+      case SignalChainIcon.output:
+        return Icons.output;
+    }
   }
 
   Widget _buildSpecChip(IconData icon, String label, String value, {bool isHiRes = false}) {
