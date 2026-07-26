@@ -19,7 +19,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -407,47 +406,59 @@ class MainActivity : AudioServiceActivity() {
     /**
      * Queries BluetoothA2dp for the active connected device and its codec.
      * Returns (codecName, deviceName, sampleRateHz, bitDepth) or null.
-     * getCodecStatus() requires API 26 — gated with @RequiresApi.
+     *
+     * getCodecStatus(BluetoothDevice) exists at runtime from API 26 but was
+     * @SystemApi until API 33 — the compiler can't resolve it directly.
+     * We use reflection, which is the standard approach (Poweramp does this too).
      */
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun queryBluetoothCodecApi26(
+    private fun queryBluetoothCodecViaReflection(
         a2dp: BluetoothA2dp,
         device: BluetoothDevice,
         deviceName: String
     ): Quadruple<String, String, Int, Int> {
-        val codecStatus = a2dp.getCodecStatus(device)
-            ?: return Quadruple("SBC", deviceName, 44100, 16)
-        val config: BluetoothCodecConfig = codecStatus.codecConfig
+        try {
+            // Reflectively call: BluetoothCodecStatus getCodecStatus(BluetoothDevice)
+            val method = a2dp.javaClass.getMethod("getCodecStatus", BluetoothDevice::class.java)
+            val codecStatus = method.invoke(a2dp, device) ?: return Quadruple("SBC", deviceName, 44100, 16)
 
-        val codecName = when (config.codecType) {
-            BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC    -> "SBC"
-            BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC    -> "AAC"
-            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX   -> "aptX"
-            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
-            BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC   -> "LDAC"
-            6 /* SOURCE_CODEC_TYPE_LC3 — API 33+ */       -> "LC3"
-            7 /* SOURCE_CODEC_TYPE_OPUS */                -> "Opus"
-            else                                          -> "SBC"
+            // Reflectively get: BluetoothCodecConfig getCodecConfig()
+            val getConfigMethod = codecStatus.javaClass.getMethod("getCodecConfig")
+            val config = getConfigMethod.invoke(codecStatus) as? BluetoothCodecConfig
+                ?: return Quadruple("SBC", deviceName, 44100, 16)
+
+            val codecName = when (config.codecType) {
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC     -> "SBC"
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC     -> "AAC"
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX    -> "aptX"
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC    -> "LDAC"
+                6 /* SOURCE_CODEC_TYPE_LC3 — API 33+ */        -> "LC3"
+                7 /* SOURCE_CODEC_TYPE_OPUS */                  -> "Opus"
+                else                                           -> "SBC"
+            }
+
+            val sampleRate = when (config.sampleRate) {
+                BluetoothCodecConfig.SAMPLE_RATE_44100  -> 44100
+                BluetoothCodecConfig.SAMPLE_RATE_48000  -> 48000
+                BluetoothCodecConfig.SAMPLE_RATE_88200  -> 88200
+                BluetoothCodecConfig.SAMPLE_RATE_96000  -> 96000
+                BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
+                BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
+                else                                    -> 44100
+            }
+
+            val bits = when (config.bitsPerSample) {
+                BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
+                BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
+                BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
+                else                                    -> 16
+            }
+
+            return Quadruple(codecName, deviceName, sampleRate, bits)
+        } catch (e: Exception) {
+            Log.w(TAG, "Reflection getCodecStatus failed: ${e.message}")
+            return Quadruple("SBC", deviceName, 44100, 16)
         }
-
-        val sampleRate = when (config.sampleRate) {
-            BluetoothCodecConfig.SAMPLE_RATE_44100  -> 44100
-            BluetoothCodecConfig.SAMPLE_RATE_48000  -> 48000
-            BluetoothCodecConfig.SAMPLE_RATE_88200  -> 88200
-            BluetoothCodecConfig.SAMPLE_RATE_96000  -> 96000
-            BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
-            BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
-            else                                    -> 44100
-        }
-
-        val bits = when (config.bitsPerSample) {
-            BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
-            BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
-            BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
-            else                                    -> 16
-        }
-
-        return Quadruple(codecName, deviceName, sampleRate, bits)
     }
 
     private fun queryBluetoothCodec(): Quadruple<String, String, Int, Int>? {
@@ -464,7 +475,7 @@ class MainActivity : AudioServiceActivity() {
             val name = device.name ?: "Bluetooth Device"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                queryBluetoothCodecApi26(a2dp, device, name)
+                queryBluetoothCodecViaReflection(a2dp, device, name)
             } else {
                 // Pre-Oreo: codec info not available, return device name with SBC
                 Quadruple("SBC", name, 44100, 16)
