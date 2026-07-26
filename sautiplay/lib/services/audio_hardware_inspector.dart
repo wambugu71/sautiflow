@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:sautiflow/sautiflow.dart';
 
@@ -22,11 +23,11 @@ class AudioHardwareSpecs {
   // ── Bluetooth-specific fields ─────────────────────────────────────────────
   final String? bluetoothCodec; // e.g. "LDAC", "aptX HD", "AAC", "SBC", "LC3"
   final String? bluetoothDeviceName; // Actual BT device name (e.g. "Sony WH-1000XM5")
-  final int? btSampleRate; // BT codec negotiated sample rate (may differ from HW rate)
+  final int? btSampleRate; // BT codec negotiated sample rate
   final int? btBitDepth; // BT codec bit depth
 
   // ── System info ───────────────────────────────────────────────────────────
-  final int? androidVersion; // Android SDK version (for display)
+  final int? androidVersion; // Android SDK version
   final String? androidRelease; // Android version string (e.g. "14")
 
   const AudioHardwareSpecs({
@@ -51,20 +52,22 @@ class AudioHardwareSpecs {
 
   /// Factory: build from the Map pushed by the Android EventChannel / MethodChannel.
   factory AudioHardwareSpecs.fromAndroidMap(Map<dynamic, dynamic> m) {
-    final rawDevType = m['deviceType']?.toString() ?? 'Speakers / Output Device';
+    final rawDevType = m['deviceType']?.toString() ?? 'Built-in Speaker';
+    final devName = (m['deviceName']?.toString() ?? '').isNotEmpty
+        ? m['deviceName'].toString()
+        : 'Default Soundcard';
+
     return AudioHardwareSpecs(
       backendName: 'AAudio / Android HAL',
-      deviceName: (m['deviceName']?.toString() ?? '').isNotEmpty
-          ? m['deviceName'].toString()
-          : 'Default Output Device',
+      deviceName: devName,
       sampleRate: (m['sampleRate'] as num?)?.toInt() ?? 48000,
       bitDepth: (m['bitDepth'] as num?)?.toInt() ?? 32,
       isFloat: (m['isFloat'] as bool?) ?? true,
       channels: (m['channels'] as num?)?.toInt() ?? 2,
-      periodSizeFrames: (m['periodSizeFrames'] as num?)?.toInt() ?? 0,
+      periodSizeFrames: (m['periodSizeFrames'] as num?)?.toInt() ?? 192,
       periodCount: (m['periodCount'] as num?)?.toInt() ?? 2,
       latencyMs: (m['latencyMs'] as num?)?.toDouble() ?? 0.0,
-      isExclusiveMode: false, // Not exposed on Android
+      isExclusiveMode: false,
       deviceType: rawDevType,
       bluetoothCodec: m['bluetoothCodec']?.toString(),
       bluetoothDeviceName: m['bluetoothDeviceName']?.toString(),
@@ -75,7 +78,7 @@ class AudioHardwareSpecs {
     );
   }
 
-  /// Factory: build from the native miniaudio AEHardwareInfo (Desktop / iOS).
+  /// Factory: build from native miniaudio AEHardwareInfo (Desktop / iOS).
   factory AudioHardwareSpecs.fromNative(AEHardwareInfo native) {
     String devType = 'Speakers / Output Device';
     final lowerName = native.deviceName.toLowerCase();
@@ -118,7 +121,8 @@ class AudioHardwareSpecs {
   // ── Computed properties ───────────────────────────────────────────────────
 
   /// True if device hardware supports Hi-Res Audio (>48kHz or >16-bit or USB DAC)
-  bool get isHiResAudio => sampleRate > 48000 || bitDepth > 16 || deviceType == 'USB DAC';
+  bool get isHiResAudio =>
+      sampleRate > 48000 || bitDepth > 16 || deviceType.contains('USB');
 
   /// True if Bluetooth is the active output route
   bool get isBluetooth =>
@@ -126,19 +130,19 @@ class AudioHardwareSpecs {
       deviceType.contains('bluetooth') ||
       bluetoothCodec != null;
 
-  /// Human-readable sample rate string (e.g., "96.0 kHz (Hi-Res)")
+  /// Human-readable sample rate string
   String get formattedSampleRate {
     final kHz = (sampleRate / 1000.0).toStringAsFixed(1);
-    return isHiResAudio ? '$kHz kHz (Hi-Res)' : '$kHz kHz';
+    return '$kHz kHz';
   }
 
-  /// Human-readable bit depth string (e.g., "24-bit Signed PCM" or "32-bit Float")
+  /// Human-readable bit depth string
   String get formattedBitDepth {
-    if (isFloat) return '$bitDepth-bit Float PCM';
-    return '$bitDepth-bit Int PCM';
+    if (isFloat) return '$bitDepth-bit Float';
+    return '$bitDepth-bit Int';
   }
 
-  /// Human-readable latency string (e.g., "10.67 ms")
+  /// Human-readable latency string
   String get formattedLatency => '${latencyMs.toStringAsFixed(2)} ms';
 
   /// Bluetooth codec + quality string, e.g. "LDAC 96kHz / 24-bit"
@@ -152,33 +156,62 @@ class AudioHardwareSpecs {
     return codec;
   }
 
-  /// Poweramp-style signal chain string.
-  /// Example (BT): "FLAC → AAudio → Bluetooth → LDAC 96kHz/24-bit → Sony WH-1000XM5"
-  /// Example (wired): "AAudio → Android 14 HAL → 3.5mm Headphone → [Device Name]"
-  /// Example (desktop): "WASAPI Exclusive → USB DAC → FiiO K3"
-  List<SignalChainNode> get signalChain {
+  /// Poweramp-style 5-stage signal chain generator.
+  /// Node 1: Track Source File / Stream
+  /// Node 2: miniaudio DSP / Resampler
+  /// Node 3: Audio Engine / HAL Driver
+  /// Node 4: Output Route / Connection Type
+  /// Node 5: Target Hardware DAC / Device
+  List<SignalChainNode> buildPowerampSignalChain({
+    String? sourceCodec,
+    String? sourceSampleRate,
+    String? sourceBitDepth,
+    String? sourceChannels,
+    String? dspSummary,
+  }) {
     final nodes = <SignalChainNode>[];
 
-    // 1. Audio backend
+    // Node 1: Source File / Track Info
+    final codec = (sourceCodec?.isNotEmpty ?? false) ? sourceCodec!.toUpperCase() : 'AUDIO';
+    final srcRate = sourceSampleRate ?? '${(sampleRate / 1000.0).toStringAsFixed(1)} kHz';
+    final srcDepth = sourceBitDepth ?? '$bitDepth-bit';
+    nodes.add(SignalChainNode(
+      label: 'Track Source',
+      sublabel: '$codec · $srcRate · $srcDepth',
+      icon: SignalChainIcon.source,
+      isHighlight: false,
+    ));
+
+    // Node 2: miniaudio DSP / Engine
+    final dspText = dspSummary ?? '32-bit Float PCM';
+    nodes.add(SignalChainNode(
+      label: 'miniaudio DSP',
+      sublabel: dspText,
+      icon: SignalChainIcon.dsp,
+      isHighlight: dspSummary != null,
+    ));
+
+    // Node 3: Audio Engine / HAL Driver
     if (isExclusiveMode) {
       nodes.add(SignalChainNode(
         label: backendName,
-        sublabel: 'Exclusive / Bit-Perfect',
+        sublabel: 'Exclusive Bit-Perfect',
         icon: SignalChainIcon.backend,
         isHighlight: true,
       ));
     } else {
-      final osLabel = androidRelease != null ? 'Android $androidRelease HAL' : null;
+      final osLabel = androidRelease != null ? 'Android $androidRelease HAL' : 'Shared Mixer';
+      final latLabel = latencyMs > 0 ? '${latencyMs.toStringAsFixed(1)}ms latency' : osLabel;
       nodes.add(SignalChainNode(
         label: backendName,
-        sublabel: osLabel ?? 'Shared Mixer',
+        sublabel: latLabel,
         icon: SignalChainIcon.backend,
       ));
     }
 
-    // 2. Route / connection type
+    // Node 4: Output Route / Transport
     if (isBluetooth) {
-      final codecStr = formattedBtCodec ?? 'SBC';
+      final codecStr = formattedBtCodec ?? bluetoothCodec ?? 'SBC';
       nodes.add(SignalChainNode(
         label: deviceType,
         sublabel: codecStr,
@@ -188,27 +221,34 @@ class AudioHardwareSpecs {
             bluetoothCodec == 'LC3',
       ));
     } else {
+      final routeRate = '$sampleRate Hz / $bitDepth-bit';
       nodes.add(SignalChainNode(
         label: deviceType,
-        sublabel: '$sampleRate Hz / $bitDepth-bit',
+        sublabel: routeRate,
         icon: _iconForDeviceType(deviceType),
         isHighlight: isHiResAudio,
       ));
     }
 
-    // 3. Output device / DAC
-    final effectiveDeviceName =
-        (bluetoothDeviceName?.isNotEmpty ?? false)
-            ? bluetoothDeviceName!
-            : deviceName;
+    // Node 5: Target Hardware DAC / Device
+    final effectiveDeviceName = (bluetoothDeviceName?.isNotEmpty ?? false)
+        ? bluetoothDeviceName!
+        : deviceName;
+
+    String outSub;
+    if (isBluetooth) {
+      outSub = btSampleRate != null
+          ? '${(btSampleRate! / 1000.0).toStringAsFixed(0)}kHz / ${btBitDepth ?? 16}-bit Out'
+          : 'Bluetooth Output';
+    } else {
+      outSub = '$sampleRate Hz Out';
+    }
+
     nodes.add(SignalChainNode(
       label: effectiveDeviceName,
-      sublabel: isBluetooth
-          ? (btSampleRate != null
-              ? '${(btSampleRate! / 1000.0).toStringAsFixed(0)}kHz · ${btBitDepth ?? 16}-bit out'
-              : 'Output Device')
-          : (isHiResAudio ? 'Hi-Res Output' : 'Output Device'),
+      sublabel: outSub,
       icon: SignalChainIcon.output,
+      isHighlight: isHiResAudio,
     ));
 
     return nodes;
@@ -216,39 +256,20 @@ class AudioHardwareSpecs {
 
   SignalChainIcon _iconForDeviceType(String type) {
     if (type.contains('USB')) return SignalChainIcon.usbDac;
-    if (type.contains('3.5mm') || type.contains('Headphone')) return SignalChainIcon.wiredHeadphone;
+    if (type.contains('3.5mm') || type.contains('Headphone') || type.contains('Headset')) {
+      return SignalChainIcon.wiredHeadphone;
+    }
     if (type.contains('HDMI')) return SignalChainIcon.hdmi;
     if (type.contains('Speaker')) return SignalChainIcon.speaker;
     return SignalChainIcon.output;
   }
-
-  /// Json map representation
-  Map<String, dynamic> toJson() => {
-        'backendName': backendName,
-        'deviceName': deviceName,
-        'sampleRate': sampleRate,
-        'formattedSampleRate': formattedSampleRate,
-        'bitDepth': bitDepth,
-        'formattedBitDepth': formattedBitDepth,
-        'isFloat': isFloat,
-        'channels': channels,
-        'periodSizeFrames': periodSizeFrames,
-        'periodCount': periodCount,
-        'latencyMs': latencyMs,
-        'formattedLatency': formattedLatency,
-        'isExclusiveMode': isExclusiveMode,
-        'deviceType': deviceType,
-        'bluetoothCodec': bluetoothCodec,
-        'bluetoothDeviceName': bluetoothDeviceName,
-        'btSampleRate': btSampleRate,
-        'btBitDepth': btBitDepth,
-        'isHiResAudio': isHiResAudio,
-      };
 }
 
 // ── Signal Chain Model ────────────────────────────────────────────────────────
 
 enum SignalChainIcon {
+  source,
+  dsp,
   backend,
   bluetooth,
   wiredHeadphone,
@@ -276,26 +297,30 @@ class SignalChainNode {
 
 /// Service to inspect active hardware audio specifications and device routes.
 ///
-/// On Android: uses an EventChannel to receive live updates whenever the output
-/// device changes (headphone plug, BT connect/disconnect, USB DAC attach).
-///
-/// On Desktop/iOS: queries the native miniaudio AEHardwareInfo synchronously.
+/// On Android: uses MethodChannel for immediate async lookup and an EventChannel
+/// broadcast stream to receive live updates whenever the output device changes.
 class AudioHardwareInspector {
   static const MethodChannel _methodChannel =
       MethodChannel('com.wambugu.sautiflow/hardware');
   static const EventChannel _eventChannel =
       EventChannel('com.wambugu.sautiflow/hardware_stream');
 
-  // Cached stream — one subscription shared across the app lifetime
-  static Stream<AudioHardwareSpecs>? _androidStream;
+  static AudioHardwareSpecs? _currentSpecs;
+  static StreamSubscription? _androidEventSub;
+  static final StreamController<AudioHardwareSpecs> _controller =
+      StreamController<AudioHardwareSpecs>.broadcast();
 
-  // ── One-shot (Desktop / iOS) ──────────────────────────────────────────────
-
+  /// Synchronous fallback inspection
   static AudioHardwareSpecs inspect(dynamic player) {
-    final nativeInfo = player.getHardwareInfo();
-    if (nativeInfo is AEHardwareInfo) {
-      return AudioHardwareSpecs.fromNative(nativeInfo);
-    }
+    if (_currentSpecs != null) return _currentSpecs!;
+    try {
+      final nativeInfo = player.getHardwareInfo();
+      if (nativeInfo is AEHardwareInfo) {
+        _currentSpecs = AudioHardwareSpecs.fromNative(nativeInfo);
+        return _currentSpecs!;
+      }
+    } catch (_) {}
+
     return const AudioHardwareSpecs(
       backendName: 'Audio Backend',
       deviceName: 'Default Soundcard',
@@ -303,88 +328,90 @@ class AudioHardwareInspector {
       bitDepth: 32,
       isFloat: true,
       channels: 2,
-      periodSizeFrames: 0,
-      periodCount: 0,
+      periodSizeFrames: 192,
+      periodCount: 2,
       latencyMs: 0.0,
       isExclusiveMode: false,
-      deviceType: 'Speakers / Output Device',
+      deviceType: 'Built-in Speaker',
     );
   }
 
-  /// Single async fetch — kept for backward compatibility & initial load on Android.
+  /// Single async fetch — updates cached specs and notifies broadcast subscribers.
   static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
     if (Platform.isAndroid) {
       try {
         final res = await _methodChannel.invokeMethod('getHardwareAudioSpecs');
         if (res is Map) {
-          return AudioHardwareSpecs.fromAndroidMap(res);
+          _currentSpecs = AudioHardwareSpecs.fromAndroidMap(res);
+          _controller.add(_currentSpecs!);
+          return _currentSpecs!;
         }
       } catch (e) {
-        // Fall through to native
+        debugPrint('[AudioHardwareInspector] Android MethodChannel error: $e');
       }
     }
-    final rawNative = await player.getHardwareInfo();
-    if (rawNative is AEHardwareInfo) {
-      return AudioHardwareSpecs.fromNative(rawNative);
+
+    try {
+      final rawNative = await player.getHardwareInfo();
+      if (rawNative is AEHardwareInfo) {
+        _currentSpecs = AudioHardwareSpecs.fromNative(rawNative);
+        _controller.add(_currentSpecs!);
+        return _currentSpecs!;
+      }
+    } catch (e) {
+      debugPrint('[AudioHardwareInspector] Native getHardwareInfo error: $e');
     }
-    return const AudioHardwareSpecs(
-      backendName: 'Audio Backend',
-      deviceName: 'Default Soundcard',
+
+    _currentSpecs ??= const AudioHardwareSpecs(
+      backendName: 'AAudio / Android HAL',
+      deviceName: 'Built-in Speaker',
       sampleRate: 48000,
       bitDepth: 32,
       isFloat: true,
       channels: 2,
-      periodSizeFrames: 0,
-      periodCount: 0,
+      periodSizeFrames: 192,
+      periodCount: 2,
       latencyMs: 0.0,
       isExclusiveMode: false,
-      deviceType: 'Speakers / Output Device',
+      deviceType: 'Built-in Speaker',
     );
+    return _currentSpecs!;
   }
 
-  // ── Live Stream (Android EventChannel) ───────────────────────────────────
-
-  /// Returns a broadcast [Stream<AudioHardwareSpecs>] that emits a new value
-  /// whenever the active audio output route changes (plug/unplug, BT events).
-  ///
-  /// On non-Android platforms returns a single-element stream from [inspectAsync].
+  /// Returns a broadcast [Stream<AudioHardwareSpecs>] that emits current specs immediately
+  /// and receives real-time updates on route/hardware changes.
   static Stream<AudioHardwareSpecs> hardwareStream(dynamic player) {
-    if (!Platform.isAndroid) {
-      // Desktop / iOS: one-shot stream
-      return Stream.fromFuture(inspectAsync(player));
+    // Eagerly fetch initial state if not cached
+    if (_currentSpecs == null) {
+      inspectAsync(player);
     }
 
-    // Android: reuse existing subscription
-    _androidStream ??= _eventChannel
-        .receiveBroadcastStream()
-        .map((event) {
-          if (event is Map) {
-            return AudioHardwareSpecs.fromAndroidMap(event);
-          }
-          return const AudioHardwareSpecs(
-            backendName: 'AAudio / Android HAL',
-            deviceName: 'Default Output Device',
-            sampleRate: 48000,
-            bitDepth: 32,
-            isFloat: true,
-            channels: 2,
-            periodSizeFrames: 0,
-            periodCount: 0,
-            latencyMs: 0.0,
-            isExclusiveMode: false,
-            deviceType: 'Speakers / Output Device',
+    if (Platform.isAndroid && _androidEventSub == null) {
+      _androidEventSub = _eventChannel
+          .receiveBroadcastStream()
+          .listen(
+            (event) {
+              if (event is Map) {
+                _currentSpecs = AudioHardwareSpecs.fromAndroidMap(event);
+                _controller.add(_currentSpecs!);
+              }
+            },
+            onError: (e) {
+              debugPrint('[AudioHardwareInspector] EventChannel error: $e');
+            },
           );
-        })
-        .handleError((e) {
-          // Don't crash the stream on error
-        })
-        .asBroadcastStream();
+    }
 
-    return _androidStream!;
+    return _controller.stream;
   }
 
-  /// Clears the cached Android stream (call this if the Flutter engine restarts).
+  /// Get current cached specs synchronously (or null if not yet fetched)
+  static AudioHardwareSpecs? get currentSpecs => _currentSpecs;
+
+  /// Resets cached stream and specs (e.g. on hot restart)
   static void resetStream() {
-    _androidStream = null;
+    _androidEventSub?.cancel();
+    _androidEventSub = null;
+    _currentSpecs = null;
   }
 }

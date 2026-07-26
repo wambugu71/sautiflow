@@ -136,7 +136,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fetchAudioProperties();
 
     _setupAnalyzer(_isAnalyzerEnabled);
-    _subscribeHardwareStream();
+    _initHardwareSpecs();
 
     _rotationController = AnimationController(
       vsync: this,
@@ -193,6 +193,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initHardwareSpecs() async {
+    final initial = await AudioHardwareInspector.inspectAsync(widget.player);
+    if (mounted) setState(() => _hardwareSpecs = initial);
+    _subscribeHardwareStream();
   }
 
   void _subscribeHardwareStream() {
@@ -467,7 +473,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _showHardwareSpecsModal(BuildContext context) {
-    // Use cached specs if available; otherwise show loading state
+    if (_hardwareSpecs == null) {
+      AudioHardwareInspector.inspectAsync(widget.player).then((specs) {
+        if (mounted) setState(() => _hardwareSpecs = specs);
+      });
+    }
+
+    final initial = _hardwareSpecs ?? AudioHardwareInspector.currentSpecs;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -477,35 +490,31 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            // Mirror the parent's live specs into the sheet via a local stream
-            return StreamBuilder<AudioHardwareSpecs>(
-              initialData: _hardwareSpecs,
-              stream: AudioHardwareInspector.hardwareStream(widget.player),
-              builder: (context, snapshot) {
-                final specs = snapshot.data ?? _hardwareSpecs;
-                return ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.92,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20.0, 16.0, 20.0, 24.0),
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: specs == null
-                          ? const SizedBox(
-                              height: 160,
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                    color: Color(0xFF137FEC)),
-                              ),
-                            )
-                          : _buildHardwareSheetContent(specs),
-                    ),
-                  ),
-                );
-              },
+        return StreamBuilder<AudioHardwareSpecs>(
+          initialData: initial,
+          stream: AudioHardwareInspector.hardwareStream(widget.player),
+          builder: (context, snapshot) {
+            final specs = snapshot.data ?? initial ?? AudioHardwareInspector.currentSpecs;
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.92,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20.0, 16.0, 20.0, 24.0),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: specs == null
+                      ? const SizedBox(
+                          height: 160,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF137FEC),
+                            ),
+                          ),
+                        )
+                      : _buildHardwareSheetContent(specs),
+                ),
+              ),
             );
           },
         );
@@ -604,9 +613,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         const Divider(color: Colors.white12),
         const SizedBox(height: 16),
 
-        // ── Signal Chain ─────────────────────────────────────────────────────
         const Text(
-          'SIGNAL CHAIN',
+          'AUDIO SIGNAL CHAIN',
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.bold,
@@ -684,9 +692,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildSignalChain(AudioHardwareSpecs specs) {
-    final nodes = specs.signalChain;
+    final nodes = specs.buildPowerampSignalChain(
+      sourceCodec: _detectedCodec ?? widget.codec,
+      sourceSampleRate: _sampleRate,
+      sourceBitDepth: _originalBitDepth,
+      sourceChannels: _channels,
+    );
     return SizedBox(
-      height: 90,
+      height: 96,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -726,7 +739,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final labelColor = node.isHighlight ? primaryColor : Colors.white70;
 
     return Container(
-      width: 120,
+      width: 130,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: node.isHighlight
@@ -780,6 +793,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   IconData _iconDataForNode(SignalChainIcon icon) {
     switch (icon) {
+      case SignalChainIcon.source:
+        return Icons.audio_file;
+      case SignalChainIcon.dsp:
+        return Icons.graphic_eq;
       case SignalChainIcon.backend:
         return Icons.developer_board;
       case SignalChainIcon.bluetooth:

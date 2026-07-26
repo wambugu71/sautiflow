@@ -47,10 +47,21 @@ jobs:
         run: dart run flutter_launcher_icons
         continue-on-error: true
 
+      - name: Decode Android Keystore & Create key.properties
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+          cat <<EOF > android/key.properties
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
       - name: Build APKs
         run: flutter build apk --release --no-pub --target-platform android-arm,android-arm64 --split-per-abi
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
 
       - name: Upload Artifact arm64
         uses: actions/upload-artifact@v4

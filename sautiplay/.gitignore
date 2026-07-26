@@ -48,4 +48,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Keystore & Android Signing Secrets
+*.jks
+*.keystore
+key.properties
+**/android/key.properties
+upload_keystore_base64.txt
+
+
 
