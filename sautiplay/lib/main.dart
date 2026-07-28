@@ -153,6 +153,10 @@ class _PlayerShellState extends State<PlayerShell> {
   int _lastPublishedNowPlayingIndex = -1;
   bool _isLoading = false; // Added loading state for miniplayer
 
+  StreamSubscription? _statusSubscription;
+  StreamSubscription? _logSubscription;
+  StreamSubscription? _replayGainSubscription;
+
   final List<double> _eqFrequencies = const [
     31.25,
     62.5,
@@ -200,7 +204,7 @@ class _PlayerShellState extends State<PlayerShell> {
     if (initErr.isNotEmpty) {
       _logs.insert(0, '[init] $initErr');
     }
-    _player.statusStream.listen((s) {
+    _statusSubscription = _player.statusStream.listen((s) {
       // Save position periodically (every ~5s)
       if (s.isPlaying && (s.positionSeconds % 5 == 0)) {
         AppStateService.instance.saveQueue(
@@ -213,7 +217,7 @@ class _PlayerShellState extends State<PlayerShell> {
       _status.value = s;
       _publishNowPlayingFromStatus(s);
     });
-    _player.logStream.listen((line) {
+    _logSubscription = _player.logStream.listen((line) {
       _logs.insert(0, '[${DateTime.now().toIso8601String()}] $line');
       if (_logs.length > 200) {
         _logs.removeRange(200, _logs.length);
@@ -229,7 +233,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _loadAppState();
 
     _metadata.addListener(_applyReplayGain);
-    AppStateService.instance.replayGainChanged.stream.listen((_) {
+    _replayGainSubscription = AppStateService.instance.replayGainChanged.stream.listen((_) {
       _applyReplayGain();
     });
   }
@@ -362,6 +366,9 @@ class _PlayerShellState extends State<PlayerShell> {
 
   @override
   void dispose() {
+    _statusSubscription?.cancel();
+    _logSubscription?.cancel();
+    _replayGainSubscription?.cancel();
     _status.dispose();
     _player.dispose();
     super.dispose();
@@ -473,6 +480,16 @@ class _PlayerShellState extends State<PlayerShell> {
     if (albumArt == null || albumArt.isEmpty) return null;
     try {
       final tempDir = Directory.systemTemp;
+      try {
+        if (tempDir.existsSync()) {
+          final files = tempDir.listSync();
+          for (final f in files) {
+            if (f.path.contains('sautiplay_now_playing_art_')) {
+              try { f.deleteSync(); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final artFile = File(
         '${tempDir.path}${Platform.pathSeparator}sautiplay_now_playing_art_$timestamp.jpg',
@@ -517,6 +534,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 bytes.addAll(chunk);
               }
               albumArt = Uint8List.fromList(bytes);
+              if (_thumbnailCache.length > 50) _thumbnailCache.clear();
               _thumbnailCache[track.thumbnailUrl!] = albumArt;
             }
             client.close(force: true);
