@@ -1259,7 +1259,7 @@ namespace
 struct AudioEngineHandle
 {
     ma_device device{};
-    bool exclusiveModeEnabled{false};
+    std::atomic<bool> exclusiveModeEnabled{false};
 
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
@@ -1426,7 +1426,7 @@ struct AudioEngineHandle
     std::mutex eqMutex; // Protect EQ config changes
 
     int resampleAlgorithm = 0; // AE_RESAMPLE_ALGORITHM_LINEAR
-    int ditherMode = 0;        // AE_DITHER_MODE_NONE
+    std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
 
     std::vector<float> eqFrequencies;
     std::vector<float> eqGains;
@@ -1804,6 +1804,25 @@ static void uninit_decoder_slot(
 #endif
 }
 
+static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
+{
+    if (e != nullptr && e->fadingOutDecoder != nullptr)
+    {
+        uninit_decoder_slot(
+            e->fadingOutDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+            ,
+            e->fadingOutStream
+#endif
+        );
+        e->fadingOutDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        e->fadingOutStream = nullptr;
+#endif
+        e->isCrossfading.store(false, std::memory_order_release);
+    }
+}
+
 static bool load_decoder_for_path(
     AudioEngineHandle *e,
     const std::string &path,
@@ -2109,6 +2128,7 @@ static void worker_loop(AudioEngineHandle *e)
                     );
                     e->hasNext = false;
                 }
+                uninit_fading_out_slot_locked(e);
 
                 e->currentDecoder = newCurrent;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -2779,9 +2799,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     // Format Conversion if needed
     ma_dither_mode maDither = ma_dither_mode_none;
-    if (e->ditherMode == 1)
+    const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
+    if (ditherVal == 1)
         maDither = ma_dither_mode_rectangle;
-    else if (e->ditherMode == 2)
+    else if (ditherVal == 2)
         maDither = ma_dither_mode_triangle;
 
     if (e->outputFormat == AE_FORMAT_S16)
@@ -2852,6 +2873,12 @@ extern "C"
         e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
         e->analyzerLatest.assign((size_t)e->analyzerFrameSize, 0.0f);
         e->analyzerAccumulatorCount = 0;
+
+        // Pre-allocate real-time scratch buffers to eliminate heap allocations inside data_callback
+        const size_t preallocSamples = 32768; // 32K floats (~128KB)
+        e->conversionBuffer.resize(preallocSamples);
+        e->viperScratchBuffer.resize(preallocSamples);
+        e->crossfadeMixBuffer.resize(preallocSamples);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -2954,6 +2981,7 @@ extern "C"
                 );
                 e->hasNext = false;
             }
+            uninit_fading_out_slot_locked(e);
 
             // Cleanup Push Stream if allocated
             if (e->pushStreamForCurrent.initialized)
@@ -3034,6 +3062,7 @@ extern "C"
                 );
                 e->hasNext = false;
             }
+            uninit_fading_out_slot_locked(e);
             e->nextIndex = -1;
             e->currentLengthFrames = 0;
             e->nextLengthFrames = 0;
@@ -3225,6 +3254,7 @@ extern "C"
             );
             e->hasNext = false;
         }
+        uninit_fading_out_slot_locked(e);
         e->isPlaying.store(false, std::memory_order_relaxed);
         engine_log("clear_playlist completed");
     }
@@ -4035,6 +4065,7 @@ extern "C"
                 e->nextDecoder = nullptr;
                 e->hasNext = false;
             }
+            uninit_fading_out_slot_locked(e);
         }
 
         if (hadDecoder && resumeIndex >= 0)
@@ -4235,16 +4266,16 @@ extern "C"
         if (!engine)
             return;
         bool wantExclusive = (enabled != 0);
-        if (engine->exclusiveModeEnabled == wantExclusive)
+        if (engine->exclusiveModeEnabled.load(std::memory_order_relaxed) == wantExclusive)
             return;
 
-        engine->exclusiveModeEnabled = wantExclusive;
+        engine->exclusiveModeEnabled.store(wantExclusive, std::memory_order_relaxed);
         restart_and_apply_config(engine);
     }
 
     AE_API int ae_get_exclusive_mode(AudioEngineHandle *engine)
     {
-        return engine ? (engine->exclusiveModeEnabled ? 1 : 0) : 0;
+        return engine ? (engine->exclusiveModeEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
 
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
@@ -4304,12 +4335,12 @@ extern "C"
     {
         if (!engine)
             return;
-        engine->ditherMode = dither_mode;
+        engine->ditherMode.store(dither_mode, std::memory_order_relaxed);
     }
 
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
     {
-        return engine ? engine->ditherMode : 0;
+        return engine ? engine->ditherMode.load(std::memory_order_relaxed) : 0;
     }
 
     // Audio Limiter & Clipping Detection
@@ -4575,6 +4606,11 @@ extern "C"
         {
             engine->pushStreamForCurrent.initialized = true;
             engine->pushStreamForCurrent.isDone = false;
+        }
+        else
+        {
+            std::free(engine->pushStreamForCurrent.rbBuffer);
+            engine->pushStreamForCurrent.rbBuffer = nullptr;
         }
 
         // We do NOT init the decoder here anymore.
