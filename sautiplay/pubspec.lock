@@ -1196,6 +1196,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.6.1"
+  xml2json:
+    dependency: transitive
+    description:
+      name: xml2json
+      sha256: "8a7ae63b76676f083d81287b61f03222952609c0507893bc62e60a4a588a9702"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.2.7"
   yaml:
     dependency: transitive
     description:
@@ -1212,6 +1220,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.0"
+  youtube_scrape_api:
+    dependency: "direct main"
+    description:
+      name: youtube_scrape_api
+      sha256: c1ffaf80c840f5f901f7374690d2b316dd66ae1618c3c3c88dc3282dfdaa7eb9
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.1"
 sdks:
   dart: ">=3.11.0 <4.0.0"
   flutter: ">=3.38.4"
