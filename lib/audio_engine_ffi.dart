@@ -1255,6 +1255,10 @@ class AudioEngineFFI {
   late final _SetCrystalizerEnabledDart _setCrystalizerEnabled;
   late final _SetCrystalizerParamsDart _setCrystalizerParams;
   late final _GetCrystalizerIntensityDart _getCrystalizerIntensity;
+
+  // Reusable native buffer for spectrum analyzer polling (prevents 60 FPS malloc churn)
+  ffi.Pointer<ffi.Float>? _analyzerBufferPtr;
+  int _analyzerBufferCapacity = 0;
   late final _SetFxEnabledDart _setBandpassEnabled;
   late final _SetTwoFloatsDart _setBandpassParams;
   late final _SetFxEnabledDart _setPeakEqEnabled;
@@ -1431,6 +1435,11 @@ class AudioEngineFFI {
   }
 
   void dispose() {
+    if (_analyzerBufferPtr != null && _analyzerBufferPtr != ffi.nullptr) {
+      _freePtr(_analyzerBufferPtr!.cast<ffi.Void>());
+      _analyzerBufferPtr = null;
+      _analyzerBufferCapacity = 0;
+    }
     if (_engine != ffi.nullptr) {
       _destroyEngine(_engine);
       _engine = ffi.nullptr;
@@ -2242,17 +2251,23 @@ class AudioEngineFFI {
       return Float32List(0);
     }
 
-    final ptr = _malloc(size * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
-    try {
-      final copied = _pollAnalyzerFrame(_engine, ptr, size);
-      if (copied <= 0) {
-        return Float32List(0);
+    if (_analyzerBufferPtr == null || _analyzerBufferCapacity < size) {
+      if (_analyzerBufferPtr != null && _analyzerBufferPtr != ffi.nullptr) {
+        _freePtr(_analyzerBufferPtr!.cast<ffi.Void>());
       }
-      final src = ptr.asTypedList(copied);
-      return Float32List.fromList(src);
-    } finally {
-      _freePtr(ptr.cast<ffi.Void>());
+      _analyzerBufferCapacity = size < 4096 ? 4096 : size;
+      _analyzerBufferPtr =
+          _malloc(_analyzerBufferCapacity * ffi.sizeOf<ffi.Float>())
+              .cast<ffi.Float>();
     }
+
+    final ptr = _analyzerBufferPtr!;
+    final copied = _pollAnalyzerFrame(_engine, ptr, size);
+    if (copied <= 0) {
+      return Float32List(0);
+    }
+    final src = ptr.asTypedList(copied);
+    return Float32List.fromList(src);
   }
 
   // ---------------------------------------------------------------------------
