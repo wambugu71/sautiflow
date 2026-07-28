@@ -123,6 +123,7 @@ class IsolateAudioPlayer {
   }
 
   void dispose() {
+    _seekDebounceTimer?.cancel();
     _send({'cmd': 'dispose'});
     _isolate?.kill();
     _systemAudio?.disable();
