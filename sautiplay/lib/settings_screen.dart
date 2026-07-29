@@ -419,11 +419,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    _ditherMode == 0
-                        ? 'None'
-                        : _ditherMode == 1
-                            ? 'Rectangle'
-                            : 'Triangle',
+                    _getDitherModeName(_ditherMode),
                     style: const TextStyle(color: _textDark, fontSize: 14),
                     textAlign: TextAlign.right,
                     overflow: TextOverflow.ellipsis,
@@ -640,23 +636,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
             await Future.delayed(const Duration(milliseconds: 150));
             final actual = await widget.player.getExclusiveMode();
             widget.onExclusiveModeChanged(actual);
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
             if (val && !actual) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text(
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: _cardDark,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.amberAccent.withAlpha(80)),
+                  ),
+                  content: Row(
+                    children: const [
+                      Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 20),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
                           'Hardware rejected Exclusive Mode. Falling back! Try changing Sample Rate/Format.',
-                          style: TextStyle(color: Colors.white))),
-                );
-              }
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             } else if (val && actual) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Exclusive Mode Enabled! DSP bypassed.',
-                          style: TextStyle(color: Colors.white))),
-                );
-              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: _cardDark,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: _primary.withAlpha(100)),
+                  ),
+                  content: Row(
+                    children: const [
+                      Icon(Icons.check_circle_outline, color: _primary, size: 20),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Exclusive Bit-Perfect Mode Enabled! DSP bypassed.',
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (!val) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: _cardDark,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.white.withAlpha(25)),
+                  ),
+                  content: Row(
+                    children: const [
+                      Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Bit-Perfect Mode Disabled.',
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             }
           },
         ),
@@ -1571,59 +1621,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  String _getDitherModeName(int mode) {
+    switch (mode) {
+      case 0:
+        return 'None';
+      case 1:
+        return 'Rectangle (RPDF)';
+      case 2:
+        return 'Triangle (TPDF)';
+      case 3:
+        return 'Lipshitz';
+      case 4:
+        return 'F-Weighted';
+      case 5:
+        return 'Modified E-Weighted';
+      case 6:
+        return 'Shibata';
+      case 7:
+        return 'Low Shibata';
+      case 8:
+        return 'High Shibata';
+      default:
+        return 'None';
+    }
+  }
+
   Future<void> _showDitherModeDialog() async {
+    final modes = [
+      {'id': 0, 'name': 'None', 'subtitle': 'No dithering applied'},
+      {'id': 1, 'name': 'Rectangle (RPDF)', 'subtitle': 'Simple flat dither'},
+      {'id': 2, 'name': 'Triangle (TPDF)', 'subtitle': 'Standard flat dither (Recommended)'},
+      {'id': 3, 'name': 'Lipshitz', 'subtitle': 'Classic 5th-order noise-shaped'},
+      {'id': 4, 'name': 'F-Weighted', 'subtitle': 'Midrange cut noise-shaped (Acoustic/Vocal)'},
+      {'id': 5, 'name': 'Modified E-Weighted', 'subtitle': 'Peak-safe noise-shaped (Pop/Rock)'},
+      {'id': 6, 'name': 'Shibata', 'subtitle': 'Standard audiophile noise-shaped'},
+      {'id': 7, 'name': 'Low Shibata', 'subtitle': 'Gentle audiophile noise-shaped (Safest)'},
+      {'id': 8, 'name': 'High Shibata', 'subtitle': 'Steep audiophile noise-shaped'},
+    ];
+
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Dither Mode',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                _buildRadioOption(
-                    'None',
-                    _ditherMode == 0
-                        ? 'None'
-                        : _ditherMode == 1
-                            ? 'Rectangle'
-                            : 'Triangle (Best)', (v) {
-                  setState(() => _ditherMode = 0);
-                  widget.player.setEngineDitherMode(0);
-                  Navigator.pop(ctx);
-                }),
-                _buildRadioOption(
-                    'Rectangle',
-                    _ditherMode == 0
-                        ? 'None'
-                        : _ditherMode == 1
-                            ? 'Rectangle'
-                            : 'Triangle (Best)', (v) {
-                  setState(() => _ditherMode = 1);
-                  widget.player.setEngineDitherMode(1);
-                  Navigator.pop(ctx);
-                }),
-                _buildRadioOption(
-                    'Triangle (Best)',
-                    _ditherMode == 0
-                        ? 'None'
-                        : _ditherMode == 1
-                            ? 'Rectangle'
-                            : 'Triangle (Best)', (v) {
-                  setState(() => _ditherMode = 2);
-                  widget.player.setEngineDitherMode(2);
-                  Navigator.pop(ctx);
-                }),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('Dither Mode',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: modes.length,
+                itemBuilder: (context, i) {
+                  final item = modes[i];
+                  final id = item['id'] as int;
+                  final name = item['name'] as String;
+                  final subtitle = item['subtitle'] as String;
+                  return RadioListTile<int>(
+                    title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: Text(subtitle, style: const TextStyle(color: _textDark, fontSize: 12)),
+                    value: id,
+                    groupValue: _ditherMode,
+                    activeColor: _primary,
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _ditherMode = val);
+                        widget.player.setEngineDitherMode(val);
+                        _persistUiSettings();
+                        Navigator.pop(ctx);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showOutputFormatDialog() {

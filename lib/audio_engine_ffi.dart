@@ -3,6 +3,9 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
+import 'src/m3u_parser.dart';
+
 enum LoopMode { off, all, one }
 
 enum AudioFormat { f32, s16, u8, s24, s32 }
@@ -29,12 +32,96 @@ class EqBandConfig {
 
 class AudioSource {
   final Uri uri;
-  const AudioSource.uri(this.uri);
+  final String? title;
+  final String? artist;
+  final Duration? duration;
 
-  factory AudioSource.file(String path) => AudioSource.uri(Uri.file(path));
-  factory AudioSource.network(String url) => AudioSource.uri(Uri.parse(url));
+  const AudioSource.uri(
+    this.uri, {
+    this.title,
+    this.artist,
+    this.duration,
+  });
+
+  factory AudioSource.file(
+    String path, {
+    String? title,
+    String? artist,
+    Duration? duration,
+  }) =>
+      AudioSource.uri(
+        Uri.file(path),
+        title: title,
+        artist: artist,
+        duration: duration,
+      );
+
+  factory AudioSource.network(
+    String url, {
+    String? title,
+    String? artist,
+    Duration? duration,
+  }) =>
+      AudioSource.uri(
+        Uri.parse(url),
+        title: title,
+        artist: artist,
+        duration: duration,
+      );
 
   bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
+
+  /// Parses an M3U/M3U8 playlist string and expands it into a list of [AudioSource] instances.
+  static List<AudioSource> fromM3uContent(
+    String content, {
+    String? baseDirectory,
+  }) {
+    final entries = M3uParser.parse(content, baseDirectory: baseDirectory);
+    return entries.map((entry) {
+      final dur = entry.durationSeconds >= 0
+          ? Duration(seconds: entry.durationSeconds)
+          : null;
+      if (entry.isNetwork) {
+        return AudioSource.network(
+          entry.pathOrUrl,
+          title: entry.title,
+          artist: entry.artist,
+          duration: dur,
+        );
+      } else {
+        return AudioSource.file(
+          entry.pathOrUrl,
+          title: entry.title,
+          artist: entry.artist,
+          duration: dur,
+        );
+      }
+    }).toList();
+  }
+
+  /// Asynchronously loads an M3U/M3U8 playlist from a local file path or remote HTTP/HTTPS URL
+  /// and expands it into a [List<AudioSource>].
+  static Future<List<AudioSource>> fromM3u(String pathOrUrl) async {
+    final isUrl =
+        pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://');
+    if (isUrl) {
+      final response = await http.get(Uri.parse(pathOrUrl));
+      if (response.statusCode == 200) {
+        return fromM3uContent(response.body);
+      } else {
+        throw Exception(
+          'Failed to fetch M3U playlist from network (Status ${response.statusCode})',
+        );
+      }
+    } else {
+      final file = File(pathOrUrl);
+      if (!await file.exists()) {
+        throw FileSystemException('M3U playlist file not found', pathOrUrl);
+      }
+      final content = await file.readAsString();
+      return fromM3uContent(content, baseDirectory: file.parent.path);
+    }
+  }
 }
 
 typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);

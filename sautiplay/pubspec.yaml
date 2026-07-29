@@ -11,7 +11,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  sautiflow: ^0.6.18
+  sautiflow:
+    path: ..
   file_picker: ^11.0.2
   permission_handler: ^12.0.1
   fl_chart: ^1.2.0

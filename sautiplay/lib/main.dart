@@ -60,6 +60,15 @@ class DemoApp extends StatelessWidget {
           surface: Color(0xFF1C252E),
           onSurface: Colors.white,
         ),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: const Color(0xFF1C252E),
+          contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF101922),
           elevation: 0,

@@ -12,6 +12,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:sautiflow/sautiflow.dart';
+import 'services/m3u_playlist_service.dart';
+
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
 import 'liked_songs_screen.dart'; // NEW
@@ -58,6 +61,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   List<Map<String, dynamic>> _folders = [];
   List<LocalSongItem> _allSongs = [];
   List<LocalSongItem> _filteredSongs = [];
+  List<SavedM3uPlaylist> _m3uPlaylists = [];
   bool _isLoading = true;
   bool _isScanning = false;
   String _scanStatus = 'Checking library for changes...';
@@ -80,6 +84,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     _loadSavedFolders();
+    _loadSavedM3uPlaylists();
   }
 
   @override
@@ -87,6 +92,299 @@ class _LibraryScreenState extends State<LibraryScreen>
     _searchController.dispose();
     _artistSearchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedM3uPlaylists() async {
+    try {
+      final list = await M3uPlaylistService.instance.loadPlaylists();
+      if (mounted) {
+        setState(() {
+          _m3uPlaylists = list;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading M3U playlists: $e');
+    }
+  }
+
+  Future<void> _importM3uFile() async {
+    final hasPerm = await _requestPermissions();
+    if (!hasPerm) return;
+
+    String? path;
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        const typeGroup = XTypeGroup(
+          label: 'M3U Playlists',
+          extensions: <String>['m3u', 'm3u8'],
+        );
+        final XFile? file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
+        path = file?.path;
+      } else {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['m3u', 'm3u8'],
+        );
+        if (result != null && result.files.isNotEmpty) {
+          path = result.files.single.path;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error picking M3U file: $e');
+    }
+
+    if (path == null || path.isEmpty) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final sources = await AudioSource.fromM3u(path);
+      final playlistName = p.basenameWithoutExtension(path);
+      final tracks = sources.map((s) {
+        return LocalSongItem(
+          path: s.uri.scheme == 'file' ? s.uri.toFilePath() : s.uri.toString(),
+          title: s.title ?? (s.uri.scheme == 'file' ? p.basenameWithoutExtension(s.uri.toFilePath()) : s.uri.toString()),
+          artist: s.artist ?? 'Unknown Artist',
+          album: playlistName,
+          sizeBytes: 0,
+          lastModified: DateTime.now(),
+        );
+      }).toList();
+
+      final newPlaylist = SavedM3uPlaylist(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: playlistName,
+        pathOrUrl: path,
+        isNetwork: false,
+        tracks: tracks,
+        dateAdded: DateTime.now(),
+      );
+
+      await M3uPlaylistService.instance.saveSinglePlaylist(newPlaylist);
+      await _loadSavedM3uPlaylists();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported M3U playlist "$playlistName" (${tracks.length} tracks)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to import M3U file: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _importM3uUrlDialog() async {
+    final urlController = TextEditingController();
+    final nameController = TextEditingController();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18232E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Import M3U / M3U8 Stream URL', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Playlist Name (Optional)',
+                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                hintText: 'e.g. Live Radio Stations',
+                hintStyle: TextStyle(color: Color(0xFF64748B)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: urlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'M3U / M3U8 URL',
+                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                hintText: 'https://example.com/playlist.m3u8',
+                hintStyle: TextStyle(color: Color(0xFF64748B)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF137FEC),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || urlController.text.trim().isEmpty) return;
+
+    final url = urlController.text.trim();
+    final customName = nameController.text.trim();
+
+    setState(() => _isLoading = true);
+
+    try {
+      final sources = await AudioSource.fromM3u(url);
+      final playlistName = customName.isNotEmpty ? customName : 'M3U Web Stream';
+      final tracks = sources.map((s) {
+        return LocalSongItem(
+          path: s.uri.scheme == 'file' ? s.uri.toFilePath() : s.uri.toString(),
+          title: s.title ?? (s.uri.scheme == 'file' ? p.basenameWithoutExtension(s.uri.toFilePath()) : s.uri.toString()),
+          artist: s.artist ?? 'Radio Stream',
+          album: playlistName,
+          sizeBytes: 0,
+          lastModified: DateTime.now(),
+        );
+      }).toList();
+
+      final newPlaylist = SavedM3uPlaylist(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: playlistName,
+        pathOrUrl: url,
+        isNetwork: true,
+        tracks: tracks,
+        dateAdded: DateTime.now(),
+      );
+
+      await M3uPlaylistService.instance.saveSinglePlaylist(newPlaylist);
+      await _loadSavedM3uPlaylists();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Imported M3U stream "$playlistName" (${tracks.length} tracks)')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load M3U URL: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _playM3uPlaylist(SavedM3uPlaylist playlist) {
+    if (playlist.tracks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Playlist has no playable tracks.')),
+      );
+      return;
+    }
+    final paths = playlist.tracks.map((t) => t.path).toList();
+    widget.onPlayFolder(paths);
+  }
+
+  Future<void> _showM3uPlaylistOptions(SavedM3uPlaylist playlist) async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF18232E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.play_arrow, color: Color(0xFF137FEC)),
+            title: Text('Play "${playlist.name}"', style: const TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _playM3uPlaylist(playlist);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.file_upload, color: Colors.amberAccent),
+            title: const Text('Export Playlist as .m3u8', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _exportPlaylistToM3u8(playlist.name, playlist.tracks);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete, color: Colors.redAccent),
+            title: const Text('Delete Playlist', style: TextStyle(color: Colors.redAccent)),
+            onTap: () async {
+              Navigator.of(ctx).pop();
+              await M3uPlaylistService.instance.deletePlaylist(playlist.id);
+              await _loadSavedM3uPlaylists();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Deleted playlist "${playlist.name}"')),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportPlaylistToM3u8(String name, List<LocalSongItem> tracks) async {
+    if (tracks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No tracks available to export.')),
+      );
+      return;
+    }
+    String? targetPath;
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        final FileSaveLocation? location = await getSaveLocation(
+          suggestedName: '${name.replaceAll(' ', '_')}.m3u8',
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'M3U8 Playlist', extensions: ['m3u8']),
+          ],
+        );
+        targetPath = location?.path;
+      } else {
+        targetPath = await FilePicker.saveFile(
+          dialogTitle: 'Export Playlist to M3U8',
+          fileName: '${name.replaceAll(' ', '_')}.m3u8',
+          type: FileType.custom,
+          allowedExtensions: ['m3u8'],
+        );
+      }
+    } catch (e) {
+      debugPrint('Error opening save dialog: $e');
+    }
+    if (targetPath == null || targetPath.isEmpty) return;
+
+    try {
+      await M3uPlaylistService.instance.exportToM3u8(
+        targetFilePath: targetPath,
+        playlistName: name,
+        tracks: tracks,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported playlist to ${p.basename(targetPath)}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export playlist: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadSavedFolders() async {
@@ -672,13 +970,76 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         ),
                                     ],
                                   ),
-                                  IconButton(
-                                    onPressed: _addDirectory,
+                                  PopupMenuButton<String>(
                                     icon: Icon(Icons.add,
                                         color: textDark,
                                         size: isDesktop ? 32 : 24),
-                                    splashRadius: isDesktop ? 32 : 24,
-                                    tooltip: 'Add Local Folder',
+                                    tooltip: 'Add Music or Playlist',
+                                    color: surfaceColor,
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12)),
+                                    onSelected: (value) {
+                                      if (value == 'folder') {
+                                        _addDirectory();
+                                      } else if (value == 'm3u_file') {
+                                        _importM3uFile();
+                                      } else if (value == 'm3u_url') {
+                                        _importM3uUrlDialog();
+                                      } else if (value == 'export_m3u') {
+                                        _exportPlaylistToM3u8(
+                                            'SautiPlay_Library', _allSongs);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'folder',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.create_new_folder,
+                                                color: Colors.blueAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Add Local Folder',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'm3u_file',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.playlist_add,
+                                                color: Colors.cyanAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Import M3U / M3U8 File',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'm3u_url',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.podcasts,
+                                                color: Colors.tealAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Import M3U Stream URL',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'export_m3u',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.file_upload,
+                                                color: Colors.amberAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Export Library to M3U8',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -779,7 +1140,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildPlaylistsTab(Color primaryColor, Color textDark,
       {bool isDesktop = false}) {
-    if (_folders.isEmpty && !_isLoading) {
+    if (_folders.isEmpty && _m3uPlaylists.isEmpty && !_isLoading) {
       return _buildEmptyState(textDark);
     }
     return ListView(
@@ -828,6 +1189,32 @@ class _LibraryScreenState extends State<LibraryScreen>
           isDesktop: isDesktop,
         ),
         SizedBox(height: isDesktop ? 12 : 8),
+        ..._m3uPlaylists.map((pl) {
+          return Padding(
+            padding: EdgeInsets.only(bottom: isDesktop ? 12 : 8),
+            child: _buildLibraryItem(
+              title: pl.name,
+              subtitle:
+                  '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
+              iconData: pl.isNetwork ? Icons.podcasts : Icons.queue_music,
+              iconGradient: pl.isNetwork
+                  ? const LinearGradient(
+                      colors: [Color(0xFF00897B), Color(0xFF004D40)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : const LinearGradient(
+                      colors: [Color(0xFF0288D1), Color(0xFF01579B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+              onTap: () => _playM3uPlaylist(pl),
+              onLongPress: () => _showM3uPlaylistOptions(pl),
+              context: context,
+              isDesktop: isDesktop,
+            ),
+          );
+        }),
         ..._folders.asMap().entries.map((entry) {
           final index = entry.key;
           final f = entry.value;

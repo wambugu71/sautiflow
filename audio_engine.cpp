@@ -1247,8 +1247,96 @@ namespace
 
                     // Stage 3 — Soft-clip guard (prevents overs at high intensity)
                     x = std::tanh(x);
-
                     interleaved[idx] = x;
+                }
+            }
+        }
+    };
+
+    struct NoiseShaperState
+    {
+        float history[8][8] = {}; // Up to 8 channels, 8 taps history
+        uint32_t prngState = 0x12345678;
+
+        void reset()
+        {
+            std::memset(history, 0, sizeof(history));
+        }
+
+        inline float getTpdfDither(float scale)
+        {
+            prngState ^= prngState << 13;
+            prngState ^= prngState >> 17;
+            prngState ^= prngState << 5;
+            const float r1 = (float)(prngState & 0xFFFF) / 65536.0f;
+
+            prngState ^= prngState << 13;
+            prngState ^= prngState >> 17;
+            prngState ^= prngState << 5;
+            const float r2 = (float)(prngState & 0xFFFF) / 65536.0f;
+
+            return (r1 - r2) * scale;
+        }
+
+        void process(int ditherMode, AEAudioFormat outFmt, float *inOutSamples, size_t totalSamples, int channels)
+        {
+            if (ditherMode < 3 || outFmt == AE_FORMAT_F32 || !inOutSamples || totalSamples == 0)
+                return;
+
+            static const float coefLipshitz[5] = {2.033f, -2.165f, 1.959f, -1.137f, 0.321f};
+            static const float coefFWeighted[5] = {2.412f, -2.970f, 2.453f, -1.332f, 0.366f};
+            static const float coefModEWeighted[5] = {1.836f, -1.574f, 1.212f, -0.638f, 0.174f};
+            static const float coefShibata[5] = {2.270f, -2.420f, 1.960f, -1.090f, 0.280f};
+            static const float coefLowShibata[5] = {1.450f, -1.020f, 0.580f, -0.210f, 0.040f};
+            static const float coefHighShibata[5] = {2.750f, -3.310f, 2.780f, -1.480f, 0.410f};
+
+            const float *a = coefShibata;
+            switch (ditherMode)
+            {
+            case 3: a = coefLipshitz; break;
+            case 4: a = coefFWeighted; break;
+            case 5: a = coefModEWeighted; break;
+            case 6: a = coefShibata; break;
+            case 7: a = coefLowShibata; break;
+            case 8: a = coefHighShibata; break;
+            default: a = coefShibata; break;
+            }
+
+            const int ch = std::min(std::max(1, channels), 8);
+            const size_t frames = totalSamples / (size_t)ch;
+
+            float lsbScale = 1.0f / 32768.0f; // 16-bit
+            if (outFmt == AE_FORMAT_S24)
+                lsbScale = 1.0f / 8388608.0f;
+            else if (outFmt == AE_FORMAT_S32)
+                lsbScale = 1.0f / 2147483648.0f;
+            else if (outFmt == AE_FORMAT_U8)
+                lsbScale = 1.0f / 128.0f;
+
+            for (size_t i = 0; i < frames; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    size_t idx = i * (size_t)ch + (size_t)c;
+                    float x = inOutSamples[idx];
+
+                    float feedback = a[0] * history[c][0] + a[1] * history[c][1] +
+                                     a[2] * history[c][2] + a[3] * history[c][3] +
+                                     a[4] * history[c][4];
+
+                    float dither = getTpdfDither(lsbScale * 0.5f);
+                    float xShaped = x + feedback + dither;
+
+                    float quantized = std::round(xShaped / lsbScale) * lsbScale;
+                    float err = xShaped - quantized;
+
+                    history[c][4] = history[c][3];
+                    history[c][3] = history[c][2];
+                    history[c][2] = history[c][1];
+                    history[c][1] = history[c][0];
+                    history[c][0] = err;
+
+                    inOutSamples[idx] = quantized;
                 }
             }
         }
@@ -1427,6 +1515,7 @@ struct AudioEngineHandle
 
     int resampleAlgorithm = 0; // AE_RESAMPLE_ALGORITHM_LINEAR
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
+    NoiseShaperState noiseShaper;
 
     std::vector<float> eqFrequencies;
     std::vector<float> eqGains;
@@ -2804,6 +2893,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         maDither = ma_dither_mode_rectangle;
     else if (ditherVal == 2)
         maDither = ma_dither_mode_triangle;
+    else if (ditherVal >= 3 && e->outputFormat != AE_FORMAT_F32)
+    {
+        e->noiseShaper.process(ditherVal, e->outputFormat, processBuffer, totalSamples, e->channels);
+    }
 
     if (e->outputFormat == AE_FORMAT_S16)
     {
