@@ -45,6 +45,10 @@ target_compile_definitions(audio_engine PRIVATE
   HAVE_SYS_TYPES_H=1
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(audio_engine PRIVATE -O3 -ffast-math -ftree-vectorize)
+endif()
+
 find_package(CURL QUIET)
 if(CURL_FOUND)
   target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)

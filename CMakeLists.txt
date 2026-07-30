@@ -25,6 +25,12 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper/utils
 )
 
+if(MSVC)
+  target_compile_options(audio_engine PRIVATE /O2 /fp:fast)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(audio_engine PRIVATE -O3 -ffast-math -ftree-vectorize)
+endif()
+
 if (WIN32)
   target_compile_definitions(audio_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
   # Disabled by default on Windows because CMake may resolve MSYS2/MinGW curl

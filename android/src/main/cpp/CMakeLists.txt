@@ -45,6 +45,13 @@ target_compile_definitions(audio_engine PRIVATE
   PACKAGE_VERSION="2.11.1"
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(audio_engine PRIVATE -O3 -ffast-math -ftree-vectorize)
+  if(ANDROID_ABI STREQUAL "armeabi-v7a")
+    target_compile_options(audio_engine PRIVATE -mfpu=neon)
+  endif()
+endif()
+
 # Suppress harmless warnings from third-party FAAD2 C code
 set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
   COMPILE_FLAGS "-Wno-everything"

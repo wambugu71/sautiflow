@@ -18,7 +18,7 @@ A cross-platform miniaudio-backed native engine exposed to Flutter through Dart 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
-    'OTHER_CPLUSPLUSFLAGS' => '$(inherited) ',
+    'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -O3 -ffast-math -ftree-vectorize',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1',
     'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../ViPERDSP/include" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/effects" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/utils"'
   }
