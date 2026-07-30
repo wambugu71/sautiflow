@@ -230,6 +230,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   bool _isPlaying = false;
   StreamSubscription<PlayerStatus>? _statusSub;
 
+  // Studio Rack Deck Layout State
+  int _selectedDeckIndex = 0;
+  late final PageController _deckPageController = PageController(initialPage: 0);
+
   @override
   void initState() {
     super.initState();
@@ -494,6 +498,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   void dispose() {
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
+    _deckPageController.dispose();
     widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
@@ -692,6 +697,107 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     _saveEqState();
   }
 
+  Widget _buildHorizontalRackSelector() {
+    final List<Map<String, dynamic>> rackItems = [
+      {'title': 'Graphic EQ', 'icon': Icons.equalizer, 'enabled': _masterEqEnabled},
+      {'title': 'Speed & Pitch', 'icon': Icons.speed_rounded, 'enabled': (_playbackPitch - 1.0).abs() >= 0.01},
+      {'title': '3-Band Tuning', 'icon': Icons.tune, 'enabled': _audioTuningEnabled},
+      {'title': 'Parametric EQ', 'icon': Icons.show_chart, 'enabled': _parametricEqEnabled},
+      {'title': 'Delay & Echo', 'icon': Icons.repeat, 'enabled': _delayEnabled},
+      {'title': 'Dynamic Bass', 'icon': Icons.waves, 'enabled': _dynamicBassEnabled},
+      {'title': 'Crystalizer', 'icon': Icons.auto_fix_high, 'enabled': _crystalizerEnabled},
+      {'title': 'Crossfeed', 'icon': Icons.headphones, 'enabled': _crossfeedEnabled},
+      {'title': 'Stereo Widen', 'icon': Icons.swap_horiz, 'enabled': _stereoWidenEnabled},
+      {'title': 'JamesDSP Stereo', 'icon': Icons.surround_sound, 'enabled': _stereoEnhancementEnabled},
+      {'title': 'Spatial Audio', 'icon': Icons.spatial_audio_off_outlined, 'enabled': _spatialAudioEnabled},
+      {'title': 'True 3D', 'icon': Icons.threed_rotation, 'enabled': _true3dEnabled},
+      {'title': 'Custom Filters', 'icon': Icons.filter_alt_outlined, 'enabled': _customLpfEnabled || _customHpfEnabled || _customBiquadEnabled},
+      {'title': 'Soft Limiter', 'icon': Icons.compress, 'enabled': _limiterEnabled},
+    ];
+
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: rackItems.length,
+        itemBuilder: (context, index) {
+          final item = rackItems[index];
+          final isSelected = _selectedDeckIndex == index;
+          final bool isEnabled = item['enabled'] as bool;
+
+          return GestureDetector(
+            onTap: () {
+              setState(() => _selectedDeckIndex = index);
+              _deckPageController.animateToPage(
+                index,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+              );
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? primaryColor : surfaceDarkColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isSelected
+                      ? primaryColor
+                      : Colors.white.withOpacity(0.12),
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: primaryColor.withOpacity(0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    item['icon'] as IconData,
+                    size: 16,
+                    color: isSelected
+                        ? Colors.white
+                        : (isEnabled ? primaryColor : Colors.white54),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    item['title'] as String,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 13,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isEnabled
+                          ? (isSelected ? Colors.white : const Color(0xFF00E676))
+                          : Colors.white24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -702,17 +808,14 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
         builder: (context, constraints) {
           final isDesktop = constraints.maxWidth >= 800;
           return Align(
-            alignment: isDesktop ? Alignment.topCenter : Alignment.topCenter,
+            alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1000.0),
-              child: ListView(
-                primary: false,
-                padding: EdgeInsets.fromLTRB(
-                    isDesktop ? 48.0 : 0, 0, isDesktop ? 48.0 : 0, 120),
-                physics: const BouncingScrollPhysics(),
+              child: Column(
                 children: [
+                  // Top Master Control Bar
                   Padding(
-                    padding: const EdgeInsets.only(left: 16.0, right: 8.0, top: 16.0, bottom: 8.0),
+                    padding: const EdgeInsets.only(left: 16.0, right: 8.0, top: 12.0, bottom: 4.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -722,7 +825,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                               icon: const Icon(Icons.info_outline, color: Colors.white54),
                               onPressed: _showPipelineInfo,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 4),
                             const Text('Master EQ', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                           ],
                         ),
@@ -748,12 +851,12 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                       ],
                     ),
                   ),
-                  // Warning Banner
+
+                  // Warning Banner (Dismissible)
                   if (_showWarningBanner)
                     Container(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 16),
-                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
@@ -762,139 +865,114 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: Colors.red[400], size: 24),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Text(
-                                  'Advanced Controls',
-                                  style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Improper equalizer, limiter, or biquad settings can cause severe audio distortion, clipping, or a completely degraded listening experience. Proceed with caution.',
-                                  style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                      height: 1.4),
-                                ),
-                              ],
+                          Icon(Icons.warning_amber_rounded, color: Colors.red[400], size: 20),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Improper equalizer, limiter, or biquad settings can cause audio distortion or clipping. Proceed with caution.',
+                              style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.3),
                             ),
                           ),
                           IconButton(
                             onPressed: _dismissWarningBanner,
-                            icon: const Icon(Icons.close,
-                                color: Colors.white54, size: 20),
+                            icon: const Icon(Icons.close, color: Colors.white54, size: 18),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
-                            splashRadius: 20,
+                            splashRadius: 18,
                           ),
                         ],
                       ),
                     ),
 
-                  // Graphic Equalizer Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildGraphicEqSection(),
-                  ),
-                  const SizedBox(height: 16),
+                  // Studio Rack Module Selector (Horizontal Scroll)
+                  _buildHorizontalRackSelector(),
 
-                  // Playback Speed & Pitch Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildPlaybackSpeedSection(),
+                  // Studio Control Deck (Swappable Module Views)
+                  Expanded(
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                      child: PageView(
+                        controller: _deckPageController,
+                        physics: const BouncingScrollPhysics(),
+                        onPageChanged: (index) {
+                          setState(() => _selectedDeckIndex = index);
+                        },
+                        children: [
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildGraphicEqSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildPlaybackSpeedSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildAudioTuningSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildParametricEqSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildDelaySection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildDynamicBassSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildCrystalizerSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildCrossfeedSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildStereoWidenSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildStereoEnhancementSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildSpatialAudioSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildTrue3dSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildCustomFiltersSection(),
+                          ),
+                          SingleChildScrollView(
+                            primary: false,
+                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
+                            child: _buildLimiterSection(),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 16),
 
-                  // Audio Tuning Section (3-Band)
-                  Padding(
-                    padding:
-                        const EdgeInsets.only(left: 20, right: 20, bottom: 40),
-                    child: _buildAudioTuningSection(),
-                  ),
-
-                  // Parametric EQ Section
-                  Padding(
-                    padding:
-                        const EdgeInsets.only(left: 20, right: 20, bottom: 40),
-                    child: _buildParametricEqSection(),
-                  ),
-
-                  // Delay (Echo) Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildDelaySection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Dynamic Bass
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildDynamicBassSection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Crystalizer
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildCrystalizerSection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Audiophile Crossfeed
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildCrossfeedSection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Stereo Widen Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildStereoWidenSection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // JamesDSP Stereo Enhancement Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildStereoEnhancementSection(),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Spatial Audio (Reverb combo)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildSpatialAudioSection(),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // True 3D Spatial Audio
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildTrue3dSection(),
-                  ),
-
-                  // Custom Filters Section
-                  Padding(
-                    padding:
-                        const EdgeInsets.only(left: 20, right: 20, bottom: 32),
-                    child: _buildCustomFiltersSection(),
-                  ),
-
-                  // Soft Limiter
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildLimiterSection(),
-                  ),
-                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -903,6 +981,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       ),
     );
   }
+
 
   Widget _buildPresetChip(String label) {
     final isSelected = _activePreset == label;
