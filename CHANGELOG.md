@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.19
+- **[AutoEQ & Presets]** Added native AutoEQ profile parser service supporting `GraphicEQ.txt` lines and `ParametricEQ.txt` text blocks (`autoeq_parser.dart`).
+- **[AutoEQ UI]** Added unified AutoEQ & Presets Importer UI in `sautiplay` to import and apply `.txt`, `.irs`, `.wav`, and `.vdc` profiles on the fly.
+- **[AutoEQ Engine]** Integrated automatic `Preamp` master limiter gain headroom scaling to prevent digital clipping when applying AutoEQ boosts.
+- **[UI/Fixes]** Fixed `NestedScrollView` + `Scrollbar` `ScrollController` position conflict in `sautiplay` tab views.
+- More  features added.
+
 ## 0.6.18
 - Bugs  fixes and improvements in the audio engine .
 - Updated  versions across the  pkg and sautiplay app. 
