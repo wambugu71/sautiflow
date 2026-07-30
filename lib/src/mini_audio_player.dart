@@ -153,6 +153,18 @@ class MiniAudioPlayer {
   void setShuffleModeEnabled(bool enabled) =>
       _engine.setShuffleModeEnabled(enabled);
   void reshuffle() => _engine.reshuffle();
+  void setAbRepeat({
+    required bool enabled,
+    double startSeconds = 0.0,
+    double endSeconds = 0.0,
+  }) =>
+      _engine.setAbRepeat(
+        enabled: enabled,
+        startSeconds: startSeconds,
+        endSeconds: endSeconds,
+      );
+  ({bool enabled, double startSeconds, double endSeconds}) getAbRepeat() =>
+      _engine.getAbRepeat();
   void setCrossfadeEnabled(bool enabled) =>
       _engine.setCrossfadeEnabled(enabled);
   bool getCrossfadeEnabled() => _engine.getCrossfadeEnabled();

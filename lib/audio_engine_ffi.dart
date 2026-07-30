@@ -3,6 +3,7 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
 import 'src/m3u_parser.dart';
 
@@ -442,6 +443,22 @@ typedef _SetIntNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetIntDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetIntNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetAbRepeatNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Double, ffi.Double);
+typedef _SetAbRepeatDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double);
+
+typedef _GetAbRepeatNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>);
+typedef _GetAbRepeatDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>);
 
 typedef _GetDeviceLatencyMsNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
 typedef _GetDeviceLatencyMsDart = double Function(ffi.Pointer<ffi.Void>);
@@ -945,6 +962,18 @@ class AudioEngineFFI {
     _reshuffle = _lib.lookupFunction<_ClearPlaylistNative, _ClearPlaylistDart>(
       'ae_reshuffle',
     );
+
+    try {
+      _setAbRepeat = _lib.lookupFunction<_SetAbRepeatNative, _SetAbRepeatDart>(
+        'ae_set_ab_repeat',
+      );
+      _getAbRepeat = _lib.lookupFunction<_GetAbRepeatNative, _GetAbRepeatDart>(
+        'ae_get_ab_repeat',
+      );
+    } catch (_) {
+      _setAbRepeat = null;
+      _getAbRepeat = null;
+    }
     _setCrossfadeEnabled = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
       'ae_set_crossfade_enabled',
     );
@@ -1334,6 +1363,8 @@ class AudioEngineFFI {
   late final _SetIntDart _setLoopMode;
   late final _SetIntDart _setShuffleEnabled;
   late final _ClearPlaylistDart _reshuffle;
+  _SetAbRepeatDart? _setAbRepeat;
+  _GetAbRepeatDart? _getAbRepeat;
   late final _SetIntDart _setCrossfadeEnabled;
   late final _GetIntDart _getCrossfadeEnabled;
   late final _SetIntDart _setCrossfadeDurationMs;
@@ -1652,6 +1683,36 @@ class AudioEngineFFI {
   void reshuffle() {
     if (_engine == ffi.nullptr) return;
     _reshuffle(_engine);
+  }
+
+  void setAbRepeat({
+    required bool enabled,
+    double startSeconds = 0.0,
+    double endSeconds = 0.0,
+  }) {
+    if (_engine == ffi.nullptr || _setAbRepeat == null) return;
+    _setAbRepeat!(_engine, enabled ? 1 : 0, startSeconds, endSeconds);
+  }
+
+  ({bool enabled, double startSeconds, double endSeconds}) getAbRepeat() {
+    if (_engine == ffi.nullptr || _getAbRepeat == null) {
+      return (enabled: false, startSeconds: 0.0, endSeconds: 0.0);
+    }
+    final pEnabled = calloc<ffi.Int32>();
+    final pStart = calloc<ffi.Double>();
+    final pEnd = calloc<ffi.Double>();
+    try {
+      _getAbRepeat!(_engine, pEnabled, pStart, pEnd);
+      return (
+        enabled: pEnabled.value != 0,
+        startSeconds: pStart.value,
+        endSeconds: pEnd.value,
+      );
+    } finally {
+      calloc.free(pEnabled);
+      calloc.free(pStart);
+      calloc.free(pEnd);
+    }
   }
 
   void setCrossfadeEnabled(bool enabled) {

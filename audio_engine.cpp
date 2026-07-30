@@ -1401,6 +1401,11 @@ struct AudioEngineHandle
     std::atomic<ma_uint64> pendingSeekFrame{0};
     std::atomic<int> pendingSeekIndex{-1};
 
+    // A-B Repeat
+    std::atomic<bool> abRepeatEnabled{false};
+    std::atomic<double> abStartSeconds{0.0};
+    std::atomic<double> abEndSeconds{0.0};
+
     // Pitch
     std::atomic<float> pitchMultiplier{1.0f};
     ma_resampler pitchResampler{};
@@ -2595,6 +2600,27 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             produced += (ma_uint32)framesRead;
             e->engineAbsoluteTime.fetch_add(framesRead, std::memory_order_relaxed);
 
+            // A-B Repeat automatic loop check
+            if (e->abRepeatEnabled.load(std::memory_order_relaxed) && e->hasCurrent && e->currentDecoder != nullptr)
+            {
+                const double startSec = e->abStartSeconds.load(std::memory_order_relaxed);
+                const double endSec = e->abEndSeconds.load(std::memory_order_relaxed);
+                if (endSec > startSec)
+                {
+                    ma_uint64 cursor = 0;
+                    if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &cursor) == MA_SUCCESS)
+                    {
+                        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                        const double currentSec = (double)cursor / (double)sr;
+                        if (currentSec >= endSec)
+                        {
+                            const ma_uint64 targetFrame = (ma_uint64)(startSec * (double)sr);
+                            (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetFrame);
+                        }
+                    }
+                }
+            }
+
             const ma_uint64 absTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
             const ma_uint64 stopTime = e->scheduledStopTime.load(std::memory_order_relaxed);
             if (stopTime != -1ULL && absTime >= stopTime)
@@ -3725,6 +3751,35 @@ extern "C"
             return;
         std::lock_guard<std::mutex> pl(e->playlistMutex);
         rebuild_play_order_locked(e);
+    }
+
+    AE_API void ae_set_ab_repeat(AudioEngineHandle *e, int enabled, double start_seconds, double end_seconds)
+    {
+        if (e == nullptr)
+            return;
+        if (start_seconds < 0.0)
+            start_seconds = 0.0;
+        if (end_seconds < start_seconds)
+            end_seconds = start_seconds;
+
+        e->abStartSeconds.store(start_seconds, std::memory_order_release);
+        e->abEndSeconds.store(end_seconds, std::memory_order_release);
+        e->abRepeatEnabled.store(enabled != 0, std::memory_order_release);
+    }
+
+    AE_API void ae_get_ab_repeat(AudioEngineHandle *e, int *out_enabled, double *out_start_seconds, double *out_end_seconds)
+    {
+        if (e == nullptr)
+        {
+            if (out_enabled) *out_enabled = 0;
+            if (out_start_seconds) *out_start_seconds = 0.0;
+            if (out_end_seconds) *out_end_seconds = 0.0;
+            return;
+        }
+
+        if (out_enabled) *out_enabled = e->abRepeatEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+        if (out_start_seconds) *out_start_seconds = e->abStartSeconds.load(std::memory_order_relaxed);
+        if (out_end_seconds) *out_end_seconds = e->abEndSeconds.load(std::memory_order_relaxed);
     }
 
     AE_API void ae_set_crossfade_enabled(AudioEngineHandle *e, int enabled)

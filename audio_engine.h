@@ -126,6 +126,10 @@ extern "C"
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_reshuffle(AudioEngineHandle *engine);
 
+    // A-B Repeat (Precise segment looping)
+    AE_API void ae_set_ab_repeat(AudioEngineHandle *engine, int enabled, double start_seconds, double end_seconds);
+    AE_API void ae_get_ab_repeat(AudioEngineHandle *engine, int *out_enabled, double *out_start_seconds, double *out_end_seconds);
+
     // Track transition controls.
     // Note: current implementation performs a short transition fade-in on track switches.
     AE_API void ae_set_crossfade_enabled(AudioEngineHandle *engine, int enabled);

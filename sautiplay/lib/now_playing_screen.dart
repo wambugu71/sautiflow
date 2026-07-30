@@ -130,6 +130,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Timer? _seekTimeoutTimer;
   double _currentPitch = 1.0;
 
+  // ── A-B Repeat ────────────────────────────────────────────────────────────
+  // State machine: 0 = off, 1 = point A set (waiting for B), 2 = active loop
+  int _abRepeatState = 0;
+  double? _abPointAMs;
+  double? _abPointBMs;
+
   @override
   void initState() {
     super.initState();
@@ -206,6 +212,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _hardwareSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
+    // Always clear A-B repeat when leaving the screen
+    widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
     super.dispose();
   }
 
@@ -1191,35 +1199,43 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         const Spacer(),
                                         
                                       // Action Buttons Row
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                        children: [
-                                          _buildActionIcon(Icons.graphic_eq, () {
-                                            Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
-                                  player: widget.player,
-                                  analyzerEnabled: _isAnalyzerEnabled,
-                                  analyzerType: widget.analyzerType,
-                                  analyzerAutoFit: widget.analyzerAutoFit,
-                                  analyzerShowGrids: widget.analyzerShowGrids,
-                                  outputSampleRate: widget.outputSampleRate,
-                                )));
-                                          }),
-                                           _buildActionIcon(
-                                             (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
-                                             () => showPlaybackSpeedModal(
-                                               context,
-                                               widget.player,
-                                               currentPitch: _currentPitch,
-                                               onPitchChanged: (p) => setState(() => _currentPitch = p),
-                                             ),
-                                           ),
-                                          _buildActionIcon(_loopIcon(status.loopMode), () {
-                                            final currentMode = status.loopMode;
-                                            final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
-                                            widget.player.setLoopMode(nextMode);
-                                          }),
-                                          _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
-                                        ],
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            _buildActionIcon(Icons.graphic_eq, () {
+                                              Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
+                                                player: widget.player,
+                                                analyzerEnabled: _isAnalyzerEnabled,
+                                                analyzerType: widget.analyzerType,
+                                                analyzerAutoFit: widget.analyzerAutoFit,
+                                                analyzerShowGrids: widget.analyzerShowGrids,
+                                                outputSampleRate: widget.outputSampleRate,
+                                              )));
+                                            }),
+                                            _buildActionIcon(
+                                              (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
+                                              () => showPlaybackSpeedModal(
+                                                context,
+                                                widget.player,
+                                                currentPitch: _currentPitch,
+                                                onPitchChanged: (p) => setState(() => _currentPitch = p),
+                                              ),
+                                            ),
+                                            _buildActionIcon(_loopIcon(status.loopMode), () {
+                                              final currentMode = status.loopMode;
+                                              final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
+                                              widget.player.setLoopMode(nextMode);
+                                            }),
+                                            _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
+                                            // A-B Repeat button
+                                            _buildAbRepeatButton(
+                                              currentPositionMs: displayPosMs,
+                                              maxMs: maxMs,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                       const SizedBox(height: 48),
                                       
@@ -1269,29 +1285,51 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                        // Progress Bar & Info Badge
                                        Column(
                                          children: [
-                                          SliderTheme(
-                                            data: SliderTheme.of(context).copyWith(
-                                              trackHeight: 6.0,
-                                              activeTrackColor: Colors.white54,
-                                              inactiveTrackColor: Colors.white12,
-                                              thumbColor: Colors.white,
-                                              overlayColor: Colors.white24,
-                                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
-                                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
-                                            ),
-                                            child: Slider(
-                                              value: displayPosMs,
-                                              min: 0.0,
-                                              max: maxMs,
-                                              onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
-                                              onChanged: (v) { setState(() => _dragPositionMs = v); },
-                                              onChangeEnd: (v) {
-                                                _seekTimeoutTimer?.cancel();
-                                                setState(() { _isDragging = false; _pendingSeekMs = v; });
-                                                widget.player.seekTo(Duration(milliseconds: v.toInt()));
-                                                _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
-                                              },
-                                            ),
+                                          // A-B region labels
+                                          if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
+                                          LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              return Stack(
+                                                children: [
+                                                  // A-B highlighted region painted behind the slider
+                                                  if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
+                                                    Positioned.fill(
+                                                      child: ClipRect(
+                                                        child: _AbRegionPainter(
+                                                          pointAMs: _abPointAMs!,
+                                                          pointBMs: _abPointBMs!,
+                                                          maxMs: maxMs,
+                                                          totalWidth: constraints.maxWidth,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  SliderTheme(
+                                                    data: SliderTheme.of(context).copyWith(
+                                                      trackHeight: 6.0,
+                                                      activeTrackColor: Colors.white54,
+                                                      inactiveTrackColor: Colors.white12,
+                                                      thumbColor: Colors.white,
+                                                      overlayColor: Colors.white24,
+                                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
+                                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
+                                                    ),
+                                                    child: Slider(
+                                                      value: displayPosMs,
+                                                      min: 0.0,
+                                                      max: maxMs,
+                                                      onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
+                                                      onChanged: (v) { setState(() => _dragPositionMs = v); },
+                                                      onChangeEnd: (v) {
+                                                        _seekTimeoutTimer?.cancel();
+                                                        setState(() { _isDragging = false; _pendingSeekMs = v; });
+                                                        widget.player.seekTo(Duration(milliseconds: v.toInt()));
+                                                        _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
+                                                      },
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
                                           ),
                                           const SizedBox(height: 8),
                                           Row(
@@ -1614,29 +1652,51 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           padding: const EdgeInsets.symmetric(horizontal: 24.0),
                           child: Column(
                             children: [
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 4.0,
-                                  activeTrackColor: Colors.white54,
-                                  inactiveTrackColor: Colors.white12,
-                                  thumbColor: Colors.white,
-                                  overlayColor: Colors.white24,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
-                                ),
-                                child: Slider(
-                                  value: displayPosMs,
-                                  min: 0.0,
-                                  max: maxMs,
-                                  onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
-                                  onChanged: (v) { setState(() => _dragPositionMs = v); },
-                                  onChangeEnd: (v) {
-                                    _seekTimeoutTimer?.cancel();
-                                    setState(() { _isDragging = false; _pendingSeekMs = v; });
-                                    widget.player.seekTo(Duration(milliseconds: v.toInt()));
-                                    _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
-                                  },
-                                ),
+                              // A-B region labels
+                              if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  return Stack(
+                                    children: [
+                                      // A-B highlighted region painted behind the slider
+                                      if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
+                                        Positioned.fill(
+                                          child: ClipRect(
+                                            child: _AbRegionPainter(
+                                              pointAMs: _abPointAMs!,
+                                              pointBMs: _abPointBMs!,
+                                              maxMs: maxMs,
+                                              totalWidth: constraints.maxWidth,
+                                            ),
+                                          ),
+                                        ),
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 4.0,
+                                          activeTrackColor: Colors.white54,
+                                          inactiveTrackColor: Colors.white12,
+                                          thumbColor: Colors.white,
+                                          overlayColor: Colors.white24,
+                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
+                                        ),
+                                        child: Slider(
+                                          value: displayPosMs,
+                                          min: 0.0,
+                                          max: maxMs,
+                                          onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
+                                          onChanged: (v) { setState(() => _dragPositionMs = v); },
+                                          onChangeEnd: (v) {
+                                            _seekTimeoutTimer?.cancel();
+                                            setState(() { _isDragging = false; _pendingSeekMs = v; });
+                                            widget.player.seekTo(Duration(milliseconds: v.toInt()));
+                                            _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1689,36 +1749,44 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         
                         // Action Buttons Row (Eq, Timer, Repeat, Shuffle)
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _buildActionIcon(Icons.graphic_eq, () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
-                                  player: widget.player,
-                                  analyzerEnabled: _isAnalyzerEnabled,
-                                  analyzerType: widget.analyzerType,
-                                  analyzerAutoFit: widget.analyzerAutoFit,
-                                  analyzerShowGrids: widget.analyzerShowGrids,
-                                  outputSampleRate: widget.outputSampleRate,
-                                )));
-                              }),
-                               _buildActionIcon(
-                                 (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
-                                 () => showPlaybackSpeedModal(
-                                   context,
-                                   widget.player,
-                                   currentPitch: _currentPitch,
-                                   onPitchChanged: (p) => setState(() => _currentPitch = p),
-                                 ),
-                               ),
-                              _buildActionIcon(_loopIcon(status.loopMode), () {
-                                final currentMode = status.loopMode;
-                                final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
-                                widget.player.setLoopMode(nextMode);
-                              }),
-                              _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
-                            ],
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _buildActionIcon(Icons.graphic_eq, () {
+                                  Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
+                                    player: widget.player,
+                                    analyzerEnabled: _isAnalyzerEnabled,
+                                    analyzerType: widget.analyzerType,
+                                    analyzerAutoFit: widget.analyzerAutoFit,
+                                    analyzerShowGrids: widget.analyzerShowGrids,
+                                    outputSampleRate: widget.outputSampleRate,
+                                  )));
+                                }),
+                                _buildActionIcon(
+                                  (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
+                                  () => showPlaybackSpeedModal(
+                                    context,
+                                    widget.player,
+                                    currentPitch: _currentPitch,
+                                    onPitchChanged: (p) => setState(() => _currentPitch = p),
+                                  ),
+                                ),
+                                _buildActionIcon(_loopIcon(status.loopMode), () {
+                                  final currentMode = status.loopMode;
+                                  final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
+                                  widget.player.setLoopMode(nextMode);
+                                }),
+                                _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
+                                // A-B Repeat button
+                                _buildAbRepeatButton(
+                                  currentPositionMs: displayPosMs,
+                                  maxMs: maxMs,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         
@@ -1841,4 +1909,408 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // A-B Repeat helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Widget _buildAbRepeatButton({
+    required double currentPositionMs,
+    required double maxMs,
+  }) {
+    String tooltip;
+
+    switch (_abRepeatState) {
+      case 1:
+        tooltip = 'Set Point B';
+        break;
+      case 2:
+        tooltip = 'Clear A-B Repeat';
+        break;
+      default:
+        tooltip = 'Set Point A';
+    }
+
+    return GestureDetector(
+      onLongPress: _abRepeatState == 2
+          ? () => _showAbRepeatSheet(context, maxMs)
+          : null,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            setState(() {
+              if (_abRepeatState == 0) {
+                // Set Point A at current position
+                _abPointAMs = currentPositionMs;
+                _abRepeatState = 1;
+              } else if (_abRepeatState == 1) {
+                // Set Point B and activate loop
+                final b = currentPositionMs;
+                final a = _abPointAMs!;
+                if (b > a + 500) {
+                  // Require at least 500ms gap
+                  _abPointBMs = b;
+                  _abRepeatState = 2;
+                  widget.player.setAbRepeat(
+                    enabled: true,
+                    startSeconds: a / 1000.0,
+                    endSeconds: b / 1000.0,
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.repeat_on_rounded, color: Color(0xFF137FEC), size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            'A-B Loop Active: ${_fmt(Duration(milliseconds: a.toInt()))} ⇄ ${_fmt(Duration(milliseconds: b.toInt()))}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF1E2D3D),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  // B too close to A — reset
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Point B must be at least 0.5s after Point A'),
+                      backgroundColor: Color(0xFF1E2D3D),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } else {
+                // Clear A-B repeat
+                _abRepeatState = 0;
+                _abPointAMs = null;
+                _abPointBMs = null;
+                widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
+              }
+            });
+          },
+          child: _AbRepeatCustomIcon(state: _abRepeatState),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAbRegionLabels({required double maxMs}) {
+    if (_abPointAMs == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Point A label
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFA726).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFFFFA726), width: 1),
+            ),
+            child: Text(
+              'A ${_fmt(Duration(milliseconds: _abPointAMs!.toInt()))}',
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFFA726),
+              ),
+            ),
+          ),
+          if (_abRepeatState == 2 && _abPointBMs != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF137FEC).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFF137FEC), width: 1),
+              ),
+              child: Text(
+                'B ${_fmt(Duration(milliseconds: _abPointBMs!.toInt()))}',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF137FEC),
+                ),
+              ),
+            )
+          else
+            const Text(
+              '← tap button to set B',
+              style: TextStyle(fontSize: 10, color: Colors.white38),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showAbRepeatSheet(BuildContext context, double maxMs) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF18232E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        double localA = _abPointAMs ?? 0;
+        double localB = _abPointBMs ?? maxMs;
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            void apply() {
+              setState(() {
+                _abPointAMs = localA;
+                _abPointBMs = localB;
+              });
+              widget.player.setAbRepeat(
+                enabled: true,
+                startSeconds: localA / 1000.0,
+                endSeconds: localB / 1000.0,
+              );
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    'A-B REPEAT FINE-TUNE',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      color: Color(0xFF137FEC),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Point A
+                  Row(
+                    children: [
+                      const Text('Point A', style: TextStyle(color: Color(0xFFFFA726), fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.remove, color: Colors.white70),
+                        onPressed: () { setSheetState(() { localA = (localA - 100).clamp(0, localB - 500); }); apply(); },
+                        tooltip: '-100ms',
+                      ),
+                      Text(_fmt(Duration(milliseconds: localA.toInt())), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: Colors.white70),
+                        onPressed: () { setSheetState(() { localA = (localA + 100).clamp(0, localB - 500); }); apply(); },
+                        tooltip: '+100ms',
+                      ),
+                    ],
+                  ),
+                  // Point B
+                  Row(
+                    children: [
+                      const Text('Point B', style: TextStyle(color: Color(0xFF137FEC), fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.remove, color: Colors.white70),
+                        onPressed: () { setSheetState(() { localB = (localB - 100).clamp(localA + 500, maxMs); }); apply(); },
+                        tooltip: '-100ms',
+                      ),
+                      Text(_fmt(Duration(milliseconds: localB.toInt())), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: Colors.white70),
+                        onPressed: () { setSheetState(() { localB = (localB + 100).clamp(localA + 500, maxMs); }); apply(); },
+                        tooltip: '+100ms',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white24),
+                            foregroundColor: Colors.white70,
+                          ),
+                          icon: const Icon(Icons.close, size: 16),
+                          label: const Text('Clear A-B'),
+                          onPressed: () {
+                            setState(() {
+                              _abRepeatState = 0;
+                              _abPointAMs = null;
+                              _abPointBMs = null;
+                            });
+                            widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom painter that draws the A-B highlight region under the seekbar track
+// ─────────────────────────────────────────────────────────────────────────────
+class _AbRegionPainter extends StatelessWidget {
+  final double pointAMs;
+  final double pointBMs;
+  final double maxMs;
+  final double totalWidth;
+
+  const _AbRegionPainter({
+    required this.pointAMs,
+    required this.pointBMs,
+    required this.maxMs,
+    required this.totalWidth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (maxMs <= 0) return const SizedBox.shrink();
+    const double thumbRadius = 8.0;
+    const double horizontalPadding = 24.0; // matches Flutter Slider internal padding
+    final double usable = totalWidth - horizontalPadding * 2 - thumbRadius * 2;
+    final double left = horizontalPadding + thumbRadius + (pointAMs / maxMs) * usable;
+    final double right = horizontalPadding + thumbRadius + (pointBMs / maxMs) * usable;
+    return CustomPaint(
+      painter: _AbHighlightCustomPainter(left: left, right: right),
+    );
+  }
+}
+
+class _AbHighlightCustomPainter extends CustomPainter {
+  final double left;
+  final double right;
+
+  const _AbHighlightCustomPainter({required this.left, required this.right});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Highlight band
+    final paint = Paint()
+      ..color = const Color(0xFF137FEC).withValues(alpha: 0.25)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTRB(left, 0, right, size.height), paint);
+
+    // Pin A
+    final pinPaint = Paint()
+      ..color = const Color(0xFFFFA726)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTRB(left - 1.5, 0, left + 1.5, size.height), pinPaint);
+
+    // Pin B
+    final pinBPaint = Paint()
+      ..color = const Color(0xFF137FEC)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTRB(right - 1.5, 0, right + 1.5, size.height), pinBPaint);
+  }
+
+  @override
+  bool shouldRepaint(_AbHighlightCustomPainter old) =>
+      old.left != left || old.right != right;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom stylized A-B Repeat icon badge
+// ─────────────────────────────────────────────────────────────────────────────
+class _AbRepeatCustomIcon extends StatelessWidget {
+  final int state; // 0 = off, 1 = point A set, 2 = active loop
+
+  const _AbRepeatCustomIcon({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    Color borderClr;
+    Color bgClr;
+    Color textClr;
+    String label;
+    IconData iconData;
+
+    switch (state) {
+      case 1:
+        borderClr = const Color(0xFFFFA726);
+        bgClr = const Color(0xFFFFA726).withValues(alpha: 0.22);
+        textClr = const Color(0xFFFFA726);
+        label = 'A →';
+        iconData = Icons.repeat_one_rounded;
+        break;
+      case 2:
+        borderClr = const Color(0xFF137FEC);
+        bgClr = const Color(0xFF137FEC).withValues(alpha: 0.25);
+        textClr = const Color(0xFF38BDF8);
+        label = 'A-B';
+        iconData = Icons.repeat_on_rounded;
+        break;
+      default:
+        borderClr = Colors.white24;
+        bgClr = Colors.white10;
+        textClr = Colors.white70;
+        label = 'A-B';
+        iconData = Icons.repeat_rounded;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgClr,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: state > 0 ? borderClr : Colors.transparent,
+          width: 1.2,
+        ),
+        boxShadow: state > 0
+            ? [
+                BoxShadow(
+                  color: borderClr.withValues(alpha: 0.35),
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            iconData,
+            size: 20,
+            color: textClr,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
+              color: textClr,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

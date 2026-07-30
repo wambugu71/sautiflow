@@ -697,6 +697,20 @@ class IsolateAudioPlayer {
       _send({'cmd': 'move', 'oldIndex': oldIndex, 'newIndex': newIndex});
   void removeAudioSourceAt(int index) =>
       _send({'cmd': 'removeAudioSourceAt', 'index': index});
+
+  /// Enable or disable A-B repeat loop.
+  /// Set [enabled] to false (with any start/end) to clear the loop.
+  void setAbRepeat({
+    required bool enabled,
+    required double startSeconds,
+    required double endSeconds,
+  }) =>
+      _send({
+        'cmd': 'setAbRepeat',
+        'enabled': enabled,
+        'startSeconds': startSeconds,
+        'endSeconds': endSeconds,
+      });
 }
 
 class _IsolateInitData {
@@ -1314,6 +1328,13 @@ void _isolateEntry(_IsolateInitData initData) {
               replyTo.send({'error': e.toString()});
             }
           }
+          break;
+        case 'setAbRepeat':
+          player.setAbRepeat(
+            enabled: message['enabled'] as bool,
+            startSeconds: (message['startSeconds'] as num).toDouble(),
+            endSeconds: (message['endSeconds'] as num).toDouble(),
+          );
           break;
         case 'dispose':
           player.dispose();
