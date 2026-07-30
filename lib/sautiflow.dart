@@ -27,5 +27,6 @@ export 'viper_dsp.dart'
         ViperCureCrossfeedPreset,
         ViperLufsSpeed,
         ViperAlcMode,
+        ViperOversamplingFactor,
         ViperMultibandCompressorBand,
         ViperDynamicEqBand;

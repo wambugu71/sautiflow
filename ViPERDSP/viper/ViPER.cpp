@@ -21,6 +21,7 @@ constexpr uint32_t kKernelChunkFloats = 2046;
 
 ViPER::ViPER() :
     sampling_rate_(VIPER_DEFAULT_SAMPLING_RATE),
+    oversampling_factor_(1),
     process_frame_count_(0),
     frame_scale_(1.0f),
     left_pan_(1.0f),

@@ -103,12 +103,15 @@ public:
     }
 
     void SetSamplingRate(const uint32_t rate) { sampling_rate_ = rate; }
+    void SetOversamplingFactor(const uint32_t factor) { oversampling_factor_ = factor; }
+    [[nodiscard]] uint32_t GetOversamplingFactor() const { return oversampling_factor_; }
 
 private:
     std::atomic<bool> pending_effects_reset_{false};
     std::atomic<bool> pending_buffers_reset_{false};
 
     uint32_t sampling_rate_;
+    uint32_t oversampling_factor_{1};
     uint64_t process_frame_count_;
 
     float frame_scale_;

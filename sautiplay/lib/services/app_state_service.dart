@@ -652,6 +652,19 @@ class AppStateService {
     return {};
   }
 
+  // ─── DSP Oversampling Settings ───────────────────────────────────────────
+  static const _kDspOversampling = 'sp_dsp_oversampling';
+
+  Future<void> saveDspOversampling(int factor) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kDspOversampling, factor);
+  }
+
+  Future<int> loadDspOversampling() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kDspOversampling) ?? 1;
+  }
+
   // ─── ReplayGain Settings ──────────────────────────────────────────────────
   static const _kReplayGainMode = 'sp_replay_gain_mode';
   static const _kReplayGainPreamp = 'sp_replay_gain_preamp';

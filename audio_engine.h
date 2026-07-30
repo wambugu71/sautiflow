@@ -347,6 +347,9 @@ extern "C"
     AE_API uint64_t ae_resampler_get_input_latency(AEResampler *resampler);
     AE_API uint64_t ae_resampler_get_output_latency(AEResampler *resampler);
 
+    // ViPER DSP Oversampling
+    AE_API void ae_viper_set_oversampling(AudioEngineHandle *engine, int factor);
+
     // Native Track Inspection
     typedef struct AETrackInfo
     {

@@ -5699,6 +5699,16 @@ extern "C"
         engine->viper.ApplyAdaptiveLoudness(p);
     }
 
+    AE_API void ae_viper_set_oversampling(AudioEngineHandle *engine, int factor)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        // Oversampling factor: 1 (off/1x), 2 (2x), 4 (4x)
+        if (factor == 1 || factor == 2 || factor == 4) {
+            engine->viper.SetOversamplingFactor(factor);
+        }
+    }
+
     AE_API AETrackInfo ae_inspect_file(const char *file_path)
     {
         AETrackInfo info;

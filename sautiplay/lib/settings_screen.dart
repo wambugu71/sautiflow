@@ -104,6 +104,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ReplayGainMode _replayGainMode = ReplayGainMode.none;
   double _replayGainPreamp = 0.0;
 
+  // DSP Oversampling
+  int _dspOversampling = 1;
+
   @override
   void initState() {
     super.initState();
@@ -114,6 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
     final rgSaved = await AppStateService.instance.loadReplayGainSettings();
+    final oversamplingSaved = await AppStateService.instance.loadDspOversampling();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -124,7 +128,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _eqBandCount = eqSaved.bandCount;
       _replayGainMode = rgSaved.mode;
       _replayGainPreamp = rgSaved.preamp;
+      _dspOversampling = oversamplingSaved;
     });
+    widget.player.setViperOversampling(oversamplingSaved);
   }
 
   void _persistReplayGainSettings() {
@@ -395,6 +401,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           onTap: () => _showResampleAlgorithmDialog(),
+        ),
+        const Divider(color: Colors.white10, height: 1),
+        // DSP Oversampling
+        ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(10),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.blur_on, color: Colors.white70, size: 20),
+          ),
+          title: const Text('DSP Oversampling',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          subtitle: const Text('Anti-aliasing for ViPER FX & limiters',
+              style: TextStyle(color: _textDark, fontSize: 12)),
+          trailing: SizedBox(
+            width: 150,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    _getOversamplingName(_dspOversampling),
+                    style: const TextStyle(color: _textDark, fontSize: 14),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right, color: _textDark, size: 20),
+              ],
+            ),
+          ),
+          onTap: () => _showOversamplingDialog(),
         ),
         const Divider(color: Colors.white10, height: 1),
         // Dither Mode
@@ -1510,6 +1554,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
       default:
         return 'Miniaudio Linear (Fastest)';
     }
+  }
+
+  String _getOversamplingName(int factor) {
+    switch (factor) {
+      case 2:
+        return '2x (High Quality)';
+      case 4:
+        return '4x (Ultra HD)';
+      default:
+        return 'Off (1x)';
+    }
+  }
+
+  void _showOversamplingDialog() {
+    final options = [
+      {'factor': 1, 'name': 'Off (1x)', 'subtitle': 'Low CPU usage, native sample rate'},
+      {'factor': 2, 'name': '2x Oversampling', 'subtitle': 'High Quality (Reduces aliasing in saturator/limiter)'},
+      {'factor': 4, 'name': '4x Oversampling', 'subtitle': 'Ultra HD (Maximum anti-aliasing purity)'},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('DSP Anti-Aliasing Oversampling',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          for (final item in options)
+            RadioListTile<int>(
+              title: Text(item['name'] as String,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+              subtitle: Text(item['subtitle'] as String,
+                  style: const TextStyle(color: _textDark, fontSize: 12)),
+              value: item['factor'] as int,
+              groupValue: _dspOversampling,
+              activeColor: _primary,
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _dspOversampling = val);
+                  widget.player.setViperOversampling(val);
+                  AppStateService.instance.saveDspOversampling(val);
+                  Navigator.pop(ctx);
+                }
+              },
+            ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
   void _showResampleAlgorithmDialog() {

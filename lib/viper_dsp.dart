@@ -104,6 +104,9 @@ typedef _ViperDynamicEqDart = void Function(ffi.Pointer<ffi.Void>, int, int, ffi
 typedef _ViperAdaptiveLoudnessNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32, ffi.Float, ffi.Float);
 typedef _ViperAdaptiveLoudnessDart = void Function(ffi.Pointer<ffi.Void>, int, int, double, double);
 
+typedef _ViperSetOversamplingNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _ViperSetOversamplingDart = void Function(ffi.Pointer<ffi.Void>, int);
+
 // Memory allocation typedefs (from C standard library)
 typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
 typedef _MallocDart = ffi.Pointer<ffi.Void> Function(int);
@@ -118,6 +121,7 @@ enum ViperAnalogXMode { mild, moderate, aggressive }
 enum ViperCureCrossfeedPreset { off, weakChuMoy, strongJmeier }
 enum ViperLufsSpeed { fast, medium, slow, verySlow }
 enum ViperAlcMode { natural, mild, punchy }
+enum ViperOversamplingFactor { off, x2, x4 }
 
 class ViperMultibandCompressorBand {
   bool enable;
@@ -263,6 +267,7 @@ class ViperDsp {
   late final _ViperMultibandCompressorDart _multibandCompressor;
   late final _ViperDynamicEqDart _dynamicEq;
   late final _ViperAdaptiveLoudnessDart _adaptiveLoudness;
+  late final _ViperSetOversamplingDart _setOversampling;
 
   late final _MallocDart _malloc;
   late final _FreeDart _free;
@@ -306,6 +311,7 @@ class ViperDsp {
     _multibandCompressor = _lib.lookupFunction<_ViperMultibandCompressorNative, _ViperMultibandCompressorDart>('ae_viper_multiband_compressor');
     _dynamicEq = _lib.lookupFunction<_ViperDynamicEqNative, _ViperDynamicEqDart>('ae_viper_dynamic_eq');
     _adaptiveLoudness = _lib.lookupFunction<_ViperAdaptiveLoudnessNative, _ViperAdaptiveLoudnessDart>('ae_viper_adaptive_loudness');
+    _setOversampling = _lib.lookupFunction<_ViperSetOversamplingNative, _ViperSetOversamplingDart>('ae_viper_set_oversampling');
   }
 
   void _freePtr(ffi.Pointer<ffi.Void> ptr) {
@@ -725,5 +731,14 @@ class ViperDsp {
   }) {
     if (_enginePtr == ffi.nullptr) return;
     _adaptiveLoudness(_enginePtr, enable ? 1 : 0, mode.index, strength, attenuationDb);
+  }
+
+  /// Set ViPER DSP Oversampling factor (off = 1x, x2 = 2x, x4 = 4x).
+  void setOversampling(ViperOversamplingFactor factor) {
+    if (_enginePtr == ffi.nullptr) return;
+    int val = 1;
+    if (factor == ViperOversamplingFactor.x2) val = 2;
+    if (factor == ViperOversamplingFactor.x4) val = 4;
+    _setOversampling(_enginePtr, val);
   }
 }
