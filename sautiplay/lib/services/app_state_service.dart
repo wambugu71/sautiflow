@@ -738,6 +738,27 @@ class AppStateService {
       safetyAttenuationDb: prefs.getDouble(_kSafetyAttenuation) ?? -1.0,
     );
   }
+
+  // ─── Phase Inversion Settings ─────────────────────────────────────────────
+  static const _kPhaseInvertLeft = 'sp_phase_invert_left';
+  static const _kPhaseInvertRight = 'sp_phase_invert_right';
+
+  Future<void> savePhaseInversion({
+    required bool invertLeft,
+    required bool invertRight,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPhaseInvertLeft, invertLeft);
+    await prefs.setBool(_kPhaseInvertRight, invertRight);
+  }
+
+  Future<({bool invertLeft, bool invertRight})> loadPhaseInversion() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      invertLeft: prefs.getBool(_kPhaseInvertLeft) ?? false,
+      invertRight: prefs.getBool(_kPhaseInvertRight) ?? false,
+    );
+  }
 }
 // Force Flutter compiler sync
 

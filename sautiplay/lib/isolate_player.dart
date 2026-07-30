@@ -505,6 +505,13 @@ class IsolateAudioPlayer {
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
 
+  void setPhaseInversion({required bool invertLeft, required bool invertRight}) =>
+      _send({
+        'cmd': 'setPhaseInversion',
+        'invertLeft': invertLeft,
+        'invertRight': invertRight,
+      });
+
   void setExclusiveMode(bool enabled) =>
       _send({'cmd': 'setExclusiveMode', 'enabled': enabled});
 
@@ -1089,6 +1096,12 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
+          break;
+        case 'setPhaseInversion':
+          player.setPhaseInversion(
+            invertLeft: message['invertLeft'] == true,
+            invertRight: message['invertRight'] == true,
+          );
           break;
         case 'setExclusiveMode':
           player.setExclusiveMode(message['enabled'] == true);

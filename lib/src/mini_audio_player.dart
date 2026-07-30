@@ -255,12 +255,18 @@ class MiniAudioPlayer {
   /// Get the current output sample rate (0 usually means native/auto).
   int getOutputSampleRate() => _engine.getOutputSampleRate();
 
-  /// Set the number of output channels (e.g., 1 for mono, 2 for stereo).
-  /// This may cause the audio engine to restart.
+  /// Set number of output channels.
   void setOutputChannels(int channels) => _engine.setOutputChannels(channels);
 
-  /// Get the current output channel count.
+  /// Get output channel count.
   int getOutputChannels() => _engine.getOutputChannels();
+
+  /// Set Phase Inversion (180° polarity flip) for Left and Right channels.
+  void setPhaseInversion({required bool invertLeft, required bool invertRight}) =>
+      _engine.setPhaseInversion(invertLeft: invertLeft, invertRight: invertRight);
+
+  /// Get current Phase Inversion status.
+  ({bool left, bool right}) getPhaseInversion() => _engine.getPhaseInversion();
 
   /// Initialize the multiband equalizer.
   /// provide a list of center frequencies (Hz) for the bands.

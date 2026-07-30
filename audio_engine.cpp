@@ -1519,6 +1519,8 @@ struct AudioEngineHandle
 
     int resampleAlgorithm = 0; // AE_RESAMPLE_ALGORITHM_LINEAR
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
+    std::atomic<bool> phaseInvertLeft{false};
+    std::atomic<bool> phaseInvertRight{false};
     NoiseShaperState noiseShaper;
 
     std::vector<float> eqFrequencies;
@@ -2797,6 +2799,23 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 {
                     processBuffer[i * e->channels] *= l;
                     processBuffer[i * e->channels + 1] *= r;
+                }
+            }
+
+            // Phase Inversion (Polarity Flip)
+            {
+                const bool invL = e->phaseInvertLeft.load(std::memory_order_relaxed);
+                const bool invR = e->phaseInvertRight.load(std::memory_order_relaxed);
+                if (invL || invR)
+                {
+                    const int ch = e->channels;
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        if (invL)
+                            processBuffer[i * ch + 0] = -processBuffer[i * ch + 0];
+                        if (ch > 1 && invR)
+                            processBuffer[i * ch + 1] = -processBuffer[i * ch + 1];
+                    }
                 }
             }
 
@@ -4499,6 +4518,28 @@ extern "C"
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
     {
         return engine ? engine->ditherMode.load(std::memory_order_relaxed) : 0;
+    }
+
+    AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right)
+    {
+        if (!engine)
+            return;
+        engine->phaseInvertLeft.store(invert_left != 0, std::memory_order_relaxed);
+        engine->phaseInvertRight.store(invert_right != 0, std::memory_order_relaxed);
+    }
+
+    AE_API void ae_get_phase_inversion(AudioEngineHandle *engine, int *out_invert_left, int *out_invert_right)
+    {
+        if (!engine)
+        {
+            if (out_invert_left) *out_invert_left = 0;
+            if (out_invert_right) *out_invert_right = 0;
+            return;
+        }
+        if (out_invert_left)
+            *out_invert_left = engine->phaseInvertLeft.load(std::memory_order_relaxed) ? 1 : 0;
+        if (out_invert_right)
+            *out_invert_right = engine->phaseInvertRight.load(std::memory_order_relaxed) ? 1 : 0;
     }
 
     // Audio Limiter & Clipping Detection

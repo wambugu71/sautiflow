@@ -115,6 +115,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _limiterThreshold = 0.95;
   double _safetyAttenuationDb = -1.0;
 
+  // Phase Inversion
+  bool _phaseInvertLeft = false;
+  bool _phaseInvertRight = false;
+
   @override
   void initState() {
     super.initState();
@@ -127,6 +131,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final rgSaved = await AppStateService.instance.loadReplayGainSettings();
     final oversamplingSaved = await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
+    final phaseSaved = await AppStateService.instance.loadPhaseInversion();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -143,9 +148,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _ultrasonicCutoffHz = spSaved.ultrasonicCutoffHz;
       _limiterThreshold = spSaved.limiterThreshold;
       _safetyAttenuationDb = spSaved.safetyAttenuationDb;
+      _phaseInvertLeft = phaseSaved.invertLeft;
+      _phaseInvertRight = phaseSaved.invertRight;
     });
     widget.player.setViperOversampling(oversamplingSaved);
+    widget.player.setPhaseInversion(
+      invertLeft: _phaseInvertLeft,
+      invertRight: _phaseInvertRight,
+    );
     _applySpeakerProtectionSettings();
+  }
+
+  void _persistPhaseInversionSettings() {
+    AppStateService.instance.savePhaseInversion(
+      invertLeft: _phaseInvertLeft,
+      invertRight: _phaseInvertRight,
+    );
+    widget.player.setPhaseInversion(
+      invertLeft: _phaseInvertLeft,
+      invertRight: _phaseInvertRight,
+    );
   }
 
   void _persistSpeakerProtectionSettings() {
@@ -694,6 +716,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           onTap: () => _showChannelsDialog(),
+        ),
+        const Divider(color: Colors.white10, height: 1),
+        // Phase Inversion (Polarity Flip)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.swap_calls, color: Colors.white70, size: 20),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Phase Inversion (Ø 180°)',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Invert PCM polarity for reversed hardware or phase alignment',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Text('Normal (0°)'),
+                      selected: !_phaseInvertLeft && !_phaseInvertRight,
+                      selectedColor: _primary,
+                      onSelected: (val) {
+                        if (val) {
+                          setState(() {
+                            _phaseInvertLeft = false;
+                            _phaseInvertRight = false;
+                          });
+                          _persistPhaseInversionSettings();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Text('Invert L'),
+                      selected: _phaseInvertLeft,
+                      selectedColor: _primary,
+                      onSelected: (val) {
+                        setState(() => _phaseInvertLeft = val);
+                        _persistPhaseInversionSettings();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Text('Invert R'),
+                      selected: _phaseInvertRight,
+                      selectedColor: _primary,
+                      onSelected: (val) {
+                        setState(() => _phaseInvertRight = val);
+                        _persistPhaseInversionSettings();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         const Divider(color: Colors.white10, height: 1),
         SwitchListTile(

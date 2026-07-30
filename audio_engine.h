@@ -222,6 +222,10 @@ extern "C"
     AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode);
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine);
 
+    // Phase Inversion (Polarity Flip)
+    AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right);
+    AE_API void ae_get_phase_inversion(AudioEngineHandle *engine, int *out_invert_left, int *out_invert_right);
+
     // Audio Limiter & Clipping Detection
     AE_API void ae_set_limiter_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms);

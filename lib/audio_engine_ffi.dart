@@ -560,12 +560,12 @@ typedef _GetEngineTimeInPcmFramesNative = ffi.Uint64 Function(
 typedef _GetEngineTimeInPcmFramesDart = int Function(ffi.Pointer<ffi.Void>);
 
 // End Callback
-typedef _EndCallbackNative = ffi.Void Function(
+typedef EndCallbackNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>);
 typedef _SetEndCallbackNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
+    ffi.Pointer<ffi.NativeFunction<EndCallbackNative>>, ffi.Pointer<ffi.Void>);
 typedef _SetEndCallbackDart = void Function(ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>>, ffi.Pointer<ffi.Void>);
+    ffi.Pointer<ffi.NativeFunction<EndCallbackNative>>, ffi.Pointer<ffi.Void>);
 
 typedef _SetExclusiveModeNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -610,6 +610,16 @@ typedef _SetEngineDitherModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 typedef _GetEngineDitherModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetEngineDitherModeDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetPhaseInversionNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
+typedef _SetPhaseInversionDart = void Function(
+    ffi.Pointer<ffi.Void>, int, int);
+
+typedef _GetPhaseInversionNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
+typedef _GetPhaseInversionDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
 
 // Limiter & Clipping Detection
 typedef _SetLimiterEnabledNative = ffi.Void Function(
@@ -1179,6 +1189,16 @@ class AudioEngineFFI {
     _getEngineDitherMode = _lib.lookupFunction<_GetEngineDitherModeNative,
         _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
+    try {
+      _setPhaseInversion = _lib.lookupFunction<_SetPhaseInversionNative,
+          _SetPhaseInversionDart>('ae_set_phase_inversion');
+      _getPhaseInversion = _lib.lookupFunction<_GetPhaseInversionNative,
+          _GetPhaseInversionDart>('ae_get_phase_inversion');
+    } catch (_) {
+      _setPhaseInversion = null;
+      _getPhaseInversion = null;
+    }
+
     // Limiter & Clipping Detection
     _setLimiterEnabled =
         _lib.lookupFunction<_SetLimiterEnabledNative, _SetLimiterEnabledDart>(
@@ -1396,6 +1416,8 @@ class AudioEngineFFI {
   late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
   late final _SetEngineDitherModeDart _setEngineDitherMode;
   late final _GetEngineDitherModeDart _getEngineDitherMode;
+  late final _SetPhaseInversionDart? _setPhaseInversion;
+  late final _GetPhaseInversionDart? _getPhaseInversion;
 
   // Limiter & Clipping Detection
   late final _SetLimiterEnabledDart _setLimiterEnabled;
@@ -2067,7 +2089,7 @@ class AudioEngineFFI {
   }
 
   void setEndCallback(
-      ffi.Pointer<ffi.NativeFunction<_EndCallbackNative>> callback,
+      ffi.Pointer<ffi.NativeFunction<EndCallbackNative>> callback,
       ffi.Pointer<ffi.Void> userData) {
     if (_engine == ffi.nullptr) return;
     _setEndCallback(_engine, callback, userData);
@@ -2114,6 +2136,24 @@ class AudioEngineFFI {
   int getOutputChannels() {
     if (_engine == ffi.nullptr) return 0;
     return _getOutputChannels(_engine);
+  }
+
+  void setPhaseInversion({required bool invertLeft, required bool invertRight}) {
+    if (_engine == ffi.nullptr) return;
+    _setPhaseInversion?.call(_engine, invertLeft ? 1 : 0, invertRight ? 1 : 0);
+  }
+
+  ({bool left, bool right}) getPhaseInversion() {
+    if (_engine == ffi.nullptr || _getPhaseInversion == null) return (left: false, right: false);
+    final pL = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final pR = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    try {
+      _getPhaseInversion!(_engine, pL, pR);
+      return (left: pL.value != 0, right: pR.value != 0);
+    } finally {
+      _freePtr(pL.cast<ffi.Void>());
+      _freePtr(pR.cast<ffi.Void>());
+    }
   }
 
   void setEngineResampleAlgorithm(int algorithm) {
