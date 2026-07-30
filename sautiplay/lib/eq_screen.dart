@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
+import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
 // Tailwind Colors Ported
@@ -1986,6 +1987,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
         });
       },
       children: [
+        ParametricEqGraph(
+          bands: _parametricBands,
+          isEnabled: _parametricEqEnabled,
+          height: 180.0,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [

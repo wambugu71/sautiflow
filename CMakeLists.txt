@@ -26,9 +26,9 @@ target_include_directories(audio_engine PRIVATE
 )
 
 if(MSVC)
-  target_compile_options(audio_engine PRIVATE /O2 /fp:fast)
+  target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:/O2 /fp:fast>)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(audio_engine PRIVATE -O3 -ffast-math -ftree-vectorize)
+  target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
 if (WIN32)

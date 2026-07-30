@@ -6,6 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:sautiflow/sautiflow.dart';
+import 'widgets/parametric_eq_graph.dart';
 import 'services/autoeq_parser.dart';
 
 const primaryColor = Color(0xFF137fec);
@@ -1485,11 +1487,46 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     );
   }
 
+  List<EqBandConfig> _getViperDynamicEqBands() {
+    return List.generate(5, (i) {
+      EqBandType type;
+      switch (_dynamicEqFilterTypes[i]) {
+        case 1:
+          type = EqBandType.lowshelf;
+          break;
+        case 2:
+          type = EqBandType.highshelf;
+          break;
+        case 0:
+        default:
+          type = EqBandType.peak;
+          break;
+      }
+      return EqBandConfig(
+        type: type,
+        frequencyHz: _dynamicEqFreqs[i],
+        gainDb: _dynamicEqGains[i],
+        q: _dynamicEqQs[i],
+        enabled: true,
+      );
+    });
+  }
+
   Widget _buildDynamicEqBands() {
     final labels = ['Band 1', 'Band 2', 'Band 3', 'Band 4', 'Band 5'];
-    return SizedBox(
-      height: 480,
-      child: ListView.builder(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ParametricEqGraph(
+          bands: _getViperDynamicEqBands(),
+          isEnabled: _viperEnabled && _dynamicEqEnabled,
+          height: 180.0,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 480,
+          child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: 5,
         itemBuilder: (context, i) {
@@ -1547,7 +1584,9 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
           );
         },
       ),
-    );
+    ),
+  ],
+);
   }
 
   Widget _buildEqBands(List<double> freqs, List<double> gains, bool enabled) {

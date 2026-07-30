@@ -53,12 +53,12 @@ target_compile_definitions(audio_engine PRIVATE
 
 if(MSVC)
   # /FS forces synchronous PDB writes, preventing C1041 errors in parallel builds
-  target_compile_options(audio_engine PRIVATE /FS /std:c11 /O2 /fp:fast)
+  target_compile_options(audio_engine PRIVATE /FS /std:c11 $<$<NOT:$<CONFIG:Debug>>:/O2 /fp:fast>)
   set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
     COMPILE_FLAGS "/wd4100 /wd4244 /wd4267 /wd4701 /wd4706"
   )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(audio_engine PRIVATE -O3 -ffast-math -ftree-vectorize)
+  target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
 # Optional native URL byte-streaming via libcurl (OFF by default on Windows).
