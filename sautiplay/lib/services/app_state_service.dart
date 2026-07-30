@@ -699,7 +699,47 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getDouble(_kPlaybackPitch) ?? 1.0;
   }
+
+  // ─── Speaker & Hardware Protection Settings ──────────────────────────────
+  static const _kSpeakerProtectionEnabled = 'sp_speaker_protection_enabled';
+  static const _kSubsonicCutoff = 'sp_subsonic_cutoff_hz';
+  static const _kUltrasonicCutoff = 'sp_ultrasonic_cutoff_hz';
+  static const _kSpeakerLimiterThreshold = 'sp_speaker_limiter_threshold';
+  static const _kSafetyAttenuation = 'sp_speaker_safety_attenuation_db';
+
+  Future<void> saveSpeakerProtection({
+    required bool enabled,
+    required double subsonicCutoffHz,
+    required double ultrasonicCutoffHz,
+    required double limiterThreshold,
+    required double safetyAttenuationDb,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSpeakerProtectionEnabled, enabled);
+    await prefs.setDouble(_kSubsonicCutoff, subsonicCutoffHz);
+    await prefs.setDouble(_kUltrasonicCutoff, ultrasonicCutoffHz);
+    await prefs.setDouble(_kSpeakerLimiterThreshold, limiterThreshold);
+    await prefs.setDouble(_kSafetyAttenuation, safetyAttenuationDb);
+  }
+
+  Future<({
+    bool enabled,
+    double subsonicCutoffHz,
+    double ultrasonicCutoffHz,
+    double limiterThreshold,
+    double safetyAttenuationDb,
+  })> loadSpeakerProtection() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kSpeakerProtectionEnabled) ?? true,
+      subsonicCutoffHz: prefs.getDouble(_kSubsonicCutoff) ?? 25.0,
+      ultrasonicCutoffHz: prefs.getDouble(_kUltrasonicCutoff) ?? 20000.0,
+      limiterThreshold: prefs.getDouble(_kSpeakerLimiterThreshold) ?? 0.95,
+      safetyAttenuationDb: prefs.getDouble(_kSafetyAttenuation) ?? -1.0,
+    );
+  }
 }
 // Force Flutter compiler sync
+
 
 

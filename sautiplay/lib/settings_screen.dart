@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sautiflow/sautiflow.dart';
@@ -107,6 +108,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // DSP Oversampling
   int _dspOversampling = 1;
 
+  // Speaker & Hardware Protection
+  bool _speakerProtectionEnabled = true;
+  double _subsonicCutoffHz = 25.0;
+  double _ultrasonicCutoffHz = 20000.0;
+  double _limiterThreshold = 0.95;
+  double _safetyAttenuationDb = -1.0;
+
   @override
   void initState() {
     super.initState();
@@ -118,6 +126,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final eqSaved = await AppStateService.instance.loadEqBands();
     final rgSaved = await AppStateService.instance.loadReplayGainSettings();
     final oversamplingSaved = await AppStateService.instance.loadDspOversampling();
+    final spSaved = await AppStateService.instance.loadSpeakerProtection();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -129,8 +138,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _replayGainMode = rgSaved.mode;
       _replayGainPreamp = rgSaved.preamp;
       _dspOversampling = oversamplingSaved;
+      _speakerProtectionEnabled = spSaved.enabled;
+      _subsonicCutoffHz = spSaved.subsonicCutoffHz;
+      _ultrasonicCutoffHz = spSaved.ultrasonicCutoffHz;
+      _limiterThreshold = spSaved.limiterThreshold;
+      _safetyAttenuationDb = spSaved.safetyAttenuationDb;
     });
     widget.player.setViperOversampling(oversamplingSaved);
+    _applySpeakerProtectionSettings();
+  }
+
+  void _persistSpeakerProtectionSettings() {
+    AppStateService.instance.saveSpeakerProtection(
+      enabled: _speakerProtectionEnabled,
+      subsonicCutoffHz: _subsonicCutoffHz,
+      ultrasonicCutoffHz: _ultrasonicCutoffHz,
+      limiterThreshold: _limiterThreshold,
+      safetyAttenuationDb: _safetyAttenuationDb,
+    );
+    _applySpeakerProtectionSettings();
+  }
+
+  void _applySpeakerProtectionSettings() {
+    widget.player.setSpeakerProtectionParams(
+      enabled: _speakerProtectionEnabled,
+      subsonicCutoffHz: _subsonicCutoffHz,
+      ultrasonicCutoffHz: _ultrasonicCutoffHz,
+      limiterThreshold: _limiterThreshold,
+      safetyAttenuationDb: _safetyAttenuationDb,
+    );
   }
 
   void _persistReplayGainSettings() {
@@ -182,6 +218,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 16),
                         _buildSectionTitle('AUDIO QUALITY'),
                         _buildAudioQualityCard(),
+                        const SizedBox(height: 24),
+                        _buildSectionTitle('SPEAKER & HARDWARE PROTECTION'),
+                        _buildSpeakerProtectionCard(),
                         const SizedBox(height: 24),
                         _buildSectionTitle('PLAYBACK'),
                         _buildPlaybackCard(),
@@ -754,6 +793,196 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
           },
         ),
+      ],
+    );
+  }
+
+  Widget _buildSpeakerProtectionCard() {
+    return _buildCard(
+      children: [
+        // Master Protection Toggle
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          activeThumbColor: Colors.white,
+          activeTrackColor: _primary,
+          inactiveThumbColor: Colors.white70,
+          inactiveTrackColor: Colors.white10,
+          title: const Text('Protection Safeguards',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          subtitle: Text(
+            _speakerProtectionEnabled
+                ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
+                : 'Safeguards disabled (risk of speaker over-excursion & clipping)',
+            style: TextStyle(
+              color: _speakerProtectionEnabled ? Colors.greenAccent.shade200 : Colors.amberAccent,
+              fontSize: 12,
+            ),
+          ),
+          secondary: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent).withAlpha(25),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _speakerProtectionEnabled ? Icons.health_and_safety : Icons.warning_amber_rounded,
+              color: _speakerProtectionEnabled ? _primary : Colors.amberAccent,
+              size: 20,
+            ),
+          ),
+          value: _speakerProtectionEnabled,
+          onChanged: (val) {
+            setState(() => _speakerProtectionEnabled = val);
+            _persistSpeakerProtectionSettings();
+          },
+        ),
+        if (_speakerProtectionEnabled) ...[
+          const Divider(color: Colors.white10, height: 1),
+          // Subsonic Cutoff (High Pass Filter)
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(10),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.arrow_upward, color: Colors.white70, size: 20),
+            ),
+            title: const Text('Subsonic Filter (High-Pass)',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Cuts invisible low frequencies below woofer tuning',
+                style: TextStyle(color: _textDark, fontSize: 12)),
+            trailing: SizedBox(
+              width: 130,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _subsonicCutoffHz <= 0 ? 'Off' : '${_subsonicCutoffHz.toInt()} Hz',
+                      style: const TextStyle(color: _textDark, fontSize: 14),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                ],
+              ),
+            ),
+            onTap: () => _showSubsonicDialog(),
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          // Ultrasonic Cutoff (Low Pass Filter)
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(10),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.arrow_downward, color: Colors.white70, size: 20),
+            ),
+            title: const Text('Ultrasonic Guard (Low-Pass)',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Filters out dangerous high frequencies above 18-22kHz',
+                style: TextStyle(color: _textDark, fontSize: 12)),
+            trailing: SizedBox(
+              width: 130,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _ultrasonicCutoffHz >= 24000 ? 'Off' : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
+                      style: const TextStyle(color: _textDark, fontSize: 14),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                ],
+              ),
+            ),
+            onTap: () => _showUltrasonicDialog(),
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          // Peak Limiter Threshold & Safety Headroom Knobs
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Peak Ceiling',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
+                        style: const TextStyle(color: _textDark, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 90,
+                  child: ModernAudioKnob(
+                    label: 'CEILING',
+                    value: _limiterThreshold,
+                    min: 0.70,
+                    max: 1.00,
+                    activeColor: _primary,
+                    valueFormatter: (v) => '${(v * 100).toInt()}%',
+                    onChanged: (val) {
+                      setState(() => _limiterThreshold = val);
+                      _persistSpeakerProtectionSettings();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: Colors.white10, height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Safety Headroom',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 2),
+                      const Text('Output level attenuation buffer',
+                          style: TextStyle(color: _textDark, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 90,
+                  child: ModernAudioKnob(
+                    label: 'SAFETY',
+                    value: _safetyAttenuationDb,
+                    min: -6.0,
+                    max: 0.0,
+                    activeColor: _primary,
+                    valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+                    onChanged: (val) {
+                      setState(() => _safetyAttenuationDb = val);
+                      _persistSpeakerProtectionSettings();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1929,6 +2158,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
       groupValue: groupValue,
       onChanged: onChanged,
       activeColor: _primary,
+    );
+  }
+
+  void _showSubsonicDialog() {
+    final options = [
+      (0.0, 'Disabled (Off)'),
+      (15.0, '15 Hz (Ultra Sub-bass)'),
+      (20.0, '20 Hz (Standard Subwoofer)'),
+      (25.0, '25 Hz (Recommended for Small Woofers)'),
+      (30.0, '30 Hz (Bookshelf / Mobile Speakers)'),
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _cardDark,
+          title: const Text('Subsonic High-Pass Filter',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((opt) {
+              final selected = (opt.$1 == _subsonicCutoffHz);
+              return RadioListTile<double>(
+                value: opt.$1,
+                groupValue: _subsonicCutoffHz,
+                activeColor: _primary,
+                title: Text(opt.$2,
+                    style: TextStyle(
+                        color: selected ? Colors.white : _textDark,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _subsonicCutoffHz = val);
+                    _persistSpeakerProtectionSettings();
+                  }
+                  Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showUltrasonicDialog() {
+    final options = [
+      (24000.0, 'Disabled (Off)'),
+      (22000.0, '22 kHz (Hi-Res Limit)'),
+      (20000.0, '20 kHz (Standard Human Hearing)'),
+      (18000.0, '18 kHz (Tweeter Guard)'),
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _cardDark,
+          title: const Text('Ultrasonic Low-Pass Guard',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((opt) {
+              final selected = (opt.$1 == _ultrasonicCutoffHz);
+              return RadioListTile<double>(
+                value: opt.$1,
+                groupValue: _ultrasonicCutoffHz,
+                activeColor: _primary,
+                title: Text(opt.$2,
+                    style: TextStyle(
+                        color: selected ? Colors.white : _textDark,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _ultrasonicCutoffHz = val);
+                    _persistSpeakerProtectionSettings();
+                  }
+                  Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
     );
   }
 }

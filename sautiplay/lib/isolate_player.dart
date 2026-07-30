@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -474,6 +475,22 @@ class IsolateAudioPlayer {
   void setViperEqualizer({required bool enable, required List<double> bandLevels}) => _send({'cmd': 'setViperEqualizer', 'enable': enable, 'bandLevels': bandLevels});
   void setViperAdaptiveLoudness({required bool enable, required int mode, required double strength, required double attenuationDb}) => _send({'cmd': 'setViperAdaptiveLoudness', 'enable': enable, 'mode': mode, 'strength': strength, 'attenuationDb': attenuationDb});
   void setViperOversampling(int factor) => _send({'cmd': 'setViperOversampling', 'factor': factor});
+
+  void setSpeakerProtectionParams({
+    required bool enabled,
+    required double subsonicCutoffHz,
+    required double ultrasonicCutoffHz,
+    required double limiterThreshold,
+    required double safetyAttenuationDb,
+  }) =>
+      _send({
+        'cmd': 'setSpeakerProtectionParams',
+        'enabled': enabled,
+        'subsonicCutoffHz': subsonicCutoffHz,
+        'ultrasonicCutoffHz': ultrasonicCutoffHz,
+        'limiterThreshold': limiterThreshold,
+        'safetyAttenuationDb': safetyAttenuationDb,
+      });
 
   void configureAnalyzer({int frameSize = 512}) =>
       _send({'cmd': 'configureAnalyzer', 'frameSize': frameSize});
@@ -1006,13 +1023,51 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'clearMultibandFx':
           player.clearMultibandFx();
           break;
+        case 'setAnalyzerEnabled':
+          player.setAnalyzerEnabled(message['enabled'] == true);
+          break;
         case 'configureAnalyzer':
           player.configureAnalyzer(
             frameSize: (message['frameSize'] as int?) ?? 512,
           );
           break;
-        case 'setAnalyzerEnabled':
-          player.setAnalyzerEnabled(message['enabled'] == true);
+        case 'setSpeakerProtectionParams':
+          {
+            final bool enabled = message['enabled'] == true;
+            final double subHz = (message['subsonicCutoffHz'] as num?)?.toDouble() ?? 25.0;
+            final double ultraHz = (message['ultrasonicCutoffHz'] as num?)?.toDouble() ?? 20000.0;
+            final double threshold = (message['limiterThreshold'] as num?)?.toDouble() ?? 0.95;
+            final double attenDb = (message['safetyAttenuationDb'] as num?)?.toDouble() ?? -1.0;
+
+            if (enabled) {
+              if (subHz > 0) {
+                player.setHighpass(enabled: true, cutoffHz: subHz);
+              } else {
+                player.setHighpass(enabled: false, cutoffHz: 20.0);
+              }
+              if (ultraHz > 0) {
+                player.setLowpass(enabled: true, cutoffHz: ultraHz);
+              } else {
+                player.setLowpass(enabled: false, cutoffHz: 20000.0);
+              }
+              double outputVol = math.pow(10.0, attenDb / 20.0).toDouble().clamp(0.1, 1.0);
+              player.viper.setMasterLimiter(
+                threshold: threshold.clamp(0.5, 1.0),
+                outputVolume: outputVol,
+                channelPan: 0.0,
+              );
+              player.setLimiterEnabled(true);
+              player.setLimiterParams(threshold: threshold);
+            } else {
+              player.setHighpass(enabled: false, cutoffHz: 20.0);
+              player.setLowpass(enabled: false, cutoffHz: 20000.0);
+              player.viper.setMasterLimiter(
+                threshold: 1.0,
+                outputVolume: 1.0,
+                channelPan: 0.0,
+              );
+            }
+          }
           break;
         case 'setOutputFormat':
           player.setOutputFormat(AudioFormat.values[message['format']]);
