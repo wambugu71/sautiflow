@@ -729,117 +729,107 @@ namespace
 
     struct CrossfeedState
     {
-        std::vector<float> delayL;
-        std::vector<float> delayR;
-        size_t writeIdx = 0;
-        int cachedSampleRate = 44100;
+        float a0_lo = 0.0f;
+        float b1_lo = 0.0f;
+        float a0_hi = 0.0f;
+        float a1_hi = 0.0f;
+        float b1_hi = 0.0f;
+        float gain = 1.0f;
 
-        // Settings mapped per preset
-        float delayMs = 0.3f;
-        float crossoverFreq = 700.0f;
-        float feedLevel = 0.5f; // attenuation factor
-        float directLevel = 1.0f;
+        struct FilterState
+        {
+            float lo[2] = {0.0f, 0.0f};
+            float hi[2] = {0.0f, 0.0f};
+            float asis[2] = {0.0f, 0.0f};
+        } lfs;
 
         int currentPreset = 1;
-
-        // BS2B Low-Pass filters for the crossfeed
-        float lowPassL_y1 = 0;
-        float lowPassR_y1 = 0;
-        float alpha = 0.0f;
+        int cachedSampleRate = 44100;
 
         void reset(int sampleRate, int preset)
         {
-            currentPreset = preset;
+            if (sampleRate <= 0)
+                sampleRate = 44100;
             cachedSampleRate = sampleRate;
+            currentPreset = preset;
 
-            // Configure preset
-            if (preset == 1) // BS2B Weak (Chu Moy)
+            uint32_t fcut = 700;
+            uint32_t feed = 45;
+
+            if (preset == 1) // BS2B Default (Jan Meier - 700Hz, 4.5dB)
             {
-                delayMs = 0.28f;
-                crossoverFreq = 700.0f;
-                feedLevel = 0.5f; // approx -6dB
-                directLevel = 1.0f;
+                fcut = 700;
+                feed = 45;
             }
-            else if (preset == 2) // BS2B Strong (Jmeier)
+            else if (preset == 2) // BS2B Chu Moy (700Hz, 6.0dB)
             {
-                delayMs = 0.25f;
-                crossoverFreq = 700.0f;
-                feedLevel = 0.8f; // approx -2dB
-                directLevel = 1.0f;
+                fcut = 700;
+                feed = 60;
             }
-            else if (preset == 3) // Joe0bloggs approximation
+            else if (preset == 3) // BS2B Strong (650Hz, 9.5dB)
             {
-                delayMs = 0.4f;
-                crossoverFreq = 650.0f;
-                feedLevel = 0.65f;
-                directLevel = 0.9f; // Slightly reduces mono elements to build a wider bubble
+                fcut = 650;
+                feed = 95;
             }
             else
             {
-                // Default gracefully if off
-                delayMs = 0.3f;
-                crossoverFreq = 700.0f;
-                feedLevel = 0.0f;
-                directLevel = 1.0f;
+                fcut = 700;
+                feed = 45;
             }
 
-            size_t delaySamples = (size_t)((delayMs / 1000.0f) * sampleRate);
-            if (delaySamples == 0)
-                delaySamples = 1;
-            delayL.assign(delaySamples, 0.0f);
-            delayR.assign(delaySamples, 0.0f);
-            writeIdx = 0;
+            const double level = (double)feed / 10.0;
+            const double gb_lo = level * -5.0 / 6.0 - 3.0;
+            const double gb_hi = level / 6.0 - 3.0;
 
-            // Simple 1-pole LowPass Alpha
-            const float twoPi = 6.28318530718f;
-            alpha = (twoPi * crossoverFreq) / (twoPi * crossoverFreq + sampleRate);
+            const double g_lo = std::pow(10.0, gb_lo / 20.0);
+            const double g_hi = 1.0 - std::pow(10.0, gb_hi / 20.0);
+            const double fc_hi = (double)fcut * std::pow(2.0, (gb_lo - 20.0 * std::log10(g_hi)) / 12.0);
+
+            constexpr double pi = 3.14159265358979323846;
+            double x = std::exp(-2.0 * pi * (double)fcut / (double)sampleRate);
+            b1_lo = (float)x;
+            a0_lo = (float)(g_lo * (1.0 - x));
+
+            x = std::exp(-2.0 * pi * fc_hi / (double)sampleRate);
+            b1_hi = (float)x;
+            a0_hi = (float)(1.0 - g_hi * (1.0 - x));
+            a1_hi = (float)(-x);
+
+            gain = (float)(1.0 / (1.0 - g_hi + g_lo));
+            std::memset(&lfs, 0, sizeof(lfs));
+        }
+
+        inline float apply_lo_filter(float in, float out_1) const
+        {
+            return a0_lo * in + b1_lo * out_1;
+        }
+
+        inline float apply_hi_filter(float in, float in_1, float out_1) const
+        {
+            return a0_hi * in + a1_hi * in_1 + b1_hi * out_1;
         }
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 2 || feedLevel <= 0.001f)
-                return;
-            if (delayL.empty() || delayR.empty())
+            if (channels < 2)
                 return;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
-                size_t base = (size_t)i * channels;
-                float originalL = interleaved[base];
-                float originalR = interleaved[base + 1];
+                size_t base = (size_t)i * (size_t)channels;
+                float sL = interleaved[base];
+                float sR = interleaved[base + 1];
 
-                // Delay the signal
-                float dL = delayL[writeIdx];
-                float dR = delayR[writeIdx];
-                delayL[writeIdx] = originalL;
-                delayR[writeIdx] = originalR;
+                lfs.lo[0] = apply_lo_filter(sL, lfs.lo[0]);
+                lfs.lo[1] = apply_lo_filter(sR, lfs.lo[1]);
 
-                writeIdx++;
-                if (writeIdx >= delayL.size())
-                    writeIdx = 0;
+                lfs.hi[0] = apply_hi_filter(sL, lfs.asis[0], lfs.hi[0]);
+                lfs.hi[1] = apply_hi_filter(sR, lfs.asis[1], lfs.hi[1]);
+                lfs.asis[0] = sL;
+                lfs.asis[1] = sR;
 
-                // LPF the delayed opposite channel
-                lowPassL_y1 = lowPassL_y1 + alpha * (dR - lowPassL_y1);
-                lowPassR_y1 = lowPassR_y1 + alpha * (dL - lowPassR_y1);
-
-                float crossfedL = lowPassL_y1 * feedLevel;
-                float crossfedR = lowPassR_y1 * feedLevel;
-
-                float outL = (originalL * directLevel) + crossfedL;
-                float outR = (originalR * directLevel) + crossfedR;
-
-                // Simple peak normalization (since crossfeed intrinsically builds volume slightly in the lows)
-                float sumNormalizer = std::max(1.0f, (directLevel + feedLevel * 0.7f)); // Approximate normalization
-
-                // Note: For Joe0bloggs, we sometimes introduce an ultra-high shelf to offset the low build-up
-                if (currentPreset == 3)
-                {
-                    outL += originalL * 0.15f; // Minor high frequency "sparkle" bypass
-                    outR += originalR * 0.15f;
-                }
-
-                interleaved[base] = outL / sumNormalizer;
-                interleaved[base + 1] = outR / sumNormalizer;
+                interleaved[base]     = (lfs.hi[0] + lfs.lo[1]) * gain;
+                interleaved[base + 1] = (lfs.hi[1] + lfs.lo[0]) * gain;
             }
         }
     };
@@ -2488,9 +2478,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
                         if (fadeFrames > 0 && (length - cursor) <= fadeFrames)
                         {
+                            const ma_uint64 remain = length - cursor;
                             e->isCrossfading.store(true, std::memory_order_release);
-                            e->crossfadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
-                            e->crossfadeFramesRemaining.store(length - cursor, std::memory_order_relaxed);
+                            e->crossfadeFramesTotal.store(remain > 0 ? remain : fadeFrames, std::memory_order_relaxed);
+                            e->crossfadeFramesRemaining.store(remain, std::memory_order_relaxed);
 
                             e->fadingOutDecoder = e->currentDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -2709,12 +2700,14 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             ma_uint64 oldFramesRead = 0;
             ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
             
-            ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            constexpr float halfPi = 1.57079632679f;
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
             {
-                const float tIn = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
-                const float tOut = 1.0f - tIn;
-                
+                const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                const float tIn = std::sin(t * halfPi);
+                const float tOut = std::cos(t * halfPi);
+
                 const size_t base = (size_t)i * (size_t)e->channels;
                 for (int c = 0; c < e->channels; ++c)
                 {
@@ -2744,14 +2737,16 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         else if (fadeRemaining > 0 && fadeTotal > 0)
         {
             // Simple gapless fade-in (e.g. from seek or if crossfading is disabled/unsupported for this track)
-            ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+            constexpr float halfPi = 1.57079632679f;
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
             {
                 const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                const float tIn = std::sin(t * halfPi);
                 const size_t base = (size_t)i * (size_t)e->channels;
                 for (int c = 0; c < e->channels; ++c)
                 {
-                    processBuffer[base + (size_t)c] *= t;
+                    processBuffer[base + (size_t)c] *= tIn;
                 }
                 fadeRemaining -= 1;
             }
