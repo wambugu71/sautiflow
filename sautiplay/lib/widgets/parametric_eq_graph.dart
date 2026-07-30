@@ -18,7 +18,7 @@ class ParametricEqGraph extends StatelessWidget {
     super.key,
     required this.bands,
     this.isEnabled = true,
-    this.height = 180.0,
+    this.height = 100.0,
     this.primaryColor = const Color(0xFF137FEC),
   });
 
@@ -67,8 +67,8 @@ class _ParametricEqPainter extends CustomPainter {
 
   static const double minFreq = 20.0;
   static const double maxFreq = 20000.0;
-  static const double minDb = -24.0;
-  static const double maxDb = 24.0;
+  static const double minDb = -12.0;
+  static const double maxDb = 12.0;
   static const int numPoints = 150;
   static const double sampleRate = 48000.0;
 
@@ -87,8 +87,8 @@ class _ParametricEqPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paddingLeft = 32.0;
     final paddingRight = 16.0;
-    final paddingTop = 16.0;
-    final paddingBottom = 22.0;
+    final paddingTop = 12.0;
+    final paddingBottom = 18.0;
 
     final graphWidth = size.width - paddingLeft - paddingRight;
     final graphHeight = size.height - paddingTop - paddingBottom;
@@ -306,8 +306,8 @@ class _ParametricEqPainter extends CustomPainter {
       fontFamily: 'monospace',
     );
 
-    // Horizontal dB lines (-18dB, -12dB, -6dB, 0dB, +6dB, +12dB, +18dB)
-    final dbSteps = [-18.0, -12.0, -6.0, 0.0, 6.0, 12.0, 18.0];
+    // Horizontal dB lines (-12dB, -6dB, 0dB, +6dB, +12dB)
+    final dbSteps = [-12.0, -6.0, 0.0, 6.0, 12.0];
     for (final db in dbSteps) {
       final norm = (db - minDb) / (maxDb - minDb);
       final y = paddingTop + (1.0 - norm) * graphHeight;

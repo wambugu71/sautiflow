@@ -2170,7 +2170,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
         ParametricEqGraph(
           bands: _parametricBands,
           isEnabled: _parametricEqEnabled,
-          height: 180.0,
+          height: 100.0,
           primaryColor: primaryColor,
         ),
         const SizedBox(height: 8),
