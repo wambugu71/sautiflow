@@ -1266,10 +1266,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         ],
                                       ),
                                       const SizedBox(height: 40),
-                                      
-                                      // Progress Bar & Info Badge
-                                      Column(
-                                        children: [
+                                       // Progress Bar & Info Badge
+                                       Column(
+                                         children: [
                                           SliderTheme(
                                             data: SliderTheme.of(context).copyWith(
                                               trackHeight: 6.0,

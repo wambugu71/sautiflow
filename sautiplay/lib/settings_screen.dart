@@ -34,6 +34,8 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<int> onCrossfadeDurationMsChanged;
   final bool exclusiveMode;
   final ValueChanged<bool> onExclusiveModeChanged;
+  final String spectrumStyle;
+  final ValueChanged<String> onSpectrumStyleChanged;
 
   const SettingsScreen({
     super.key,
@@ -62,6 +64,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onCrossfadeDurationMsChanged,
     required this.exclusiveMode,
     required this.onExclusiveModeChanged,
+    required this.spectrumStyle,
+    required this.onSpectrumStyleChanged,
     required this.logs,
     required this.logUpdateNotifier,
     required this.allowInvalidTls,
@@ -1355,6 +1359,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const Divider(color: Colors.white10, height: 1),
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Spectrum Visualizer Style',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 4),
+                const Text('Style for the RTA spectrum analyzer bars',
+                    style: TextStyle(color: _textDark, fontSize: 12)),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final entry in {
+                      'neon': ('Neon', Icons.auto_awesome),
+                      'fire': ('Fire', Icons.local_fire_department),
+                      'minimal': ('Minimal', Icons.remove),
+                      'pill': ('Pill', Icons.lens),
+                    }.entries)
+                      GestureDetector(
+                        onTap: () => widget.onSpectrumStyleChanged(entry.key),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: widget.spectrumStyle == entry.key
+                                ? _primary
+                                : Colors.black26,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: widget.spectrumStyle == entry.key
+                                  ? _primary
+                                  : Colors.white10,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(entry.value.$2, size: 16,
+                                  color: widget.spectrumStyle == entry.key
+                                      ? Colors.white
+                                      : _textDark),
+                              const SizedBox(width: 6),
+                              Text(
+                                entry.value.$1,
+                                style: TextStyle(
+                                  color: widget.spectrumStyle == entry.key
+                                      ? Colors.white
+                                      : _textDark,
+                                  fontWeight: widget.spectrumStyle == entry.key
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const Divider(color: Colors.white10, height: 1),
           SwitchListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

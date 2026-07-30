@@ -522,6 +522,7 @@ class AppStateService {
   static const _kAnalyzerAutoFit = 'sp_analyzer_auto_fit';
   static const _kAnalyzerShowGrids = 'sp_analyzer_show_grids';
   static const _kAnalyzerLogScale = 'sp_analyzer_log_scale';
+  static const _kSpectrumStyle = 'sp_spectrum_style';
 
   Future<void> saveEngineSettings({
     required int outputFormatIndex,
@@ -537,6 +538,7 @@ class AppStateService {
     required bool analyzerAutoFit,
     required bool analyzerShowGrids,
     required bool analyzerLogScale,
+    required String spectrumStyle,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
@@ -552,6 +554,7 @@ class AppStateService {
     await prefs.setBool(_kAnalyzerAutoFit, analyzerAutoFit);
     await prefs.setBool(_kAnalyzerShowGrids, analyzerShowGrids);
     await prefs.setBool(_kAnalyzerLogScale, analyzerLogScale);
+    await prefs.setString(_kSpectrumStyle, spectrumStyle);
   }
 
   Future<
@@ -568,7 +571,8 @@ class AppStateService {
         bool exclusiveMode,
         bool analyzerAutoFit,
         bool analyzerShowGrids,
-        bool analyzerLogScale
+        bool analyzerLogScale,
+        String spectrumStyle
       })> loadEngineSettings() async {
     final prefs = await SharedPreferences.getInstance();
     return (
@@ -585,6 +589,7 @@ class AppStateService {
       analyzerAutoFit: prefs.getBool(_kAnalyzerAutoFit) ?? true,
       analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
       analyzerLogScale: prefs.getBool(_kAnalyzerLogScale) ?? true,
+      spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'neon',
     );
   }
 

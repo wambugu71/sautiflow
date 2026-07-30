@@ -220,14 +220,27 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   double _limiterAttackMs = 2.0; // 0.1 – 100 ms
   double _limiterReleaseMs = 50.0; // 10 – 1000 ms
 
-  // Playback Speed
+  // Playback Speed & Status
   double _playbackPitch = 1.0;
+  bool _isPlaying = false;
+  StreamSubscription<PlayerStatus>? _statusSub;
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
     _initEq();
+    widget.player.setAnalyzerEnabled(true);
+    widget.player.configureAnalyzer(frameSize: 512);
+
+    _statusSub = widget.player.statusStream.listen((status) {
+      if (mounted && _isPlaying != status.isPlaying) {
+        setState(() {
+          _isPlaying = status.isPlaying;
+        });
+      }
+    });
+
     _eqSettingsSub =
         AppStateService.instance.eqSettingsChanged.stream.listen((_) {
       if (mounted) _loadPreferences();
@@ -455,7 +468,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
 
   @override
   void dispose() {
+    _statusSub?.cancel();
     _eqSettingsSub?.cancel();
+    widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
 

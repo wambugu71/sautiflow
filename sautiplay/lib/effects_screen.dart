@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'services/fft_processor.dart';
@@ -16,6 +17,7 @@ class EffectsScreen extends StatefulWidget {
   final bool analyzerShowGrids;
   final bool analyzerLogScale;
   final int outputSampleRate;
+  final String spectrumStyle;
 
   const EffectsScreen({
     super.key,
@@ -26,6 +28,7 @@ class EffectsScreen extends StatefulWidget {
     required this.analyzerShowGrids,
     this.analyzerLogScale = true,
     required this.outputSampleRate,
+    this.spectrumStyle = 'neon',
   });
 
   @override
@@ -307,6 +310,30 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         child: SizedBox(
                           height: 160,
                           child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
+                        ),
+                      ),
+                    if (widget.analyzerEnabled)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+                        child: Column(
+                          children: [
+                            SpectrumVisualizerWidget(
+                              analyzerStream: widget.player.analyzerStream,
+                              isPlaying: true,
+                              bandCount: 32,
+                              height: 85,
+                              style: SpectrumVisualStyle.values.firstWhere(
+                                (s) => s.name == widget.spectrumStyle,
+                                orElse: () => SpectrumVisualStyle.neon,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            RmsMeterWidget(
+                              analyzerStream: widget.player.analyzerStream,
+                              isPlaying: true,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                         ),
                       ),
                     const TabBar(

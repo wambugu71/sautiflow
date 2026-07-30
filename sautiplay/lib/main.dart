@@ -193,6 +193,7 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _analyzerAutoFit = true;
   bool _analyzerShowGrids = true;
   bool _analyzerLogScale = true;
+  String _spectrumStyle = 'neon';
 
   @override
   void initState() {
@@ -288,6 +289,7 @@ class _PlayerShellState extends State<PlayerShell> {
       _analyzerAutoFit = engine.analyzerAutoFit;
       _analyzerShowGrids = engine.analyzerShowGrids;
       _analyzerLogScale = engine.analyzerLogScale;
+      _spectrumStyle = engine.spectrumStyle;
     });
 
     // Apply basic engine settings
@@ -370,6 +372,7 @@ class _PlayerShellState extends State<PlayerShell> {
       analyzerAutoFit: _analyzerAutoFit,
       analyzerShowGrids: _analyzerShowGrids,
       analyzerLogScale: _analyzerLogScale,
+      spectrumStyle: _spectrumStyle,
     );
   }
 
@@ -1388,6 +1391,7 @@ class _PlayerShellState extends State<PlayerShell> {
             analyzerShowGrids: _analyzerShowGrids,
             analyzerLogScale: _analyzerLogScale,
             outputSampleRate: _outputSampleRate,
+            spectrumStyle: _spectrumStyle,
           ),
           SettingsScreen(
               exclusiveMode: _exclusiveMode,
@@ -1420,6 +1424,11 @@ class _PlayerShellState extends State<PlayerShell> {
               analyzerLogScale: _analyzerLogScale,
               onAnalyzerLogScaleChanged: (v) {
                 setState(() => _analyzerLogScale = v);
+                _saveEngineSettings();
+              },
+              spectrumStyle: _spectrumStyle,
+              onSpectrumStyleChanged: (v) {
+                setState(() => _spectrumStyle = v);
                 _saveEngineSettings();
               },
               analyzerSampleSize: _analyzerSampleSize,
