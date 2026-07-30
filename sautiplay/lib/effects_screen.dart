@@ -277,87 +277,150 @@ class _EffectsScreenState extends State<EffectsScreen> {
   @override
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF137fec);
-    
+    const bgColor = Color(0xFF101922);
+    const headerColor = Color(0xFF111a22);
+
+    // Calculate the dynamic expanded height based on what's visible
+    final double analyzerChartHeight =
+        (widget.analyzerEnabled && _analyzerValues.isNotEmpty) ? 176.0 : 0.0; // 160 + padding
+    final double spectrumHeight = widget.analyzerEnabled ? 160.0 : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
+    const double titleBarHeight = 56.0;
+    const double tabBarHeight = 48.0;
+    final topPadding = MediaQuery.of(context).padding.top;
+    final double expandedHeight =
+        topPadding + titleBarHeight + analyzerChartHeight + spectrumHeight + tabBarHeight;
+    final double collapsedHeight = topPadding + titleBarHeight + tabBarHeight;
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: const Color(0xFF101922),
-        body: Column(
-          children: [
-            Container(
-              color: const Color(0xFF111a22).withOpacity(0.95),
-              child: SafeArea(
-                bottom: false,
-                child: Column(
-                  children: [
-                    SizedBox(
-                      height: 56,
-                      child: Row(
-                        children: [
-                          const BackButton(color: Colors.white),
-                          const Expanded(
-                            child: Text('Audio Effects', 
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        backgroundColor: bgColor,
+        body: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) {
+            return [
+              SliverAppBar(
+                backgroundColor: headerColor,
+                pinned: true,
+                floating: false,
+                snap: false,
+                expandedHeight: expandedHeight,
+                collapsedHeight: collapsedHeight,
+                toolbarHeight: 0, // We handle our own title in flexibleSpace
+                automaticallyImplyLeading: false,
+                flexibleSpace: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // How much space is available beyond the collapsed state
+                    final double currentHeight = constraints.maxHeight;
+                    final double expandableRange = expandedHeight - collapsedHeight;
+                    final double scrollFraction = expandableRange > 0
+                        ? ((currentHeight - collapsedHeight) / expandableRange).clamp(0.0, 1.0)
+                        : 0.0;
+
+                    return Column(
+                      children: [
+                        // Safe area top padding
+                        SizedBox(height: topPadding),
+
+                        // Title bar (always visible)
+                        SizedBox(
+                          height: titleBarHeight,
+                          child: Row(
+                            children: [
+                              const BackButton(color: Colors.white),
+                              const Expanded(
+                                child: Text(
+                                  'Audio Effects',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 48),
+                            ],
                           ),
-                          const SizedBox(width: 48),
-                        ],
-                      ),
-                    ),
-                    if (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: SizedBox(
-                          height: 160,
-                          child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
                         ),
-                      ),
-                    if (widget.analyzerEnabled)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-                        child: Column(
-                          children: [
-                            SpectrumVisualizerWidget(
-                              analyzerStream: widget.player.analyzerStream,
-                              isPlaying: true,
-                              bandCount: 32,
-                              height: 85,
-                              style: SpectrumVisualStyle.values.firstWhere(
-                                (s) => s.name == widget.spectrumStyle,
-                                orElse: () => SpectrumVisualStyle.neon,
+
+                        // Collapsible analyzer section
+                        if (expandableRange > 0)
+                          Expanded(
+                            child: ClipRect(
+                              child: Opacity(
+                                opacity: scrollFraction,
+                                child: SingleChildScrollView(
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  child: Column(
+                                    children: [
+                                      // FL Chart Realtime Analyzer
+                                      if (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                          child: SizedBox(
+                                            height: 160,
+                                            child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
+                                          ),
+                                        ),
+
+                                      // Spectrum Visualizer + RMS Meter
+                                      if (widget.analyzerEnabled)
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+                                          child: Column(
+                                            children: [
+                                              SpectrumVisualizerWidget(
+                                                analyzerStream: widget.player.analyzerStream,
+                                                isPlaying: true,
+                                                bandCount: 32,
+                                                height: 85,
+                                                style: SpectrumVisualStyle.values.firstWhere(
+                                                  (s) => s.name == widget.spectrumStyle,
+                                                  orElse: () => SpectrumVisualStyle.neon,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              RmsMeterWidget(
+                                                analyzerStream: widget.player.analyzerStream,
+                                                isPlaying: true,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            RmsMeterWidget(
-                              analyzerStream: widget.player.analyzerStream,
-                              isPlaying: true,
-                            ),
-                            const SizedBox(height: 8),
+                          ),
+
+                        // TabBar (always pinned at bottom of header)
+                        const TabBar(
+                          indicatorColor: primaryColor,
+                          labelColor: Colors.white,
+                          unselectedLabelColor: Colors.white54,
+                          tabs: [
+                            Tab(text: 'Equalizer'),
+                            Tab(text: 'ViPER FX'),
                           ],
                         ),
-                      ),
-                    const TabBar(
-                      indicatorColor: primaryColor,
-                      labelColor: Colors.white,
-                      unselectedLabelColor: Colors.white54,
-                      tabs: [
-                        Tab(text: 'Equalizer'),
-                        Tab(text: 'ViPER FX'),
                       ],
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  EqScreen(player: widget.player, analyzerEnabled: widget.analyzerEnabled, analyzerType: widget.analyzerType),
-                  ViperFxScreen(player: widget.player),
-                ],
+            ];
+          },
+          body: TabBarView(
+            children: [
+              EqScreen(
+                player: widget.player,
+                analyzerEnabled: widget.analyzerEnabled,
+                analyzerType: widget.analyzerType,
               ),
-            ),
-          ],
+              ViperFxScreen(player: widget.player),
+            ],
+          ),
         ),
       ),
     );
