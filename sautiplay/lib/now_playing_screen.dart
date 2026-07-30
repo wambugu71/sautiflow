@@ -82,6 +82,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     with SingleTickerProviderStateMixin {
   late bool _isAnalyzerEnabled;
   late final AnimationController _rotationController;
+  late final PageController _pageController;
 
   final ValueNotifier<List<double>> _analyzerValuesNotifier = ValueNotifier([]);
   StreamSubscription? _analyzerSub;
@@ -139,6 +140,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: 0);
     _isAnalyzerEnabled = widget.analyzerEnabled;
     _ytMusic.initialize();
     _fetchLyrics();
@@ -212,6 +214,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _hardwareSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
+    _pageController.dispose();
     // Always clear A-B repeat when leaving the screen
     widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
     super.dispose();
@@ -969,7 +972,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ),
                   ),
                 ),
-                LayoutBuilder(builder: (context, constraints) {
+                PageView(
+                  controller: _pageController,
+                  scrollDirection: Axis.vertical,
+                  physics: const BouncingScrollPhysics(),
+                  children: [
+                    LayoutBuilder(builder: (context, constraints) {
                   final isDesktop = constraints.maxWidth >= 800;
 
                   final pureLyrics = _isLoadingLyrics
@@ -1790,29 +1798,93 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           ),
                         ),
                         
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 48),
                         
                       ],
                     );
                   }
 
-                  return Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                          maxWidth: isDesktop ? double.infinity : 600.0),
-                      child: SafeArea(
-                        child: content,
+                  final bottomPadding = MediaQuery.of(context).padding.bottom;
+
+                  return Stack(
+                    children: [
+                      Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                              maxWidth: isDesktop ? double.infinity : 600.0),
+                          child: SafeArea(
+                            child: content,
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        bottom: bottomPadding + 6,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: () => _showQueueSheet(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.keyboard_arrow_up,
+                                      size: 16, color: Colors.white70),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'UP NEXT',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.0,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 }),
+                QueueScreen(
+                  queue: widget.queue,
+                  videoId: widget.videoId,
+                  albumArt: widget.albumArt,
+                  onPlayQueueIndex: widget.onPlayQueueIndex,
+                  onReorderQueue: widget.onReorderQueue,
+                  statusNotifier: widget.statusNotifier,
+                  onClose: () {
+                    if (_pageController.hasClients) {
+                      _pageController.animateToPage(
+                        0,
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeOutCubic,
+                      );
+                    }
+                  },
+                ),
               ],
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
+  },
+);
   }
 
   Widget _buildActionIcon(IconData icon, VoidCallback onTap, [bool isActive = false]) {
@@ -1882,32 +1954,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _showQueueSheet(BuildContext context) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false, // allows the Now Playing screen to show behind the transparent background
-        pageBuilder: (context, animation, secondaryAnimation) => QueueScreen(
-          queue: widget.queue,
-          videoId: widget.videoId,
-          albumArt: widget.albumArt,
-          onPlayQueueIndex: widget.onPlayQueueIndex,
-          onReorderQueue: widget.onReorderQueue,
-          statusNotifier: widget.statusNotifier,
-        ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(0.0, 1.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-          var offsetAnimation = animation.drive(tween);
-
-          return SlideTransition(
-            position: offsetAnimation,
-            child: child,
-          );
-        },
-      ),
-    );
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        1,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

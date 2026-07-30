@@ -15,6 +15,7 @@ class QueueScreen extends StatefulWidget {
   final void Function(int) onPlayQueueIndex;
   final void Function(int, int) onReorderQueue;
   final ValueNotifier<PlayerStatus>? statusNotifier;
+  final VoidCallback? onClose;
 
   const QueueScreen({
     super.key,
@@ -24,13 +25,16 @@ class QueueScreen extends StatefulWidget {
     required this.onPlayQueueIndex,
     required this.onReorderQueue,
     this.statusNotifier,
+    this.onClose,
   });
 
   @override
   State<QueueScreen> createState() => _QueueScreenState();
 }
 
-class _QueueScreenState extends State<QueueScreen> {
+class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   late ScrollController _scrollController;
   int? _lastPlayingIndex;
   bool _hasInitialScrolled = false;
@@ -133,6 +137,7 @@ class _QueueScreenState extends State<QueueScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     const Color primaryColor = Color(0xFF137FEC);
     const Color bgColor = Color(0xFF101922);
 
@@ -162,8 +167,8 @@ class _QueueScreenState extends State<QueueScreen> {
           ],
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 30),
+          onPressed: widget.onClose ?? () => Navigator.of(context).pop(),
         ),
         actions: [
           if (widget.queue.isNotEmpty)
