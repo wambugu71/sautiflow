@@ -947,6 +947,215 @@ namespace
         }
     };
 
+    // -------------------------------------------------------------
+    // JamesDSP Warped Polyphase Filter Bank (5 Subband Decomposition)
+    // -------------------------------------------------------------
+    struct WarpedPFB
+    {
+        unsigned int decimationCounter[5] = {1, 1, 1, 1, 1};
+        unsigned int Sk[5] = {1, 1, 1, 1, 1};
+        float subbandData[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+        // Allpass warp delay chain states for 5 subbands
+        float dL[5][2] = {{0}};
+        float dR[5][2] = {{0}};
+        float warpingFactor = 0.65f;
+    };
+
+    static inline void initWarpedPFB(WarpedPFB *pfb, float sampleRate, int bands, int channels)
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            pfb->decimationCounter[i] = 1;
+            pfb->Sk[i] = 1;
+            pfb->subbandData[i] = 0.0f;
+            for (int j = 0; j < 2; j++)
+            {
+                pfb->dL[i][j] = 0.0f;
+                pfb->dR[i][j] = 0.0f;
+            }
+        }
+        if (sampleRate >= 88200.0f)
+            pfb->warpingFactor = 0.82f;
+        else if (sampleRate >= 44100.0f)
+            pfb->warpingFactor = 0.65f;
+        else
+            pfb->warpingFactor = 0.50f;
+    }
+
+    static inline void assignPtrWarpedPFB(WarpedPFB *pfb, int bands, int channels)
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            pfb->decimationCounter[i] = 1;
+            pfb->Sk[i] = 1;
+            pfb->subbandData[i] = 0.0f;
+        }
+    }
+
+    static inline void analysisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, float *inL, float *inR)
+    {
+        float xL = *inL;
+        float xR = *inR;
+        const float lambda = subband0->warpingFactor;
+
+        // Channel 0 (Left)
+        float wL0 = lambda * (xL - subband0->dL[0][0]) + subband0->dL[0][1];
+        subband0->dL[0][1] = xL; subband0->dL[0][0] = wL0;
+        float b0L = (xL + wL0) * 0.5f;
+        float h0L = (xL - wL0) * 0.5f;
+
+        float wL1 = lambda * (h0L - subband0->dL[1][0]) + subband0->dL[1][1];
+        subband0->dL[1][1] = h0L; subband0->dL[1][0] = wL1;
+        float b1L = (h0L + wL1) * 0.5f;
+        float h1L = (h0L - wL1) * 0.5f;
+
+        float wL2 = lambda * (h1L - subband0->dL[2][0]) + subband0->dL[2][1];
+        subband0->dL[2][1] = h1L; subband0->dL[2][0] = wL2;
+        float b2L = (h1L + wL2) * 0.5f;
+
+        float wL3 = lambda * (b0L - subband0->dL[3][0]) + subband0->dL[3][1];
+        subband0->dL[3][1] = b0L; subband0->dL[3][0] = wL3;
+        float b3L = (b0L + wL3) * 0.5f;
+        float h3L = (b0L - wL3) * 0.5f;
+
+        subband0->subbandData[0] = h3L;
+        subband0->subbandData[1] = b3L;
+        subband0->subbandData[2] = b2L;
+        subband0->subbandData[3] = b1L;
+        subband0->subbandData[4] = (h1L - wL2) * 0.5f;
+
+        // Channel 1 (Right)
+        float wR0 = lambda * (xR - subband1->dL[0][0]) + subband1->dL[0][1];
+        subband1->dL[0][1] = xR; subband1->dL[0][0] = wR0;
+        float b0R = (xR + wR0) * 0.5f;
+        float h0R = (xR - wR0) * 0.5f;
+
+        float wR1 = lambda * (h0R - subband1->dL[1][0]) + subband1->dL[1][1];
+        subband1->dL[1][1] = h0R; subband1->dL[1][0] = wR1;
+        float b1R = (h0R + wR1) * 0.5f;
+        float h1R = (h0R - wR1) * 0.5f;
+
+        float wR2 = lambda * (h1R - subband1->dL[2][0]) + subband1->dL[2][1];
+        subband1->dL[2][1] = h1R; subband1->dL[2][0] = wR2;
+        float b2R = (h1R + wR2) * 0.5f;
+
+        float wR3 = lambda * (b0R - subband1->dL[3][0]) + subband1->dL[3][1];
+        subband1->dL[3][1] = b0R; subband1->dL[3][0] = wR3;
+        float b3R = (b0R + wR3) * 0.5f;
+        float h3R = (b0R - wR3) * 0.5f;
+
+        subband1->subbandData[0] = h3R;
+        subband1->subbandData[1] = b3R;
+        subband1->subbandData[2] = b2R;
+        subband1->subbandData[3] = b1R;
+        subband1->subbandData[4] = (h1R - wR2) * 0.5f;
+    }
+
+    static inline void synthesisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, float *outL, float *outR)
+    {
+        *outL = subband0->subbandData[0] + subband0->subbandData[1] + subband0->subbandData[2] + subband0->subbandData[3] + subband0->subbandData[4];
+        *outR = subband1->subbandData[0] + subband1->subbandData[1] + subband1->subbandData[2] + subband1->subbandData[3] + subband1->subbandData[4];
+    }
+
+    // -------------------------------------------------------------
+    // JamesDSP Stereo Enhancement Structure
+    // -------------------------------------------------------------
+    struct StereoEnhancementState
+    {
+        float mix = 0.5f;
+        float minusMix = 0.5f;
+        float gain = 1.0f;
+        float emaAlpha[5] = {0};
+        float sumStates[5] = {0};
+        float diffStates[5] = {0};
+
+        WarpedPFB subband0;
+        WarpedPFB subband1;
+        int cachedSampleRate = 44100;
+        bool initialized = false;
+
+        void refresh(int sampleRate)
+        {
+            if (sampleRate <= 0) sampleRate = 44100;
+            cachedSampleRate = sampleRate;
+            initWarpedPFB(&subband0, (float)sampleRate, 5, 2);
+            assignPtrWarpedPFB(&subband1, 5, 2);
+
+            float ms = 1.2f; // 1.2 ms attack/release constant
+            for (unsigned int i = 0; i < 5; i++)
+            {
+                emaAlpha[i] = 1.0f - std::pow(10.0f, (std::log10(0.5f) / (ms / 1000.0f) / ((float)sampleRate / (float)subband0.Sk[i])));
+                sumStates[i] = 0.0f;
+                diffStates[i] = 0.0f;
+            }
+            setParam(mix);
+            initialized = true;
+        }
+
+        void setParam(float m)
+        {
+            mix = clampf(m, 0.0f, 1.0f);
+            minusMix = 1.0f - mix;
+            if (mix > 0.5f)
+                gain = 3.0f - mix * 2.0f;
+            else
+                gain = mix * 2.0f + 1.0f;
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        {
+            if (channels < 2) return;
+            if (!initialized || cachedSampleRate != sampleRate)
+            {
+                refresh(sampleRate);
+            }
+
+            unsigned int *samplingPeriod = subband0.decimationCounter;
+            unsigned int *Sk = subband0.Sk;
+            float *bandLeft = subband0.subbandData;
+            float *bandRight = subband1.subbandData;
+
+            for (ma_uint32 i = 0; i < frames; i++)
+            {
+                size_t base = (size_t)i * (size_t)channels;
+                float inL = interleaved[base];
+                float inR = interleaved[base + 1];
+                float y1, y2;
+
+                analysisWarpedPFBStereo(&subband0, &subband1, &inL, &inR);
+
+                for (int j = 0; j < 5; j++)
+                {
+                    if (samplingPeriod[j] == Sk[j])
+                    {
+                        float sum = bandLeft[j] + bandRight[j];
+                        float diff = bandLeft[j] - bandRight[j];
+                        float sumSq = sum * sum;
+                        float diffSq = diff * diff;
+
+                        sumStates[j] = sumStates[j] * (1.0f - emaAlpha[j]) + sumSq * emaAlpha[j];
+                        diffStates[j] = diffStates[j] * (1.0f - emaAlpha[j]) + diffSq * emaAlpha[j];
+
+                        float centre = 0.0f;
+                        if (sumSq > 1e-12f && sumStates[j] > 1e-12f)
+                        {
+                            float ratio = std::sqrt(clampf(diffStates[j] / sumStates[j], 0.0f, 1.0f));
+                            centre = (0.5f - ratio * 0.5f) * sum;
+                        }
+
+                        bandLeft[j] = (bandLeft[j] - centre) * mix + centre * minusMix;
+                        bandRight[j] = (bandRight[j] - centre) * mix + centre * minusMix;
+                    }
+                }
+
+                synthesisWarpedPFBStereo(&subband0, &subband1, &y1, &y2);
+                interleaved[base] = y1 * gain;
+                interleaved[base + 1] = y2 * gain;
+            }
+        }
+    };
+
     struct DynamicExciterSVF
     {
         float ic1eq = 0.0f;
@@ -1022,10 +1231,10 @@ namespace
             driveLevel = 1.0f;
             harmMix = 0.0f;
 
-            filterL.set(cutoffFreq, 0.7071f, sampleRate);
-            filterR.set(cutoffFreq, 0.7071f, sampleRate);
-            envL.set(50.0f, sampleRate); // 50ms release
-            envR.set(50.0f, sampleRate);
+            filterL.set(cutoffFreq, 0.7071f, (float)sampleRate);
+            filterR.set(cutoffFreq, 0.7071f, (float)sampleRate);
+            envL.set(50.0f, (float)sampleRate); // 50ms release
+            envR.set(50.0f, (float)sampleRate);
         }
 
         void setPreset(int dPreset)
@@ -1049,8 +1258,8 @@ namespace
 
             if (cachedSampleRate > 0)
             {
-                filterL.set(cutoffFreq, 0.7071f, cachedSampleRate);
-                filterR.set(cutoffFreq, 0.7071f, cachedSampleRate);
+                filterL.set(cutoffFreq, 0.7071f, (float)cachedSampleRate);
+                filterR.set(cutoffFreq, 0.7071f, (float)cachedSampleRate);
             }
         }
 
@@ -1489,6 +1698,10 @@ struct AudioEngineHandle
     // Stereo Widen Effect
     bool stereoWidenEnabled = false;
     StereoWidenState stereoWiden;
+
+    // JamesDSP Stereo Enhancement Effect
+    bool stereoEnhancementEnabled = false;
+    StereoEnhancementState stereoEnhancement;
 
     // Crossfeed (Headphone Virtualization)
     bool crossfeedEnabled = false;
@@ -2851,6 +3064,13 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->stereoWiden.process(processBuffer, produced, e->channels);
             }
 
+            // JamesDSP Stereo Enhancement
+            if (e->stereoEnhancementEnabled)
+            {
+                const int sr = (e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate;
+                e->stereoEnhancement.process(processBuffer, produced, e->channels, sr);
+            }
+
             // Dynamic Bass
             if (e->dynamicBassEnabled)
             {
@@ -3856,6 +4076,26 @@ extern "C"
         return s;
     }
 
+    AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *e)
+    {
+        AEPipelineState ps{};
+        if (e == nullptr)
+            return ps;
+
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        ps.eq_enabled = e->eqEnabled ? 1 : 0;
+        ps.reverb_enabled = e->reverbEnabled ? 1 : 0;
+        ps.limiter_enabled = e->limiterEnabled ? 1 : 0;
+        ps.stereo_widen_enabled = e->stereoWidenEnabled ? 1 : 0;
+        ps.stereo_enhancement_enabled = e->stereoEnhancementEnabled ? 1 : 0;
+        ps.spatialization_enabled = e->spatializationEnabled ? 1 : 0;
+        ps.delay_enabled = e->delayEnabled ? 1 : 0;
+        ps.gain = e->gain;
+        ps.pan = e->pan;
+        ps.pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+        return ps;
+    }
+
     AE_API const char *ae_get_last_error(AudioEngineHandle *e)
     {
         static thread_local std::string tlsLastError;
@@ -4141,6 +4381,89 @@ extern "C"
         if (e == nullptr)
             return 0.0f;
         return e->crystalizer.intensity;
+    }
+
+    AE_API void ae_set_stereo_widen(AudioEngineHandle *e, int enabled, float width, float delay_ms)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->stereoWidenEnabled = (enabled != 0);
+        e->stereoWiden.updateParams(e->sampleRate, width, delay_ms);
+    }
+
+    AE_API void ae_set_stereo_enhancement_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->stereoEnhancementEnabled = (enabled != 0);
+    }
+
+    AE_API int ae_get_stereo_enhancement_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return e->stereoEnhancementEnabled ? 1 : 0;
+    }
+
+    AE_API void ae_set_stereo_enhancement_mix(AudioEngineHandle *e, float mix)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->stereoEnhancement.setParam(mix);
+    }
+
+    AE_API float ae_get_stereo_enhancement_mix(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.5f;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return e->stereoEnhancement.mix;
+    }
+
+    AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedEnabled = (enabled != 0);
+        if (engine->crossfeedEnabled)
+        {
+            engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
+        }
+    }
+
+    AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedPreset = preset;
+        engine->crossfeed.reset(engine->sampleRate, preset);
+    }
+
+    AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->dynamicBassEnabled = (enabled != 0);
+    }
+
+    AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->dynamicBass.resetIfRateChanged(engine->sampleRate);
+        if (preset >= 0 && preset <= 18)
+        {
+            engine->dynamicBass.setPreset(preset);
+        }
+        engine->dynamicBass.setBassGain(gain);
     }
 
     // Helper to restart device with new config
@@ -5283,106 +5606,6 @@ extern "C"
         if (!obj)
             return 0;
         return ma_resampler_get_output_latency(&obj->filter);
-    }
-
-    AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms)
-    {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->stereoWidenEnabled = (enabled != 0);
-        engine->stereoWiden.updateParams(engine->sampleRate, clampf(width, 0.0f, 5.0f), clampf(delay_ms, 0.0f, 100.0f));
-    }
-
-    AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled)
-    {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->crossfeedEnabled = (enabled != 0);
-        if (engine->crossfeedEnabled)
-        {
-            engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
-        }
-    }
-
-    AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset)
-    {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->crossfeedPreset = preset;
-        engine->crossfeed.reset(engine->sampleRate, preset);
-    }
-
-    AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)
-    {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->dynamicBassEnabled = (enabled != 0);
-    }
-
-    AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain)
-    {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->dynamicBass.resetIfRateChanged(engine->sampleRate);
-        if (preset >= 0 && preset <= 18)
-        {
-            engine->dynamicBass.setPreset(preset);
-        }
-        engine->dynamicBass.setBassGain(gain);
-    }
-
-    AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine)
-    {
-        AEPipelineState state;
-        memset(&state, 0, sizeof(AEPipelineState));
-
-        if (!engine)
-        {
-            return state;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(engine->decoderMutex);
-            if (engine->currentDecoder)
-            {
-                state.input_format = engine->currentDecoder->converter.formatIn;
-                state.input_sample_rate = engine->currentDecoder->converter.sampleRateIn;
-                state.input_channels = engine->currentDecoder->converter.channelsIn;
-            }
-        }
-
-        state.processing_format = engine->device.playback.format;
-        state.processing_sample_rate = engine->sampleRate;
-        state.processing_channels = engine->channels;
-
-        state.output_format = engine->device.playback.internalFormat;
-        state.output_sample_rate = engine->device.playback.internalSampleRate;
-        state.output_channels = engine->device.playback.internalChannels;
-
-        {
-            std::lock_guard<std::mutex> lock(engine->fxMutex);
-            state.eq_enabled = engine->eqEnabled ? 1 : 0;
-            state.reverb_enabled = engine->reverbEnabled ? 1 : 0;
-            state.limiter_enabled = engine->limiterEnabled ? 1 : 0;
-            state.stereo_widen_enabled = engine->stereoWidenEnabled ? 1 : 0;
-            state.delay_enabled = engine->delayEnabled ? 1 : 0;
-            state.gain = engine->gain;
-            state.pan = engine->pan;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(engine->spatialMutex);
-            state.spatialization_enabled = engine->spatializationEnabled ? 1 : 0;
-        }
-
-        state.pitch = engine->pitchMultiplier.load();
-
-        return state;
     }
 
     // ==========================================

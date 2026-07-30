@@ -217,6 +217,27 @@ class AppStateService {
     );
   }
 
+  // ─── EQ – JamesDSP Stereo Enhancement ──────────────────────────────────────────
+  static const _kStereoEnhancementEnabled = 'sp_stereo_enhancement_enabled';
+  static const _kStereoEnhancementMix = 'sp_stereo_enhancement_mix';
+
+  Future<void> saveStereoEnhancement({
+    required bool enabled,
+    required double mix,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kStereoEnhancementEnabled, enabled);
+    await prefs.setDouble(_kStereoEnhancementMix, mix);
+  }
+
+  Future<({bool enabled, double mix})> loadStereoEnhancement() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kStereoEnhancementEnabled) ?? false,
+      mix: prefs.getDouble(_kStereoEnhancementMix) ?? 0.5,
+    );
+  }
+
   Future<void> saveCrossfeed({
     required bool enabled,
     required int preset,

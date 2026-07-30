@@ -183,6 +183,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   double _stereoWidenWidth = 1.5;
   double _stereoWidenDelayMs = 0.15; // Maps to 15ms
 
+  // JamesDSP Stereo Enhancement
+  bool _stereoEnhancementEnabled = false;
+  double _stereoEnhancementMix = 0.5;
+
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
   double _tuneLow = 0.0;
@@ -260,6 +264,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     final dynamicBass = await AppStateService.instance.loadDynamicBass();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
+    final stereoEnhancement = await AppStateService.instance.loadStereoEnhancement();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
@@ -314,6 +319,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       _stereoWidenWidth = stereoWiden.width;
       _stereoWidenDelayMs = stereoWiden.delayMs;
 
+      // JamesDSP Stereo Enhancement
+      _stereoEnhancementEnabled = stereoEnhancement.enabled;
+      _stereoEnhancementMix = stereoEnhancement.mix;
+
       // Audio Tuning
       _audioTuningEnabled = tuning.enabled;
       _tuneLow = tuning.low;
@@ -365,6 +374,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     if (_stereoWidenEnabled) {
       _updateStereoWiden();
     }
+    if (_stereoEnhancementEnabled) {
+      _updateStereoEnhancement();
+    }
     if (_audioTuningEnabled) {
       widget.player.setEqEnabled(true);
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
@@ -382,6 +394,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     if (_limiterEnabled) {
       _applyLimiter();
     }
+  }
+
+  void _updateStereoEnhancement() {
+    widget.player.setStereoEnhancement(
+      enabled: _stereoEnhancementEnabled,
+      mix: _stereoEnhancementMix,
+    );
   }
 
   /// Applies the loaded preamp value to the audio engine.
@@ -430,6 +449,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       enabled: _stereoWidenEnabled,
       width: _stereoWidenWidth,
       delayMs: _stereoWidenDelayMs,
+    );
+    AppStateService.instance.saveStereoEnhancement(
+      enabled: _stereoEnhancementEnabled,
+      mix: _stereoEnhancementMix,
     );
     AppStateService.instance.saveAudioTuning(
       enabled: _audioTuningEnabled,
@@ -611,6 +634,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       _crystalizerHighShelf = true;
       _crystalizerShelfGain = 2.0;
       widget.player.setCrystalizer(enabled: false);
+
+      _stereoEnhancementEnabled = false;
+      _stereoEnhancementMix = 0.5;
+      widget.player.setStereoEnhancement(enabled: false, mix: 0.5);
 
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
@@ -832,6 +859,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: _buildStereoWidenSection(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // JamesDSP Stereo Enhancement Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildStereoEnhancementSection(),
                   ),
                   const SizedBox(height: 16),
 
@@ -1643,6 +1677,73 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
               },
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStereoEnhancementSection() {
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Stereo Enhancement',
+      subtitle: 'JamesDSP Warped PFB M/S Widening',
+      isEnabled: _stereoEnhancementEnabled,
+      onToggle: (v) {
+        setState(() => _stereoEnhancementEnabled = v);
+        _updateStereoEnhancement();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'STEREO MIX',
+              value: _stereoEnhancementMix,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _stereoEnhancementEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _stereoEnhancementMix = v);
+                if (_stereoEnhancementEnabled) _updateStereoEnhancement();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+            ),
+            child: Text(
+              _stereoEnhancementMix == 0.5
+                  ? 'Pass-through (Original Stereo)'
+                  : (_stereoEnhancementMix > 0.5
+                      ? 'Stereo Widening (Center Subtraction)'
+                      : 'Mono Center Extraction'),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 11,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ),
       ],
     );

@@ -303,6 +303,14 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setStereoEnhancement({required bool enabled, double mix = 0.5}) {
+    _send({
+      'cmd': 'setStereoEnhancement',
+      'enabled': enabled,
+      'mix': mix,
+    });
+  }
+
   void setCrossfeed({required bool enabled, required int preset}) {
     _send({'cmd': 'setCrossfeed', 'enabled': enabled, 'preset': preset});
   }
@@ -879,6 +887,12 @@ void _isolateEntry(_IsolateInitData initData) {
               enabled: message['enabled'] ?? false,
               width: message['width'] ?? 1.5,
               delayMs: message['delayMs'] ?? 15.0);
+          break;
+        case 'setStereoEnhancement':
+          player.setStereoEnhancement(
+            enabled: message['enabled'] ?? false,
+            mix: (message['mix'] as num?)?.toDouble() ?? 0.5,
+          );
           break;
         case 'setCrossfeed':
           player.setCrossfeed(

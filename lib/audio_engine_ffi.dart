@@ -184,6 +184,8 @@ final class PipelineStateNative extends ffi.Struct {
   @ffi.Int32()
   external int stereo_widen_enabled;
   @ffi.Int32()
+  external int stereo_enhancement_enabled;
+  @ffi.Int32()
   external int spatialization_enabled;
   @ffi.Int32()
   external int delay_enabled;
@@ -549,6 +551,26 @@ typedef _SetStereoWidenNative = ffi.Void Function(
 typedef _SetStereoWidenDart = void Function(
     ffi.Pointer<ffi.Void>, int, double, double);
 
+typedef _SetStereoEnhancementEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetStereoEnhancementEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetStereoEnhancementEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetStereoEnhancementEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetStereoEnhancementMixNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float);
+typedef _SetStereoEnhancementMixDart = void Function(
+    ffi.Pointer<ffi.Void>, double);
+
+typedef _GetStereoEnhancementMixNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetStereoEnhancementMixDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
 typedef _SetDynamicBassParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _SetDynamicBassParamsDart = void Function(
@@ -789,6 +811,7 @@ class PipelineAudioState {
   final bool reverbEnabled;
   final bool limiterEnabled;
   final bool stereoWidenEnabled;
+  final bool stereoEnhancementEnabled;
   final bool spatializationEnabled;
   final bool delayEnabled;
 
@@ -810,6 +833,7 @@ class PipelineAudioState {
     required this.reverbEnabled,
     required this.limiterEnabled,
     required this.stereoWidenEnabled,
+    required this.stereoEnhancementEnabled,
     required this.spatializationEnabled,
     required this.delayEnabled,
     required this.gain,
@@ -832,6 +856,7 @@ class PipelineAudioState {
       reverbEnabled: native.reverb_enabled != 0,
       limiterEnabled: native.limiter_enabled != 0,
       stereoWidenEnabled: native.stereo_widen_enabled != 0,
+      stereoEnhancementEnabled: native.stereo_enhancement_enabled != 0,
       spatializationEnabled: native.spatialization_enabled != 0,
       delayEnabled: native.delay_enabled != 0,
       gain: native.gain,
@@ -855,6 +880,7 @@ class PipelineAudioState {
       reverbEnabled: false,
       limiterEnabled: false,
       stereoWidenEnabled: false,
+      stereoEnhancementEnabled: false,
       spatializationEnabled: false,
       delayEnabled: false,
       gain: 0.0,
@@ -1045,6 +1071,22 @@ class AudioEngineFFI {
     _setStereoWiden =
         _lib.lookupFunction<_SetStereoWidenNative, _SetStereoWidenDart>(
       'ae_set_stereo_widen',
+    );
+    _setStereoEnhancementEnabled = _lib.lookupFunction<
+        _SetStereoEnhancementEnabledNative, _SetStereoEnhancementEnabledDart>(
+      'ae_set_stereo_enhancement_enabled',
+    );
+    _getStereoEnhancementEnabled = _lib.lookupFunction<
+        _GetStereoEnhancementEnabledNative, _GetStereoEnhancementEnabledDart>(
+      'ae_get_stereo_enhancement_enabled',
+    );
+    _setStereoEnhancementMix = _lib.lookupFunction<
+        _SetStereoEnhancementMixNative, _SetStereoEnhancementMixDart>(
+      'ae_set_stereo_enhancement_mix',
+    );
+    _getStereoEnhancementMix = _lib.lookupFunction<
+        _GetStereoEnhancementMixNative, _GetStereoEnhancementMixDart>(
+      'ae_get_stereo_enhancement_mix',
     );
     _setCrossfeedEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
@@ -1384,6 +1426,10 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
   late final _SetStereoWidenDart _setStereoWiden;
+  late final _SetStereoEnhancementEnabledDart _setStereoEnhancementEnabled;
+  late final _GetStereoEnhancementEnabledDart _getStereoEnhancementEnabled;
+  late final _SetStereoEnhancementMixDart _setStereoEnhancementMix;
+  late final _GetStereoEnhancementMixDart _getStereoEnhancementMix;
   late final _SetFxEnabledDart _setCrossfeedEnabled;
   late final _SetSingleIntDart _setCrossfeedPreset;
   late final _SetFxEnabledDart _setDynamicBassEnabled;
@@ -1951,6 +1997,26 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setStereoWiden(_engine, enabled ? 1 : 0, width, delayMs);
+  }
+
+  void setStereoEnhancementEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setStereoEnhancementEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  bool getStereoEnhancementEnabled() {
+    if (_engine == ffi.nullptr) return false;
+    return _getStereoEnhancementEnabled(_engine) != 0;
+  }
+
+  void setStereoEnhancementMix(double mix) {
+    if (_engine == ffi.nullptr) return;
+    _setStereoEnhancementMix(_engine, mix);
+  }
+
+  double getStereoEnhancementMix() {
+    if (_engine == ffi.nullptr) return 0.5;
+    return _getStereoEnhancementMix(_engine);
   }
 
   void setCrossfeedEnabled(bool enabled) {

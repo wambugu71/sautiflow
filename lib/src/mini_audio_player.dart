@@ -407,6 +407,14 @@ class MiniAudioPlayer {
     _engine.setStereoWiden(enabled: enabled, width: width, delayMs: delayMs);
   }
 
+  void setStereoEnhancement({
+    required bool enabled,
+    double mix = 0.5,
+  }) {
+    _engine.setStereoEnhancementEnabled(enabled);
+    _engine.setStereoEnhancementMix(mix);
+  }
+
   void setCrossfeed({required bool enabled, required int preset}) {
     _engine.setCrossfeedEnabled(enabled);
     _engine.setCrossfeedPreset(preset);

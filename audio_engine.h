@@ -93,6 +93,7 @@ extern "C"
         int reverb_enabled;
         int limiter_enabled;
         int stereo_widen_enabled;
+        int stereo_enhancement_enabled;
         int spatialization_enabled;
         int delay_enabled;
 
@@ -158,6 +159,10 @@ extern "C"
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
     AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms);
+    AE_API void ae_set_stereo_enhancement_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_stereo_enhancement_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_stereo_enhancement_mix(AudioEngineHandle *engine, float mix);
+    AE_API float ae_get_stereo_enhancement_mix(AudioEngineHandle *engine);
     AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset);
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled);
