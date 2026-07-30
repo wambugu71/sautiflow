@@ -121,6 +121,10 @@ ViPER::ViPER() :
     speaker_correction_.SetSamplingRate(sampling_rate_);
     speaker_correction_.Reset();
 
+    adaptive_loudness_.SetEnable(false);
+    adaptive_loudness_.SetSamplingRate(sampling_rate_);
+    adaptive_loudness_.Reset();
+
     for (auto &software_limiter : software_limiters_) {
         software_limiter.Reset();
     }
@@ -197,6 +201,7 @@ void ViPER::Process(std::vector<float> &buffer, const uint32_t size) {
         analog_x_.Process(tmp_buf, tmp_buf_size);
         reverberation_.Process(tmp_buf, tmp_buf_size);
         speaker_correction_.Process(tmp_buf, tmp_buf_size);
+        adaptive_loudness_.Process(tmp_buf, tmp_buf_size);
         lufs_targeting_.Process(tmp_buf, tmp_buf_size);
 
         if (frame_scale_ != 1.0) {
@@ -1116,6 +1121,9 @@ void ViPER::ApplyParams(const viper::ViPERParams &params) {
     if (!(params.dynamic_eq == last_applied_.dynamic_eq)) {
         ApplyDynamicEq(params.dynamic_eq);
     }
+    if (!(params.adaptive_loudness == last_applied_.adaptive_loudness)) {
+        ApplyAdaptiveLoudness(params.adaptive_loudness);
+    }
 }
 
 void ViPER::ApplyMasterLimiter(const viper::MasterLimiterParams &p) {
@@ -1347,6 +1355,14 @@ void ViPER::ApplyDynamicEq(const viper::DynamicEqParams &p) {
         dynamic_eq_.SetBandFilterType(i, b.filter_type);
     }
     last_applied_.dynamic_eq = p;
+}
+
+void ViPER::ApplyAdaptiveLoudness(const viper::AdaptiveLoudnessParams &p) {
+    adaptive_loudness_.SetEnable(p.enable);
+    adaptive_loudness_.SetMode(static_cast<AdaptiveLoudness::AlcMode>(p.mode));
+    adaptive_loudness_.SetStrength(p.strength);
+    adaptive_loudness_.SetVolumeAttenuationDb(p.attenuation_db);
+    last_applied_.adaptive_loudness = p;
 }
 
 std::optional<uint32_t> ViPER::LoadConvolverKernel(

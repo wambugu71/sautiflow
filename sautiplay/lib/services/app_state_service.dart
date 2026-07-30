@@ -673,4 +673,20 @@ class AppStateService {
     final preamp = prefs.getDouble(_kReplayGainPreamp) ?? 0.0;
     return (mode: mode, preamp: preamp);
   }
+
+  // ─── Playback Speed & Pitch Settings ──────────────────────────────────────
+  static const _kPlaybackPitch = 'sp_playback_pitch';
+
+  Future<void> savePlaybackSpeed(double pitch) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kPlaybackPitch, pitch);
+  }
+
+  Future<double> loadPlaybackSpeed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_kPlaybackPitch) ?? 1.0;
+  }
 }
+// Force Flutter compiler sync
+
+

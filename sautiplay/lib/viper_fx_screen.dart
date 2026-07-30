@@ -42,6 +42,12 @@ class ViperFxScreen extends StatefulWidget {
       maxGainDb: map['lufsMaxGainDb'] ?? 6.0,
       speed: map['lufsSpeed'] ?? 1,
     );
+    player.setViperAdaptiveLoudness(
+      enable: map['alcEnabled'] ?? false,
+      mode: map['alcMode'] ?? 0,
+      strength: (map['alcStrength'] as num?)?.toDouble() ?? 1.0,
+      attenuationDb: 0.0,
+    );
 
     player.setViperStereoImager(
       enable: map['stereoImagerEnabled'] ?? false,
@@ -223,6 +229,10 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
   double _lufsMaxGainDb = 6.0;
   int _lufsSpeed = 1; // 0: Slow, 1: Normal, 2: Fast
   
+  bool _alcEnabled = false;
+  int _alcMode = 0; // 0: Natural, 1: Mild, 2: Punchy
+  double _alcStrength = 1.0;
+  
   // --- Spatial & Surround ---
   bool _stereoImagerEnabled = false;
   double _stereoLowWidth = 100.0;
@@ -386,6 +396,9 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       'lufsTarget': _lufsTarget,
       'lufsMaxGainDb': _lufsMaxGainDb,
       'lufsSpeed': _lufsSpeed,
+      'alcEnabled': _alcEnabled,
+      'alcMode': _alcMode,
+      'alcStrength': _alcStrength,
       'stereoImagerEnabled': _stereoImagerEnabled,
       'stereoLowWidth': _stereoLowWidth,
       'stereoMidWidth': _stereoMidWidth,
@@ -502,6 +515,9 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
     _lufsTarget = map['lufsTarget'] ?? _lufsTarget;
     _lufsMaxGainDb = map['lufsMaxGainDb'] ?? _lufsMaxGainDb;
     _lufsSpeed = map['lufsSpeed'] ?? _lufsSpeed;
+    _alcEnabled = map['alcEnabled'] ?? _alcEnabled;
+    _alcMode = map['alcMode'] ?? _alcMode;
+    _alcStrength = (map['alcStrength'] as num?)?.toDouble() ?? _alcStrength;
     _stereoImagerEnabled = map['stereoImagerEnabled'] ?? _stereoImagerEnabled;
     _stereoLowWidth = (map['stereoLowWidth'] as num?)?.toDouble() ?? _stereoLowWidth;
     _stereoMidWidth = (map['stereoMidWidth'] as num?)?.toDouble() ?? _stereoMidWidth;
@@ -629,6 +645,12 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       target: _lufsTarget,
       maxGainDb: _lufsMaxGainDb,
       speed: _lufsSpeed,
+    );
+    widget.player.setViperAdaptiveLoudness(
+      enable: _alcEnabled,
+      mode: _alcMode,
+      strength: _alcStrength,
+      attenuationDb: 0.0,
     );
     
     // Spatial
@@ -858,6 +880,42 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
                       selected: {_lufsSpeed},
                       onSelectionChanged: _viperEnabled && _lufsEnabled ? (Set<int> newSelection) {
                         setState(() => _lufsSpeed = newSelection.first);
+                        _updateEngine();
+                      } : null,
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        selectedForegroundColor: primaryColor,
+                        selectedBackgroundColor: primaryColor.withAlpha(50),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              _buildCard('Adaptive Loudness (ALC)', 'ISO 226 volume-equalized bass & air boost', _alcEnabled, (v) { setState(() => _alcEnabled = v); _updateEngine(); }, child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  children: [
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      children: [
+                        SizedBox(width: 75, child: ModernAudioKnob(label: 'STRENGTH', value: _alcStrength, min: 0.0, max: 1.0, activeColor: primaryColor, valueFormatter: (v) => '${(v * 100).round()}%', onChanged: _viperEnabled && _alcEnabled ? (v) { setState(() => _alcStrength = v); _updateEngine(); } : (_) {})),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Mode', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                    const SizedBox(height: 4),
+                    SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 0, label: Text('Natural', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 1, label: Text('Mild', style: TextStyle(fontSize: 10))),
+                        ButtonSegment(value: 2, label: Text('Punchy', style: TextStyle(fontSize: 10))),
+                      ],
+                      selected: {_alcMode},
+                      onSelectionChanged: _viperEnabled && _alcEnabled ? (Set<int> newSelection) {
+                        setState(() => _alcMode = newSelection.first);
                         _updateEngine();
                       } : null,
                       style: SegmentedButton.styleFrom(

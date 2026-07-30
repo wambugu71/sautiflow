@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ViPERParams.h"
+#include "effects/AdaptiveLoudness.h"
 #include "effects/AnalogX.h"
 #include "effects/ColorfulMusic.h"
 #include "effects/Convolver.h"
@@ -76,6 +77,7 @@ public:
     void ApplySpeakerCorrection(const viper::SpeakerCorrectionParams &p);
     void ApplyMultibandCompressor(const viper::MultibandCompressorParams &p);
     void ApplyDynamicEq(const viper::DynamicEqParams &p);
+    void ApplyAdaptiveLoudness(const viper::AdaptiveLoudnessParams &p);
 
     // Typed Convolver kernel loader.
     std::optional<uint32_t> LoadConvolverKernel(
@@ -139,6 +141,7 @@ private:
     TubeSimulator tube_simulator_;
     AnalogX analog_x_;
     SpeakerCorrection speaker_correction_;
+    AdaptiveLoudness adaptive_loudness_;
     std::array<SoftwareLimiter, 2> software_limiters_;
 
     viper::ViPERParams last_applied_;

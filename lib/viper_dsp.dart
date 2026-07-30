@@ -101,6 +101,9 @@ typedef _ViperMultibandCompressorDart = void Function(ffi.Pointer<ffi.Void>, int
 typedef _ViperDynamicEqNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Float>);
 typedef _ViperDynamicEqDart = void Function(ffi.Pointer<ffi.Void>, int, int, ffi.Pointer<ffi.Float>);
 
+typedef _ViperAdaptiveLoudnessNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32, ffi.Float, ffi.Float);
+typedef _ViperAdaptiveLoudnessDart = void Function(ffi.Pointer<ffi.Void>, int, int, double, double);
+
 // Memory allocation typedefs (from C standard library)
 typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
 typedef _MallocDart = ffi.Pointer<ffi.Void> Function(int);
@@ -114,6 +117,7 @@ enum ViperClarityMode { mild, natural, aggressive }
 enum ViperAnalogXMode { mild, moderate, aggressive }
 enum ViperCureCrossfeedPreset { off, weakChuMoy, strongJmeier }
 enum ViperLufsSpeed { fast, medium, slow, verySlow }
+enum ViperAlcMode { natural, mild, punchy }
 
 class ViperMultibandCompressorBand {
   bool enable;
@@ -258,6 +262,7 @@ class ViperDsp {
   late final _ViperSpeakerCorrectionDart _speakerCorrection;
   late final _ViperMultibandCompressorDart _multibandCompressor;
   late final _ViperDynamicEqDart _dynamicEq;
+  late final _ViperAdaptiveLoudnessDart _adaptiveLoudness;
 
   late final _MallocDart _malloc;
   late final _FreeDart _free;
@@ -300,6 +305,7 @@ class ViperDsp {
     _speakerCorrection = _lib.lookupFunction<_ViperSpeakerCorrectionNative, _ViperSpeakerCorrectionDart>('ae_viper_speaker_correction');
     _multibandCompressor = _lib.lookupFunction<_ViperMultibandCompressorNative, _ViperMultibandCompressorDart>('ae_viper_multiband_compressor');
     _dynamicEq = _lib.lookupFunction<_ViperDynamicEqNative, _ViperDynamicEqDart>('ae_viper_dynamic_eq');
+    _adaptiveLoudness = _lib.lookupFunction<_ViperAdaptiveLoudnessNative, _ViperAdaptiveLoudnessDart>('ae_viper_adaptive_loudness');
   }
 
   void _freePtr(ffi.Pointer<ffi.Void> ptr) {
@@ -707,5 +713,17 @@ class ViperDsp {
     } finally {
       _freePtr(ptr.cast<ffi.Void>());
     }
+  }
+
+  /// Adaptive Loudness Compensation (ALC).
+  /// Dynamically adjusts low-shelf and high-shelf EQ based on volume attenuation.
+  void setAdaptiveLoudness({
+    required bool enable,
+    ViperAlcMode mode = ViperAlcMode.natural,
+    double strength = 1.0,
+    double attenuationDb = 0.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _adaptiveLoudness(_enginePtr, enable ? 1 : 0, mode.index, strength, attenuationDb);
   }
 }

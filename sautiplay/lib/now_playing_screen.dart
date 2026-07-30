@@ -22,6 +22,8 @@ import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/music_info_dialog.dart';
+import 'widgets/playback_speed_modal.dart';
+import 'services/app_state_service.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   final ValueNotifier<PlayerStatus> statusNotifier;
@@ -126,6 +128,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _dragPositionMs = 0.0;
   double? _pendingSeekMs; // non-null while seek is in-flight
   Timer? _seekTimeoutTimer;
+  double _currentPitch = 1.0;
 
   @override
   void initState() {
@@ -134,6 +137,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _ytMusic.initialize();
     _fetchLyrics();
     _fetchAudioProperties();
+    _loadPlaybackSpeed();
 
     _setupAnalyzer(_isAnalyzerEnabled);
     _initHardwareSpecs();
@@ -145,6 +149,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     // Watch engine status to detect when a pending seek has landed.
     widget.statusNotifier.addListener(_onStatusChanged);
+  }
+
+  Future<void> _loadPlaybackSpeed() async {
+    final pitch = await AppStateService.instance.loadPlaybackSpeed();
+    if (mounted) {
+      setState(() => _currentPitch = pitch);
+      if ((pitch - 1.0).abs() > 0.01) {
+        widget.player.setPitch(pitch);
+      }
+    }
   }
 
   /// Called on every engine status poll (~200 ms).  Once the engine's reported
@@ -338,7 +352,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _buildAudioInfoBadgeText(String trackPosition) {
     final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
     final codecPart = _detectedCodec ?? widget.codec;
-    return '$trackPosition $depthPart$_sampleRate $codecPart'.toUpperCase();
+    final speedPart = (_currentPitch - 1.0).abs() > 0.01 ? ' ${_currentPitch.toStringAsFixed(2)}X' : '';
+    return '$trackPosition $depthPart$_sampleRate $codecPart$speedPart'.toUpperCase();
   }
 
 
@@ -1189,7 +1204,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   outputSampleRate: widget.outputSampleRate,
                                 )));
                                           }),
-                                          _buildActionIcon(Icons.access_time, () {}),
+                                           _buildActionIcon(
+                                             (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
+                                             () => showPlaybackSpeedModal(
+                                               context,
+                                               widget.player,
+                                               currentPitch: _currentPitch,
+                                               onPitchChanged: (p) => setState(() => _currentPitch = p),
+                                             ),
+                                           ),
                                           _buildActionIcon(_loopIcon(status.loopMode), () {
                                             final currentMode = status.loopMode;
                                             final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
@@ -1681,7 +1704,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   outputSampleRate: widget.outputSampleRate,
                                 )));
                               }),
-                              _buildActionIcon(Icons.access_time, () {}),
+                               _buildActionIcon(
+                                 (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
+                                 () => showPlaybackSpeedModal(
+                                   context,
+                                   widget.player,
+                                   currentPitch: _currentPitch,
+                                   onPitchChanged: (p) => setState(() => _currentPitch = p),
+                                 ),
+                               ),
                               _buildActionIcon(_loopIcon(status.loopMode), () {
                                 final currentMode = status.loopMode;
                                 final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);

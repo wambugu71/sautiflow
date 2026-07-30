@@ -1403,6 +1403,10 @@ struct AudioEngineHandle
 
     // Pitch
     std::atomic<float> pitchMultiplier{1.0f};
+    ma_resampler pitchResampler{};
+    bool pitchResamplerInit = false;
+    int pitchResamplerRate = 0;
+    int pitchResamplerChannels = 0;
 
     // Spatialization
     std::mutex spatialMutex;
@@ -2516,19 +2520,74 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             ma_uint64 framesRead = 0;
             const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
-            ma_result r = ma_decoder_read_pcm_frames(
-                e->currentDecoder,
-                processBuffer + ((size_t)produced * (size_t)e->channels),
-                (ma_uint64)(frameCount - produced),
-                &framesRead);
+            ma_result r = MA_SUCCESS;
 
-            // To properly do pitch shifting without ma_engine, one must use a dedicated ma_resampler over the decoded frames.
-            // But miniaudio doesn't let us push/pull pitch easily without ma_data_source or ma_resampler object.
-            // As a quick inline polyfill for pitch without node graphs: we can just tell the decoder to change its
-            // internal sample rate output slightly, but decoder API doesn't expose it after init easily without internal access.
-            // For now, if pitch != 1.0f, the initialization branch applies pitch to the initial config.
-            // Dynamic pitch shifting requires us to run a custom re-sampler over 'framesRead',
-            // which requires extensive buffering. We will leave dynamic pitch out for this commit unless requested.
+            if (std::abs(pitch - 1.0f) < 0.001f)
+            {
+                r = ma_decoder_read_pcm_frames(
+                    e->currentDecoder,
+                    processBuffer + ((size_t)produced * (size_t)e->channels),
+                    (ma_uint64)(frameCount - produced),
+                    &framesRead);
+            }
+            else
+            {
+                const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                const int ch = (e->channels > 0) ? e->channels : 2;
+
+                if (!e->pitchResamplerInit || e->pitchResamplerRate != sr || e->pitchResamplerChannels != ch)
+                {
+                    if (e->pitchResamplerInit)
+                    {
+                        ma_resampler_uninit(&e->pitchResampler, nullptr);
+                        e->pitchResamplerInit = false;
+                    }
+                    ma_resampler_config rcfg = ma_resampler_config_init(ma_format_f32, (ma_uint32)ch, (ma_uint32)sr, (ma_uint32)sr, ma_resample_algorithm_linear);
+                    if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
+                    {
+                        e->pitchResamplerInit = true;
+                        e->pitchResamplerRate = sr;
+                        e->pitchResamplerChannels = ch;
+                    }
+                }
+
+                if (e->pitchResamplerInit)
+                {
+                    ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
+
+                    ma_uint64 outNeeded = (ma_uint64)(frameCount - produced);
+                    ma_uint64 inNeeded = 0;
+                    ma_resampler_get_required_input_frame_count(&e->pitchResampler, outNeeded, &inNeeded);
+                    if (inNeeded == 0) inNeeded = outNeeded;
+
+                    std::vector<float> tempIn((size_t)(inNeeded * (ma_uint64)ch));
+                    ma_uint64 inRead = 0;
+                    r = ma_decoder_read_pcm_frames(
+                        e->currentDecoder,
+                        tempIn.data(),
+                        inNeeded,
+                        &inRead);
+
+                    ma_uint64 outProcessed = outNeeded;
+                    ma_uint64 inProcessed = inRead;
+                    ma_resampler_process_pcm_frames(
+                        &e->pitchResampler,
+                        tempIn.data(),
+                        &inProcessed,
+                        processBuffer + ((size_t)produced * (size_t)ch),
+                        &outProcessed);
+
+                    framesRead = outProcessed;
+                }
+                else
+                {
+                    r = ma_decoder_read_pcm_frames(
+                        e->currentDecoder,
+                        processBuffer + ((size_t)produced * (size_t)e->channels),
+                        (ma_uint64)(frameCount - produced),
+                        &framesRead);
+                }
+            }
 
             // If framesRead > 0, we have data.
             produced += (ma_uint32)framesRead;
@@ -3075,6 +3134,12 @@ extern "C"
                 e->hasNext = false;
             }
             uninit_fading_out_slot_locked(e);
+
+            if (e->pitchResamplerInit)
+            {
+                ma_resampler_uninit(&e->pitchResampler, nullptr);
+                e->pitchResamplerInit = false;
+            }
 
             // Cleanup Push Stream if allocated
             if (e->pushStreamForCurrent.initialized)
@@ -5620,6 +5685,18 @@ extern "C"
         }
         std::lock_guard<std::mutex> lock(engine->viperMutex);
         engine->viper.ApplyDynamicEq(p);
+    }
+
+    AE_API void ae_viper_adaptive_loudness(AudioEngineHandle *engine, int enable, int mode, float strength, float attenuation_db)
+    {
+        if (!engine) return;
+        viper::AdaptiveLoudnessParams p;
+        p.enable = (enable != 0);
+        p.mode = mode;
+        p.strength = strength;
+        p.attenuation_db = attenuation_db;
+        std::lock_guard<std::mutex> lock(engine->viperMutex);
+        engine->viper.ApplyAdaptiveLoudness(p);
     }
 
     AE_API AETrackInfo ae_inspect_file(const char *file_path)

@@ -544,6 +544,19 @@ struct DynamicEqParams {
     }
 };
 
+struct AdaptiveLoudnessParams {
+    bool enable = false;
+    int mode = 0; // 0 = Natural, 1 = Mild, 2 = Punchy
+    float strength = 1.0f; // 0..1
+    float attenuation_db = 0.0f; // dB
+
+    bool operator==(const AdaptiveLoudnessParams &other) const {
+        if (!enable && !other.enable) return true;
+        return enable == other.enable && mode == other.mode && strength == other.strength
+               && attenuation_db == other.attenuation_db;
+    }
+};
+
 struct ViPERParams {
     MasterLimiterParams master_limiter;
     PlaybackGainControlParams playback_gain_control;
@@ -569,6 +582,8 @@ struct ViPERParams {
     SpeakerCorrectionParams speaker_correction;
     MultibandCompressorParams multiband_compressor;
     DynamicEqParams dynamic_eq;
+    AdaptiveLoudnessParams adaptive_loudness;
 };
 
 } // namespace viper
+

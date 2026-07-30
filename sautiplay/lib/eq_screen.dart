@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
+import 'widgets/playback_speed_modal.dart';
 
 // Tailwind Colors Ported
 const primaryColor = Color(0xFF137fec);
@@ -219,6 +220,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   double _limiterAttackMs = 2.0; // 0.1 – 100 ms
   double _limiterReleaseMs = 50.0; // 10 – 1000 ms
 
+  // Playback Speed
+  double _playbackPitch = 1.0;
+
   @override
   void initState() {
     super.initState();
@@ -235,6 +239,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     final hideBanner = prefs.getBool('hide_eq_warning') ?? false;
 
     // Load all persisted EQ state
+    final speed = await AppStateService.instance.loadPlaybackSpeed();
     final eqBands = await AppStateService.instance.loadEqBands();
     final spatial = await AppStateService.instance.loadSpatialAudio();
     final delay = await AppStateService.instance.loadDelay();
@@ -250,6 +255,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
 
     setState(() {
       _showWarningBanner = !hideBanner;
+      _playbackPitch = speed;
 
       // EQ bands
       _masterEqEnabled = eqBands.enabled;
@@ -756,6 +762,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   ),
                   const SizedBox(height: 16),
 
+                  // Playback Speed & Pitch Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildPlaybackSpeedSection(),
+                  ),
+                  const SizedBox(height: 16),
+
                   // Audio Tuning Section (3-Band)
                   Padding(
                     padding:
@@ -923,6 +936,62 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
           ],
         );
       },
+    );
+  }
+
+  Widget _buildPlaybackSpeedSection() {
+    final isNormal = (_playbackPitch - 1.0).abs() < 0.01;
+    return _CollapsibleSection(
+      icon: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: primaryColor.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Playback Speed & Pitch',
+      subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
+      isEnabled: !isNormal,
+      onToggle: (v) {
+        final newPitch = v ? 1.25 : 1.0;
+        setState(() => _playbackPitch = newPitch);
+        widget.player.setPitch(newPitch);
+        AppStateService.instance.savePlaybackSpeed(newPitch);
+      },
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Current Speed: ${_playbackPitch.toStringAsFixed(2)}x',
+                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final res = await showPlaybackSpeedModal(
+                    context,
+                    widget.player,
+                    currentPitch: _playbackPitch,
+                  );
+                  if (res != null) {
+                    setState(() => _playbackPitch = res);
+                  }
+                },
+                icon: const Icon(Icons.tune, size: 16, color: primaryColor),
+                label: const Text('Adjust Speed', style: TextStyle(color: primaryColor)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: primaryColor),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

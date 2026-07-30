@@ -472,6 +472,7 @@ class IsolateAudioPlayer {
   void setViperMultibandCompressor({required bool enable, required List<double> crossoverFreqs, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperMultibandCompressor', 'enable': enable, 'crossoverFreqs': crossoverFreqs, 'bands': bands});
   void setViperDynamicEq({required bool enable, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperDynamicEq', 'enable': enable, 'bands': bands});
   void setViperEqualizer({required bool enable, required List<double> bandLevels}) => _send({'cmd': 'setViperEqualizer', 'enable': enable, 'bandLevels': bandLevels});
+  void setViperAdaptiveLoudness({required bool enable, required int mode, required double strength, required double attenuationDb}) => _send({'cmd': 'setViperAdaptiveLoudness', 'enable': enable, 'mode': mode, 'strength': strength, 'attenuationDb': attenuationDb});
 
   void configureAnalyzer({int frameSize = 512}) =>
       _send({'cmd': 'configureAnalyzer', 'frameSize': frameSize});
@@ -1225,9 +1226,8 @@ void _isolateEntry(_IsolateInitData initData) {
           )).toList();
           player.viper.setDynamicEq(enable: message['enable'], bands: bands);
           break;
-        case 'setViperEqualizer': 
-          player.viper.setEqualizer(enable: message['enable'], bandLevels: (message['bandLevels'] as List).cast<double>()); 
-          break;
+        case 'setViperEqualizer': player.viper.setEqualizer(enable: message['enable'], bandLevels: (message['bandLevels'] as List).cast<double>()); break;
+        case 'setViperAdaptiveLoudness': player.viper.setAdaptiveLoudness(enable: message['enable'], mode: ViperAlcMode.values[message['mode']], strength: message['strength'], attenuationDb: message['attenuationDb']); break;
         case 'getHardwareInfo':
           final replyTo = message['replyTo'] as SendPort?;
           if (replyTo != null) {
