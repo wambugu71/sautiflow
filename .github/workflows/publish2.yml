@@ -27,32 +27,26 @@ jobs:
         with:
           channel: "stable"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libcurl4-openssl-dev libnotify-dev libayatana-appindicator3-dev
-
       - name: Install dependencies
         run: flutter pub get
 
-      # TWEAK 2: Convert submodules to regular files so pub.dev accepts them
       - name: Prepare Submodules for Pub Publish
         run: |
           # 1. Un-track the submodules as Git links
-          git rm --cached third_party/faad2 third_party/libsamplerate
+          git rm --cached -f third_party/faad2 third_party/libsamplerate || true
           
-          # 2. Delete their inner .git folders so they are just normal directories
+          # 2. Delete their inner .git folders/files so they are treated as normal directories
           rm -rf third_party/faad2/.git
           rm -rf third_party/libsamplerate/.git
+          find third_party -name ".git*" -exec rm -rf {} + || true
           
-          # 3. Add the raw files to the current runner's Git index
+          # 3. Add the files to git index
           git add third_party/faad2 third_party/libsamplerate
           
-          # 4. Commit them so `dart pub publish` sees them natively
+          # 4. Commit so `dart pub publish` treats them as normal files
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Temporary commit to bundle third_party files for pub.dev"
+          git commit -m "Temporary commit to bundle third_party files for pub.dev" || true
 
-      # TWEAK 3: Publish (will now include the C++ files!)
       - name: Publish package
         run: dart pub publish --force

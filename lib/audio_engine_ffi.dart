@@ -2209,7 +2209,7 @@ class AudioEngineFFI {
     final pL = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     final pR = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     try {
-      _getPhaseInversion!(_engine, pL, pR);
+      _getPhaseInversion(_engine, pL, pR);
       return (left: pL.value != 0, right: pR.value != 0);
     } finally {
       _freePtr(pL.cast<ffi.Void>());

@@ -173,7 +173,6 @@ class _SpectrumPainter extends CustomPainter {
         break;
       case SpectrumVisualStyle.pill:
       case SpectrumVisualStyle.neon:
-      default:
         defaultGradient = const LinearGradient(
           colors: [Colors.purpleAccent, Colors.cyanAccent],
           begin: Alignment.bottomCenter,

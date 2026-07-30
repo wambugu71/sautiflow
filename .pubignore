@@ -36,3 +36,24 @@ example/android/build/
 example/macos/Flutter/
 native/windows/audio_engine.exp
 native/windows/audio_engine.lib
+
+# Action logs and temp build files
+logs_actions/
+example/native/
+example/build_temp/
+*.log
+*.exe
+pub_dry_run*.txt
+*.py
+minimal_streamer.cpp
+test_*
+
+# Unneeded third_party documentation and tests to stay under 10 MB pub archive limit
+third_party/*/docs/
+third_party/*/doc/
+third_party/*/examples/
+third_party/*/tests/
+third_party/*/frontend/
+third_party/*/plugins/
+third_party/*/m4/
+third_party/*/autogen.sh
