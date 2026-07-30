@@ -9,6 +9,7 @@ import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/services/desktop_system_audio.dart';
 import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/vdc_parser.dart';
+import 'package:sautiplay/services/autoeq_parser.dart';
 
 /// A wrapper that runs [MiniAudioPlayer] in a separate isolate.
 class IsolateAudioPlayer {
@@ -473,6 +474,7 @@ class IsolateAudioPlayer {
   void setViperMultibandCompressor({required bool enable, required List<double> crossoverFreqs, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperMultibandCompressor', 'enable': enable, 'crossoverFreqs': crossoverFreqs, 'bands': bands});
   void setViperDynamicEq({required bool enable, required List<Map<String, dynamic>> bands}) => _send({'cmd': 'setViperDynamicEq', 'enable': enable, 'bands': bands});
   void setViperEqualizer({required bool enable, required List<double> bandLevels}) => _send({'cmd': 'setViperEqualizer', 'enable': enable, 'bandLevels': bandLevels});
+  void loadViperAutoEqText(String path) => _send({'cmd': 'loadViperAutoEqText', 'path': path});
   void setViperAdaptiveLoudness({required bool enable, required int mode, required double strength, required double attenuationDb}) => _send({'cmd': 'setViperAdaptiveLoudness', 'enable': enable, 'mode': mode, 'strength': strength, 'attenuationDb': attenuationDb});
   void setViperOversampling(int factor) => _send({'cmd': 'setViperOversampling', 'factor': factor});
 
@@ -1310,6 +1312,18 @@ void _isolateEntry(_IsolateInitData initData) {
           player.viper.setDynamicEq(enable: message['enable'], bands: bands);
           break;
         case 'setViperEqualizer': player.viper.setEqualizer(enable: message['enable'], bandLevels: (message['bandLevels'] as List).cast<double>()); break;
+        case 'loadViperAutoEqText':
+          try {
+            final result = AutoEqParser.parseFile(message['path']);
+            if (result.preampGainDb < 0) {
+              double linearVol = math.pow(10.0, result.preampGainDb / 20.0).toDouble().clamp(0.1, 1.0);
+              player.viper.setMasterLimiter(outputVolume: linearVol);
+            }
+            player.viper.setEqualizer(enable: true, bandLevels: result.bandLevels31);
+          } catch(e) {
+            initData.sendPort.send('[log]loadViperAutoEqText Error: $e');
+          }
+          break;
         case 'setViperAdaptiveLoudness': player.viper.setAdaptiveLoudness(enable: message['enable'], mode: ViperAlcMode.values[message['mode']], strength: message['strength'], attenuationDb: message['attenuationDb']); break;
         case 'setViperOversampling':
           final factor = (message['factor'] as int?) ?? 1;

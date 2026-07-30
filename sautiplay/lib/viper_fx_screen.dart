@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'services/autoeq_parser.dart';
 
 const primaryColor = Color(0xFF137fec);
 const bgDarkColor = Color(0xFF101922);
@@ -810,6 +811,7 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
       backgroundColor: bgDarkColor,
       appBar: null,
       body: ListView(
+        primary: false,
         padding: const EdgeInsets.only(bottom: 120, top: 16),
         physics: const BouncingScrollPhysics(),
         children: [
@@ -1293,9 +1295,10 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
           ),
 
           _buildCategory(
-            title: 'Impulse Response (IRS & DDC)',
+            title: 'Impulse Response & AutoEQ',
             icon: Icons.waves,
             children: [
+              _buildAutoEqImporter(),
               _buildCard('Convolver', 'IRS Convolver processing', _convolverEnabled, (v) { setState(() => _convolverEnabled = v); _updateEngine(); }, child: _buildConvolverSelector()),
               _buildCard('Viper DDC', 'Device-Dependent Correction', _ddcEnabled, (v) { setState(() => _ddcEnabled = v); _updateEngine(); }, child: _buildDdcSelector()),
             ],
@@ -1788,6 +1791,107 @@ class _ViperFxScreenState extends State<ViperFxScreen> with AutomaticKeepAliveCl
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildAutoEqImporter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Card(
+        color: surfaceDarkColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.auto_awesome, color: primaryColor, size: 20),
+                  SizedBox(width: 8),
+                  Text('AutoEQ & Presets Importer', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text('Import AutoEQ text files (.txt, GraphicEQ, ParametricEQ), Convolver impulse files (.irs, .wav), or DDC profiles (.vdc).', style: TextStyle(color: Colors.white60, fontSize: 11)),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: _viperEnabled ? () async {
+                  final result = await FilePicker.pickFiles(
+                    type: FileType.any,
+                    allowMultiple: false,
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    final path = result.files.single.path!;
+                    final ext = p.extension(path).toLowerCase();
+                    if (ext == '.txt' || ext == '.eq' || ext == '.txt') {
+                      try {
+                        final autoEqResult = AutoEqParser.parseFile(path);
+                        widget.player.loadViperAutoEqText(path);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('AutoEQ Loaded: ${autoEqResult.profileName} (Preamp: ${autoEqResult.preampGainDb.toStringAsFixed(1)} dB)'),
+                              backgroundColor: primaryColor,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('AutoEQ Error: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    } else if (ext == '.irs' || ext == '.wav') {
+                      final targetDir = Directory('${Directory.systemTemp.path}${Platform.pathSeparator}sautiplay_irs');
+                      if (!targetDir.existsSync()) targetDir.createSync(recursive: true);
+                      final newPath = p.join(targetDir.path, p.basename(path));
+                      File(path).copySync(newPath);
+                      setState(() {
+                        _convolverFolder = targetDir.path;
+                        _selectedConvolverFile = p.basename(path);
+                        _convolverEnabled = true;
+                      });
+                      _scanConvolverFolder();
+                      _updateEngine();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Convolver Loaded: ${p.basename(path)}'), backgroundColor: primaryColor),
+                        );
+                      }
+                    } else if (ext == '.vdc') {
+                      final targetDir = Directory('${Directory.systemTemp.path}${Platform.pathSeparator}sautiplay_vdc');
+                      if (!targetDir.existsSync()) targetDir.createSync(recursive: true);
+                      final newPath = p.join(targetDir.path, p.basename(path));
+                      File(path).copySync(newPath);
+                      setState(() {
+                        _ddcFolder = targetDir.path;
+                        _selectedDdcFile = p.basename(path);
+                        _ddcEnabled = true;
+                      });
+                      _scanDdcFolder();
+                      _updateEngine();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('DDC Profile Loaded: ${p.basename(path)}'), backgroundColor: primaryColor),
+                        );
+                      }
+                    }
+                  }
+                } : null,
+                icon: const Icon(Icons.file_upload_outlined),
+                label: const Text('Import AutoEQ / Preset File'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

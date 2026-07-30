@@ -678,6 +678,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1000.0),
               child: ListView(
+                primary: false,
                 padding: EdgeInsets.fromLTRB(
                     isDesktop ? 48.0 : 0, 0, isDesktop ? 48.0 : 0, 120),
                 physics: const BouncingScrollPhysics(),

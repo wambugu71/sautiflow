@@ -1144,6 +1144,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       return _buildEmptyState(textDark);
     }
     return ListView(
+      primary: false,
       padding: EdgeInsets.only(top: isDesktop ? 32 : 16, bottom: 120),
       children: [
         Padding(
@@ -1301,6 +1302,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in the Playlists tab to view your songs here.',
                   isDesktop: isDesktop)
               : ListView.builder(
+                  primary: false,
                   padding: EdgeInsets.only(bottom: 120),
                   itemCount: _filteredSongs.length + 1,
                   itemBuilder: (context, index) {
@@ -1419,6 +1421,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   isDesktop: isDesktop,
                 )
               : ListView.builder(
+                  primary: false,
                   padding: const EdgeInsets.only(bottom: 120),
                   itemCount: artistKeys.length,
                   itemBuilder: (context, index) {
