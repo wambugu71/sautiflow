@@ -31,7 +31,7 @@ example/android/local.properties
 *.dylib
 test_*
 *.py
-analyze*
+/analyze*
 example/android/build/
 example/macos/Flutter/
 native/windows/audio_engine.exp
