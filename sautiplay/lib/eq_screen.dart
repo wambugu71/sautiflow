@@ -230,9 +230,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   bool _isPlaying = false;
   StreamSubscription<PlayerStatus>? _statusSub;
 
-  // Studio Rack Deck Layout State
-  int _selectedDeckIndex = 0;
-  late final PageController _deckPageController = PageController(initialPage: 0);
+  StateSetter? _subScreenSetState;
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _subScreenSetState?.call(() {});
+  }
 
   @override
   void initState() {
@@ -498,7 +502,6 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   void dispose() {
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
-    _deckPageController.dispose();
     widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
@@ -697,105 +700,187 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     _saveEqState();
   }
 
-  Widget _buildHorizontalRackSelector() {
-    final List<Map<String, dynamic>> rackItems = [
-      {'title': 'Graphic EQ', 'icon': Icons.equalizer, 'enabled': _masterEqEnabled},
-      {'title': 'Speed & Pitch', 'icon': Icons.speed_rounded, 'enabled': (_playbackPitch - 1.0).abs() >= 0.01},
-      {'title': '3-Band Tuning', 'icon': Icons.tune, 'enabled': _audioTuningEnabled},
-      {'title': 'Parametric EQ', 'icon': Icons.show_chart, 'enabled': _parametricEqEnabled},
-      {'title': 'Delay & Echo', 'icon': Icons.repeat, 'enabled': _delayEnabled},
-      {'title': 'Dynamic Bass', 'icon': Icons.waves, 'enabled': _dynamicBassEnabled},
-      {'title': 'Crystalizer', 'icon': Icons.auto_fix_high, 'enabled': _crystalizerEnabled},
-      {'title': 'Crossfeed', 'icon': Icons.headphones, 'enabled': _crossfeedEnabled},
-      {'title': 'Stereo Widen', 'icon': Icons.swap_horiz, 'enabled': _stereoWidenEnabled},
-      {'title': 'JamesDSP Stereo', 'icon': Icons.surround_sound, 'enabled': _stereoEnhancementEnabled},
-      {'title': 'Spatial Audio', 'icon': Icons.spatial_audio_off_outlined, 'enabled': _spatialAudioEnabled},
-      {'title': 'True 3D', 'icon': Icons.threed_rotation, 'enabled': _true3dEnabled},
-      {'title': 'Custom Filters', 'icon': Icons.filter_alt_outlined, 'enabled': _customLpfEnabled || _customHpfEnabled || _customBiquadEnabled},
-      {'title': 'Soft Limiter', 'icon': Icons.compress, 'enabled': _limiterEnabled},
-    ];
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          color: primaryColor,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
 
-    return Container(
-      height: 50,
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: rackItems.length,
-        itemBuilder: (context, index) {
-          final item = rackItems[index];
-          final isSelected = _selectedDeckIndex == index;
-          final bool isEnabled = item['enabled'] as bool;
+  Widget _buildEffectTileCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isEnabled,
+    ValueChanged<bool>? onToggle,
+    required VoidCallback onTapDetail,
+  }) {
+    return Card(
+      color: surfaceDarkColor,
+      elevation: 0,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isEnabled ? primaryColor.withValues(alpha: 0.35) : Colors.white.withValues(alpha: 0.06),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTapDetail,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isEnabled ? primaryColor.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: isEnabled ? primaryColor : Colors.white54,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: isEnabled ? primaryColor.withValues(alpha: 0.85) : Colors.white38,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onToggle != null) ...[
+                Switch(
+                  value: isEnabled,
+                  onChanged: onToggle,
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+                const SizedBox(width: 4),
+              ],
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.white38,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-          return GestureDetector(
-            onTap: () {
-              setState(() => _selectedDeckIndex = index);
-              _deckPageController.animateToPage(
-                index,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
+  void _openDetailScreen(String title, IconData icon, WidgetBuilder contentBuilder) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return StatefulBuilder(
+            builder: (context, setSubState) {
+              _subScreenSetState = setSubState;
+              return Scaffold(
+                backgroundColor: bgDarkColor,
+                appBar: AppBar(
+                  backgroundColor: surfaceDarkerColor,
+                  elevation: 0,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () {
+                      _subScreenSetState = null;
+                      Navigator.pop(context);
+                    },
+                  ),
+                  title: Row(
+                    children: [
+                      Icon(icon, color: primaryColor, size: 20),
+                      const SizedBox(width: 10),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                body: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: contentBuilder(context),
+                ),
               );
             },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: isSelected ? primaryColor : surfaceDarkColor,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: isSelected
-                      ? primaryColor
-                      : Colors.white.withOpacity(0.12),
-                ),
-                boxShadow: isSelected
-                    ? [
-                        BoxShadow(
-                          color: primaryColor.withOpacity(0.35),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        )
-                      ]
-                    : null,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    item['icon'] as IconData,
-                    size: 16,
-                    color: isSelected
-                        ? Colors.white
-                        : (isEnabled ? primaryColor : Colors.white54),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    item['title'] as String,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : Colors.white70,
-                      fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isEnabled
-                          ? (isSelected ? Colors.white : const Color(0xFF00E676))
-                          : Colors.white24,
-                    ),
-                  ),
-                ],
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curveAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          final slideAnimation = Tween<Offset>(
+            begin: const Offset(0.06, 0.0),
+            end: Offset.zero,
+          ).animate(curveAnimation);
+
+          final scaleAnimation = Tween<double>(
+            begin: 0.96,
+            end: 1.0,
+          ).animate(curveAnimation);
+
+          final fadeAnimation = Tween<double>(
+            begin: 0.0,
+            end: 1.0,
+          ).animate(curveAnimation);
+
+          return SlideTransition(
+            position: slideAnimation,
+            child: ScaleTransition(
+              scale: scaleAnimation,
+              child: FadeTransition(
+                opacity: fadeAnimation,
+                child: child,
               ),
             ),
           );
         },
       ),
-    );
+    ).then((_) {
+      _subScreenSetState = null;
+    });
   }
 
   @override
@@ -806,7 +891,6 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       appBar: null,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth >= 800;
           return Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
@@ -884,95 +968,268 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                       ),
                     ),
 
-                  // Studio Rack Module Selector (Horizontal Scroll)
-                  _buildHorizontalRackSelector(),
-
-                  // Studio Control Deck (Swappable Module Views)
+                  // Grouped List View Hub
                   Expanded(
-                    child: ScrollConfiguration(
-                      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                      child: PageView(
-                        controller: _deckPageController,
-                        physics: const BouncingScrollPhysics(),
-                        onPageChanged: (index) {
-                          setState(() => _selectedDeckIndex = index);
-                        },
-                        children: [
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildGraphicEqSection(),
+                    child: ListView(
+                      padding: const EdgeInsets.only(bottom: 120),
+                      children: [
+                        // Section 1: Equalization & Tuning
+                        _buildSectionHeader('Equalization & Tuning'),
+                        _buildEffectTileCard(
+                          icon: Icons.equalizer,
+                          title: '${_eqFrequencies.length}-Band Equalizer',
+                          subtitle: _masterEqEnabled ? '${_eqFrequencies.length}-Band ($_activePreset)' : 'Disabled',
+                          isEnabled: _masterEqEnabled,
+                          onToggle: (v) {
+                            setState(() => _masterEqEnabled = v);
+                            widget.player.setMultibandEqEnabled(v);
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            '${_eqFrequencies.length}-Band Equalizer',
+                            Icons.equalizer,
+                            (_) => _buildGraphicEqSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildPlaybackSpeedSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.speed_rounded,
+                          title: 'Playback Speed & Pitch',
+                          subtitle: (_playbackPitch - 1.0).abs() >= 0.01 ? '${_playbackPitch.toStringAsFixed(2)}x Speed' : 'Normal Speed (1.0x)',
+                          isEnabled: (_playbackPitch - 1.0).abs() >= 0.01,
+                          onToggle: (v) {
+                            final newPitch = v ? 1.25 : 1.0;
+                            setState(() => _playbackPitch = newPitch);
+                            widget.player.setPitch(newPitch);
+                            AppStateService.instance.savePlaybackSpeed(newPitch);
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Playback Speed & Pitch',
+                            Icons.speed_rounded,
+                            (_) => _buildPlaybackSpeedSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildAudioTuningSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.tune,
+                          title: '3-Band Audio Tuning',
+                          subtitle: _audioTuningEnabled
+                              ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
+                              : 'Disabled',
+                          isEnabled: _audioTuningEnabled,
+                          onToggle: (v) {
+                            setState(() => _audioTuningEnabled = v);
+                            widget.player.setEqEnabled(v);
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            '3-Band Audio Tuning',
+                            Icons.tune,
+                            (_) => _buildAudioTuningSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildParametricEqSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.show_chart,
+                          title: 'Parametric EQ',
+                          subtitle: _parametricEqEnabled ? '${_parametricBands.length} Active Bands' : 'Disabled',
+                          isEnabled: _parametricEqEnabled,
+                          onToggle: (v) {
+                            setState(() => _parametricEqEnabled = v);
+                            widget.player.setMultibandFxEnabled(v);
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Parametric EQ',
+                            Icons.show_chart,
+                            (_) => _buildParametricEqSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildDelaySection(),
+                        ),
+
+                        // Section 2: Dynamics & Bass
+                        _buildSectionHeader('Dynamics & Bass'),
+                        _buildEffectTileCard(
+                          icon: Icons.waves,
+                          title: 'Dynamic Bass',
+                          subtitle: _dynamicBassEnabled ? 'Gain: ${_dynamicBassGain.toInt()}%' : 'Disabled',
+                          isEnabled: _dynamicBassEnabled,
+                          onToggle: (v) {
+                            setState(() => _dynamicBassEnabled = v);
+                            if (v) {
+                              _updateDynamicBass();
+                            } else {
+                              widget.player.setDynamicBass(enabled: false, preset: _dynamicBassPreset, gain: _dynamicBassGain);
+                            }
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Dynamic Bass',
+                            Icons.waves,
+                            (_) => _buildDynamicBassSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildDynamicBassSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.auto_fix_high,
+                          title: 'Crystalizer',
+                          subtitle: _crystalizerEnabled ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%' : 'Disabled',
+                          isEnabled: _crystalizerEnabled,
+                          onToggle: (v) {
+                            setState(() => _crystalizerEnabled = v);
+                            _updateCrystalizer();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Crystalizer',
+                            Icons.auto_fix_high,
+                            (_) => _buildCrystalizerSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildCrystalizerSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.compress,
+                          title: 'Soft Limiter',
+                          subtitle: _limiterEnabled ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%' : 'Disabled',
+                          isEnabled: _limiterEnabled,
+                          onToggle: (v) {
+                            setState(() => _limiterEnabled = v);
+                            if (v) {
+                              _applyLimiter();
+                            } else {
+                              widget.player.setLimiterEnabled(false);
+                            }
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Soft Limiter',
+                            Icons.compress,
+                            (_) => _buildLimiterSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildCrossfeedSection(),
+                        ),
+
+                        // Section 3: Spatial & Headphones
+                        _buildSectionHeader('Spatial & Headphones'),
+                        _buildEffectTileCard(
+                          icon: Icons.headphones,
+                          title: 'Audiophile Crossfeed',
+                          subtitle: _crossfeedEnabled
+                              ? (_crossfeedPreset == 1 ? 'BS2B Weak' : _crossfeedPreset == 2 ? 'BS2B Strong' : 'Joe0bloggs 3D')
+                              : 'Disabled',
+                          isEnabled: _crossfeedEnabled,
+                          onToggle: (v) {
+                            setState(() => _crossfeedEnabled = v);
+                            if (v) {
+                              _updateCrossfeed();
+                            } else {
+                              widget.player.setCrossfeed(enabled: false, preset: _crossfeedPreset);
+                            }
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Audiophile Crossfeed',
+                            Icons.headphones,
+                            (_) => _buildCrossfeedSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildStereoWidenSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.swap_horiz,
+                          title: 'Stereo Stage Widener',
+                          subtitle: _stereoWidenEnabled ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x' : 'Disabled',
+                          isEnabled: _stereoWidenEnabled,
+                          onToggle: (v) {
+                            setState(() => _stereoWidenEnabled = v);
+                            if (v) {
+                              _updateStereoWiden();
+                            } else {
+                              widget.player.setStereoWiden(enabled: false, width: _stereoWidenWidth, delayMs: _stereoWidenDelayMs * 100.0);
+                            }
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Stereo Stage Widener',
+                            Icons.swap_horiz,
+                            (_) => _buildStereoWidenSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildStereoEnhancementSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.surround_sound,
+                          title: 'JamesDSP Stereo Enhancement',
+                          subtitle: _stereoEnhancementEnabled ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%' : 'Disabled',
+                          isEnabled: _stereoEnhancementEnabled,
+                          onToggle: (v) {
+                            setState(() => _stereoEnhancementEnabled = v);
+                            _updateStereoEnhancement();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'JamesDSP Stereo Enhancement',
+                            Icons.surround_sound,
+                            (_) => _buildStereoEnhancementSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildSpatialAudioSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.spatial_audio_off_outlined,
+                          title: 'Spatial Audio',
+                          subtitle: _spatialAudioEnabled ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%' : 'Disabled',
+                          isEnabled: _spatialAudioEnabled,
+                          onToggle: (v) {
+                            setState(() => _spatialAudioEnabled = v);
+                            widget.player.setReverbEnabled(v);
+                            if (v) _updateSpatialAudio();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Spatial Audio',
+                            Icons.spatial_audio_off_outlined,
+                            (_) => _buildSpatialAudioSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildTrue3dSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.threed_rotation,
+                          title: 'True 3D Spatialization',
+                          subtitle: _true3dEnabled ? 'XYZ Positioning Active' : 'Disabled',
+                          isEnabled: _true3dEnabled,
+                          onToggle: (v) {
+                            setState(() => _true3dEnabled = v);
+                            widget.player.setSpatializationEnabled(v);
+                            if (v) _updateTrue3dPositions();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'True 3D Spatialization',
+                            Icons.threed_rotation,
+                            (_) => _buildTrue3dSection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildCustomFiltersSection(),
+                        ),
+
+                        // Section 4: Filters & Custom DSP
+                        _buildSectionHeader('Filters & Custom DSP'),
+                        _buildEffectTileCard(
+                          icon: Icons.repeat,
+                          title: 'Delay & Echo',
+                          subtitle: _delayEnabled ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%' : 'Disabled',
+                          isEnabled: _delayEnabled,
+                          onToggle: (v) {
+                            setState(() => _delayEnabled = v);
+                            widget.player.setDelay(enabled: v);
+                            if (v) _updateDelay();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Delay & Echo',
+                            Icons.repeat,
+                            (_) => _buildDelaySection(),
                           ),
-                          SingleChildScrollView(
-                            primary: false,
-                            padding: EdgeInsets.fromLTRB(isDesktop ? 32.0 : 16.0, 8.0, isDesktop ? 32.0 : 16.0, 120),
-                            child: _buildLimiterSection(),
+                        ),
+                        _buildEffectTileCard(
+                          icon: Icons.filter_alt_outlined,
+                          title: 'Custom Filters (LPF / HPF / Biquad)',
+                          subtitle: (_customLpfEnabled || _customHpfEnabled || _customBiquadEnabled) ? 'Active Filters' : 'Disabled',
+                          isEnabled: _customLpfEnabled || _customHpfEnabled || _customBiquadEnabled,
+                          onTapDetail: () => _openDetailScreen(
+                            'Custom Filters',
+                            Icons.filter_alt_outlined,
+                            (_) => _buildCustomFiltersSection(),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-
                 ],
               ),
             ),

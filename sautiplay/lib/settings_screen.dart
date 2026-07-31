@@ -104,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _resampleAlgorithm = 0;
   int _ditherMode = 0;
   int _eqBandCount = 10;
-  
+
   // ReplayGain
   ReplayGainMode _replayGainMode = ReplayGainMode.none;
   double _replayGainPreamp = 0.0;
@@ -133,7 +133,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
     final rgSaved = await AppStateService.instance.loadReplayGainSettings();
-    final oversamplingSaved = await AppStateService.instance.loadDspOversampling();
+    final oversamplingSaved =
+        await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
     setState(() {
@@ -243,28 +244,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
                         const SizedBox(height: 16),
-                        _buildSectionTitle(isMobile ? 'AUDIO' : 'AUDIO QUALITY', isMobile: isMobile),
+                        _buildSectionTitle(isMobile ? 'AUDIO' : 'AUDIO QUALITY',
+                            isMobile: isMobile),
                         _buildAudioQualityCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'PROTECTION' : 'SPEAKER & HARDWARE PROTECTION', isMobile: isMobile),
+                        _buildSectionTitle(
+                            isMobile
+                                ? 'PROTECTION'
+                                : 'SPEAKER & HARDWARE PROTECTION',
+                            isMobile: isMobile),
                         _buildSpeakerProtectionCard(isMobile: isMobile),
                         const SizedBox(height: 24),
                         _buildSectionTitle('PLAYBACK', isMobile: isMobile),
                         _buildPlaybackCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'EQ' : 'EQUALIZER', isMobile: isMobile),
+                        _buildSectionTitle(isMobile ? 'EQ' : 'EQUALIZER',
+                            isMobile: isMobile),
                         _buildEqualizerCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'VISUALS' : 'VISUALIZATION', isMobile: isMobile),
+                        _buildSectionTitle(
+                            isMobile ? 'VISUALS' : 'VISUALIZATION',
+                            isMobile: isMobile),
                         _buildVisualizationCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'STORAGE' : 'STORAGE & DATA', isMobile: isMobile),
+                        _buildSectionTitle(
+                            isMobile ? 'STORAGE' : 'STORAGE & DATA',
+                            isMobile: isMobile),
                         _buildStorageCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'ABOUT' : 'ABOUT & LICENSES', isMobile: isMobile),
+                        _buildSectionTitle(
+                            isMobile ? 'ABOUT' : 'ABOUT & LICENSES',
+                            isMobile: isMobile),
                         _buildAboutCard(context, isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'DEBUG' : 'DEBUG & LOGS', isMobile: isMobile),
+                        _buildSectionTitle(isMobile ? 'DEBUG' : 'DEBUG & LOGS',
+                            isMobile: isMobile),
                         _buildDebugAndLogsCard(isMobile: isMobile),
                         const SizedBox(height: 120),
                       ]),
@@ -449,7 +463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.memory, color: Colors.white70, size: 20),
           ),
-          title: const Text('Resampling Algorithm',
+          title: const Text('Resampler',
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           trailing: SizedBox(
@@ -485,7 +499,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.blur_on, color: Colors.white70, size: 20),
           ),
-          title: const Text('DSP Oversampling',
+          title: const Text('Oversampler',
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           subtitle: const Text('Anti-aliasing for ViPER FX & limiters',
@@ -523,7 +537,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.waves, color: Colors.white70, size: 20),
           ),
-          title: const Text('Dither Mode',
+          title: const Text('Dither',
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           trailing: SizedBox(
@@ -559,10 +573,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.code, color: Colors.white70, size: 20),
           ),
-          title: const Text('Output Format',
+          title: const Text('Output Bit',
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Requires engine restart',
+          subtitle: const Text('Supports only certain devices',
               style: TextStyle(color: _textDark, fontSize: 12)),
           trailing: SizedBox(
             width: 150,
@@ -587,7 +601,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Divider(color: Colors.white10, height: 1),
         // ReplayGain Mode
         ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           leading: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -596,8 +611,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.equalizer, color: Colors.white70, size: 20),
           ),
-          title: const Text('ReplayGain Mode',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          title: const Text('ReplayGain',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           trailing: SizedBox(
             width: 150,
             child: Row(
@@ -630,8 +646,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'ReplayGain Preamp',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                'Preamp',
+                style:
+                    TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
               ),
               SizedBox(
                 width: 90,
@@ -641,7 +658,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   min: -15.0,
                   max: 15.0,
                   activeColor: _primary,
-                  valueFormatter: (v) => '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  valueFormatter: (v) =>
+                      '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
                   onChanged: (val) {
                     setState(() => _replayGainPreamp = val);
                     _persistReplayGainSettings();
@@ -741,7 +759,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.swap_calls, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.swap_calls,
+                        color: Colors.white70, size: 20),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -749,8 +768,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isMobile ? 'Phase Inversion' : 'Phase Inversion (Ø 180°)',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                          isMobile
+                              ? 'Phase Inversion'
+                              : 'Phase Inversion (Ø 180°)',
+                          style: const TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 2),
                         const Text(
@@ -822,10 +844,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.shield, color: Colors.white70, size: 20),
           ),
-          title: Text(isMobile ? 'Bit-Perfect Output' : 'True Bit-Perfect Output',
-              style:
-                  const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Bypass OS Mixer & DSP. Forces exclusive mode.',
+          title: Text(
+              isMobile ? 'Bit-Perfect Playback' : 'Bit-Perfect Playback',
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w500)),
+          subtitle: const Text('Bypasses OS Mixer & DSP (Limited support)',
               style: TextStyle(color: _textDark, fontSize: 12)),
           value: widget.exclusiveMode,
           activeThumbColor: _primary,
@@ -847,12 +870,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   content: Row(
                     children: const [
-                      Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 20),
+                      Icon(Icons.warning_amber_rounded,
+                          color: Colors.amberAccent, size: 20),
                       SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           'Hardware rejected Exclusive Mode. Falling back! Try changing Sample Rate/Format.',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -870,12 +897,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   content: Row(
                     children: const [
-                      Icon(Icons.check_circle_outline, color: _primary, size: 20),
+                      Icon(Icons.check_circle_outline,
+                          color: _primary, size: 20),
                       SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Exclusive Bit-Perfect Mode Enabled! DSP bypassed.',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                          'Exclusive Bit-Perfect Mode Enabled!',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -898,7 +929,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Expanded(
                         child: Text(
                           'Bit-Perfect Mode Disabled.',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -918,30 +952,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         // Master Protection Toggle
         SwitchListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           activeThumbColor: Colors.white,
           activeTrackColor: _primary,
           inactiveThumbColor: Colors.white70,
           inactiveTrackColor: Colors.white10,
-          title: Text(isMobile ? 'Safeguards' : 'Protection Safeguards',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          title: Text(isMobile ? 'Safeguards' : 'Safeguards',
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w500)),
           subtitle: Text(
             _speakerProtectionEnabled
                 ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
                 : 'Safeguards disabled (risk of speaker over-excursion & clipping)',
             style: TextStyle(
-              color: _speakerProtectionEnabled ? Colors.greenAccent.shade200 : Colors.amberAccent,
+              color: _speakerProtectionEnabled
+                  ? Colors.greenAccent.shade200
+                  : Colors.amberAccent,
               fontSize: 12,
             ),
           ),
           secondary: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent).withAlpha(25),
+              color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent)
+                  .withAlpha(25),
               shape: BoxShape.circle,
             ),
             child: Icon(
-              _speakerProtectionEnabled ? Icons.health_and_safety : Icons.warning_amber_rounded,
+              _speakerProtectionEnabled
+                  ? Icons.health_and_safety
+                  : Icons.warning_amber_rounded,
               color: _speakerProtectionEnabled ? _primary : Colors.amberAccent,
               size: 20,
             ),
@@ -956,18 +997,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(color: Colors.white10, height: 1),
           // Subsonic Cutoff (High Pass Filter)
           ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             leading: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.white.withAlpha(10),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.arrow_upward, color: Colors.white70, size: 20),
+              child: const Icon(Icons.arrow_upward,
+                  color: Colors.white70, size: 20),
             ),
-            title: Text(isMobile ? 'Subsonic Filter' : 'Subsonic Filter (High-Pass)',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Cuts invisible low frequencies below woofer tuning',
+            title: Text(
+                isMobile ? 'Subsonic Filter' : 'Subsonic Filter (High-Pass)',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text(
+                'Cuts invisible low frequencies below woofer tuning',
                 style: TextStyle(color: _textDark, fontSize: 12)),
             trailing: SizedBox(
               width: 130,
@@ -976,7 +1022,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      _subsonicCutoffHz <= 0 ? 'Off' : '${_subsonicCutoffHz.toInt()} Hz',
+                      _subsonicCutoffHz <= 0
+                          ? 'Off'
+                          : '${_subsonicCutoffHz.toInt()} Hz',
                       style: const TextStyle(color: _textDark, fontSize: 14),
                       textAlign: TextAlign.right,
                       overflow: TextOverflow.ellipsis,
@@ -992,18 +1040,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(color: Colors.white10, height: 1),
           // Ultrasonic Cutoff (Low Pass Filter)
           ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             leading: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Colors.white.withAlpha(10),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.arrow_downward, color: Colors.white70, size: 20),
+              child: const Icon(Icons.arrow_downward,
+                  color: Colors.white70, size: 20),
             ),
-            title: Text(isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard (Low-Pass)',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Filters out dangerous high frequencies above 18-22kHz',
+            title: Text(
+                isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard (Low-Pass)',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text(
+                'Filters out dangerous high frequencies above 18-22kHz',
                 style: TextStyle(color: _textDark, fontSize: 12)),
             trailing: SizedBox(
               width: 130,
@@ -1012,7 +1065,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      _ultrasonicCutoffHz >= 24000 ? 'Off' : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
+                      _ultrasonicCutoffHz >= 24000
+                          ? 'Off'
+                          : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
                       style: const TextStyle(color: _textDark, fontSize: 14),
                       textAlign: TextAlign.right,
                       overflow: TextOverflow.ellipsis,
@@ -1036,7 +1091,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Peak Ceiling',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500)),
                       const SizedBox(height: 2),
                       Text(
                         'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
@@ -1073,7 +1130,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Safety Headroom',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500)),
                       const SizedBox(height: 2),
                       const Text('Output level attenuation buffer',
                           style: TextStyle(color: _textDark, fontSize: 12)),
@@ -1394,7 +1453,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       GestureDetector(
                         onTap: () => widget.onSpectrumStyleChanged(entry.key),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                           decoration: BoxDecoration(
                             color: widget.spectrumStyle == entry.key
                                 ? _primary
@@ -1409,7 +1469,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(entry.value.$2, size: 16,
+                              Icon(entry.value.$2,
+                                  size: 16,
                                   color: widget.spectrumStyle == entry.key
                                       ? Colors.white
                                       : _textDark),
@@ -1437,36 +1498,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(color: Colors.white10, height: 1),
           SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             activeThumbColor: Colors.white,
             activeTrackColor: Color(0xFF137fec),
             inactiveThumbColor: Colors.white70,
             inactiveTrackColor: Colors.white10,
-            title: const Text('Auto Fit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Dynamically adjust Y-axis scale', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            title: const Text('Auto Fit',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Dynamically adjust Y-axis scale',
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
             value: widget.analyzerAutoFit,
             onChanged: widget.onAnalyzerAutoFitChanged,
           ),
           const Divider(color: Colors.white10, height: 1),
           SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             activeThumbColor: Colors.white,
             activeTrackColor: Color(0xFF137fec),
             inactiveThumbColor: Colors.white70,
             inactiveTrackColor: Colors.white10,
-            title: const Text('Show Grids', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            title: const Text('Show Grids',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w500)),
             value: widget.analyzerShowGrids,
             onChanged: widget.onAnalyzerShowGridsChanged,
           ),
           const Divider(color: Colors.white10, height: 1),
           SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             activeThumbColor: Colors.white,
             activeTrackColor: Color(0xFF137fec),
             inactiveThumbColor: Colors.white70,
             inactiveTrackColor: Colors.white10,
-            title: const Text('Log Scale', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Logarithmic decibel response curve', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            title: const Text('Log Scale',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w500)),
+            subtitle: const Text('Logarithmic decibel response curve',
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
             value: widget.analyzerLogScale,
             onChanged: widget.onAnalyzerLogScaleChanged,
           ),
@@ -1991,9 +2063,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showOversamplingDialog() {
     final options = [
-      {'factor': 1, 'name': 'Off (1x)', 'subtitle': 'Low CPU usage, native sample rate'},
-      {'factor': 2, 'name': '2x Oversampling', 'subtitle': 'High Quality (Reduces aliasing in saturator/limiter)'},
-      {'factor': 4, 'name': '4x Oversampling', 'subtitle': 'Ultra HD (Maximum anti-aliasing purity)'},
+      {
+        'factor': 1,
+        'name': 'Off (1x)',
+        'subtitle': 'Low CPU usage, native sample rate'
+      },
+      {
+        'factor': 2,
+        'name': '2x Oversampling',
+        'subtitle': 'High Quality (Reduces aliasing in saturator/limiter)'
+      },
+      {
+        'factor': 4,
+        'name': '4x Oversampling',
+        'subtitle': 'Ultra HD (Maximum anti-aliasing purity)'
+      },
     ];
 
     showModalBottomSheet(
@@ -2015,7 +2099,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           for (final item in options)
             RadioListTile<int>(
               title: Text(item['name'] as String,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w500)),
               subtitle: Text(item['subtitle'] as String,
                   style: const TextStyle(color: _textDark, fontSize: 12)),
               value: item['factor'] as int,
@@ -2101,12 +2186,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: _cardDark,
-          title: const Text('ReplayGain Mode', style: TextStyle(color: Colors.white)),
+          title: const Text('ReplayGain Mode',
+              style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               RadioListTile<ReplayGainMode>(
-                title: const Text('None', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('None', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.none,
                 groupValue: _replayGainMode,
@@ -2117,7 +2204,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title: const Text('Track', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Track', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.track,
                 groupValue: _replayGainMode,
@@ -2128,7 +2216,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title: const Text('Album', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Album', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.album,
                 groupValue: _replayGainMode,
@@ -2174,13 +2263,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final modes = [
       {'id': 0, 'name': 'None', 'subtitle': 'No dithering applied'},
       {'id': 1, 'name': 'Rectangle (RPDF)', 'subtitle': 'Simple flat dither'},
-      {'id': 2, 'name': 'Triangle (TPDF)', 'subtitle': 'Standard flat dither (Recommended)'},
-      {'id': 3, 'name': 'Lipshitz', 'subtitle': 'Classic 5th-order noise-shaped'},
-      {'id': 4, 'name': 'F-Weighted', 'subtitle': 'Midrange cut noise-shaped (Acoustic/Vocal)'},
-      {'id': 5, 'name': 'Modified E-Weighted', 'subtitle': 'Peak-safe noise-shaped (Pop/Rock)'},
-      {'id': 6, 'name': 'Shibata', 'subtitle': 'Standard audiophile noise-shaped'},
-      {'id': 7, 'name': 'Low Shibata', 'subtitle': 'Gentle audiophile noise-shaped (Safest)'},
-      {'id': 8, 'name': 'High Shibata', 'subtitle': 'Steep audiophile noise-shaped'},
+      {
+        'id': 2,
+        'name': 'Triangle (TPDF)',
+        'subtitle': 'Standard flat dither (Recommended)'
+      },
+      {
+        'id': 3,
+        'name': 'Lipshitz',
+        'subtitle': 'Classic 5th-order noise-shaped'
+      },
+      {
+        'id': 4,
+        'name': 'F-Weighted',
+        'subtitle': 'Midrange cut noise-shaped (Acoustic/Vocal)'
+      },
+      {
+        'id': 5,
+        'name': 'Modified E-Weighted',
+        'subtitle': 'Peak-safe noise-shaped (Pop/Rock)'
+      },
+      {
+        'id': 6,
+        'name': 'Shibata',
+        'subtitle': 'Standard audiophile noise-shaped'
+      },
+      {
+        'id': 7,
+        'name': 'Low Shibata',
+        'subtitle': 'Gentle audiophile noise-shaped (Safest)'
+      },
+      {
+        'id': 8,
+        'name': 'High Shibata',
+        'subtitle': 'Steep audiophile noise-shaped'
+      },
     ];
 
     showModalBottomSheet(
@@ -2213,8 +2330,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final name = item['name'] as String;
                   final subtitle = item['subtitle'] as String;
                   return RadioListTile<int>(
-                    title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text(subtitle, style: const TextStyle(color: _textDark, fontSize: 12)),
+                    title: Text(name,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: Text(subtitle,
+                        style: const TextStyle(color: _textDark, fontSize: 12)),
                     value: id,
                     groupValue: _ditherMode,
                     activeColor: _primary,
@@ -2369,7 +2489,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return AlertDialog(
           backgroundColor: _cardDark,
           title: const Text('Subsonic High-Pass Filter',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((opt) {
@@ -2381,7 +2502,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: Text(opt.$2,
                     style: TextStyle(
                         color: selected ? Colors.white : _textDark,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.normal)),
                 onChanged: (val) {
                   if (val != null) {
                     setState(() => _subsonicCutoffHz = val);
@@ -2411,7 +2533,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return AlertDialog(
           backgroundColor: _cardDark,
           title: const Text('Ultrasonic Low-Pass Guard',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: options.map((opt) {
@@ -2423,7 +2546,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: Text(opt.$2,
                     style: TextStyle(
                         color: selected ? Colors.white : _textDark,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.normal)),
                 onChanged: (val) {
                   if (val != null) {
                     setState(() => _ultrasonicCutoffHz = val);

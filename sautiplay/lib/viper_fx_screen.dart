@@ -421,10 +421,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
   bool _speakerCorrectionEnabled = false;
 
-  // Studio Rack Deck Layout State
-  int _selectedDeckIndex = 0;
-  late final PageController _deckPageController =
-      PageController(initialPage: 0);
+  StateSetter? _subScreenSetState;
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _subScreenSetState?.call(() {});
+  }
 
   @override
   void initState() {
@@ -434,7 +437,6 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
   @override
   void dispose() {
-    _deckPageController.dispose();
     super.dispose();
   }
 
@@ -942,126 +944,184 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _updateEngine();
   }
 
-  Widget _buildHorizontalRackSelector() {
-    final List<Map<String, dynamic>> rackItems = [
-      {'title': 'Core & Limits', 'icon': Icons.tune, 'enabled': _viperEnabled},
-      {
-        'title': 'VIPRR System',
-        'icon': Icons.bolt,
-        'enabled': _dynamicSystemEnabled
-      },
-      {
-        'title': 'Dynamics & Comp',
-        'icon': Icons.compress,
-        'enabled': _multibandCompressorEnabled || _fetCompressorEnabled
-      },
-      {
-        'title': 'Bass & Clarity',
-        'icon': Icons.equalizer,
-        'enabled': _bassEnabled ||
-            _bassMonoEnabled ||
-            _psychoBassEnabled ||
-            _clarityEnabled ||
-            _spectrumEnabled
-      },
-      {
-        'title': 'Spatial & Surround',
-        'icon': Icons.surround_sound,
-        'enabled': _stereoImagerEnabled ||
-            _cureEnabled ||
-            _headphoneSurroundEnabled ||
-            _fieldSurroundEnabled ||
-            _diffSurroundEnabled
-      },
-      {
-        'title': 'ViPER Reverb',
-        'icon': Icons.meeting_room,
-        'enabled': _reverbEnabled
-      },
-      {
-        'title': 'Dynamic EQ & FIR',
-        'icon': Icons.show_chart,
-        'enabled': _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled
-      },
-      {
-        'title': 'Convolver & DDC',
-        'icon': Icons.graphic_eq,
-        'enabled': _convolverEnabled || _ddcEnabled
-      },
-      {
-        'title': 'Analog & Tube',
-        'icon': Icons.album,
-        'enabled': _tubeEnabled || _analogXEnabled || _speakerCorrectionEnabled
-      },
-    ];
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          color: primaryColor,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
 
-    return Container(
-      height: 46,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: ListView.builder(
-        primary: false,
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: rackItems.length,
-        itemBuilder: (context, index) {
-          final item = rackItems[index];
-          final isSelected = _selectedDeckIndex == index;
-          final isEnabled = item['enabled'] == true;
-
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              avatar: Icon(
-                item['icon'] as IconData,
-                size: 16,
-                color: isSelected
-                    ? Colors.black
-                    : (isEnabled ? primaryColor : Colors.white54),
+  Widget _buildEffectTileCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isEnabled,
+    ValueChanged<bool>? onToggle,
+    required VoidCallback onTapDetail,
+  }) {
+    return Card(
+      color: surfaceDarkColor,
+      elevation: 0,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isEnabled ? primaryColor.withValues(alpha: 0.35) : Colors.white.withValues(alpha: 0.06),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTapDetail,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isEnabled ? primaryColor.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: isEnabled ? primaryColor : Colors.white54,
+                  size: 20,
+                ),
               ),
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    item['title'] as String,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? Colors.black : Colors.white70,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  if (isEnabled) ...[
-                    const SizedBox(width: 4),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: primaryColor,
-                        shape: BoxShape.circle,
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: isEnabled ? primaryColor.withValues(alpha: 0.85) : Colors.white38,
+                        fontSize: 12,
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-              selected: isSelected,
-              selectedColor: primaryColor,
-              backgroundColor: surfaceDarkColor,
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() => _selectedDeckIndex = index);
-                  _deckPageController.animateToPage(
-                    index,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                }
-              },
+              if (onToggle != null) ...[
+                Switch(
+                  value: isEnabled,
+                  onChanged: onToggle,
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+                const SizedBox(width: 4),
+              ],
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.white38,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openDetailScreen(String title, IconData icon, WidgetBuilder contentBuilder) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return StatefulBuilder(
+            builder: (context, setSubState) {
+              _subScreenSetState = setSubState;
+              return Scaffold(
+                backgroundColor: bgDarkColor,
+                appBar: AppBar(
+                  backgroundColor: surfaceDarkerColor,
+                  elevation: 0,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () {
+                      _subScreenSetState = null;
+                      Navigator.pop(context);
+                    },
+                  ),
+                  title: Row(
+                    children: [
+                      Icon(icon, color: primaryColor, size: 20),
+                      const SizedBox(width: 10),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                body: contentBuilder(context),
+              );
+            },
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curveAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          final slideAnimation = Tween<Offset>(
+            begin: const Offset(0.06, 0.0),
+            end: Offset.zero,
+          ).animate(curveAnimation);
+
+          final scaleAnimation = Tween<double>(
+            begin: 0.96,
+            end: 1.0,
+          ).animate(curveAnimation);
+
+          final fadeAnimation = Tween<double>(
+            begin: 0.0,
+            end: 1.0,
+          ).animate(curveAnimation);
+
+          return SlideTransition(
+            position: slideAnimation,
+            child: ScaleTransition(
+              scale: scaleAnimation,
+              child: FadeTransition(
+                opacity: fadeAnimation,
+                child: child,
+              ),
             ),
           );
         },
       ),
-    );
+    ).then((_) {
+      _subScreenSetState = null;
+    });
   }
 
   @override
@@ -1078,11 +1138,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Enable ViPER DSP',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
+                const Text(
+                  'Enable ViPER DSP',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 Switch(
                   value: _viperEnabled,
                   onChanged: _toggleMaster,
@@ -1093,21 +1156,106 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             ),
           ),
 
-          // Horizontal Module Selector
-          _buildHorizontalRackSelector(),
-
-          // Studio Control Deck PageView
+          // Grouped List View Hub
           Expanded(
-            child: ScrollConfiguration(
-              behavior:
-                  ScrollConfiguration.of(context).copyWith(scrollbars: false),
-              child: PageView(
-                controller: _deckPageController,
-                physics: const BouncingScrollPhysics(),
-                onPageChanged: (index) {
-                  setState(() => _selectedDeckIndex = index);
-                },
-                children: [
+            child: ListView(
+              padding: const EdgeInsets.only(bottom: 120),
+              children: [
+                // Section 1: Core Output & Gain Controls
+                _buildSectionHeader('Core Output & Gain'),
+                _buildEffectTileCard(
+                  icon: Icons.tune,
+                  title: 'Core & Limits',
+                  subtitle: _viperEnabled ? 'Master Limiter, AGC & LUFS' : 'Disabled',
+                  isEnabled: _viperEnabled,
+                  onToggle: _toggleMaster,
+                  onTapDetail: () => _openDetailScreen('Core & Limits', Icons.tune, (_) => _buildDeckViews()[0]),
+                ),
+
+                // Section 2: VIPRR System & Dynamics
+                _buildSectionHeader('VIPRR System & Dynamics'),
+                _buildEffectTileCard(
+                  icon: Icons.bolt,
+                  title: 'VIPRR Dynamic System',
+                  subtitle: _dynamicSystemEnabled ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%' : 'Disabled',
+                  isEnabled: _dynamicSystemEnabled,
+                  onToggle: (v) {
+                    setState(() => _dynamicSystemEnabled = v);
+                    _updateEngine();
+                  },
+                  onTapDetail: () => _openDetailScreen('VIPRR Dynamic System', Icons.bolt, (_) => _buildDeckViews()[1]),
+                ),
+                _buildEffectTileCard(
+                  icon: Icons.compress,
+                  title: 'Dynamics & Compressors',
+                  subtitle: (_multibandCompressorEnabled || _fetCompressorEnabled) ? '5-Band & FET Active' : 'Disabled',
+                  isEnabled: _multibandCompressorEnabled || _fetCompressorEnabled,
+                  onTapDetail: () => _openDetailScreen('Dynamics & Compressors', Icons.compress, (_) => _buildDeckViews()[2]),
+                ),
+
+                // Section 3: Bass & Clarity Enhancement
+                _buildSectionHeader('Bass & Clarity Enhancement'),
+                _buildEffectTileCard(
+                  icon: Icons.equalizer,
+                  title: 'Bass & Clarity Engine',
+                  subtitle: (_bassEnabled || _bassMonoEnabled || _psychoBassEnabled || _clarityEnabled || _spectrumEnabled) ? 'Active' : 'Disabled',
+                  isEnabled: _bassEnabled || _bassMonoEnabled || _psychoBassEnabled || _clarityEnabled || _spectrumEnabled,
+                  onTapDetail: () => _openDetailScreen('Bass & Clarity Engine', Icons.equalizer, (_) => _buildDeckViews()[3]),
+                ),
+
+                // Section 4: Spatial & Surround Sound
+                _buildSectionHeader('Spatial & Surround Sound'),
+                _buildEffectTileCard(
+                  icon: Icons.surround_sound,
+                  title: 'Spatial & Surround Engine',
+                  subtitle: (_stereoImagerEnabled || _cureEnabled || _headphoneSurroundEnabled || _fieldSurroundEnabled || _diffSurroundEnabled) ? 'Active' : 'Disabled',
+                  isEnabled: _stereoImagerEnabled || _cureEnabled || _headphoneSurroundEnabled || _fieldSurroundEnabled || _diffSurroundEnabled,
+                  onTapDetail: () => _openDetailScreen('Spatial & Surround Engine', Icons.surround_sound, (_) => _buildDeckViews()[4]),
+                ),
+                _buildEffectTileCard(
+                  icon: Icons.meeting_room,
+                  title: 'ViPER Reverb',
+                  subtitle: _reverbEnabled ? 'Room: ${(_reverbRoom * 100).toInt()}%' : 'Disabled',
+                  isEnabled: _reverbEnabled,
+                  onToggle: (v) {
+                    setState(() => _reverbEnabled = v);
+                    _updateEngine();
+                  },
+                  onTapDetail: () => _openDetailScreen('ViPER Reverb', Icons.meeting_room, (_) => _buildDeckViews()[5]),
+                ),
+
+                // Section 5: Equalization, Impulse & Emulation
+                _buildSectionHeader('EQ, Impulse & Emulation'),
+                _buildEffectTileCard(
+                  icon: Icons.show_chart,
+                  title: 'Dynamic EQ & FIR Filter',
+                  subtitle: (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled) ? 'Active' : 'Disabled',
+                  isEnabled: _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
+                  onTapDetail: () => _openDetailScreen('Dynamic EQ & FIR Filter', Icons.show_chart, (_) => _buildDeckViews()[6]),
+                ),
+                _buildEffectTileCard(
+                  icon: Icons.graphic_eq,
+                  title: 'Convolver & DDC Loader',
+                  subtitle: (_convolverEnabled || _ddcEnabled) ? 'Impulse / DDC Active' : 'Disabled',
+                  isEnabled: _convolverEnabled || _ddcEnabled,
+                  onTapDetail: () => _openDetailScreen('Convolver & DDC Loader', Icons.graphic_eq, (_) => _buildDeckViews()[7]),
+                ),
+                _buildEffectTileCard(
+                  icon: Icons.album,
+                  title: 'AnalogX & Tube Simulator',
+                  subtitle: (_tubeEnabled || _analogXEnabled || _speakerCorrectionEnabled) ? 'Tube/AnalogX Active' : 'Disabled',
+                  isEnabled: _tubeEnabled || _analogXEnabled || _speakerCorrectionEnabled,
+                  onTapDetail: () => _openDetailScreen('AnalogX & Tube Simulator', Icons.album, (_) => _buildDeckViews()[8]),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildDeckViews() => [
                   // Deck 0: Core & Limits
                   SingleChildScrollView(
                     primary: false,
@@ -3152,14 +3300,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  ];
 
   Widget _buildCard(String title, String subtitle, bool enabled,
       ValueChanged<bool> onEnableChanged,

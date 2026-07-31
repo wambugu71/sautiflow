@@ -230,8 +230,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                 show: true,
                 gradient: LinearGradient(
                   colors: [
-                    primaryColor.withOpacity(0.5),
-                    primaryColor.withOpacity(0.0),
+                    primaryColor.withValues(alpha: 0.5),
+                    primaryColor.withValues(alpha: 0.0),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -251,7 +251,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
               color: Colors.transparent,
               width: 4,
               rodStackItems: [
-                BarChartRodStackItem(0, math.max(0.02, visualData[i]), primaryColor.withOpacity(0.8)),
+                BarChartRodStackItem(0, math.max(0.02, visualData[i]), primaryColor.withValues(alpha: 0.8)),
                 BarChartRodStackItem(math.max(0.0, visualPeaks[i] - 0.02), visualPeaks[i], Colors.white),
               ],
               borderRadius: BorderRadius.circular(2),
@@ -286,10 +286,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final double spectrumHeight = widget.analyzerEnabled ? 160.0 : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
     const double titleBarHeight = 56.0;
     const double tabBarHeight = 48.0;
+    const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
     final double expandedHeight =
-        topPadding + titleBarHeight + analyzerChartHeight + spectrumHeight + tabBarHeight;
-    final double collapsedHeight = topPadding + titleBarHeight + tabBarHeight;
+        topPadding + titleBarHeight + analyzerChartHeight + spectrumHeight + dragHandleHeight + tabBarHeight;
+    final double collapsedHeight = topPadding + titleBarHeight + dragHandleHeight + tabBarHeight;
 
     return DefaultTabController(
       length: 2,
@@ -393,6 +394,24 @@ class _EffectsScreenState extends State<EffectsScreen> {
                               ),
                             ),
                           ),
+
+                        // Drag Handle Affordance (Pill indicator for sliver expansion/collapse)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 2),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
 
                         // TabBar (always pinned at bottom of header)
                         const TabBar(
