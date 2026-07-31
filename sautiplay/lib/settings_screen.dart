@@ -220,6 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isDesktop = constraints.maxWidth >= 800;
+          final isMobile = constraints.maxWidth < 600;
           return Align(
             alignment: isDesktop ? Alignment.topCenter : Alignment.topCenter,
             child: ConstrainedBox(
@@ -242,29 +243,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
                         const SizedBox(height: 16),
-                        _buildSectionTitle('AUDIO QUALITY'),
-                        _buildAudioQualityCard(),
+                        _buildSectionTitle(isMobile ? 'AUDIO' : 'AUDIO QUALITY', isMobile: isMobile),
+                        _buildAudioQualityCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('SPEAKER & HARDWARE PROTECTION'),
-                        _buildSpeakerProtectionCard(),
+                        _buildSectionTitle(isMobile ? 'PROTECTION' : 'SPEAKER & HARDWARE PROTECTION', isMobile: isMobile),
+                        _buildSpeakerProtectionCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('PLAYBACK'),
-                        _buildPlaybackCard(),
+                        _buildSectionTitle('PLAYBACK', isMobile: isMobile),
+                        _buildPlaybackCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('EQUALIZER'),
-                        _buildEqualizerCard(),
+                        _buildSectionTitle(isMobile ? 'EQ' : 'EQUALIZER', isMobile: isMobile),
+                        _buildEqualizerCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('VISUALIZATION'),
-                        _buildVisualizationCard(),
+                        _buildSectionTitle(isMobile ? 'VISUALS' : 'VISUALIZATION', isMobile: isMobile),
+                        _buildVisualizationCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('STORAGE & DATA'),
-                        _buildStorageCard(),
+                        _buildSectionTitle(isMobile ? 'STORAGE' : 'STORAGE & DATA', isMobile: isMobile),
+                        _buildStorageCard(isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('ABOUT & LICENSES'),
-                        _buildAboutCard(context),
+                        _buildSectionTitle(isMobile ? 'ABOUT' : 'ABOUT & LICENSES', isMobile: isMobile),
+                        _buildAboutCard(context, isMobile: isMobile),
                         const SizedBox(height: 24),
-                        _buildSectionTitle('DEBUG & LOGS'),
-                        _buildDebugAndLogsCard(),
+                        _buildSectionTitle(isMobile ? 'DEBUG' : 'DEBUG & LOGS', isMobile: isMobile),
+                        _buildDebugAndLogsCard(isMobile: isMobile),
                         const SizedBox(height: 120),
                       ]),
                     ),
@@ -278,14 +279,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(String title, {bool isMobile = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 16.0 : 24.0,
+        vertical: isMobile ? 4.0 : 8.0,
+      ),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           color: _textDark,
-          fontSize: 12,
+          fontSize: isMobile ? 11 : 12,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.2,
         ),
@@ -308,12 +312,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Widget _buildCard({required List<Widget> children}) {
+  Widget _buildCard({required List<Widget> children, bool isMobile = false}) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+      margin: EdgeInsets.symmetric(horizontal: isMobile ? 10.0 : 16.0),
       decoration: BoxDecoration(
         color: _cardDark,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(isMobile ? 16 : 20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -322,8 +326,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAudioQualityCard() {
+  Widget _buildAudioQualityCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         // Streaming Quality Segmented
         Padding(
@@ -739,16 +744,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.swap_calls, color: Colors.white70, size: 20),
                   ),
                   const SizedBox(width: 16),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Phase Inversion (Ø 180°)',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                          isMobile ? 'Phase Inversion' : 'Phase Inversion (Ø 180°)',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
                         ),
-                        SizedBox(height: 2),
-                        Text(
+                        const SizedBox(height: 2),
+                        const Text(
                           'Invert PCM polarity for reversed hardware or phase alignment',
                           style: TextStyle(color: _textDark, fontSize: 12),
                         ),
@@ -817,9 +822,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: const Icon(Icons.shield, color: Colors.white70, size: 20),
           ),
-          title: const Text('True Bit-Perfect Output',
+          title: Text(isMobile ? 'Bit-Perfect Output' : 'True Bit-Perfect Output',
               style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           subtitle: const Text('Bypass OS Mixer & DSP. Forces exclusive mode.',
               style: TextStyle(color: _textDark, fontSize: 12)),
           value: widget.exclusiveMode,
@@ -907,8 +912,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSpeakerProtectionCard() {
+  Widget _buildSpeakerProtectionCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         // Master Protection Toggle
         SwitchListTile(
@@ -917,8 +923,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           activeTrackColor: _primary,
           inactiveThumbColor: Colors.white70,
           inactiveTrackColor: Colors.white10,
-          title: const Text('Protection Safeguards',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          title: Text(isMobile ? 'Safeguards' : 'Protection Safeguards',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
           subtitle: Text(
             _speakerProtectionEnabled
                 ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
@@ -959,8 +965,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: const Icon(Icons.arrow_upward, color: Colors.white70, size: 20),
             ),
-            title: const Text('Subsonic Filter (High-Pass)',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            title: Text(isMobile ? 'Subsonic Filter' : 'Subsonic Filter (High-Pass)',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
             subtitle: const Text('Cuts invisible low frequencies below woofer tuning',
                 style: TextStyle(color: _textDark, fontSize: 12)),
             trailing: SizedBox(
@@ -995,8 +1001,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: const Icon(Icons.arrow_downward, color: Colors.white70, size: 20),
             ),
-            title: const Text('Ultrasonic Guard (Low-Pass)',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+            title: Text(isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard (Low-Pass)',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
             subtitle: const Text('Filters out dangerous high frequencies above 18-22kHz',
                 style: TextStyle(color: _textDark, fontSize: 12)),
             trailing: SizedBox(
@@ -1097,8 +1103,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildEqualizerCard() {
+  Widget _buildEqualizerCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         Padding(
           padding: const EdgeInsets.all(20.0),
@@ -1258,8 +1265,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildVisualizationCard() {
+  Widget _buildVisualizationCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         SwitchListTile(
           contentPadding:
@@ -1504,8 +1512,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildPlaybackCard() {
+  Widget _buildPlaybackCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         // Gapless
         SwitchListTile(
@@ -1651,8 +1660,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildStorageCard() {
+  Widget _buildStorageCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         SwitchListTile(
           contentPadding:
@@ -1718,8 +1728,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAboutCard(BuildContext context) {
+  Widget _buildAboutCard(BuildContext context, {bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         ListTile(
           contentPadding:
@@ -1768,8 +1779,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildDebugAndLogsCard() {
+  Widget _buildDebugAndLogsCard({bool isMobile = false}) {
     return _buildCard(
+      isMobile: isMobile,
       children: [
         SwitchListTile(
           contentPadding:
@@ -1778,8 +1790,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           activeTrackColor: _primary,
           inactiveThumbColor: Colors.white70,
           inactiveTrackColor: Colors.white10,
-          title: const Text('Allow invalid TLS certs (test only)',
-              style: TextStyle(
+          title: Text(
+              isMobile
+                  ? 'Allow invalid TLS certs'
+                  : 'Allow invalid TLS certs (test only)',
+              style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w500,
                   fontSize: 14)),

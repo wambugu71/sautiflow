@@ -1860,22 +1860,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ],
                   );
                 }),
-                QueueScreen(
-                  queue: widget.queue,
-                  videoId: widget.videoId,
-                  albumArt: widget.albumArt,
-                  onPlayQueueIndex: widget.onPlayQueueIndex,
-                  onReorderQueue: widget.onReorderQueue,
-                  statusNotifier: widget.statusNotifier,
-                  onClose: () {
-                    if (_pageController.hasClients) {
-                      _pageController.animateToPage(
-                        0,
-                        duration: const Duration(milliseconds: 350),
-                        curve: Curves.easeOutCubic,
-                      );
-                    }
-                  },
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width >= 800
+                            ? double.infinity
+                            : 600.0),
+                    child: SafeArea(
+                      child: QueueScreen(
+                        queue: widget.queue,
+                        videoId: widget.videoId,
+                        albumArt: widget.albumArt,
+                        onPlayQueueIndex: widget.onPlayQueueIndex,
+                        onReorderQueue: widget.onReorderQueue,
+                        statusNotifier: widget.statusNotifier,
+                        onClose: () {
+                          if (_pageController.hasClients) {
+                            _pageController.animateToPage(
+                              0,
+                              duration: const Duration(milliseconds: 350),
+                              curve: Curves.easeOutCubic,
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

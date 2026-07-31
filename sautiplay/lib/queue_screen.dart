@@ -173,119 +173,134 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
 
     return Scaffold(
       backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor.withValues(alpha: 0.95),
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Center drag handle pill for sheet representation
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Row(
+      body: SafeArea(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600.0),
+            child: Column(
               children: [
-                const Text(
-                  'Up Next',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.3,
+                const SizedBox(height: 16),
+                // ── Top Header matching NowPlayingScreen top level exactly ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 32),
+                        onPressed: widget.onClose ?? () => Navigator.of(context).pop(),
+                      ),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Center drag handle pill for sheet representation
+                            Container(
+                              width: 36,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Up Next',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'QUEUE',
+                                    style: TextStyle(
+                                      color: primaryColor,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _calculateTotalDuration(),
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (widget.queue.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.my_location_rounded, color: primaryColor, size: 22),
+                          tooltip: 'Center playing track',
+                          onPressed: () => _scrollToPlayingItem(animate: true),
+                        )
+                      else
+                        const SizedBox(width: 48),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    'QUEUE',
-                    style: TextStyle(
-                      color: primaryColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              _calculateTotalDuration(),
-              style: const TextStyle(
-                color: Colors.white38,
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 28),
-          onPressed: widget.onClose ?? () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          if (widget.queue.isNotEmpty) ...[
-            IconButton(
-              icon: const Icon(Icons.my_location_rounded, color: primaryColor, size: 22),
-              tooltip: 'Center playing track',
-              onPressed: () => _scrollToPlayingItem(animate: true),
-            ),
-            const SizedBox(width: 4),
-          ],
-        ],
-      ),
-      body: widget.queue.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.04),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.queue_music_rounded, color: Colors.white30, size: 36),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Queue is empty',
-                    style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Play a track or album to populate the queue',
-                    style: TextStyle(color: Colors.white38, fontSize: 13),
-                  ),
-                ],
-              ),
-            )
-          : Theme(
-              data: Theme.of(context).copyWith(
-                canvasColor: Colors.transparent,
-              ),
-              child: ReorderableListView.builder(
-                scrollController: _scrollController,
-                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                itemCount: widget.queue.length,
-                onReorder: widget.onReorderQueue,
-                itemBuilder: (context, index) {
+                const SizedBox(height: 8),
+                // ── Main Queue Content ──
+                Expanded(
+                  child: widget.queue.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 72,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.04),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.queue_music_rounded, color: Colors.white30, size: 36),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Queue is empty',
+                                style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Play a track or album to populate the queue',
+                                style: TextStyle(color: Colors.white38, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Theme(
+                          data: Theme.of(context).copyWith(
+                            canvasColor: Colors.transparent,
+                          ),
+                          child: ReorderableListView.builder(
+                      scrollController: _scrollController,
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                      itemCount: widget.queue.length,
+                      onReorder: widget.onReorderQueue,
+                      itemBuilder: (context, index) {
                   final track = widget.queue[index];
                   final isPlaying = (playingIndex == index) ||
                       (widget.videoId != null && track.videoId == widget.videoId);
@@ -437,7 +452,13 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                 },
               ),
             ),
-    );
+          ),
+        ],
+      ),
+    ),
+  ),
+),
+);
   }
 
   static String _formatDuration(int? seconds) {
