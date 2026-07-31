@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.18
+- Bugs  fixes and improvements in the audio engine .
+- Updated  versions across the  pkg and sautiplay app. 
+
+
 ## 0.6.17
 
 - **[Android]** Added MethodChannel hardware audio inspection for Android `AudioServiceActivity` in `sautiplay`.
