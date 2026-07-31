@@ -40,7 +40,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -49,7 +49,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
     super.dispose();
   }
 
-  Widget _buildTab(int index, String title, {bool isDesktop = false}) {
+  Widget _buildTab(int index, String title, IconData icon, {bool isDesktop = false}) {
     return AnimatedBuilder(
       animation: _tabController,
       builder: (context, _) {
@@ -57,39 +57,67 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
         return Expanded(
           child: GestureDetector(
             onTap: () => _tabController.animateTo(index),
-            child: Container(
-              padding: EdgeInsets.symmetric(vertical: isDesktop ? 10 : 8),
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              padding: EdgeInsets.symmetric(
+                vertical: isDesktop ? 10 : 8,
+                horizontal: 8,
+              ),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? Colors.white.withValues(alpha: 0.1)
+                    ? const Color(0xFF137fec).withValues(alpha: 0.22)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: isSelected
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 2,
-                          offset: const Offset(0, 1),
-                        ),
-                      ]
-                    : null,
+                borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+                border: isSelected
+                    ? Border.all(
+                        color: const Color(0xFF137fec).withValues(alpha: 0.4),
+                        width: 1,
+                      )
+                    : Border.all(color: Colors.transparent, width: 1),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: isDesktop ? 16 : 14,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected
-                      ? Colors.white
-                      : const Color(0xFF94A3B8),
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: isDesktop ? 18 : 16,
+                    color: isSelected
+                        ? const Color(0xFF137fec)
+                        : const Color(0xFF94A3B8),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: isDesktop ? 15 : 13,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         );
       },
     );
+  }
+
+  int _libraryTabIndex = 0;
+
+  void _goToLibraryDownloads() {
+    setState(() {
+      _libraryTabIndex = 1;
+    });
+    _tabController.animateTo(1);
+    if (widget.onGoToDownloads != null) {
+      widget.onGoToDownloads!();
+    }
   }
 
   @override
@@ -108,24 +136,64 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                 Container(
                   padding: EdgeInsets.fromLTRB(
                     isDesktop ? 32 : 16,
-                    isDesktop ? 24 : 12,
+                    isDesktop ? 16 : 10,
                     isDesktop ? 32 : 16,
-                    8,
+                    6,
                   ),
-                  color: _bgDark.withValues(alpha: 0.95),
-                  child: Container(
-                    padding: EdgeInsets.all(isDesktop ? 6 : 4),
-                    decoration: BoxDecoration(
-                      color: _surfaceColor,
-                      borderRadius: BorderRadius.circular(isDesktop ? 12 : 10),
-                    ),
-                    child: Row(
-                      children: [
-                        _buildTab(0, 'Discover', isDesktop: isDesktop),
-                        _buildTab(1, 'Search', isDesktop: isDesktop),
-                        _buildTab(2, 'My Library', isDesktop: isDesktop),
-                      ],
-                    ),
+                  color: _bgDark,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: EdgeInsets.all(isDesktop ? 5 : 4),
+                          decoration: BoxDecoration(
+                            color: _surfaceColor,
+                            borderRadius:
+                                BorderRadius.circular(isDesktop ? 14 : 12),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.05),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              _buildTab(0, 'Discover',
+                                  Icons.compass_calibration_rounded,
+                                  isDesktop: isDesktop),
+                              _buildTab(1, 'Library', Icons.library_music_rounded,
+                                  isDesktop: isDesktop),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SearchScreen(
+                                onPlayTracks: widget.onPlayTracks,
+                              ),
+                            ),
+                          );
+                        },
+                        tooltip: 'Search Music',
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _surfaceColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.search_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 // Tab content
@@ -135,11 +203,8 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                     children: [
                       HomeScreen(
                         onPlayTracks: widget.onPlayTracks,
-                        onGoToDownloads: widget.onGoToDownloads,
+                        onGoToDownloads: _goToLibraryDownloads,
                         isNested: true,
-                      ),
-                      SearchScreen(
-                        onPlayTracks: widget.onPlayTracks,
                       ),
                       LibraryScreen(
                         onPlayFolder: widget.onPlayFolder,
@@ -148,6 +213,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                         onQueueTrack: widget.onQueueTrack,
                         onDeleteTrack: widget.onDeleteTrack,
                         isNested: true,
+                        initialTabIndex: _libraryTabIndex,
                       ),
                     ],
                   ),

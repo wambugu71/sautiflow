@@ -115,9 +115,12 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
 
   @override
   Widget build(BuildContext context) {
+    final double? containerWidth = widget.size.isFinite ? widget.size : null;
+    final double? containerHeight = widget.size.isFinite ? widget.size : null;
+
     return Container(
-      width: widget.size,
-      height: widget.size,
+      width: containerWidth,
+      height: containerHeight,
       decoration: BoxDecoration(
         color: const Color(0xFF18232E),
         borderRadius: BorderRadius.circular(widget.borderRadius),
@@ -130,44 +133,54 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: _buildContent(),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          double side = 48.0;
+          if (constraints.maxWidth.isFinite && constraints.maxWidth > 0) {
+            side = constraints.maxWidth;
+          } else if (widget.size.isFinite && widget.size > 0) {
+            side = widget.size;
+          }
+          final double iconSize = (side * 0.5).clamp(12.0, 120.0);
+          final double progressSize = (side * 0.4).clamp(12.0, 48.0);
+
+          if (_isLoading) {
+            return Center(
+              child: SizedBox(
+                width: progressSize,
+                height: progressSize,
+                child: const CircularProgressIndicator(
+                  strokeWidth: 2.0,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
+                ),
+              ),
+            );
+          }
+
+          if (_imageData != null && !_hasError) {
+            return Image.memory(
+              _imageData!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                debugPrint(
+                    '[LocalAlbumArt] Image.memory decode error for ${widget.path}: $error');
+                return _buildFallback(iconSize);
+              },
+            );
+          }
+
+          return _buildFallback(iconSize);
+        },
+      ),
     );
   }
 
-  Widget _buildContent() {
-    if (_isLoading) {
-      return Center(
-        child: SizedBox(
-          width: widget.size * 0.4,
-          height: widget.size * 0.4,
-          child: const CircularProgressIndicator(
-            strokeWidth: 2.0,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
-          ),
-        ),
-      );
-    }
-
-    if (_imageData != null && !_hasError) {
-      return Image.memory(
-        _imageData!,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          debugPrint('[LocalAlbumArt] Image.memory decode error for ${widget.path}: $error');
-          return _buildFallback();
-        },
-      );
-    }
-
-    return _buildFallback();
-  }
-
-  Widget _buildFallback() {
+  Widget _buildFallback(double iconSize) {
     return Center(
       child: Icon(
         widget.fallbackIcon,
         color: Colors.white.withAlpha(128),
-        size: widget.size * 0.5,
+        size: iconSize.isFinite ? iconSize : 24.0,
       ),
     );
   }

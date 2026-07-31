@@ -964,7 +964,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: Text(
             _speakerProtectionEnabled
                 ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
-                : 'Safeguards disabled (risk of speaker over-excursion & clipping)',
+                : 'Safeguards disabled ',
             style: TextStyle(
               color: _speakerProtectionEnabled
                   ? Colors.greenAccent.shade200
@@ -1051,12 +1051,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: const Icon(Icons.arrow_downward,
                   color: Colors.white70, size: 20),
             ),
-            title: Text(
-                isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard (Low-Pass)',
+            title: Text(isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard',
                 style: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text(
-                'Filters out dangerous high frequencies above 18-22kHz',
+            subtitle: const Text('Filters frequencies above 18-22kHz',
                 style: TextStyle(color: _textDark, fontSize: 12)),
             trailing: SizedBox(
               width: 130,

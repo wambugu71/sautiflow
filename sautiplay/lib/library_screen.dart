@@ -35,6 +35,7 @@ class LibraryScreen extends StatefulWidget {
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
   final bool isNested;
+  final int initialTabIndex;
 
   const LibraryScreen({
     super.key,
@@ -44,10 +45,21 @@ class LibraryScreen extends StatefulWidget {
     this.onQueueTrack,
     this.onDeleteTrack,
     this.isNested = false,
+    this.initialTabIndex = 0,
   });
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+enum TrackViewMode {
+  list('Standard List', Icons.view_list_rounded),
+  compact('Compact List', Icons.format_list_bulleted_rounded),
+  grid('Grid View', Icons.grid_view_rounded);
+
+  const TrackViewMode(this.label, this.icon);
+  final String label;
+  final IconData icon;
 }
 
 class _LibraryScreenState extends State<LibraryScreen>
@@ -66,6 +78,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   bool _isScanning = false;
   String _scanStatus = 'Checking library for changes...';
   int _tabIndex = 0;
+  TrackViewMode _trackViewMode = TrackViewMode.list;
 
   // Search & Sort filters
   final TextEditingController _searchController = TextEditingController();
@@ -83,8 +96,19 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
+    _tabIndex = widget.initialTabIndex;
     _loadSavedFolders();
     _loadSavedM3uPlaylists();
+  }
+
+  @override
+  void didUpdateWidget(LibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTabIndex != widget.initialTabIndex) {
+      setState(() {
+        _tabIndex = widget.initialTabIndex;
+      });
+    }
   }
 
   @override
@@ -878,33 +902,48 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildTab(int index, String title, {bool isDesktop = false}) {
+  Widget _buildTab(int index, String title, IconData icon, {bool isDesktop = false}) {
     final isSelected = _tabIndex == index;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _tabIndex = index),
-        child: Container(
-          padding: EdgeInsets.symmetric(vertical: isDesktop ? 10 : 6),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          padding: EdgeInsets.symmetric(vertical: isDesktop ? 9 : 7, horizontal: 6),
           decoration: BoxDecoration(
-            color:
-                isSelected ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 2,
-                      offset: const Offset(0, 1),
-                    ),
-                  ]
-                : null,
+            color: isSelected
+                ? const Color(0xFF137fec).withValues(alpha: 0.22)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+            border: isSelected
+                ? Border.all(
+                    color: const Color(0xFF137fec).withValues(alpha: 0.4),
+                    width: 1,
+                  )
+                : Border.all(color: Colors.transparent, width: 1),
           ),
-          alignment: Alignment.center,
-          child: Text(title,
-              style: TextStyle(
-                  fontSize: isDesktop ? 16 : 14,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: isDesktop ? 18 : 15,
+                color: isSelected ? const Color(0xFF137fec) : const Color(0xFF94A3B8),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: isDesktop ? 15 : 13,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected ? Colors.white : const Color(0xFF94A3B8))),
+                  color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -913,7 +952,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    // Theme colors from mockup
+    // Theme colors
     const Color primaryColor = Color(0xFF137FEC);
     const Color bgDark = Color(0xFF101922);
     const Color surfaceColor = Color(0xFF18232E);
@@ -939,16 +978,12 @@ class _LibraryScreenState extends State<LibraryScreen>
                         // Header Region
                         Container(
                           padding: EdgeInsets.only(
-                              top: widget.isNested ? 8.0 : (isDesktop ? 40.0 : 24.0),
+                              top: widget.isNested ? 8.0 : (isDesktop ? 32.0 : 16.0),
                               left: isDesktop ? 32.0 : 16.0,
                               right: isDesktop ? 32.0 : 16.0,
-                              bottom: isDesktop ? 16.0 : 8.0),
-                          decoration: BoxDecoration(
-                            color: bgDark.withValues(alpha: 0.95),
-                            border: Border(
-                              bottom: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.05)),
-                            ),
+                              bottom: isDesktop ? 12.0 : 8.0),
+                          decoration: const BoxDecoration(
+                            color: bgDark,
                           ),
                           child: Column(
                             children: [
@@ -962,7 +997,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         Text(
                                           'Your Library',
                                           style: TextStyle(
-                                            fontSize: isDesktop ? 34 : 24,
+                                            fontSize: isDesktop ? 30 : 22,
                                             fontWeight: FontWeight.bold,
                                             color: textLight,
                                             letterSpacing: -0.5,
@@ -971,13 +1006,22 @@ class _LibraryScreenState extends State<LibraryScreen>
                                     ],
                                   ),
                                   PopupMenuButton<String>(
-                                    icon: Icon(Icons.add,
-                                        color: textDark,
-                                        size: isDesktop ? 32 : 24),
+                                    icon: Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: surfaceColor,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: Colors.white.withValues(alpha: 0.08)),
+                                      ),
+                                      child: Icon(Icons.add_rounded,
+                                          color: textLight,
+                                          size: isDesktop ? 22 : 20),
+                                    ),
                                     tooltip: 'Add Music or Playlist',
                                     color: surfaceColor,
                                     shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12)),
+                                        borderRadius: BorderRadius.circular(14)),
                                     onSelected: (value) {
                                       if (value == 'folder') {
                                         _addDirectory();
@@ -995,7 +1039,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         value: 'folder',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.create_new_folder,
+                                            Icon(Icons.create_new_folder_rounded,
                                                 color: Colors.blueAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Add Local Folder',
@@ -1007,7 +1051,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         value: 'm3u_file',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.playlist_add,
+                                            Icon(Icons.playlist_add_rounded,
                                                 color: Colors.cyanAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Import M3U / M3U8 File',
@@ -1019,7 +1063,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         value: 'm3u_url',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.podcasts,
+                                            Icon(Icons.podcasts_rounded,
                                                 color: Colors.tealAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Import M3U Stream URL',
@@ -1031,7 +1075,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         value: 'export_m3u',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.file_upload,
+                                            Icon(Icons.file_upload_rounded,
                                                 color: Colors.amberAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Export Library to M3U8',
@@ -1043,59 +1087,61 @@ class _LibraryScreenState extends State<LibraryScreen>
                                   ),
                                 ],
                               ),
-                              SizedBox(height: isDesktop ? 24 : 16),
+                              SizedBox(height: isDesktop ? 16 : 12),
                               // Segmented Control
                               Container(
-                                padding: EdgeInsets.all(isDesktop ? 6 : 4),
+                                padding: EdgeInsets.all(isDesktop ? 5 : 4),
                                 decoration: BoxDecoration(
                                   color: surfaceColor,
                                   borderRadius:
-                                      BorderRadius.circular(isDesktop ? 12 : 8),
+                                      BorderRadius.circular(isDesktop ? 14 : 12),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
-                                    _buildTab(0, 'Playlists',
+                                    _buildTab(0, 'Playlists', Icons.queue_music_rounded,
                                         isDesktop: isDesktop),
-                                    _buildTab(1, 'Downloads',
+                                    _buildTab(1, 'Tracks', Icons.audiotrack_rounded,
                                         isDesktop: isDesktop),
-                                    _buildTab(2, 'Artists',
+                                    _buildTab(2, 'Artists', Icons.person_outline_rounded,
                                         isDesktop: isDesktop),
                                   ],
                                 ),
                               ),
                               if (_isScanning) ...[
-                                SizedBox(height: isDesktop ? 12 : 8),
+                                SizedBox(height: isDesktop ? 10 : 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 8),
+                                      horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
                                     color: surfaceColor,
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
                                         color: primaryColor.withValues(alpha: 0.3)),
                                   ),
                                   child: Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       SizedBox(
-                                        width: 18,
-                                        height: 18,
+                                        width: 14,
+                                        height: 14,
                                         child: LoadingIndicatorM3E(
                                           color: primaryColor,
                                           containerColor:
                                               primaryColor.withAlpha(40),
                                         ),
                                       ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          _scanStatus,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: textDark,
-                                            fontSize: isDesktop ? 14 : 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _scanStatus,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: textDark,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ],
@@ -1145,59 +1191,160 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
     return ListView(
       primary: false,
-      padding: EdgeInsets.only(top: isDesktop ? 32 : 16, bottom: 120),
+      padding: EdgeInsets.only(top: isDesktop ? 20 : 12, bottom: 140),
       children: [
+        // Featured Quick Action Cards
         Padding(
           padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32.0 : 16.0),
-          child: ElevatedButton.icon(
-            onPressed: _shufflePlayAll,
-            icon: const Icon(Icons.shuffle, color: Colors.white),
-            label: Text('Shuffle Play',
-                style: TextStyle(
-                    fontSize: isDesktop ? 18 : 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(vertical: isDesktop ? 20 : 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30)),
-              elevation: 0,
-            ),
+          child: Row(
+            children: [
+              // Liked Songs Card
+              Expanded(
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => LikedSongsScreen(
+                          onPlayTracks: widget.onPlayLikedSongs,
+                        ),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4527A0), Color(0xFF6A1B9A)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4527A0).withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.favorite_rounded,
+                            color: Colors.white, size: 28),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Liked Songs',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Favorites',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Shuffle Play Card
+              Expanded(
+                child: InkWell(
+                  onTap: _shufflePlayAll,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [primaryColor, const Color(0xFF0288D1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primaryColor.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.shuffle_rounded,
+                            color: Colors.white, size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Shuffle Library',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_allSongs.length} Tracks',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         SizedBox(height: isDesktop ? 24 : 16),
-        _buildLibraryItem(
-          title: 'Liked Songs',
-          subtitle: 'Playlist • Saved Tracks',
-          iconData: Icons.favorite,
-          iconGradient: const LinearGradient(
-            colors: [Color(0xFF4527A0), Color(0xFF6A1B9A)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: 4.0,
           ),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => LikedSongsScreen(
-                  onPlayTracks: widget.onPlayLikedSongs,
-                ),
-              ),
-            );
-          },
-          context: context,
-          isDesktop: isDesktop,
+          child: Text(
+            'PLAYLISTS & FOLDERS',
+            style: TextStyle(
+              color: textDark,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
         ),
-        SizedBox(height: isDesktop ? 12 : 8),
+        const SizedBox(height: 6),
         ..._m3uPlaylists.map((pl) {
           return Padding(
-            padding: EdgeInsets.only(bottom: isDesktop ? 12 : 8),
+            padding: EdgeInsets.only(bottom: isDesktop ? 8 : 4),
             child: _buildLibraryItem(
               title: pl.name,
               subtitle:
                   '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
-              iconData: pl.isNetwork ? Icons.podcasts : Icons.queue_music,
+              iconData: pl.isNetwork ? Icons.podcasts_rounded : Icons.queue_music_rounded,
               iconGradient: pl.isNetwork
                   ? const LinearGradient(
                       colors: [Color(0xFF00897B), Color(0xFF004D40)],
@@ -1221,8 +1368,8 @@ class _LibraryScreenState extends State<LibraryScreen>
           final f = entry.value;
           return _buildLibraryItem(
             title: f['name'] as String,
-            subtitle: '${f['count']} Songs • Folder',
-            iconData: Icons.folder,
+            subtitle: '${f['count']} Songs • Local Folder',
+            iconData: Icons.folder_rounded,
             onTap: () => _playFolder(f['path'] as String),
             onLongPress: () => _removeFolder(index),
             context: context,
@@ -1237,28 +1384,28 @@ class _LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     return Column(
       children: [
-        // Search & Sort Bar
+        // Search & Sort Bar + Layout Switcher
         Padding(
           padding: EdgeInsets.symmetric(
               horizontal: isDesktop ? 32.0 : 16.0,
-              vertical: isDesktop ? 16.0 : 8.0),
+              vertical: isDesktop ? 12.0 : 6.0),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _searchController,
                   style: TextStyle(
-                      color: Colors.white, fontSize: isDesktop ? 18 : 16),
+                      color: Colors.white, fontSize: isDesktop ? 16 : 14),
                   decoration: InputDecoration(
-                    hintText: 'Search downloaded songs...',
+                    hintText: 'Search local tracks...',
                     hintStyle: TextStyle(
-                        color: textDark, fontSize: isDesktop ? 18 : 16),
-                    prefixIcon: Icon(Icons.search,
-                        color: textDark, size: isDesktop ? 28 : 24),
+                        color: textDark, fontSize: isDesktop ? 16 : 14),
+                    prefixIcon: Icon(Icons.search_rounded,
+                        color: textDark, size: isDesktop ? 24 : 20),
                     filled: true,
                     fillColor: const Color(0xFF18232E),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
+                      borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -1267,9 +1414,22 @@ class _LibraryScreenState extends State<LibraryScreen>
                 ),
               ),
               const SizedBox(width: 8),
+              // Sort Button
               PopupMenuButton<String>(
-                icon: Icon(Icons.sort, color: textDark),
+                icon: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF18232E),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                  ),
+                  child: Icon(Icons.sort_rounded, color: textDark, size: 20),
+                ),
+                tooltip: 'Sort Tracks',
                 color: const Color(0xFF18232E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 onSelected: (String result) {
                   setState(() {
                     _currentSort = result;
@@ -1282,10 +1442,62 @@ class _LibraryScreenState extends State<LibraryScreen>
                           child: Text(
                             choice,
                             style: TextStyle(
-                                fontSize: isDesktop ? 16 : 14,
+                                fontSize: isDesktop ? 15 : 13,
                                 color: _currentSort == choice
                                     ? primaryColor
                                     : Colors.white),
+                          ),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(width: 6),
+              // Layout Switcher Button
+              PopupMenuButton<TrackViewMode>(
+                icon: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF18232E),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                  ),
+                  child: Icon(_trackViewMode.icon, color: primaryColor, size: 20),
+                ),
+                tooltip: 'Layout Mode',
+                color: const Color(0xFF18232E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onSelected: (TrackViewMode mode) {
+                  setState(() {
+                    _trackViewMode = mode;
+                  });
+                },
+                itemBuilder: (BuildContext context) => TrackViewMode.values
+                    .map((TrackViewMode mode) => PopupMenuItem<TrackViewMode>(
+                          value: mode,
+                          child: Row(
+                            children: [
+                              Icon(
+                                mode.icon,
+                                size: 18,
+                                color: _trackViewMode == mode
+                                    ? primaryColor
+                                    : const Color(0xFF94A3B8),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                mode.label,
+                                style: TextStyle(
+                                  fontSize: isDesktop ? 15 : 13,
+                                  fontWeight: _trackViewMode == mode
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: _trackViewMode == mode
+                                      ? primaryColor
+                                      : Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
                         ))
                     .toList(),
@@ -1301,66 +1513,206 @@ class _LibraryScreenState extends State<LibraryScreen>
                       ? 'No matches for your search.'
                       : 'Add local folders in the Playlists tab to view your songs here.',
                   isDesktop: isDesktop)
-              : ListView.builder(
-                  primary: false,
-                  padding: EdgeInsets.only(bottom: 120),
-                  itemCount: _filteredSongs.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return Padding(
-                        padding: EdgeInsets.all(isDesktop ? 32.0 : 16.0),
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            if (_filteredSongs.isEmpty) return;
-                            final paths =
-                                _filteredSongs.map((e) => e.path).toList();
-                            paths.shuffle();
-                            widget.onPlayFolder(paths);
-                          },
-                          icon: Icon(Icons.shuffle,
-                              color: Colors.white, size: isDesktop ? 28 : 24),
-                          label: Text('Shuffle All',
-                              style: TextStyle(
-                                  fontSize: isDesktop ? 18 : 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            padding: EdgeInsets.symmetric(
-                                vertical: isDesktop ? 20 : 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(30)),
-                            elevation: 0,
-                          ),
-                        ),
-                      );
-                    }
-
-                    final realIndex = index - 1;
-                    final song = _filteredSongs[realIndex];
-                    return _buildLibraryItem(
-                      title: song.title,
-                      subtitle:
-                          'Local Audio • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
-                      customIcon: LocalAlbumArt(
-                          path: song.path,
-                          size: isDesktop ? 96 : 64,
-                          borderRadius: 12),
-                      onTap: () {
-                        final paths =
-                            _filteredSongs.map((e) => e.path).toList();
-                        widget.onPlayFolder(paths, initialIndex: realIndex);
-                      },
-                      onOptionSelected: (option) =>
-                          _handleSongOption(song, option),
-                      context: context,
-                      isDesktop: isDesktop,
-                    );
-                  },
-                ),
+              : _buildTrackView(isDesktop: isDesktop),
         ),
       ],
+    );
+  }
+
+  Widget _buildTrackView({bool isDesktop = false}) {
+    if (_trackViewMode == TrackViewMode.compact) {
+      return ListView.builder(
+        primary: false,
+        padding: const EdgeInsets.only(bottom: 140),
+        itemCount: _filteredSongs.length,
+        itemBuilder: (context, index) {
+          final song = _filteredSongs[index];
+          return _buildCompactSongItem(song, index, isDesktop: isDesktop);
+        },
+      );
+    } else if (_trackViewMode == TrackViewMode.grid) {
+      return GridView.builder(
+        primary: false,
+        padding: EdgeInsets.fromLTRB(
+          isDesktop ? 32 : 16,
+          8,
+          isDesktop ? 32 : 16,
+          140,
+        ),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: isDesktop ? 4 : 2,
+          childAspectRatio: 0.82,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: _filteredSongs.length,
+        itemBuilder: (context, index) {
+          final song = _filteredSongs[index];
+          return _buildGridSongItem(song, index, isDesktop: isDesktop);
+        },
+      );
+    } else {
+      // Standard List
+      return ListView.builder(
+        primary: false,
+        padding: const EdgeInsets.only(bottom: 140),
+        itemCount: _filteredSongs.length,
+        itemBuilder: (context, index) {
+          final song = _filteredSongs[index];
+          return _buildLibraryItem(
+            title: song.title,
+            subtitle:
+                '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+            customIcon: LocalAlbumArt(
+                path: song.path,
+                size: isDesktop ? 80 : 56,
+                borderRadius: 10),
+            onTap: () {
+              final paths = _filteredSongs.map((e) => e.path).toList();
+              widget.onPlayFolder(paths, initialIndex: index);
+            },
+            onOptionSelected: (option) =>
+                _handleSongOption(song, option),
+            context: context,
+            isDesktop: isDesktop,
+          );
+        },
+      );
+    }
+  }
+
+  Widget _buildCompactSongItem(LocalSongItem song, int index, {bool isDesktop = false}) {
+    final artistName = song.artist != 'Unknown Artist' ? song.artist : 'Local File';
+    return InkWell(
+      onTap: () {
+        final paths = _filteredSongs.map((e) => e.path).toList();
+        widget.onPlayFolder(paths, initialIndex: index);
+      },
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32.0 : 16.0,
+          vertical: isDesktop ? 6.0 : 4.0,
+        ),
+        child: Row(
+          children: [
+            LocalAlbumArt(
+              path: song.path,
+              size: isDesktop ? 44 : 36,
+              borderRadius: 6,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    song.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isDesktop ? 14 : 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    artistName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SongOptionsMenuButton(
+              iconSize: isDesktop ? 20 : 18,
+              onOptionSelected: (option) => _handleSongOption(song, option),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridSongItem(LocalSongItem song, int index, {bool isDesktop = false}) {
+    final artistName = song.artist != 'Unknown Artist' ? song.artist : 'Local File';
+    return GestureDetector(
+      onTap: () {
+        final paths = _filteredSongs.map((e) => e.path).toList();
+        widget.onPlayFolder(paths, initialIndex: index);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF18232E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: LocalAlbumArt(
+                      path: song.path,
+                      borderRadius: 10,
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: SongOptionsMenuButton(
+                        iconSize: 18,
+                        onOptionSelected: (option) =>
+                            _handleSongOption(song, option),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isDesktop ? 14 : 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              artistName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF94A3B8),
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1386,22 +1738,22 @@ class _LibraryScreenState extends State<LibraryScreen>
         Padding(
           padding: EdgeInsets.symmetric(
             horizontal: isDesktop ? 32.0 : 16.0,
-            vertical: isDesktop ? 16.0 : 8.0,
+            vertical: isDesktop ? 12.0 : 6.0,
           ),
           child: TextField(
             controller: _artistSearchController,
             style: TextStyle(
-                color: Colors.white, fontSize: isDesktop ? 18 : 16),
+                color: Colors.white, fontSize: isDesktop ? 16 : 14),
             decoration: InputDecoration(
               hintText: 'Search artists...',
               hintStyle: TextStyle(
-                  color: textDark, fontSize: isDesktop ? 18 : 16),
-              prefixIcon: Icon(Icons.search,
-                  color: textDark, size: isDesktop ? 28 : 24),
+                  color: textDark, fontSize: isDesktop ? 16 : 14),
+              prefixIcon: Icon(Icons.search_rounded,
+                  color: textDark, size: isDesktop ? 24 : 20),
               filled: true,
               fillColor: const Color(0xFF18232E),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(isDesktop ? 16 : 12),
+                borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                 borderSide: BorderSide.none,
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -1422,7 +1774,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                 )
               : ListView.builder(
                   primary: false,
-                  padding: const EdgeInsets.only(bottom: 120),
+                  padding: const EdgeInsets.only(bottom: 140),
                   itemCount: artistKeys.length,
                   itemBuilder: (context, index) {
                     final artistName = artistKeys[index];
@@ -1434,12 +1786,13 @@ class _LibraryScreenState extends State<LibraryScreen>
                       title: artistName,
                       subtitle:
                           '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
-                      iconData: Icons.person,
+                      iconData: Icons.person_rounded,
+                      isArtist: true,
                       customIcon: sampleSongPath != null
                           ? LocalAlbumArt(
                               path: sampleSongPath,
-                              size: isDesktop ? 96 : 64,
-                              borderRadius: 12)
+                              size: isDesktop ? 80 : 56,
+                              borderRadius: 40) // Circular avatar
                           : null,
                       onTap: () {
                         Navigator.of(context).push(
@@ -1477,24 +1830,24 @@ class _LibraryScreenState extends State<LibraryScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.library_music_outlined,
-              size: isDesktop ? 96 : 64, color: textDark.withValues(alpha: 0.5)),
-          SizedBox(height: isDesktop ? 24 : 16),
+              size: isDesktop ? 80 : 56, color: textDark.withValues(alpha: 0.4)),
+          SizedBox(height: isDesktop ? 20 : 14),
           Text(
             message,
             style: TextStyle(
-                fontSize: isDesktop ? 24 : 18,
-                fontWeight: FontWeight.w600,
-                color: textDark),
+                fontSize: isDesktop ? 20 : 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white),
           ),
-          SizedBox(height: isDesktop ? 12 : 8),
+          SizedBox(height: isDesktop ? 10 : 6),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: isDesktop ? 64.0 : 32.0),
             child: Text(
               subMessage,
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: isDesktop ? 16 : 14,
-                  color: textDark.withValues(alpha: 0.7)),
+                  fontSize: isDesktop ? 15 : 13,
+                  color: textDark),
             ),
           ),
         ],
@@ -1514,29 +1867,26 @@ class _LibraryScreenState extends State<LibraryScreen>
     VoidCallback? onLongPress,
     ValueChanged<SongOption>? onOptionSelected,
     bool isDesktop = false,
+    bool isArtist = false,
   }) {
-    final isLossless = subtitle.contains('Lossless');
+    final thumbSize = isDesktop ? 68.0 : 52.0;
 
     return InkWell(
       onTap: onTap,
-      onLongPress: onLongPress ??
-          () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Hold to remove folders that you imported.')),
-            );
-          },
+      onLongPress: onLongPress,
       child: Padding(
         padding: EdgeInsets.symmetric(
             horizontal: isDesktop ? 32.0 : 16.0,
-            vertical: isDesktop ? 12.0 : 8.0),
+            vertical: isDesktop ? 10.0 : 6.0),
         child: Row(
           children: [
             Container(
-              width: isDesktop ? 96 : 64,
-              height: isDesktop ? 96 : 64,
+              width: thumbSize,
+              height: thumbSize,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: isArtist
+                    ? BorderRadius.circular(thumbSize / 2)
+                    : BorderRadius.circular(10),
                 color: const Color(0xFF18232E),
                 image: imageAsset != null
                     ? DecorationImage(
@@ -1548,7 +1898,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 8,
+                    blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
                 ],
@@ -1557,11 +1907,11 @@ class _LibraryScreenState extends State<LibraryScreen>
                   (imageAsset == null && iconData != null
                       ? Center(
                           child: Icon(iconData,
-                              color: Colors.white.withValues(alpha: 0.5),
-                              size: isDesktop ? 48 : 32))
+                              color: Colors.white.withValues(alpha: 0.6),
+                              size: isDesktop ? 32 : 24))
                       : null),
             ),
-            SizedBox(width: isDesktop ? 24 : 16),
+            SizedBox(width: isDesktop ? 20 : 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1569,66 +1919,36 @@ class _LibraryScreenState extends State<LibraryScreen>
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: isDesktop ? 20 : 16,
-                      fontWeight: FontWeight.bold,
+                      fontSize: isDesktop ? 16 : 14,
+                      fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  SizedBox(height: isDesktop ? 8 : 4),
-                  Row(
-                    children: [
-                      if (subtitle.contains('Playlist') ||
-                          subtitle.contains('Folder'))
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6.0),
-                          child: Icon(Icons.download_done,
-                              size: isDesktop ? 18 : 14, color: Colors.green),
-                        ),
-                      if (isLossless)
-                        Container(
-                          margin: const EdgeInsets.only(right: 6.0),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF18232E),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'LOSSLESS',
-                            style: TextStyle(
-                                fontSize: isDesktop ? 12 : 10,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF94A3B8)),
-                          ),
-                        ),
-                      Expanded(
-                        child: Text(
-                          subtitle.replaceAll(' • Lossless', ''),
-                          style: TextStyle(
-                            fontSize: isDesktop ? 16 : 14,
-                            color: const Color(0xFF94A3B8),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF94A3B8),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
             if (onOptionSelected != null)
               SongOptionsMenuButton(
-                iconSize: isDesktop ? 28 : 24,
+                iconSize: isDesktop ? 24 : 20,
                 onOptionSelected: onOptionSelected,
               )
             else
-              IconButton(
-                icon: Icon(Icons.more_vert,
-                    color: const Color(0xFF94A3B8), size: isDesktop ? 28 : 24),
-                onPressed: () {},
+              Icon(
+                Icons.chevron_right_rounded,
+                color: const Color(0xFF64748B),
+                size: isDesktop ? 22 : 18,
               ),
           ],
         ),
