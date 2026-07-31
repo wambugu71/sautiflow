@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:file_picker/file_picker.dart';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
@@ -23,6 +24,7 @@ import 'services/liked_songs_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
+import 'widgets/synced_lyrics_widget.dart';
 import 'services/app_state_service.dart';
 
 class NowPlayingScreen extends StatefulWidget {
@@ -91,6 +93,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool _showLyrics = false;
   String? _lyricsRaw;
   bool _isLoadingLyrics = false;
+  bool _showLyricsOverlayOnAlbumArt = false;
+  bool _isCustomLyricsLoaded = false;
+  String? _customLyricsFileName;
 
   // ── Live hardware specs (updates on route change) ─────────────────────────
   AudioHardwareSpecs? _hardwareSpecs;
@@ -425,6 +430,285 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
 
     return sb.toString();
+  }
+
+  Future<void> _pickLrcFile() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['lrc', 'txt'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final content = await file.readAsString();
+        if (content.trim().isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Selected lyrics file is empty.'),
+                backgroundColor: Color(0xFF1E2D3D),
+              ),
+            );
+          }
+          return;
+        }
+
+        String lrcToLoad = content;
+        final hasTimestamp = RegExp(r'\[\d{2,}:\d{2}').hasMatch(content);
+        if (!hasTimestamp) {
+          final overrideSecs = widget.durationOverride;
+          final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
+              ? overrideSecs.toDouble()
+              : widget.statusNotifier.value.durationSeconds;
+          final durationMs = (baseDurationSecs * 1000).round();
+          lrcToLoad = _generateFakeLrc(content, durationMs);
+        }
+
+        _lyricController.loadLyric(lrcToLoad);
+
+        if (mounted) {
+          setState(() {
+            _lyricsRaw = content;
+            _isCustomLyricsLoaded = true;
+            _customLyricsFileName = result.files.single.name;
+            _showLyricsOverlayOnAlbumArt = true;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.lyrics_outlined, color: Color(0xFF137FEC), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Loaded lyrics: ${_customLyricsFileName!}',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E2D3D),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[NowPlaying] Failed to load .lrc file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to read .lrc file: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  void _clearCustomLyrics() {
+    setState(() {
+      _isCustomLyricsLoaded = false;
+      _customLyricsFileName = null;
+      _showLyricsOverlayOnAlbumArt = false;
+    });
+    _fetchLyrics();
+  }
+
+  void _showMoreOptionsMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF18232E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 12, bottom: 8),
+                        child: Text(
+                          'TRACK OPTIONS',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                            color: Color(0xFF137FEC),
+                          ),
+                        ),
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.info_outline, color: Colors.white),
+                      title: const Text('Song Info & Tags', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      subtitle: const Text('View or edit track metadata', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _showMusicInfoDialog(context);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.subtitles_outlined, color: Color(0xFF137FEC)),
+                      title: const Text('Add .lrc Lyrics File', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        _isCustomLyricsLoaded
+                            ? 'Loaded: ${_customLyricsFileName ?? "Custom LRC"}'
+                            : 'Select synchronized .lrc / .txt file from storage',
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _pickLrcFile();
+                      },
+                    ),
+                    SwitchListTile(
+                      secondary: Icon(
+                        _showLyricsOverlayOnAlbumArt ? Icons.layers : Icons.layers_clear,
+                        color: _showLyricsOverlayOnAlbumArt ? const Color(0xFF137FEC) : Colors.white54,
+                      ),
+                      title: const Text('Lyrics Overlay on Album Art', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      subtitle: const Text('Display synchronized lyrics over album cover', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      activeThumbColor: const Color(0xFF137FEC),
+                      value: _showLyricsOverlayOnAlbumArt,
+                      onChanged: (_lyricsRaw == null && !_isCustomLyricsLoaded)
+                          ? null
+                          : (val) {
+                              setSheetState(() => _showLyricsOverlayOnAlbumArt = val);
+                              setState(() => _showLyricsOverlayOnAlbumArt = val);
+                            },
+                    ),
+                    if (_isCustomLyricsLoaded)
+                      ListTile(
+                        leading: const Icon(Icons.cleaning_services_outlined, color: Colors.redAccent),
+                        title: const Text('Reset to Default Lyrics', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _clearCustomLyrics();
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAlbumArtLyricsOverlay({
+    required double borderRadius,
+    required double bottomOffset,
+    required double displayPosMs,
+  }) {
+    if (!_showLyricsOverlayOnAlbumArt) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: bottomOffset,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(borderRadius),
+            bottom: Radius.circular(bottomOffset > 0 ? 16.0 : borderRadius),
+          ),
+          color: Colors.black.withValues(alpha: 0.88),
+          border: Border.all(
+            color: const Color(0xFF137FEC).withValues(alpha: 0.4),
+            width: 1.5,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(borderRadius),
+            bottom: Radius.circular(bottomOffset > 0 ? 16.0 : borderRadius),
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 40, 12, 12),
+                  child: SyncedLyricsWidget(
+                    lyricsRaw: _lyricsRaw ?? '',
+                    currentPosition: Duration(milliseconds: displayPosMs.toInt()),
+                    onSeek: (targetTime) {
+                      widget.player.seekTo(targetTime);
+                    },
+                  ),
+                ),
+              ),
+              // Top Banner & Close Button
+              Positioned(
+                top: 8,
+                left: 12,
+                right: 8,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF137FEC).withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.lyrics, size: 12, color: Color(0xFF137FEC)),
+                          const SizedBox(width: 4),
+                          Text(
+                            _isCustomLyricsLoaded
+                                ? (_customLyricsFileName ?? 'Custom LRC')
+                                : 'Synced Lyrics',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+                      onPressed: () {
+                        setState(() => _showLyricsOverlayOnAlbumArt = false);
+                      },
+                      tooltip: 'Hide Lyrics Overlay',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _fmt(Duration d) {
@@ -992,8 +1276,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 style: TextStyle(color: textDark, fontSize: 16),
                               ),
                             )
-                          : LyricView(
-                              controller: _lyricController,
+                          : SyncedLyricsWidget(
+                              lyricsRaw: _lyricsRaw!,
+                              currentPosition: Duration(milliseconds: displayPosMs.toInt()),
+                              onSeek: (targetTime) {
+                                widget.player.seekTo(targetTime);
+                              },
                             );
 
 
@@ -1075,6 +1363,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               ),
                                             ),
+                                          ),
+                                          // Lyrics Overlay on Album Art
+                                          _buildAlbumArtLyricsOverlay(
+                                            borderRadius: 32.0,
+                                            bottomOffset: 130.0,
+                                            displayPosMs: displayPosMs,
                                           ),
                                           // Text (Title, Artist)
                                           Positioned(
@@ -1171,9 +1465,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                     const SizedBox(width: 16),
                                                      // More options
                                                      IconButton(
-                                                       icon: const Icon(Icons.more_vert, color: Colors.white, size: 32),
-                                                       onPressed: () => _showMusicInfoDialog(context),
-                                                       tooltip: 'Song Info & Tags',
+                                                       icon: Icon(
+                                               Icons.more_vert,
+                                               color: _isCustomLyricsLoaded ? const Color(0xFF137FEC) : Colors.white,
+                                             ),
+                                                       onPressed: () => _showMoreOptionsMenu(context),
+                                                       tooltip: 'Track Options',
                                                      ),
                                                   ],
                                                 ),
@@ -1497,6 +1794,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     ),
                                   ),
                                 ),
+                                // Lyrics Overlay on Album Art
+                                _buildAlbumArtLyricsOverlay(
+                                  borderRadius: 24.0,
+                                  bottomOffset: 100.0,
+                                  displayPosMs: displayPosMs,
+                                ),
                                 // Text (Title, Artist)
                                 Positioned(
                                   left: 16,
@@ -1593,7 +1896,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           // More options
                                           IconButton(
                                             icon: const Icon(Icons.more_vert, color: Colors.white),
-                                            onPressed: () => _showMusicInfoDialog(context),
+                                            onPressed: () => _showMoreOptionsMenu(context),
                                             tooltip: 'Song Info & Tags',
                                           ),
                                         ],
