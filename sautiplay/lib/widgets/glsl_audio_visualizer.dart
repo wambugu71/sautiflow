@@ -202,7 +202,7 @@ class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
 
     if (widget.analyzerStream != null) {
       _analyzerSub = widget.analyzerStream!.listen((pcmData) {
-        if (pcmData.isEmpty || !mounted || _fftProcessor == null) return;
+        if (pcmData.isEmpty || !mounted || _fftProcessor == null || !widget.isPlaying) return;
         const int numBins = 32;
         final bins = _fftProcessor!.processFrame(pcmData, targetBins: numBins);
 

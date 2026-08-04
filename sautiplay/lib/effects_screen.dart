@@ -41,6 +41,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
   List<double> _analyzerValues = [];
   List<double> _peakValues = [];
   StreamSubscription? _analyzerSub;
+  StreamSubscription<PlayerStatus>? _statusSub;
+  bool _isPlaying = false;
   FftProcessor? _fftProcessor;
   late String _currentAnalyzerType;
 
@@ -49,6 +51,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
     super.initState();
     _currentAnalyzerType = widget.analyzerType;
     _setupAnalyzer(widget.analyzerEnabled);
+    _statusSub = widget.player.statusStream.listen((status) {
+      if (mounted && _isPlaying != status.isPlaying) {
+        setState(() {
+          _isPlaying = status.isPlaying;
+        });
+      }
+    });
   }
 
   @override
@@ -65,6 +74,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
   @override
   void dispose() {
     _analyzerSub?.cancel();
+    _statusSub?.cancel();
     super.dispose();
   }
 
@@ -74,7 +84,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
       _fftProcessor ??= FftProcessor(sampleRate: sr);
       widget.player.setAnalyzerEnabled(true);
       _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
-        if (frame.isEmpty) return;
+        if (frame.isEmpty || !_isPlaying) return;
         const targetBins = 60;
         final bins = _fftProcessor!.processFrame(frame, targetBins: targetBins);
         if (mounted) {
@@ -228,7 +238,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
       if (_currentAnalyzerType == style.name || _currentAnalyzerType == style.displayName) {
         return GlslAudioVisualizerWidget(
           analyzerStream: widget.player.analyzerStream,
-          isPlaying: true,
+          isPlaying: _isPlaying,
           style: style,
           primaryColor: primaryColor,
           height: 160.0,
@@ -541,7 +551,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                               SpectrumVisualizerWidget(
                                                 analyzerStream: widget
                                                     .player.analyzerStream,
-                                                isPlaying: true,
+                                                isPlaying: _isPlaying,
                                                 bandCount: 32,
                                                 height: 85,
                                                 style: SpectrumVisualStyle
@@ -558,7 +568,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                               RmsMeterWidget(
                                                 analyzerStream: widget
                                                     .player.analyzerStream,
-                                                isPlaying: true,
+                                                isPlaying: _isPlaying,
                                               ),
                                             ],
                                           ),

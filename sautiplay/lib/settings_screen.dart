@@ -140,7 +140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
-    final waveformSaved = await AppStateService.instance.loadUseWaveformSeekBar();
+    final waveformSaved =
+        await AppStateService.instance.loadUseWaveformSeekBar();
     if (!mounted) return;
     setState(() {
       _streamingQuality = saved.streamingQuality;
@@ -255,7 +256,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     pinned: true,
                     title: const Text(
                       'Settings',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
                     ),
                     centerTitle: true,
                   ),
@@ -266,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        _buildSettingsHeaderCard(),
+                        //  _buildSettingsHeaderCard(),
                         const SizedBox(height: 20),
                         _buildSectionHeader('PREFERENCES & ENGINE'),
                         const SizedBox(height: 10),
@@ -275,17 +277,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           subtitle: 'Seek bar style & UI appearance',
                           icon: Icons.palette_outlined,
                           accentColor: _primary,
-                          badgeText: _useWaveformSeekBar ? 'Waveform' : 'Classic',
-                          onTap: () => _navigateToSubScreen(_buildLookAndFeelSubScreen()),
+                          badgeText:
+                              _useWaveformSeekBar ? 'Waveform' : 'Classic',
+                          onTap: () => _navigateToSubScreen(
+                              _buildLookAndFeelSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
                           title: 'Audio & Processing',
-                          subtitle: 'Resampling, Bit depth, Safeguards & ReplayGain',
+                          subtitle:
+                              'Resampling, Bit depth, Safeguards & ReplayGain',
                           icon: Icons.graphic_eq_rounded,
                           accentColor: _primary,
-                          badgeText: widget.exclusiveMode ? 'Bit-Perfect' : _streamingQuality,
-                          onTap: () => _navigateToSubScreen(_buildAudioProcessingSubScreen()),
+                          badgeText: widget.exclusiveMode
+                              ? 'Bit-Perfect'
+                              : _streamingQuality,
+                          onTap: () => _navigateToSubScreen(
+                              _buildAudioProcessingSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
@@ -294,7 +302,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: Icons.tune_rounded,
                           accentColor: _primary,
                           badgeText: '$_eqBandCount-Band',
-                          onTap: () => _navigateToSubScreen(_buildEqualizerSubScreen()),
+                          onTap: () =>
+                              _navigateToSubScreen(_buildEqualizerSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
@@ -305,18 +314,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           badgeText: widget.analyzerEnabled
                               ? widget.spectrumStyle.toUpperCase()
                               : 'Off',
-                          onTap: () => _navigateToSubScreen(_buildVisualizationSubScreen()),
+                          onTap: () => _navigateToSubScreen(
+                              _buildVisualizationSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
                           title: 'Playback & Crossfade',
-                          subtitle: 'Gapless mode, crossfade transitions & volume',
+                          subtitle:
+                              'Gapless mode, crossfade transitions & volume',
                           icon: Icons.queue_music_rounded,
                           accentColor: _primary,
                           badgeText: widget.crossfadeEnabled
                               ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s'
                               : 'Gapless',
-                          onTap: () => _navigateToSubScreen(_buildPlaybackSubScreen()),
+                          onTap: () =>
+                              _navigateToSubScreen(_buildPlaybackSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
@@ -325,16 +337,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: Icons.storage_rounded,
                           accentColor: _primary,
                           badgeText: '145 MB Cache',
-                          onTap: () => _navigateToSubScreen(_buildStorageSubScreen()),
+                          onTap: () =>
+                              _navigateToSubScreen(_buildStorageSubScreen()),
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(
                           title: 'Misc & System',
-                          subtitle: 'Open source licenses, TLS, diagnostic logs',
+                          subtitle:
+                              'Open source licenses, TLS, diagnostic logs',
                           icon: Icons.admin_panel_settings_outlined,
                           accentColor: _primary,
                           badgeText: 'v1.0.0',
-                          onTap: () => _navigateToSubScreen(_buildMiscSystemSubScreen()),
+                          onTap: () =>
+                              _navigateToSubScreen(_buildMiscSystemSubScreen()),
                         ),
                         const SizedBox(height: 120),
                       ]),
@@ -393,7 +408,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: _primary.withAlpha(40),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.settings_suggest, color: Colors.white, size: 30),
+            child: const Icon(Icons.settings_suggest,
+                color: Colors.white, size: 30),
           ),
           const SizedBox(width: 16),
           const Expanded(
@@ -476,7 +492,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(width: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: accentColor.withAlpha(25),
                   borderRadius: BorderRadius.circular(10),
@@ -492,7 +509,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
+              const Icon(Icons.chevron_right_rounded,
+                  color: _textDark, size: 22),
             ],
           ),
         ),
@@ -517,7 +535,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         title: Text(
           title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -582,7 +601,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: _primary.withAlpha(25),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.graphic_eq, color: _primary, size: 20),
+                    child:
+                        const Icon(Icons.graphic_eq, color: _primary, size: 20),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -638,7 +658,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         fontWeight: FontWeight.w500)),
                                 SizedBox(height: 4),
                                 Text('Higher quality uses more network data',
-                                    style: TextStyle(color: _textDark, fontSize: 13)),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13)),
                               ],
                             ),
                           ),
@@ -656,7 +677,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: GestureDetector(
                                 onTap: () {
-                                  setState(() => _streamingQuality = 'High Fidelity');
+                                  setState(() =>
+                                      _streamingQuality = 'High Fidelity');
                                   setSubState(() {});
                                   _persistUiSettings();
                                 },
@@ -671,12 +693,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   child: Text(
                                     'High Fidelity',
                                     style: TextStyle(
-                                      color: _streamingQuality == 'High Fidelity'
-                                          ? Colors.white
-                                          : _textDark,
-                                      fontWeight: _streamingQuality == 'High Fidelity'
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
+                                      color:
+                                          _streamingQuality == 'High Fidelity'
+                                              ? Colors.white
+                                              : _textDark,
+                                      fontWeight:
+                                          _streamingQuality == 'High Fidelity'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
                                     ),
                                   ),
                                 ),
@@ -685,7 +709,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: GestureDetector(
                                 onTap: () {
-                                  setState(() => _streamingQuality = 'Data Saver');
+                                  setState(
+                                      () => _streamingQuality = 'Data Saver');
                                   setSubState(() {});
                                   _persistUiSettings();
                                 },
@@ -703,9 +728,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       color: _streamingQuality == 'Data Saver'
                                           ? Colors.white
                                           : _textDark,
-                                      fontWeight: _streamingQuality == 'Data Saver'
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
+                                      fontWeight:
+                                          _streamingQuality == 'Data Saver'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
                                     ),
                                   ),
                                 ),
@@ -733,7 +759,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.memory, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.memory,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Resampler',
                       style: TextStyle(
@@ -746,17 +773,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getResampleAlgorithmName(_resampleAlgorithm),
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showResampleAlgorithmDialog(onDone: () => setSubState(() {})),
+                  onTap: () => _showResampleAlgorithmDialog(
+                      onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -768,7 +798,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.blur_on, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.blur_on,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Oversampler',
                       style: TextStyle(
@@ -783,17 +814,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getOversamplingName(_dspOversampling),
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showOversamplingDialog(onDone: () => setSubState(() {})),
+                  onTap: () =>
+                      _showOversamplingDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -805,7 +839,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.waves, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.waves,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Dither',
                       style: TextStyle(
@@ -818,17 +853,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getDitherModeName(_ditherMode),
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showDitherModeDialog(onDone: () => setSubState(() {})),
+                  onTap: () =>
+                      _showDitherModeDialog(onDone: () => setSubState(() {})),
                 ),
               ],
             ),
@@ -846,7 +884,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.code, color: Colors.white70, size: 20),
+                    child:
+                        const Icon(Icons.code, color: Colors.white70, size: 20),
                   ),
                   title: const Text('Output Bit Depth',
                       style: TextStyle(
@@ -861,17 +900,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _formatAudioDepth(widget.outputFormat),
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showOutputFormatDialog(onDone: () => setSubState(() {})),
+                  onTap: () =>
+                      _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -883,7 +925,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.speed, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.speed,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Sample Rate',
                       style: TextStyle(
@@ -898,17 +941,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             widget.outputSampleRate == 0
                                 ? 'Native'
                                 : '${widget.outputSampleRate} Hz',
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showSampleRateDialog(onDone: () => setSubState(() {})),
+                  onTap: () =>
+                      _showSampleRateDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -934,21 +980,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             widget.outputChannels == 1 ? 'Mono' : 'Stereo',
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showChannelsDialog(onDone: () => setSubState(() {})),
+                  onTap: () =>
+                      _showChannelsDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -971,12 +1021,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Text(
                                   'Phase Inversion (Ø 180°)',
                                   style: TextStyle(
-                                      color: Colors.white, fontWeight: FontWeight.w500),
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500),
                                 ),
                                 SizedBox(height: 2),
                                 Text(
                                   'Invert PCM polarity for reversed hardware or phase alignment',
-                                  style: TextStyle(color: _textDark, fontSize: 12),
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -1044,12 +1096,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.shield, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.shield,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Bit-Perfect Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Bypasses OS Mixer & DSP (Exclusive Mode)',
+                  subtitle: const Text(
+                      'Bypasses OS Mixer & DSP (Exclusive Mode)',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.exclusiveMode,
                   activeThumbColor: _primary,
@@ -1068,7 +1122,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           behavior: SnackBarBehavior.floating,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.amberAccent.withAlpha(80)),
+                            side: BorderSide(
+                                color: Colors.amberAccent.withAlpha(80)),
                           ),
                           content: const Row(
                             children: [
@@ -1078,7 +1133,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Expanded(
                                 child: Text(
                                   'Hardware rejected Exclusive Mode. Falling back!',
-                                  style: TextStyle(color: Colors.white, fontSize: 13),
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13),
                                 ),
                               ),
                             ],
@@ -1119,7 +1175,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   secondary: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent)
+                      color: (_speakerProtectionEnabled
+                              ? _primary
+                              : Colors.amberAccent)
                           .withAlpha(25),
                       shape: BoxShape.circle,
                     ),
@@ -1127,7 +1185,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _speakerProtectionEnabled
                           ? Icons.health_and_safety
                           : Icons.warning_amber_rounded,
-                      color: _speakerProtectionEnabled ? _primary : Colors.amberAccent,
+                      color: _speakerProtectionEnabled
+                          ? _primary
+                          : Colors.amberAccent,
                       size: 20,
                     ),
                   ),
@@ -1168,17 +1228,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _subsonicCutoffHz <= 0
                                   ? 'Off'
                                   : '${_subsonicCutoffHz.toInt()} Hz',
-                              style: const TextStyle(color: _textDark, fontSize: 13),
+                              style: const TextStyle(
+                                  color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                          const Icon(Icons.chevron_right,
+                              color: _textDark, size: 20),
                         ],
                       ),
                     ),
-                    onTap: () => _showSubsonicDialog(onDone: () => setSubState(() {})),
+                    onTap: () =>
+                        _showSubsonicDialog(onDone: () => setSubState(() {})),
                   ),
                   const Divider(color: Colors.white10, height: 1),
                   ListTile(
@@ -1196,7 +1259,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Ultrasonic Guard (Low-Pass)',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: const Text('Filters high frequencies above 18-22kHz',
+                    subtitle: const Text(
+                        'Filters high frequencies above 18-22kHz',
                         style: TextStyle(color: _textDark, fontSize: 12)),
                     trailing: SizedBox(
                       width: 130,
@@ -1208,21 +1272,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _ultrasonicCutoffHz >= 24000
                                   ? 'Off'
                                   : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
-                              style: const TextStyle(color: _textDark, fontSize: 13),
+                              style: const TextStyle(
+                                  color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                          const Icon(Icons.chevron_right,
+                              color: _textDark, size: 20),
                         ],
                       ),
                     ),
-                    onTap: () => _showUltrasonicDialog(onDone: () => setSubState(() {})),
+                    onTap: () =>
+                        _showUltrasonicDialog(onDone: () => setSubState(() {})),
                   ),
                   const Divider(color: Colors.white10, height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                     child: Row(
                       children: [
                         Expanded(
@@ -1236,7 +1304,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
-                                style: const TextStyle(color: _textDark, fontSize: 12),
+                                style: const TextStyle(
+                                    color: _textDark, fontSize: 12),
                               ),
                             ],
                           ),
@@ -1262,7 +1331,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const Divider(color: Colors.white10, height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                     child: Row(
                       children: [
                         const Expanded(
@@ -1275,7 +1345,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       fontWeight: FontWeight.w500)),
                               SizedBox(height: 2),
                               Text('Output level attenuation buffer',
-                                  style: TextStyle(color: _textDark, fontSize: 12)),
+                                  style: TextStyle(
+                                      color: _textDark, fontSize: 12)),
                             ],
                           ),
                         ),
@@ -1315,7 +1386,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.equalizer, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.equalizer,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('ReplayGain Mode',
                       style: TextStyle(
@@ -1332,27 +1404,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : _replayGainMode == ReplayGainMode.track
                                     ? 'Track'
                                     : 'Album',
-                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            style:
+                                const TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        const Icon(Icons.chevron_right,
+                            color: _textDark, size: 20),
                       ],
                     ),
                   ),
-                  onTap: () => _showReplayGainModeDialog(onDone: () => setSubState(() {})),
+                  onTap: () => _showReplayGainModeDialog(
+                      onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         'Preamp Gain',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500),
                       ),
                       SizedBox(
                         width: 90,
@@ -1421,7 +1498,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         fontWeight: FontWeight.w500)),
                                 SizedBox(height: 4),
                                 Text('Choose total active EQ bands',
-                                    style: TextStyle(color: _textDark, fontSize: 13)),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13)),
                               ],
                             ),
                           ),
@@ -1442,8 +1520,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   onTap: () async {
                                     setState(() => _eqBandCount = count);
                                     setSubState(() {});
-                                    final state =
-                                        await AppStateService.instance.loadEqBands();
+                                    final state = await AppStateService.instance
+                                        .loadEqBands();
                                     await AppStateService.instance.saveEqBands(
                                       enabled: state.enabled,
                                       preset: state.preset,
@@ -1508,7 +1586,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.bar_chart,
+                        color: Colors.white70, size: 20),
                   ),
                   title: const Text('Realtime Analyzer',
                       style: TextStyle(
@@ -1591,9 +1670,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         color: widget.analyzerType == 'area'
                                             ? Colors.white
                                             : _textDark,
-                                        fontWeight: widget.analyzerType == 'area'
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
+                                        fontWeight:
+                                            widget.analyzerType == 'area'
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
                                       ),
                                     ),
                                   ),
@@ -1654,19 +1734,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     children: [
                                       Icon(entry.value.$2,
                                           size: 16,
-                                          color: widget.spectrumStyle == entry.key
-                                              ? Colors.white
-                                              : _textDark),
+                                          color:
+                                              widget.spectrumStyle == entry.key
+                                                  ? Colors.white
+                                                  : _textDark),
                                       const SizedBox(width: 6),
                                       Text(
                                         entry.value.$1,
                                         style: TextStyle(
-                                          color: widget.spectrumStyle == entry.key
-                                              ? Colors.white
-                                              : _textDark,
-                                          fontWeight: widget.spectrumStyle == entry.key
-                                              ? FontWeight.w600
-                                              : FontWeight.normal,
+                                          color:
+                                              widget.spectrumStyle == entry.key
+                                                  ? Colors.white
+                                                  : _textDark,
+                                          fontWeight:
+                                              widget.spectrumStyle == entry.key
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
                                           fontSize: 13,
                                         ),
                                       ),
@@ -1758,17 +1841,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Expanded(
                             child: Text(
                               widget.analyzerSampleSize.toString(),
-                              style: const TextStyle(color: _textDark, fontSize: 14),
+                              style: const TextStyle(
+                                  color: _textDark, fontSize: 14),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                          const Icon(Icons.chevron_right,
+                              color: _textDark, size: 20),
                         ],
                       ),
                     ),
-                    onTap: () => _showAnalyzerSampleSizeDialog(onDone: () => setSubState(() {})),
+                    onTap: () => _showAnalyzerSampleSizeDialog(
+                        onDone: () => setSubState(() {})),
                   ),
                 ],
               ],
@@ -1800,7 +1886,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Gapless Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Seamless transitions between track ends',
+                  subtitle: const Text(
+                      'Seamless transitions between track ends',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   secondary: Container(
                     padding: const EdgeInsets.all(10),
@@ -1808,7 +1895,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.queue_music, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.queue_music,
+                        color: Colors.white70, size: 20),
                   ),
                   value: _gaplessPlayback,
                   onChanged: (v) {
@@ -1819,7 +1907,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   child: Column(
                     children: [
                       Row(
@@ -1865,7 +1954,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           inactiveTrackColor: Colors.white10,
                           thumbColor: Colors.white,
                           disabledActiveTrackColor: _primary.withAlpha(100),
-                          disabledInactiveTrackColor: Colors.white10.withAlpha(50),
+                          disabledInactiveTrackColor:
+                              Colors.white10.withAlpha(50),
                           disabledThumbColor: Colors.white54,
                         ),
                         child: Slider(
@@ -1875,13 +1965,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           divisions: 24,
                           onChanged: widget.crossfadeEnabled
                               ? (v) {
-                                  widget.onCrossfadeDurationMsChanged((v * 1000).toInt());
+                                  widget.onCrossfadeDurationMsChanged(
+                                      (v * 1000).toInt());
                                   setSubState(() {});
                                 }
                               : null,
                           onChangeEnd: widget.crossfadeEnabled
                               ? (v) {
-                                  widget.player.setCrossfadeDurationMs((v * 1000).toInt());
+                                  widget.player.setCrossfadeDurationMs(
+                                      (v * 1000).toInt());
                                 }
                               : null,
                         ),
@@ -1889,16 +1981,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Off', style: TextStyle(color: _textDark, fontSize: 12)),
+                          const Text('Off',
+                              style: TextStyle(color: _textDark, fontSize: 12)),
                           Text(
                             '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s',
                             style: TextStyle(
-                              color: widget.crossfadeEnabled ? _primary : _textDark,
+                              color: widget.crossfadeEnabled
+                                  ? _primary
+                                  : _textDark,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const Text('12s', style: TextStyle(color: _textDark, fontSize: 12)),
+                          const Text('12s',
+                              style: TextStyle(color: _textDark, fontSize: 12)),
                         ],
                       )
                     ],
@@ -1923,7 +2019,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.bar_chart,
+                        color: Colors.white70, size: 20),
                   ),
                   value: _normalizeVolume,
                   onChanged: (v) {
@@ -1967,7 +2064,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.wifi, color: Colors.white70, size: 20),
+                    child:
+                        const Icon(Icons.wifi, color: Colors.white70, size: 20),
                   ),
                   value: _streamOverWifi,
                   onChanged: (v) {
@@ -1982,7 +2080,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   leading: Icon(Icons.dns, color: Colors.white70, size: 20),
                   title: Text('Audio Cache Storage',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: Text('145 MB',
                       style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
@@ -2025,9 +2124,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const ListTile(
                   contentPadding:
                       EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                  leading:
+                      Icon(Icons.info_outline, color: Colors.white70, size: 20),
                   title: Text('Version',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: Text('1.0.0',
                       style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
@@ -2038,8 +2139,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.policy_outlined,
                       color: Colors.white70, size: 20),
                   title: const Text('Open Source Licenses',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right,
+                      color: _textDark, size: 20),
                   onTap: () {
                     showLicensePage(
                       context: context,
@@ -2075,7 +2178,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.security, color: Colors.white70, size: 20),
+                    child: const Icon(Icons.security,
+                        color: Colors.white70, size: 20),
                   ),
                   value: widget.allowInvalidTls,
                   onChanged: (v) {
@@ -2087,10 +2191,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                  leading: const Icon(Icons.refresh,
+                      color: Colors.white70, size: 20),
                   title: const Text('Poll Native Error',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right,
+                      color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
                 const Divider(color: Colors.white10, height: 1),
@@ -2100,24 +2207,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.cleaning_services_outlined,
                       color: Colors.white70, size: 20),
                   title: const Text('Clear Native Error',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right,
+                      color: _textDark, size: 20),
                   onTap: widget.onClearNativeError,
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  data: Theme.of(context)
+                      .copyWith(dividerColor: Colors.transparent),
                   child: ValueListenableBuilder<int>(
                     valueListenable: widget.logUpdateNotifier,
                     builder: (context, _, __) {
                       return ExpansionTile(
-                        tilePadding:
-                            const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 8),
                         leading: const Icon(Icons.article_outlined,
                             color: Colors.white70, size: 20),
                         title: const Text('App Engine Logs',
                             style: TextStyle(
-                                color: Colors.white, fontWeight: FontWeight.w500)),
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500)),
                         trailing: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
@@ -2141,17 +2252,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   child: OutlinedButton.icon(
                                     onPressed: () async {
                                       if (widget.logs.isEmpty) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                                content: Text('No logs to copy')));
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(const SnackBar(
+                                                content:
+                                                    Text('No logs to copy')));
                                         return;
                                       }
-                                      final text = widget.logs.reversed.join('\n');
+                                      final text =
+                                          widget.logs.reversed.join('\n');
                                       await Clipboard.setData(
                                           ClipboardData(text: text));
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
                                               content: Text(
                                                   'Copied ${widget.logs.length} lines'),
                                               backgroundColor: _cardDark));
@@ -2164,7 +2277,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Expanded(
                                   child: OutlinedButton.icon(
                                     onPressed: widget.onClearLogs,
-                                    icon: const Icon(Icons.delete_sweep, size: 18),
+                                    icon: const Icon(Icons.delete_sweep,
+                                        size: 18),
                                     label: const Text('Clear'),
                                   ),
                                 ),
@@ -2187,7 +2301,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     itemCount: widget.logs.length,
                                     itemBuilder: (context, index) {
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 6.0),
+                                        padding:
+                                            const EdgeInsets.only(bottom: 6.0),
                                         child: SelectableText(
                                           widget.logs[index],
                                           style: const TextStyle(
@@ -2375,7 +2490,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               RadioListTile<ReplayGainMode>(
-                title: const Text('None', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('None', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.none,
                 groupValue: _replayGainMode,
@@ -2387,7 +2503,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title: const Text('Track', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Track', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.track,
                 groupValue: _replayGainMode,
@@ -2399,7 +2516,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title: const Text('Album', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Album', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.album,
                 groupValue: _replayGainMode,
@@ -2565,8 +2683,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             AudioFormat.s16,
             AudioFormat.u8
           ])
-            _buildRadioOption(_formatAudioDepth(fmt),
-                _formatAudioDepth(widget.outputFormat), (v) {
+            _buildRadioOption(
+                _formatAudioDepth(fmt), _formatAudioDepth(widget.outputFormat),
+                (v) {
               widget.onOutputFormatChanged(fmt);
               widget.player.setOutputFormat(fmt);
               onDone?.call();
@@ -2601,9 +2720,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   widget.outputSampleRate == 0
                       ? 'Native'
                       : '${widget.outputSampleRate} Hz', (v) {
-                final val = v == 'Native'
-                    ? 0
-                    : int.parse(v!.replaceAll(' Hz', ''));
+                final val =
+                    v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
                 widget.onOutputSampleRateChanged(val);
                 widget.player.setOutputSampleRate(val);
                 onDone?.call();
