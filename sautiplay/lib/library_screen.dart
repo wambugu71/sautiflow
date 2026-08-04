@@ -79,10 +79,13 @@ class _LibraryScreenState extends State<LibraryScreen>
   String _scanStatus = 'Checking library for changes...';
   int _tabIndex = 0;
   TrackViewMode _trackViewMode = TrackViewMode.list;
+  String _groupByOption = 'None';
 
   // Search & Sort filters
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _artistSearchController = TextEditingController();
+  final TextEditingController _albumSearchController = TextEditingController();
+  final TextEditingController _genreSearchController = TextEditingController();
   String _currentSort = 'Name (A-Z)';
   static const List<String> _sortOptions = [
     'Name (A-Z)',
@@ -91,6 +94,13 @@ class _LibraryScreenState extends State<LibraryScreen>
     'Date Added (Old-New)',
     'Size (Largest)',
     'Size (Smallest)',
+  ];
+  static const List<String> _groupByOptions = [
+    'None',
+    'Album',
+    'Artist',
+    'Genre',
+    'Folder',
   ];
 
   @override
@@ -115,6 +125,8 @@ class _LibraryScreenState extends State<LibraryScreen>
   void dispose() {
     _searchController.dispose();
     _artistSearchController.dispose();
+    _albumSearchController.dispose();
+    _genreSearchController.dispose();
     super.dispose();
   }
 
@@ -517,11 +529,15 @@ class _LibraryScreenState extends State<LibraryScreen>
             String? metaTitle;
             String? metaArtist;
             String? metaAlbum;
+            String? metaGenre;
             try {
               final meta = amr.readMetadata(file, getImage: false);
               if (meta.title != null && meta.title!.isNotEmpty) metaTitle = meta.title;
               if (meta.artist != null && meta.artist!.isNotEmpty) metaArtist = meta.artist;
               if (meta.album != null && meta.album!.isNotEmpty) metaAlbum = meta.album;
+              if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
+                metaGenre = meta.genres.first;
+              }
             } catch (_) {}
 
             updatedSongs.add(LocalSongItem.fallback(
@@ -531,6 +547,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               title: metaTitle,
               artist: metaArtist,
               album: metaAlbum,
+              genre: metaGenre,
             ));
           }
         } catch (_) {
@@ -904,46 +921,45 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildTab(int index, String title, IconData icon, {bool isDesktop = false}) {
     final isSelected = _tabIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _tabIndex = index),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          padding: EdgeInsets.symmetric(vertical: isDesktop ? 9 : 7, horizontal: 6),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? const Color(0xFF137fec).withValues(alpha: 0.22)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
-            border: isSelected
-                ? Border.all(
-                    color: const Color(0xFF137fec).withValues(alpha: 0.4),
-                    width: 1,
-                  )
-                : Border.all(color: Colors.transparent, width: 1),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: isDesktop ? 18 : 15,
-                color: isSelected ? const Color(0xFF137fec) : const Color(0xFF94A3B8),
+    return GestureDetector(
+      onTap: () => setState(() => _tabIndex = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        padding: EdgeInsets.symmetric(
+            vertical: isDesktop ? 9 : 7, horizontal: isDesktop ? 14 : 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF137fec).withValues(alpha: 0.22)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
+          border: isSelected
+              ? Border.all(
+                  color: const Color(0xFF137fec).withValues(alpha: 0.4),
+                  width: 1,
+                )
+              : Border.all(color: Colors.transparent, width: 1),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: isDesktop ? 18 : 15,
+              color: isSelected ? const Color(0xFF137fec) : const Color(0xFF94A3B8),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: isDesktop ? 15 : 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? Colors.white : const Color(0xFF94A3B8),
               ),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: isDesktop ? 15 : 13,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1090,6 +1106,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               SizedBox(height: isDesktop ? 16 : 12),
                               // Segmented Control
                               Container(
+                                width: double.infinity,
                                 padding: EdgeInsets.all(isDesktop ? 5 : 4),
                                 decoration: BoxDecoration(
                                   color: surfaceColor,
@@ -1099,15 +1116,27 @@ class _LibraryScreenState extends State<LibraryScreen>
                                     color: Colors.white.withValues(alpha: 0.05),
                                   ),
                                 ),
-                                child: Row(
-                                  children: [
-                                    _buildTab(0, 'Playlists', Icons.queue_music_rounded,
-                                        isDesktop: isDesktop),
-                                    _buildTab(1, 'Tracks', Icons.audiotrack_rounded,
-                                        isDesktop: isDesktop),
-                                    _buildTab(2, 'Artists', Icons.person_outline_rounded,
-                                        isDesktop: isDesktop),
-                                  ],
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  child: Row(
+                                    children: [
+                                      _buildTab(0, 'Playlists', Icons.queue_music_rounded,
+                                          isDesktop: isDesktop),
+                                      const SizedBox(width: 4),
+                                      _buildTab(1, 'Tracks', Icons.audiotrack_rounded,
+                                          isDesktop: isDesktop),
+                                      const SizedBox(width: 4),
+                                      _buildTab(2, 'Artists', Icons.person_outline_rounded,
+                                          isDesktop: isDesktop),
+                                      const SizedBox(width: 4),
+                                      _buildTab(3, 'Albums', Icons.album_outlined,
+                                          isDesktop: isDesktop),
+                                      const SizedBox(width: 4),
+                                      _buildTab(4, 'Genres', Icons.style_outlined,
+                                          isDesktop: isDesktop),
+                                    ],
+                                  ),
                                 ),
                               ),
                               if (_isScanning) ...[
@@ -1154,14 +1183,8 @@ class _LibraryScreenState extends State<LibraryScreen>
 
                         // Main List Area
                         Expanded(
-                          child: _tabIndex == 0
-                              ? _buildPlaylistsTab(primaryColor, textDark,
-                                  isDesktop: isDesktop)
-                              : (_tabIndex == 1
-                                  ? _buildDownloadsTab(primaryColor, textDark,
-                                      isDesktop: isDesktop)
-                                  : _buildArtistsTab(primaryColor, textDark,
-                                      isDesktop: isDesktop)),
+                          child: _buildSelectedTabBody(primaryColor, textDark,
+                              isDesktop: isDesktop),
                         ),
                       ],
                     ),
@@ -1502,6 +1525,74 @@ class _LibraryScreenState extends State<LibraryScreen>
                         ))
                     .toList(),
               ),
+              const SizedBox(width: 6),
+              // Group By Button
+              PopupMenuButton<String>(
+                icon: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF18232E),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _groupByOption != 'None'
+                          ? primaryColor.withValues(alpha: 0.5)
+                          : Colors.white.withValues(alpha: 0.05),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.account_tree_rounded,
+                    color: _groupByOption != 'None' ? primaryColor : textDark,
+                    size: 20,
+                  ),
+                ),
+                tooltip: 'Group By',
+                color: const Color(0xFF18232E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                onSelected: (String choice) {
+                  setState(() {
+                    _groupByOption = choice;
+                  });
+                },
+                itemBuilder: (BuildContext context) => _groupByOptions
+                    .map((String choice) => PopupMenuItem<String>(
+                          value: choice,
+                          child: Row(
+                            children: [
+                              Icon(
+                                choice == 'None'
+                                    ? Icons.list_rounded
+                                    : (choice == 'Album'
+                                        ? Icons.album_outlined
+                                        : (choice == 'Artist'
+                                            ? Icons.person_outline_rounded
+                                            : (choice == 'Genre'
+                                                ? Icons.style_outlined
+                                                : Icons.folder_outlined))),
+                                size: 18,
+                                color: _groupByOption == choice
+                                    ? primaryColor
+                                    : const Color(0xFF94A3B8),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                choice == 'None' ? 'No Grouping' : 'By $choice',
+                                style: TextStyle(
+                                  fontSize: isDesktop ? 15 : 13,
+                                  fontWeight: _groupByOption == choice
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: _groupByOption == choice
+                                      ? primaryColor
+                                      : Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ))
+                    .toList(),
+              ),
             ],
           ),
         ),
@@ -1520,6 +1611,140 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Widget _buildTrackView({bool isDesktop = false}) {
+    if (_groupByOption != 'None') {
+      final Map<String, List<LocalSongItem>> groupedMap = {};
+      for (final song in _filteredSongs) {
+        String key = 'Unknown';
+        if (_groupByOption == 'Album') {
+          key = song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
+        } else if (_groupByOption == 'Artist') {
+          key = song.artist.trim().isNotEmpty ? song.artist.trim() : 'Unknown Artist';
+        } else if (_groupByOption == 'Genre') {
+          key = song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
+        } else if (_groupByOption == 'Folder') {
+          key = p.basename(p.dirname(song.path));
+        }
+        groupedMap.putIfAbsent(key, () => []).add(song);
+      }
+
+      final groupKeys = groupedMap.keys.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      return ListView.builder(
+        primary: false,
+        padding: const EdgeInsets.only(bottom: 140),
+        itemCount: groupKeys.length,
+        itemBuilder: (context, groupIdx) {
+          final key = groupKeys[groupIdx];
+          final songs = groupedMap[key]!;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Group Header Banner
+              InkWell(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LocalGroupDetailScreen(
+                        groupTitle: key,
+                        groupType: _groupByOption,
+                        songs: songs,
+                        onPlayFolder: widget.onPlayFolder,
+                        onPlayTracks: widget.onPlayTracks,
+                        onQueueTrack: widget.onQueueTrack,
+                        onDeleteTrack: (path) {
+                          widget.onDeleteTrack?.call(path);
+                          _updateAllSongs();
+                        },
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32.0 : 16.0,
+                    vertical: 8.0,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF18232E),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                  ),
+                  child: Row(
+                    children: [
+                      LocalAlbumArt(
+                        path: songs.first.path,
+                        size: 40,
+                        borderRadius: 8,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              key,
+                              style: TextStyle(
+                                fontSize: isDesktop ? 16 : 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${songs.length} Track${songs.length == 1 ? '' : 's'} • $_groupByOption',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.play_circle_fill_rounded,
+                            color: Color(0xFF137FEC), size: 28),
+                        onPressed: () {
+                          final paths = songs.map((s) => s.path).toList();
+                          widget.onPlayFolder(paths, initialIndex: 0);
+                        },
+                        tooltip: 'Play Group',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Group Tracks
+              ...songs.map((song) {
+                return _buildLibraryItem(
+                  title: song.title,
+                  subtitle:
+                      '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                  customIcon: LocalAlbumArt(
+                      path: song.path,
+                      size: isDesktop ? 80 : 56,
+                      borderRadius: 10),
+                  onTap: () {
+                    final paths = songs.map((e) => e.path).toList();
+                    final songIdx = songs.indexOf(song);
+                    widget.onPlayFolder(paths, initialIndex: songIdx);
+                  },
+                  onOptionSelected: (option) => _handleSongOption(song, option),
+                  context: context,
+                  isDesktop: isDesktop,
+                );
+              }),
+              const SizedBox(height: 12),
+            ],
+          );
+        },
+      );
+    }
+
     if (_trackViewMode == TrackViewMode.compact) {
       return ListView.builder(
         primary: false,
@@ -1797,8 +2022,221 @@ class _LibraryScreenState extends State<LibraryScreen>
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => LocalArtistDetailScreen(
-                              artistName: artistName,
+                            builder: (_) => LocalGroupDetailScreen(
+                              groupTitle: artistName,
+                              groupType: 'Artist',
+                              songs: songs,
+                              onPlayFolder: widget.onPlayFolder,
+                              onPlayTracks: widget.onPlayTracks,
+                              onQueueTrack: widget.onQueueTrack,
+                              onDeleteTrack: (path) {
+                                widget.onDeleteTrack?.call(path);
+                                _updateAllSongs();
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectedTabBody(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+    switch (_tabIndex) {
+      case 0:
+        return _buildPlaylistsTab(primaryColor, textDark, isDesktop: isDesktop);
+      case 1:
+        return _buildDownloadsTab(primaryColor, textDark, isDesktop: isDesktop);
+      case 2:
+        return _buildArtistsTab(primaryColor, textDark, isDesktop: isDesktop);
+      case 3:
+        return _buildAlbumsTab(primaryColor, textDark, isDesktop: isDesktop);
+      case 4:
+        return _buildGenresTab(primaryColor, textDark, isDesktop: isDesktop);
+      default:
+        return _buildPlaylistsTab(primaryColor, textDark, isDesktop: isDesktop);
+    }
+  }
+
+  Widget _buildAlbumsTab(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+    final Map<String, List<LocalSongItem>> albumMap = {};
+    for (final song in _allSongs) {
+      final album = song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
+      albumMap.putIfAbsent(album, () => []).add(song);
+    }
+
+    final query = _albumSearchController.text.trim().toLowerCase();
+    final albumKeys = albumMap.keys.where((a) {
+      if (query.isEmpty) return true;
+      return a.toLowerCase().contains(query);
+    }).toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: isDesktop ? 12.0 : 6.0,
+          ),
+          child: TextField(
+            controller: _albumSearchController,
+            style: TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
+            decoration: InputDecoration(
+              hintText: 'Search albums...',
+              hintStyle: TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
+              prefixIcon: Icon(Icons.search_rounded, color: textDark, size: isDesktop ? 24 : 20),
+              filled: true,
+              fillColor: const Color(0xFF18232E),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            ),
+            onChanged: (v) => setState(() {}),
+          ),
+        ),
+        Expanded(
+          child: albumKeys.isEmpty && !_isLoading
+              ? _buildEmptyState(
+                  textDark,
+                  message: 'No albums found',
+                  subMessage: _albumSearchController.text.isNotEmpty
+                      ? 'No matches for "${_albumSearchController.text}".'
+                      : 'Add local folders in Playlists to view albums here.',
+                  isDesktop: isDesktop,
+                )
+              : ListView.builder(
+                  primary: false,
+                  padding: const EdgeInsets.only(bottom: 140),
+                  itemCount: albumKeys.length,
+                  itemBuilder: (context, index) {
+                    final albumName = albumKeys[index];
+                    final songs = albumMap[albumName] ?? [];
+                    final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
+                    final artistName = songs.isNotEmpty ? songs.first.artist : 'Unknown Artist';
+
+                    return _buildLibraryItem(
+                      title: albumName,
+                      subtitle: '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
+                      iconData: Icons.album_rounded,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 80 : 56,
+                              borderRadius: 10,
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => LocalGroupDetailScreen(
+                              groupTitle: albumName,
+                              groupType: 'Album',
+                              songs: songs,
+                              onPlayFolder: widget.onPlayFolder,
+                              onPlayTracks: widget.onPlayTracks,
+                              onQueueTrack: widget.onQueueTrack,
+                              onDeleteTrack: (path) {
+                                widget.onDeleteTrack?.call(path);
+                                _updateAllSongs();
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenresTab(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+    final Map<String, List<LocalSongItem>> genreMap = {};
+    for (final song in _allSongs) {
+      final genre = song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
+      genreMap.putIfAbsent(genre, () => []).add(song);
+    }
+
+    final query = _genreSearchController.text.trim().toLowerCase();
+    final genreKeys = genreMap.keys.where((g) {
+      if (query.isEmpty) return true;
+      return g.toLowerCase().contains(query);
+    }).toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32.0 : 16.0,
+            vertical: isDesktop ? 12.0 : 6.0,
+          ),
+          child: TextField(
+            controller: _genreSearchController,
+            style: TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
+            decoration: InputDecoration(
+              hintText: 'Search genres...',
+              hintStyle: TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
+              prefixIcon: Icon(Icons.search_rounded, color: textDark, size: isDesktop ? 24 : 20),
+              filled: true,
+              fillColor: const Color(0xFF18232E),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            ),
+            onChanged: (v) => setState(() {}),
+          ),
+        ),
+        Expanded(
+          child: genreKeys.isEmpty && !_isLoading
+              ? _buildEmptyState(
+                  textDark,
+                  message: 'No genres found',
+                  subMessage: _genreSearchController.text.isNotEmpty
+                      ? 'No matches for "${_genreSearchController.text}".'
+                      : 'Add local folders in Playlists to view genres here.',
+                  isDesktop: isDesktop,
+                )
+              : ListView.builder(
+                  primary: false,
+                  padding: const EdgeInsets.only(bottom: 140),
+                  itemCount: genreKeys.length,
+                  itemBuilder: (context, index) {
+                    final genreName = genreKeys[index];
+                    final songs = genreMap[genreName] ?? [];
+                    final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
+
+                    return _buildLibraryItem(
+                      title: genreName,
+                      subtitle: '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
+                      iconData: Icons.style_rounded,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 80 : 56,
+                              borderRadius: 10,
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => LocalGroupDetailScreen(
+                              groupTitle: genreName,
+                              groupType: 'Genre',
                               songs: songs,
                               onPlayFolder: widget.onPlayFolder,
                               onPlayTracks: widget.onPlayTracks,
@@ -1957,8 +2395,9 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 }
 
-class LocalArtistDetailScreen extends StatefulWidget {
-  final String artistName;
+class LocalGroupDetailScreen extends StatefulWidget {
+  final String groupTitle;
+  final String groupType; // 'Artist', 'Album', 'Genre', 'Folder'
   final List<LocalSongItem> songs;
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
       onPlayFolder;
@@ -1967,9 +2406,10 @@ class LocalArtistDetailScreen extends StatefulWidget {
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
 
-  const LocalArtistDetailScreen({
+  const LocalGroupDetailScreen({
     super.key,
-    required this.artistName,
+    required this.groupTitle,
+    this.groupType = 'Group',
     required this.songs,
     required this.onPlayFolder,
     this.onPlayTracks,
@@ -1978,17 +2418,17 @@ class LocalArtistDetailScreen extends StatefulWidget {
   });
 
   @override
-  State<LocalArtistDetailScreen> createState() =>
-      _LocalArtistDetailScreenState();
+  State<LocalGroupDetailScreen> createState() =>
+      _LocalGroupDetailScreenState();
 }
 
-class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
-  late List<LocalSongItem> _artistSongs;
+class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
+  late List<LocalSongItem> _groupSongs;
 
   @override
   void initState() {
     super.initState();
-    _artistSongs = List.from(widget.songs);
+    _groupSongs = List.from(widget.songs);
   }
 
   @override
@@ -2003,12 +2443,12 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
         backgroundColor: bgDark,
         elevation: 0,
         title: Text(
-          widget.artistName,
+          widget.groupTitle,
           style:
               const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
         actions: [
-          if (widget.onPlayTracks != null)
+          if (widget.onPlayTracks != null && widget.groupType == 'Artist')
             IconButton(
               icon: const Icon(Icons.language, color: Colors.white70),
               tooltip: 'View Online Discography',
@@ -2016,7 +2456,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => ArtistProfileScreen(
-                      artistName: widget.artistName,
+                      artistName: widget.groupTitle,
                       onPlayTracks: widget.onPlayTracks,
                     ),
                   ),
@@ -2043,16 +2483,24 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                     height: 64,
                     decoration: BoxDecoration(
                       color: primaryColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: widget.groupType == 'Artist'
+                          ? BorderRadius.circular(32)
+                          : BorderRadius.circular(12),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: _artistSongs.isNotEmpty
+                    child: _groupSongs.isNotEmpty
                         ? LocalAlbumArt(
-                            path: _artistSongs.first.path,
+                            path: _groupSongs.first.path,
                             size: 64,
-                            borderRadius: 12)
-                        : const Icon(Icons.person,
-                            color: primaryColor, size: 36),
+                            borderRadius: widget.groupType == 'Artist' ? 32 : 12)
+                        : Icon(
+                            widget.groupType == 'Artist'
+                                ? Icons.person
+                                : (widget.groupType == 'Album'
+                                    ? Icons.album
+                                    : Icons.style),
+                            color: primaryColor,
+                            size: 36),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -2060,7 +2508,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.artistName,
+                          widget.groupTitle,
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -2071,7 +2519,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_artistSongs.length} Track${_artistSongs.length == 1 ? '' : 's'} • Local Library',
+                          '${_groupSongs.length} Track${_groupSongs.length == 1 ? '' : 's'} • ${widget.groupType}',
                           style: const TextStyle(
                               color: Color(0xFF94A3B8), fontSize: 13),
                         ),
@@ -2081,8 +2529,8 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: () {
-                      if (_artistSongs.isEmpty) return;
-                      final paths = _artistSongs.map((e) => e.path).toList();
+                      if (_groupSongs.isEmpty) return;
+                      final paths = _groupSongs.map((e) => e.path).toList();
                       widget.onPlayFolder(paths, initialIndex: 0);
                     },
                     icon: const Icon(Icons.play_arrow, color: Colors.white),
@@ -2101,18 +2549,18 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
 
             // Track List
             Expanded(
-              child: _artistSongs.isEmpty
+              child: _groupSongs.isEmpty
                   ? const Center(
                       child: Text(
-                        'No songs left for this artist.',
+                        'No songs left in this group.',
                         style: TextStyle(color: Color(0xFF94A3B8)),
                       ),
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 120),
-                      itemCount: _artistSongs.length,
+                      itemCount: _groupSongs.length,
                       itemBuilder: (context, index) {
-                        final song = _artistSongs[index];
+                        final song = _groupSongs[index];
                         return ListTile(
                           leading: LocalAlbumArt(
                               path: song.path, size: 48, borderRadius: 8),
@@ -2125,7 +2573,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           subtitle: Text(
-                            song.album,
+                            '${song.artist} • ${song.album}',
                             style: const TextStyle(
                                 color: Color(0xFF94A3B8), fontSize: 12),
                             maxLines: 1,
@@ -2133,7 +2581,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
                           ),
                           onTap: () {
                             final paths =
-                                _artistSongs.map((e) => e.path).toList();
+                                _groupSongs.map((e) => e.path).toList();
                             widget.onPlayFolder(paths, initialIndex: index);
                           },
                           trailing: SongOptionsMenuButton(
@@ -2182,6 +2630,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
             title: song.title,
             artist: song.artist,
             album: song.album,
+            genre: song.genre,
             albumArt: art,
             sourceType: 'local',
             videoId: song.path,
@@ -2241,7 +2690,7 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
             await File(song.path).delete();
             widget.onDeleteTrack?.call(song.path);
             setState(() {
-              _artistSongs.removeWhere((s) => s.path == song.path);
+              _groupSongs.removeWhere((s) => s.path == song.path);
             });
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
@@ -2257,4 +2706,19 @@ class _LocalArtistDetailScreenState extends State<LocalArtistDetailScreen> {
         break;
     }
   }
+}
+
+class LocalArtistDetailScreen extends LocalGroupDetailScreen {
+  const LocalArtistDetailScreen({
+    super.key,
+    required String artistName,
+    required super.songs,
+    required super.onPlayFolder,
+    super.onPlayTracks,
+    super.onQueueTrack,
+    super.onDeleteTrack,
+  }) : super(
+          groupTitle: artistName,
+          groupType: 'Artist',
+        );
 }
