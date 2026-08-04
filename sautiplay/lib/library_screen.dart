@@ -17,9 +17,11 @@ import 'services/m3u_playlist_service.dart';
 
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
+import 'isolate_player.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
+import 'network_sources_screen.dart';
 import 'services/audio_file_inspector.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
@@ -34,6 +36,9 @@ class LibraryScreen extends StatefulWidget {
       onPlayTracks;
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
+  final IsolateAudioPlayer? player;
+  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
   final bool isNested;
   final int initialTabIndex;
 
@@ -44,6 +49,9 @@ class LibraryScreen extends StatefulWidget {
     this.onPlayTracks,
     this.onQueueTrack,
     this.onDeleteTrack,
+    this.player,
+    this.onPlayNetworkFile,
+    this.onPlayFtpFolder,
     this.isNested = false,
     this.initialTabIndex = 0,
   });
@@ -670,6 +678,25 @@ class _LibraryScreenState extends State<LibraryScreen>
     return audioFiles;
   }
 
+  void _navigateToNetworkSources() {
+    if (widget.player == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Player engine unavailable.')),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NetworkSourcesScreen(
+          player: widget.player!,
+          onPlayNetworkFile: widget.onPlayNetworkFile,
+          onPlayFtpFolder: widget.onPlayFtpFolder,
+        ),
+      ),
+    );
+  }
+
   Future<void> _addDirectory() async {
     final hasPerm = await _requestPermissions();
     if (!hasPerm) {
@@ -1053,6 +1080,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         _importM3uFile();
                                       } else if (value == 'm3u_url') {
                                         _importM3uUrlDialog();
+                                      } else if (value == 'network_sources') {
+                                        _navigateToNetworkSources();
                                       } else if (value == 'export_m3u') {
                                         _exportPlaylistToM3u8(
                                             'SautiPlay_Library', _allSongs);
@@ -1091,6 +1120,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                                                 color: Colors.tealAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Import M3U Stream URL',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'network_sources',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.lan_rounded,
+                                                color: Colors.lightBlueAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Network Stream (FTP & DLNA)',
                                                 style: TextStyle(color: Colors.white)),
                                           ],
                                         ),
@@ -1368,6 +1409,19 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
         ),
         const SizedBox(height: 6),
+        _buildLibraryItem(
+          title: 'Network Stream (FTP & DLNA)',
+          subtitle: 'FTP Remote Explorer & DLNA Media Casting',
+          iconData: Icons.lan_rounded,
+          iconGradient: const LinearGradient(
+            colors: [Color(0xFF00897B), Color(0xFF004D40)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          onTap: _navigateToNetworkSources,
+          context: context,
+          isDesktop: isDesktop,
+        ),
         ..._m3uPlaylists.map((pl) {
           return Padding(
             padding: EdgeInsets.only(bottom: isDesktop ? 8 : 4),

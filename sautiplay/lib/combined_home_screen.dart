@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'home_screen.dart';
+import 'isolate_player.dart';
 import 'library_screen.dart';
 import 'models/liked_song.dart';
 import 'search_screen.dart';
@@ -16,6 +17,9 @@ class CombinedHomeScreen extends StatefulWidget {
       onPlayLikedSongs;
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
+  final IsolateAudioPlayer? player;
+  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
 
   const CombinedHomeScreen({
     super.key,
@@ -25,6 +29,9 @@ class CombinedHomeScreen extends StatefulWidget {
     required this.onPlayLikedSongs,
     this.onQueueTrack,
     this.onDeleteTrack,
+    this.player,
+    this.onPlayNetworkFile,
+    this.onPlayFtpFolder,
   });
 
   @override
@@ -212,6 +219,9 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                         onPlayTracks: widget.onPlayTracks,
                         onQueueTrack: widget.onQueueTrack,
                         onDeleteTrack: widget.onDeleteTrack,
+                        player: widget.player,
+                        onPlayNetworkFile: widget.onPlayNetworkFile,
+                        onPlayFtpFolder: widget.onPlayFtpFolder,
                         isNested: true,
                         initialTabIndex: _libraryTabIndex,
                       ),

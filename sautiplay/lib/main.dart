@@ -1568,6 +1568,9 @@ class _PlayerShellState extends State<PlayerShell> {
             onPlayLikedSongs: _playLikedSongs,
             onQueueTrack: _queueNextTrack,
             onDeleteTrack: _handleDeletedTrack,
+            player: _player,
+            onPlayNetworkFile: _playNetworkFile,
+            onPlayFtpFolder: _playFtpFolder,
           ),
           EffectsScreen(
             player: _player,
