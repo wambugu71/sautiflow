@@ -128,6 +128,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _phaseInvertLeft = false;
   bool _phaseInvertRight = false;
 
+  // Neutron HiFi Engine Settings
+  bool _64BitProcessingEnabled = false;
+  bool _autoBitPerfectEnabled = false;
+
   // Waveform Seek Bar UI Setting
   bool _useWaveformSeekBar = false;
 
@@ -145,6 +149,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
+    final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
+    final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
         await AppStateService.instance.loadUseWaveformSeekBar();
     if (!mounted) return;
@@ -166,9 +172,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _safetyAttenuationDb = spSaved.safetyAttenuationDb;
       _phaseInvertLeft = phaseSaved.invertLeft;
       _phaseInvertRight = phaseSaved.invertRight;
+      _64BitProcessingEnabled = is64Bit;
+      _autoBitPerfectEnabled = autoBp;
       _useWaveformSeekBar = waveformSaved;
     });
     widget.player.setViperOversampling(oversamplingSaved);
+    widget.player.set64BitProcessingEnabled(is64Bit);
+    widget.player.setAutoBitPerfectEnabled(autoBp);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -1168,6 +1178,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       );
                     }
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.architecture,
+                        color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('64-Bit Float DSP Pipeline',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text(
+                      'Double-precision floating-point (-320dB headroom)',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: _64BitProcessingEnabled,
+                  activeThumbColor: _primary,
+                  onChanged: (val) {
+                    setState(() => _64BitProcessingEnabled = val);
+                    widget.player.set64BitProcessingEnabled(val);
+                    AppStateService.instance.save64BitProcessingEnabled(val);
+                    setSubState(() {});
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.graphic_eq,
+                        color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Auto Bit-Perfect Frequency Matching',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text(
+                      'Dynamically re-inits DAC to match audio track sample rate',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: _autoBitPerfectEnabled,
+                  activeThumbColor: _primary,
+                  onChanged: (val) {
+                    setState(() => _autoBitPerfectEnabled = val);
+                    widget.player.setAutoBitPerfectEnabled(val);
+                    AppStateService.instance.saveAutoBitPerfectEnabled(val);
+                    setSubState(() {});
                   },
                 ),
               ],

@@ -59,7 +59,13 @@ extern "C"
     {
         AE_DITHER_MODE_NONE = 0,
         AE_DITHER_MODE_RECTANGLE = 1,
-        AE_DITHER_MODE_TRIANGLE = 2
+        AE_DITHER_MODE_TRIANGLE = 2,
+        AE_DITHER_MODE_LIPSHITZ = 3,
+        AE_DITHER_MODE_F_WEIGHTED = 4,
+        AE_DITHER_MODE_MOD_E_WEIGHTED = 5,
+        AE_DITHER_MODE_SHIBATA = 6,
+        AE_DITHER_MODE_LOW_SHIBATA = 7,
+        AE_DITHER_MODE_HIGH_SHIBATA = 8
     } AEDitherMode;
 
     typedef enum AEEqBandType
@@ -230,6 +236,14 @@ extern "C"
 
     AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode);
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine);
+
+    // 64-Bit Float DSP Processing Mode (-320dB Headroom)
+    AE_API void ae_set_64bit_processing_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_64bit_processing_enabled(AudioEngineHandle *engine);
+
+    // Auto Bit-Perfect Hardware Rate & Bit-Depth Matching
+    AE_API void ae_set_auto_bit_perfect_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_auto_bit_perfect_enabled(AudioEngineHandle *engine);
 
     // Phase Inversion (Polarity Flip)
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right);

@@ -743,6 +743,18 @@ namespace
             float asis[2] = {0.0f, 0.0f};
         } lfs;
 
+        // Ambiophonics R.A.C.E. (Preset 4)
+        static constexpr size_t RACE_MAX_DELAY = 128;
+        float raceRingBufferL[RACE_MAX_DELAY] = {};
+        float raceRingBufferR[RACE_MAX_DELAY] = {};
+        size_t raceWriteIdx = 0;
+        size_t raceDelaySamples = 8; // ~166us at 48kHz
+        float raceAlpha = 0.55f;
+        float raceLpfA0 = 0.0f;
+        float raceLpfB1 = 0.0f;
+        float raceLpfOutL = 0.0f;
+        float raceLpfOutR = 0.0f;
+
         int currentPreset = 1;
         int cachedSampleRate = 44100;
 
@@ -752,6 +764,23 @@ namespace
                 sampleRate = 44100;
             cachedSampleRate = sampleRate;
             currentPreset = preset;
+
+            if (preset == 4) // Ambiophonics R.A.C.E.
+            {
+                constexpr double pi = 3.14159265358979323846;
+                size_t d = (size_t)(0.000166 * (double)sampleRate);
+                raceDelaySamples = (d < 1) ? 1 : ((d >= RACE_MAX_DELAY) ? (RACE_MAX_DELAY - 1) : d);
+                raceAlpha = 0.55f;
+                double x_race = std::exp(-2.0 * pi * 2500.0 / (double)sampleRate);
+                raceLpfB1 = (float)x_race;
+                raceLpfA0 = (float)(1.0 - x_race);
+                std::memset(raceRingBufferL, 0, sizeof(raceRingBufferL));
+                std::memset(raceRingBufferR, 0, sizeof(raceRingBufferR));
+                raceWriteIdx = 0;
+                raceLpfOutL = 0.0f;
+                raceLpfOutR = 0.0f;
+                return;
+            }
 
             uint32_t fcut = 700;
             uint32_t feed = 45;
@@ -813,6 +842,37 @@ namespace
         {
             if (channels < 2)
                 return;
+
+            if (currentPreset == 4) // Ambiophonics R.A.C.E.
+            {
+                for (ma_uint32 i = 0; i < frames; ++i)
+                {
+                    size_t base = (size_t)i * (size_t)channels;
+                    float sL = interleaved[base];
+                    float sR = interleaved[base + 1];
+
+                    size_t readIdx = (raceWriteIdx + RACE_MAX_DELAY - raceDelaySamples) % RACE_MAX_DELAY;
+                    float delayedOutR = raceRingBufferR[readIdx];
+                    float delayedOutL = raceRingBufferL[readIdx];
+
+                    raceLpfOutR = raceLpfA0 * delayedOutR + raceLpfB1 * raceLpfOutR;
+                    raceLpfOutL = raceLpfA0 * delayedOutL + raceLpfB1 * raceLpfOutL;
+
+                    float outL = sL - raceAlpha * raceLpfOutR;
+                    float outR = sR - raceAlpha * raceLpfOutL;
+
+                    outL = std::tanh(outL);
+                    outR = std::tanh(outR);
+
+                    raceRingBufferL[raceWriteIdx] = outL;
+                    raceRingBufferR[raceWriteIdx] = outR;
+                    raceWriteIdx = (raceWriteIdx + 1) % RACE_MAX_DELAY;
+
+                    interleaved[base]     = outL;
+                    interleaved[base + 1] = outR;
+                }
+                return;
+            }
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
@@ -1547,6 +1607,8 @@ struct AudioEngineHandle
 {
     ma_device device{};
     std::atomic<bool> exclusiveModeEnabled{false};
+    std::atomic<bool> use64BitProcessing{false};
+    std::atomic<bool> autoBitPerfectEnabled{false};
 
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
@@ -4891,6 +4953,30 @@ extern "C"
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
     {
         return engine ? engine->ditherMode.load(std::memory_order_relaxed) : 0;
+    }
+
+    AE_API void ae_set_64bit_processing_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->use64BitProcessing.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_64bit_processing_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->use64BitProcessing.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    AE_API void ae_set_auto_bit_perfect_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->autoBitPerfectEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_auto_bit_perfect_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->autoBitPerfectEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
 
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right)

@@ -11,7 +11,17 @@ enum ResampleAlgorithm {
   custom,
 }
 
-enum DitherMode { none, rectangle, triangle }
+enum DitherMode {
+  none,
+  rectangle,
+  triangle,
+  lipshitz,
+  fWeighted,
+  modEWeighted,
+  shibata,
+  lowShibata,
+  highShibata,
+}
 
 // Native function typedefs
 typedef _CreateLpf1Native = ffi.Pointer<ffi.Void> Function(ffi.Int32 format,

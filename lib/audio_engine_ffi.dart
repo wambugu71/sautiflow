@@ -1261,6 +1261,26 @@ class AudioEngineFFI {
         _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
     try {
+      _set64BitProcessingEnabled = _lib.lookupFunction<_SetFxEnabledNative,
+          _SetFxEnabledDart>('ae_set_64bit_processing_enabled');
+      _get64BitProcessingEnabled = _lib.lookupFunction<_GetIntNative,
+          _GetIntDart>('ae_get_64bit_processing_enabled');
+    } catch (_) {
+      _set64BitProcessingEnabled = null;
+      _get64BitProcessingEnabled = null;
+    }
+
+    try {
+      _setAutoBitPerfectEnabled = _lib.lookupFunction<_SetFxEnabledNative,
+          _SetFxEnabledDart>('ae_set_auto_bit_perfect_enabled');
+      _getAutoBitPerfectEnabled = _lib.lookupFunction<_GetIntNative,
+          _GetIntDart>('ae_get_auto_bit_perfect_enabled');
+    } catch (_) {
+      _setAutoBitPerfectEnabled = null;
+      _getAutoBitPerfectEnabled = null;
+    }
+
+    try {
       _setPhaseInversion = _lib.lookupFunction<_SetPhaseInversionNative,
           _SetPhaseInversionDart>('ae_set_phase_inversion');
       _getPhaseInversion = _lib.lookupFunction<_GetPhaseInversionNative,
@@ -1493,6 +1513,10 @@ class AudioEngineFFI {
   late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
   late final _SetEngineDitherModeDart _setEngineDitherMode;
   late final _GetEngineDitherModeDart _getEngineDitherMode;
+  late final _SetFxEnabledDart? _set64BitProcessingEnabled;
+  late final _GetIntDart? _get64BitProcessingEnabled;
+  late final _SetFxEnabledDart? _setAutoBitPerfectEnabled;
+  late final _GetIntDart? _getAutoBitPerfectEnabled;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
 
@@ -2301,6 +2325,30 @@ class AudioEngineFFI {
   int getEngineDitherMode() {
     if (_engine == ffi.nullptr) return 0;
     return _getEngineDitherMode(_engine);
+  }
+
+  /// Enable or disable 64-bit float DSP processing mode (-320dB mathematical headroom).
+  void set64BitProcessingEnabled(bool enabled) {
+    if (_engine == ffi.nullptr || _set64BitProcessingEnabled == null) return;
+    _set64BitProcessingEnabled!(_engine, enabled ? 1 : 0);
+  }
+
+  /// Check whether 64-bit float DSP processing mode is active.
+  bool get64BitProcessingEnabled() {
+    if (_engine == ffi.nullptr || _get64BitProcessingEnabled == null) return false;
+    return _get64BitProcessingEnabled!(_engine) != 0;
+  }
+
+  /// Enable or disable Auto Bit-Perfect hardware sample-rate matching.
+  void setAutoBitPerfectEnabled(bool enabled) {
+    if (_engine == ffi.nullptr || _setAutoBitPerfectEnabled == null) return;
+    _setAutoBitPerfectEnabled!(_engine, enabled ? 1 : 0);
+  }
+
+  /// Check whether Auto Bit-Perfect hardware sample-rate matching is enabled.
+  bool getAutoBitPerfectEnabled() {
+    if (_engine == ffi.nullptr || _getAutoBitPerfectEnabled == null) return false;
+    return _getAutoBitPerfectEnabled!(_engine) != 0;
   }
 
   // ── Limiter & Clipping Detection ──────────────────────────────────────────

@@ -803,6 +803,30 @@ class AppStateService {
       invertRight: prefs.getBool(_kPhaseInvertRight) ?? false,
     );
   }
+
+  // ─── Neutron HiFi Audio Engine Settings ────────────────────────────────────
+  static const _k64BitProcessingEnabled = 'sp_64bit_processing_enabled';
+  static const _kAutoBitPerfectEnabled = 'sp_auto_bit_perfect_enabled';
+
+  Future<void> save64BitProcessingEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_k64BitProcessingEnabled, enabled);
+  }
+
+  Future<bool> load64BitProcessingEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_k64BitProcessingEnabled) ?? false;
+  }
+
+  Future<void> saveAutoBitPerfectEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoBitPerfectEnabled, enabled);
+  }
+
+  Future<bool> loadAutoBitPerfectEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAutoBitPerfectEnabled) ?? false;
+  }
 }
 // Force Flutter compiler sync
 

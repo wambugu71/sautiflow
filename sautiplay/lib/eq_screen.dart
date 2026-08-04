@@ -1111,7 +1111,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                           icon: Icons.headphones,
                           title: 'Audiophile Crossfeed',
                           subtitle: _crossfeedEnabled
-                              ? (_crossfeedPreset == 1 ? 'BS2B Weak' : _crossfeedPreset == 2 ? 'BS2B Strong' : 'Joe0bloggs 3D')
+                              ? (_crossfeedPreset == 1 ? 'BS2B Weak' : _crossfeedPreset == 2 ? 'BS2B Strong' : _crossfeedPreset == 3 ? 'Joe0bloggs 3D' : 'Ambiophonics R.A.C.E.')
                               : 'Disabled',
                           isEnabled: _crossfeedEnabled,
                           onToggle: (v) {
@@ -1939,6 +1939,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
                   DropdownMenuItem(value: 2, child: Text('BS2B Strong')),
                   DropdownMenuItem(value: 3, child: Text('Joe0bloggs 3D')),
+                  DropdownMenuItem(value: 4, child: Text('Ambiophonics R.A.C.E.')),
                 ],
                 onChanged: (val) {
                   if (val != null) {

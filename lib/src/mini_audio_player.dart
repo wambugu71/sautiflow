@@ -252,6 +252,20 @@ class MiniAudioPlayer {
   /// Check if the engine is actually running in Exclusive Mode successfully.
   bool getExclusiveMode() => _engine.getExclusiveMode();
 
+  /// Enable or disable 64-bit floating point DSP processing mode (-320dB headroom).
+  void set64BitProcessingEnabled(bool enabled) =>
+      _engine.set64BitProcessingEnabled(enabled);
+
+  /// Check if 64-bit floating point DSP processing mode is active.
+  bool get is64BitProcessingEnabled => _engine.get64BitProcessingEnabled();
+
+  /// Enable or disable Auto Bit-Perfect hardware sample-rate matching.
+  void setAutoBitPerfectEnabled(bool enabled) =>
+      _engine.setAutoBitPerfectEnabled(enabled);
+
+  /// Check if Auto Bit-Perfect hardware sample-rate matching is enabled.
+  bool get isAutoBitPerfectEnabled => _engine.getAutoBitPerfectEnabled();
+
   /// Set the desired output audio format (f32, s16, u8).
   /// This may cause the audio engine to restart.
   void setOutputFormat(AudioFormat format) => _engine.setOutputFormat(format);

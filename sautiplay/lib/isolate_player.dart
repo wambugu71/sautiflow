@@ -272,6 +272,14 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setEngineDitherMode', 'mode': mode});
   }
 
+  void set64BitProcessingEnabled(bool enabled) {
+    _send({'cmd': 'set64BitProcessingEnabled', 'enabled': enabled});
+  }
+
+  void setAutoBitPerfectEnabled(bool enabled) {
+    _send({'cmd': 'setAutoBitPerfectEnabled', 'enabled': enabled});
+  }
+
   // --- Limiter & Clipping Detection ---
 
   int _clippedSamplesCount = 0;
@@ -1154,6 +1162,12 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setExclusiveMode':
           player.setExclusiveMode(message['enabled'] == true);
+          break;
+        case 'set64BitProcessingEnabled':
+          player.set64BitProcessingEnabled(message['enabled'] == true);
+          break;
+        case 'setAutoBitPerfectEnabled':
+          player.setAutoBitPerfectEnabled(message['enabled'] == true);
           break;
         case 'getExclusiveMode':
           final SendPort replyTo1 = message['replyTo'];
