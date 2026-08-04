@@ -92,12 +92,11 @@ class M3uPlaylistService {
     await savePlaylists(playlists);
   }
 
-  /// Exports a list of [LocalSongItem] tracks to an `.m3u8` file on disk.
-  Future<File> exportToM3u8({
-    required String targetFilePath,
+  /// Generates the `.m3u8` string content for a list of tracks.
+  String generateM3u8Content({
     required String playlistName,
     required List<LocalSongItem> tracks,
-  }) async {
+  }) {
     final buffer = StringBuffer();
     buffer.writeln('#EXTM3U');
     buffer.writeln('#PLAYLIST:$playlistName');
@@ -111,10 +110,24 @@ class M3uPlaylistService {
       buffer.writeln(song.path);
     }
 
+    return buffer.toString();
+  }
+
+  /// Exports a list of [LocalSongItem] tracks to an `.m3u8` file on disk.
+  Future<File> exportToM3u8({
+    required String targetFilePath,
+    required String playlistName,
+    required List<LocalSongItem> tracks,
+  }) async {
+    final content = generateM3u8Content(
+      playlistName: playlistName,
+      tracks: tracks,
+    );
     final file = File(targetFilePath);
     if (!await file.parent.exists()) {
       await file.parent.create(recursive: true);
     }
-    return await file.writeAsString(buffer.toString());
+    return await file.writeAsString(content);
   }
 }
+

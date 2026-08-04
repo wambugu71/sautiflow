@@ -381,6 +381,12 @@ class _LibraryScreenState extends State<LibraryScreen>
       return;
     }
     String? targetPath;
+    final m3uContent = M3uPlaylistService.instance.generateM3u8Content(
+      playlistName: name,
+      tracks: tracks,
+    );
+    final bytes = Uint8List.fromList(utf8.encode(m3uContent));
+
     try {
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         final FileSaveLocation? location = await getSaveLocation(
@@ -390,34 +396,36 @@ class _LibraryScreenState extends State<LibraryScreen>
           ],
         );
         targetPath = location?.path;
+        if (targetPath != null && targetPath.isNotEmpty) {
+          await M3uPlaylistService.instance.exportToM3u8(
+            targetFilePath: targetPath,
+            playlistName: name,
+            tracks: tracks,
+          );
+        }
       } else {
         targetPath = await FilePicker.saveFile(
           dialogTitle: 'Export Playlist to M3U8',
           fileName: '${name.replaceAll(' ', '_')}.m3u8',
           type: FileType.custom,
           allowedExtensions: ['m3u8'],
+          bytes: bytes,
         );
       }
     } catch (e) {
       debugPrint('Error opening save dialog: $e');
-    }
-    if (targetPath == null || targetPath.isEmpty) return;
-
-    try {
-      await M3uPlaylistService.instance.exportToM3u8(
-        targetFilePath: targetPath,
-        playlistName: name,
-        tracks: tracks,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported playlist to ${p.basename(targetPath)}')),
-        );
-      }
-    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to export playlist: $e')),
+        );
+      }
+      return;
+    }
+
+    if (targetPath != null && targetPath.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported playlist to ${p.basename(targetPath)}')),
         );
       }
     }

@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../isolate_player.dart';
 import '../models/audio_profile.dart';
 import '../services/audio_profile_service.dart';
@@ -251,6 +255,9 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                   final name = nameController.text.trim();
                   if (name.isEmpty) return;
 
+                  final navigator = Navigator.of(context);
+                  final messenger = ScaffoldMessenger.of(context);
+
                   final currentState = await _fetchCurrentState();
                   final eqState = includeEqAndDsp
                       ? (currentState['eqState'] as Map<String, dynamic>? ?? {})
@@ -282,13 +289,13 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                   );
 
                   await AudioProfileService.instance.saveProfile(newProfile);
-                  if (mounted) Navigator.pop(context);
+                  navigator.pop();
                   await _loadProfiles();
-                  setState(() {
-                    _selectedProfile = newProfile;
-                  });
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    setState(() {
+                      _selectedProfile = newProfile;
+                    });
+                    messenger.showSnackBar(
                       SnackBar(content: Text('Profile "$name" saved!')),
                     );
                   }
@@ -564,17 +571,23 @@ class _AudioProfileManagerDialogState extends State<AudioProfileManagerDialog> {
 
   Future<void> _exportProfile(AudioProfile profile) async {
     try {
+      final jsonString = jsonEncode(profile.toJson());
+      final bytes = Uint8List.fromList(utf8.encode(jsonString));
       final String? targetPath = await FilePicker.saveFile(
         dialogTitle: 'Export Profile "${profile.name}"',
         fileName:
             '${profile.name.replaceAll(RegExp(r'[^\w\s-]'), '')}.sautiprofile',
+        type: FileType.custom,
         allowedExtensions: ['sautiprofile', 'json'],
+        bytes: bytes,
       );
-      if (targetPath != null) {
-        await AudioProfileService.instance.exportProfile(profile, targetPath);
+      if (targetPath != null && targetPath.isNotEmpty) {
+        if (!Platform.isAndroid && !Platform.isIOS) {
+          await AudioProfileService.instance.exportProfile(profile, targetPath);
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Exported profile to $targetPath')),
+            SnackBar(content: Text('Exported profile to ${p.basename(targetPath)}')),
           );
         }
       }
