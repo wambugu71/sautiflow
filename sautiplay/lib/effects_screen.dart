@@ -324,18 +324,37 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final double spectrumHeight = widget.analyzerEnabled
         ? 160.0
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
-    const double titleBarHeight = 56.0;
+    const double controlBarHeight = 44.0;
+    const double titleBarHeight = 50.0;
     const double tabBarHeight = 48.0;
     const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
     final double expandedHeight = topPadding +
         titleBarHeight +
+        controlBarHeight +
         analyzerChartHeight +
         spectrumHeight +
         dragHandleHeight +
         tabBarHeight;
-    final double collapsedHeight =
-        topPadding + titleBarHeight + dragHandleHeight + tabBarHeight;
+    final double collapsedHeight = topPadding +
+        titleBarHeight +
+        controlBarHeight +
+        dragHandleHeight +
+        tabBarHeight;
+
+    // Helper to get active visualizer display label
+    String activeVisualizerLabel = 'Bar Spectrum';
+    if (_currentAnalyzerType == 'area') {
+      activeVisualizerLabel = 'Area Line';
+    } else {
+      final glslMatch = GlslShaderStyle.values.firstWhere(
+        (s) => s.name == _currentAnalyzerType || s.displayName == _currentAnalyzerType,
+        orElse: () => GlslShaderStyle.cyberTunnel,
+      );
+      if (_currentAnalyzerType != 'bar') {
+        activeVisualizerLabel = glslMatch.displayName;
+      }
+    }
 
     return DefaultTabController(
       length: 2,
@@ -369,61 +388,121 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         // Safe area top padding
                         SizedBox(height: topPadding),
 
-                        // Title bar (always visible)
+                        // Title Bar (Always visible)
                         SizedBox(
                           height: titleBarHeight,
-                          child: Row(
-                            children: [
-                              const SizedBox(width: 4),
-                              // const BackButton(color: Colors.white),
-                              const Text(
-                                'Audio Effects',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      PopupMenuButton<String>(
-                                        icon: const Icon(Icons.auto_awesome_mosaic, color: Colors.white70, size: 20),
-                                        tooltip: 'Select Visualizer Mode',
-                                        onSelected: (type) {
-                                          setState(() {
-                                            _currentAnalyzerType = type;
-                                          });
-                                        },
-                                        itemBuilder: (context) => [
-                                          const PopupMenuItem(value: 'bar', child: Text('Bar Spectrum')),
-                                          const PopupMenuItem(value: 'area', child: Text('Area Line')),
-                                          ...GlslShaderStyle.values.map(
-                                            (s) => PopupMenuItem(
-                                              value: s.name,
-                                              child: Text(s.displayName),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(width: 4),
-                                      AudioProfileSelector(
-                                        player: widget.player,
-                                        isCompact: true,
-                                        onProfileChanged: () {
-                                          setState(() {});
-                                        },
-                                      ),
-                                    ],
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            child: Row(
+                              children: [
+                                if (Navigator.canPop(context))
+                                  const BackButton(color: Colors.white),
+                                const Icon(Icons.tune_rounded, color: primaryColor, size: 22),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Audio Effects & DSP',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
+                                const Spacer(),
+                                // Quick toggle analyzer visualizer
+                                IconButton(
+                                  icon: Icon(
+                                    widget.analyzerEnabled
+                                        ? Icons.equalizer
+                                        : Icons.equalizer_outlined,
+                                    color: widget.analyzerEnabled
+                                        ? primaryColor
+                                        : Colors.white38,
+                                    size: 22,
+                                  ),
+                                  tooltip: widget.analyzerEnabled
+                                      ? 'Analyzer Active'
+                                      : 'Analyzer Off',
+                                  onPressed: () {
+                                    _setupAnalyzer(!widget.analyzerEnabled);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Secondary Pinned Control Bar (Mobile-Optimized for Selectors)
+                        SizedBox(
+                          height: controlBarHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
+                            child: Row(
+                              children: [
+                                // Visualizer Selector Pill Button
+                                Expanded(
+                                  child: PopupMenuButton<String>(
+                                    tooltip: 'Select Visualizer Mode',
+                                    onSelected: (type) {
+                                      setState(() {
+                                        _currentAnalyzerType = type;
+                                      });
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(value: 'bar', child: Text('Bar Spectrum')),
+                                      const PopupMenuItem(value: 'area', child: Text('Area Line')),
+                                      const PopupMenuDivider(),
+                                      ...GlslShaderStyle.values.map(
+                                        (s) => PopupMenuItem(
+                                          value: s.name,
+                                          child: Text(s.displayName),
+                                        ),
+                                      ),
+                                    ],
+                                    child: Container(
+                                      height: 34,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF1C252E),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: primaryColor.withValues(alpha: 0.35),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.auto_awesome_mosaic, color: primaryColor, size: 14),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              activeVisualizerLabel,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 16),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(width: 8),
+
+                                // Audio Profile Selector
+                                AudioProfileSelector(
+                                  player: widget.player,
+                                  isCompact: true,
+                                  onProfileChanged: () {
+                                    setState(() {});
+                                  },
+                                ),
+                              ],
+                            ),
                           ),
                         ),
 
