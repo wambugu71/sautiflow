@@ -5,6 +5,7 @@ import 'package:sautiflow/sautiflow.dart';
 
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -44,6 +45,8 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback onPollError;
   final VoidCallback onClearNativeError;
   final VoidCallback onClearLogs;
+  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
 
   const SettingsScreen({
     super.key,
@@ -81,6 +84,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onPollError,
     required this.onClearNativeError,
     required this.onClearLogs,
+    this.onPlayNetworkFile,
+    this.onPlayFtpFolder,
   });
 
   @override
@@ -339,6 +344,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           badgeText: '145 MB Cache',
                           onTap: () =>
                               _navigateToSubScreen(_buildStorageSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Network Sources (FTP & DLNA)',
+                          subtitle:
+                              'Browse FTP servers, DLNA NAS, and cast audio',
+                          icon: Icons.lan_rounded,
+                          accentColor: _primary,
+                          badgeText: 'FTP & DLNA',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => NetworkSourcesScreen(
+                                  player: widget.player,
+                                  onPlayNetworkFile: widget.onPlayNetworkFile,
+                                  onPlayFtpFolder: widget.onPlayFtpFolder,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 12),
                         _buildCategoryCard(

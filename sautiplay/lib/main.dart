@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
@@ -23,6 +25,9 @@ import 'services/app_state_service.dart';
 import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
+import 'package:sautiplay/services/dlna_service.dart';
+import 'package:sautiplay/services/local_media_server.dart';
+import 'services/ftp_service.dart';
 import 'streaming_service.dart';
 import 'viper_fx_screen.dart';
 
@@ -160,6 +165,11 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _nativeNetworkStreamingSupported = false;
   bool _allowInvalidTlsForDownloads = false;
   int _lastPublishedNowPlayingIndex = -1;
+
+  // FTP Background Downloading State
+  List<FtpFileEntry> _pendingFtpDownloads = [];
+  FtpConfig? _activeFtpConfig;
+  bool _isFtpDownloading = false;
   bool _isLoading = false; // Added loading state for miniplayer
 
   StreamSubscription? _statusSubscription;
@@ -424,6 +434,33 @@ class _PlayerShellState extends State<PlayerShell> {
     _lastPublishedNowPlayingIndex = idx;
 
     _updateMetadata(source).then((_) async {
+
+      // --- DLNA Casting & Local Mute ---
+      if (DlnaService.instance.activeRenderer != null) {
+        if (isNewTrack) {
+          String? castUrl;
+          if (source.uri.scheme == 'file') {
+            final path = _safeFilePathFromUri(source.uri);
+            if (path != null) {
+              castUrl = await LocalMediaServer.instance.serveFile(path);
+            }
+          } else {
+            castUrl = source.uri.toString();
+          }
+
+          if (castUrl != null) {
+            await DlnaService.instance.castAudioUrl(
+              renderer: DlnaService.instance.activeRenderer!,
+              audioUrl: castUrl,
+              title: title,
+            );
+          }
+        }
+        _player.setGain(0.0); // Mute local audio
+      } else {
+        _player.setGain(1.0); // Ensure unmuted if not casting
+      }
+
       if (!isNewTrack) return; // art is loaded, skip notification re-publish
       final artUri = await _resolveNowPlayingArtUri(
         source,
@@ -904,6 +941,7 @@ class _PlayerShellState extends State<PlayerShell> {
     List<TrackInfo> tracks, {
     int initialIndex = 0,
   }) async {
+    _isFtpDownloading = false;
     if (tracks.isEmpty) return;
 
     _logs.insert(0,
@@ -1005,6 +1043,7 @@ class _PlayerShellState extends State<PlayerShell> {
 
   /// Prioritizes resolving and playing a track from the _currentUiQueue.
   Future<void> _playQueueIndex(int queueIndex) async {
+    _isFtpDownloading = false;
     if (queueIndex < 0 || queueIndex >= _currentUiQueue.length) return;
 
     final targetTrack = _currentUiQueue[queueIndex];
@@ -1129,6 +1168,7 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Future<void> _queueNextTrack(TrackInfo track) async {
+    _isFtpDownloading = false;
     final uri = track.videoId.startsWith('http')
         ? Uri.parse(track.videoId)
         : Uri.file(track.videoId, windows: Platform.isWindows);
@@ -1285,6 +1325,152 @@ class _PlayerShellState extends State<PlayerShell> {
     return 'AUDIO';
   }
 
+  Future<void> _playNetworkFile(String filePath, String title, String artist) async {
+    _isFtpDownloading = false;
+    final file = File(filePath);
+    final uri = file.absolute.uri;
+    final src = AudioSource.file(filePath, title: title, artist: artist);
+    
+    setState(() {
+      _currentUiQueue.clear();
+      _currentUiQueue.add(TrackInfo(
+        videoId: file.absolute.path,
+        title: title,
+        artist: artist,
+        thumbnailUrl: null,
+      ));
+      _playlist.clear();
+      _playlist.add(src);
+    });
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: 0,
+      initialPosition: Duration.zero,
+      useLazyPreparation: true,
+    );
+
+    _saveQueue();
+    
+    final msg = _player.getLastError();
+    if (msg.isNotEmpty) {
+      _logs.insert(0, '[network-play] $msg');
+      setState(() {});
+    }
+
+    _showNowPlayingScreen();
+  }
+
+  Future<void> _playFtpFolder(List<dynamic> dynamicEntries, dynamic config, int initialIndex) async {
+    final entries = dynamicEntries.cast<FtpFileEntry>();
+    final ftpConfig = config as FtpConfig;
+
+    _activeFtpConfig = ftpConfig;
+    _pendingFtpDownloads = List.from(entries);
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Starting playback for ${entries.length} FTP tracks...'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheDir = p.join(tempDir.path, 'ftp_cache', ftpConfig.id);
+      final cacheDirFile = Directory(cacheDir);
+      if (!await cacheDirFile.exists()) {
+        await cacheDirFile.create(recursive: true);
+      }
+
+      // Prepare UI queue and AudioSources with predicted cache paths
+      _currentUiQueue.clear();
+      _playlist.clear();
+
+      for (var entry in entries) {
+        final cachePath = p.join(cacheDir, entry.name);
+        _currentUiQueue.add(TrackInfo(
+          videoId: cachePath,
+          title: entry.name,
+          artist: ftpConfig.name,
+          thumbnailUrl: null,
+        ));
+        _playlist.add(AudioSource.file(cachePath, title: entry.name, artist: ftpConfig.name));
+      }
+      
+      setState(() {});
+
+      // Download the initial track so we can start playing immediately
+      final initialEntry = entries[initialIndex];
+      final initialPath = p.join(cacheDir, initialEntry.name);
+      final initialFile = File(initialPath);
+
+      if (!await initialFile.exists()) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Downloading first track: ${initialEntry.name}...')),
+        );
+        await FtpService.downloadFile(ftpConfig, initialEntry.path, initialFile);
+      }
+
+      _player.setAudioSources(
+        _playlist,
+        initialIndex: initialIndex,
+        initialPosition: Duration.zero,
+        useLazyPreparation: true,
+      );
+
+      _saveQueue();
+      _showNowPlayingScreen();
+
+      // Start downloading the rest
+      _isFtpDownloading = true;
+      _processPendingFtpDownloads(cacheDir, initialIndex);
+
+    } catch (e) {
+      debugPrint('[NetworkSources] Error playing FTP folder: $e');
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _processPendingFtpDownloads(String cacheDir, int startIndex) async {
+    if (_activeFtpConfig == null || _pendingFtpDownloads.isEmpty) {
+      _isFtpDownloading = false;
+      return;
+    }
+
+    // Determine the order to download (start from the track AFTER initialIndex, then loop around if needed)
+    final downloadQueue = <FtpFileEntry>[];
+    for (int i = startIndex + 1; i < _pendingFtpDownloads.length; i++) {
+      downloadQueue.add(_pendingFtpDownloads[i]);
+    }
+    // We can also download the ones before startIndex if we want, but let's just do forward for now.
+    
+    for (var entry in downloadQueue) {
+      if (!_isFtpDownloading) break; // User cancelled or started another list
+
+      final filePath = p.join(cacheDir, entry.name);
+      final file = File(filePath);
+
+      if (await file.exists()) {
+        continue; // Already downloaded
+      }
+
+      try {
+        debugPrint('[FTP Download] Background fetching: ${entry.name}');
+        final success = await FtpService.downloadFile(_activeFtpConfig!, entry.path, file);
+        if (success) {
+          debugPrint('[FTP Download] Finished: ${entry.name}');
+        } else {
+          debugPrint('[FTP Download] Failed: ${entry.name}');
+        }
+      } catch (e) {
+        debugPrint('[FTP Download] Error on ${entry.name}: $e');
+      }
+    }
+    _isFtpDownloading = false;
+  }
+
   void _showNowPlayingScreen() {
     showModalBottomSheet(
       context: context,
@@ -1411,6 +1597,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 setState(() => _analyzerType = v);
                 _saveEngineSettings();
               },
+              onPlayNetworkFile: _playNetworkFile,
               analyzerAutoFit: _analyzerAutoFit,
               onAnalyzerAutoFitChanged: (v) {
                 setState(() => _analyzerAutoFit = v);

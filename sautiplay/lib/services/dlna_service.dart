@@ -1,0 +1,168 @@
+import 'dart:async';
+import 'package:dlna_dart/dlna.dart';
+import 'package:flutter/foundation.dart';
+
+/// Representation of a discovered DLNA device on the local network.
+class DlnaDeviceInfo {
+  final String id;
+  final String name;
+  final String deviceType;
+  final String locationUrl;
+  final DLNADevice deviceRef;
+
+  const DlnaDeviceInfo({
+    required this.id,
+    required this.name,
+    required this.deviceType,
+    required this.locationUrl,
+    required this.deviceRef,
+  });
+
+  bool get isMediaServer =>
+      deviceType.toLowerCase().contains('mediaserver') ||
+      deviceType.toLowerCase().contains('contentdirectory');
+
+  bool get isMediaRenderer =>
+      deviceType.toLowerCase().contains('mediarenderer') ||
+      deviceType.toLowerCase().contains('avtransport');
+}
+
+/// Service managing DLNA/UPnP network discovery, Media Server browsing, and Renderer casting.
+class DlnaService extends ChangeNotifier {
+  static final DlnaService instance = DlnaService._internal();
+  DlnaService._internal();
+
+  DLNAManager? _dlnaManager;
+  DeviceManager? _deviceManager;
+  StreamSubscription? _deviceSubscription;
+
+  final List<DlnaDeviceInfo> _devices = [];
+  bool _isSearching = false;
+  DlnaDeviceInfo? _activeRenderer;
+
+  List<DlnaDeviceInfo> get devices => List.unmodifiable(_devices);
+  List<DlnaDeviceInfo> get mediaServers =>
+      _devices.where((d) => d.isMediaServer).toList();
+  List<DlnaDeviceInfo> get mediaRenderers =>
+      _devices.where((d) => d.isMediaRenderer).toList();
+  bool get isSearching => _isSearching;
+  DlnaDeviceInfo? get activeRenderer => _activeRenderer;
+
+  /// Starts SSDP discovery for DLNA devices on the local Wi-Fi / network.
+  Future<void> startSearch() async {
+    if (_isSearching) return;
+    _isSearching = true;
+    _devices.clear();
+    notifyListeners();
+
+    try {
+      _dlnaManager = DLNAManager();
+      _deviceManager = await _dlnaManager!.start();
+
+      _deviceSubscription?.cancel();
+      _deviceSubscription = _deviceManager!.devices.stream.listen(
+        (Map<String, DLNADevice> deviceMap) {
+          _devices.clear();
+          deviceMap.forEach((key, device) {
+            final name = device.info.friendlyName.isNotEmpty
+                ? device.info.friendlyName
+                : 'DLNA Device ($key)';
+            final type = device.info.deviceType;
+            final locUrl = device.info.URLBase;
+
+            _devices.add(DlnaDeviceInfo(
+              id: key,
+              name: name,
+              deviceType: type,
+              locationUrl: locUrl,
+              deviceRef: device,
+            ));
+          });
+          notifyListeners();
+        },
+        onError: (e) {
+          debugPrint('[DlnaService] Error during SSDP discovery stream: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('[DlnaService] Failed to start DLNA search: $e');
+      _isSearching = false;
+      notifyListeners();
+    }
+  }
+
+  /// Stops ongoing SSDP discovery search.
+  void stopSearch() {
+    _deviceSubscription?.cancel();
+    _deviceSubscription = null;
+    _dlnaManager?.stop();
+    _dlnaManager = null;
+    _deviceManager = null;
+    _isSearching = false;
+    notifyListeners();
+  }
+
+  /// Sets active DLNA Renderer for audio casting.
+  void setActiveRenderer(DlnaDeviceInfo? renderer) {
+    _activeRenderer = renderer;
+    notifyListeners();
+  }
+
+  /// Casts an audio stream URL to the specified DLNA MediaRenderer.
+  Future<bool> castAudioUrl({
+    required DlnaDeviceInfo renderer,
+    required String audioUrl,
+    String title = 'Sautiplay Audio Stream',
+  }) async {
+    try {
+      final device = renderer.deviceRef;
+      debugPrint('[DlnaService] Casting $audioUrl to ${renderer.name}');
+
+      await device.setUrl(audioUrl, title: title);
+      await device.play();
+
+      setActiveRenderer(renderer);
+      return true;
+    } catch (e) {
+      debugPrint('[DlnaService] Failed to cast to ${renderer.name}: $e');
+      return false;
+    }
+  }
+
+  /// Sends Play command to active renderer.
+  Future<void> play() async {
+    if (_activeRenderer == null) return;
+    try {
+      await _activeRenderer!.deviceRef.play();
+    } catch (e) {
+      debugPrint('[DlnaService] Play command error: $e');
+    }
+  }
+
+  /// Sends Pause command to active renderer.
+  Future<void> pause() async {
+    if (_activeRenderer == null) return;
+    try {
+      await _activeRenderer!.deviceRef.pause();
+    } catch (e) {
+      debugPrint('[DlnaService] Pause command error: $e');
+    }
+  }
+
+  /// Sends Stop command to active renderer.
+  Future<void> stop() async {
+    if (_activeRenderer == null) return;
+    try {
+      await _activeRenderer!.deviceRef.stop();
+      setActiveRenderer(null);
+    } catch (e) {
+      debugPrint('[DlnaService] Stop command error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    stopSearch();
+    super.dispose();
+  }
+}

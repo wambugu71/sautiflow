@@ -10,6 +10,8 @@ import 'package:sautiplay/services/desktop_system_audio.dart';
 import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/vdc_parser.dart';
 import 'package:sautiplay/services/autoeq_parser.dart';
+import 'package:sautiplay/services/dlna_service.dart';
+import 'package:sautiplay/services/local_media_server.dart';
 
 /// A wrapper that runs [MiniAudioPlayer] in a separate isolate.
 class IsolateAudioPlayer {
@@ -138,9 +140,26 @@ class IsolateAudioPlayer {
 
   // --- Commands ---
 
-  void play() => _send({'cmd': 'play'});
-  void pause() => _send({'cmd': 'pause'});
-  void stop() => _send({'cmd': 'stop'});
+  void play() {
+    if (DlnaService.instance.activeRenderer != null) {
+      DlnaService.instance.play();
+    }
+    _send({'cmd': 'play'});
+  }
+
+  void pause() {
+    if (DlnaService.instance.activeRenderer != null) {
+      DlnaService.instance.pause();
+    }
+    _send({'cmd': 'pause'});
+  }
+
+  void stop() {
+    if (DlnaService.instance.activeRenderer != null) {
+      DlnaService.instance.stop();
+    }
+    _send({'cmd': 'stop'});
+  }
 
   void load(AudioSource source) => _send({'cmd': 'load', 'source': source});
 
