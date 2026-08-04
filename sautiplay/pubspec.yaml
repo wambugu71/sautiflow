@@ -57,6 +57,22 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/
+  shaders:
+    - shaders/audio_cyber_tunnel.frag
+    - shaders/audio_plasma_sphere.frag
+    - shaders/audio_neon_spectrum.frag
+    - shaders/audio_warp_vortex.frag
+    - shaders/audio_solar_flare.frag
+    - shaders/audio_cyber_grid.frag
+    - shaders/audio_quantum_nebula.frag
+    - shaders/audio_electric_ring.frag
+    - shaders/audio_bars_3d.frag
+    - shaders/audio_kaleidoscope.frag
+    - shaders/audio_lattice.frag
+    - shaders/audio_biolum_waves.frag
+    - shaders/audio_starburst.frag
+    - shaders/audio_matrix_rain.frag
+    - shaders/audio_vaporwave_sun.frag
 
 flutter_launcher_icons:
   android: "launcher_icon"

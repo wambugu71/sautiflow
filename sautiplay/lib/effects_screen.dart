@@ -8,6 +8,7 @@ import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'services/fft_processor.dart';
 import 'viper_fx_screen.dart';
+import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/profile_selector.dart';
 
 class EffectsScreen extends StatefulWidget {
@@ -41,16 +42,21 @@ class _EffectsScreenState extends State<EffectsScreen> {
   List<double> _peakValues = [];
   StreamSubscription? _analyzerSub;
   FftProcessor? _fftProcessor;
+  late String _currentAnalyzerType;
 
   @override
   void initState() {
     super.initState();
+    _currentAnalyzerType = widget.analyzerType;
     _setupAnalyzer(widget.analyzerEnabled);
   }
 
   @override
   void didUpdateWidget(covariant EffectsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.analyzerType != widget.analyzerType) {
+      _currentAnalyzerType = widget.analyzerType;
+    }
     if (oldWidget.analyzerEnabled != widget.analyzerEnabled) {
       _setupAnalyzer(widget.analyzerEnabled);
     }
@@ -159,8 +165,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
           showTitles: true,
           reservedSize: 28,
           getTitlesWidget: (value, meta) {
-            if (value == 0 || value >= dynamicMaxY)
+            if (value == 0 || value >= dynamicMaxY) {
               return const SizedBox.shrink();
+            }
             return Text(
               widget.analyzerLogScale
                   ? '${(value * 100).toInt()} dB'
@@ -217,7 +224,19 @@ class _EffectsScreenState extends State<EffectsScreen> {
       ),
     );
 
-    if (widget.analyzerType == 'area') {
+    for (final style in GlslShaderStyle.values) {
+      if (_currentAnalyzerType == style.name || _currentAnalyzerType == style.displayName) {
+        return GlslAudioVisualizerWidget(
+          analyzerStream: widget.player.analyzerStream,
+          isPlaying: true,
+          style: style,
+          primaryColor: primaryColor,
+          height: 160.0,
+        );
+      }
+    }
+
+    if (_currentAnalyzerType == 'area') {
       final spots = <FlSpot>[];
       for (int i = 0; i < numBars; i++) {
         spots.add(FlSpot(i.toDouble(), visualData[i]));
@@ -369,12 +388,37 @@ class _EffectsScreenState extends State<EffectsScreen> {
                               Expanded(
                                 child: Align(
                                   alignment: Alignment.centerRight,
-                                  child: AudioProfileSelector(
-                                    player: widget.player,
-                                    isCompact: true,
-                                    onProfileChanged: () {
-                                      setState(() {});
-                                    },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.auto_awesome_mosaic, color: Colors.white70, size: 20),
+                                        tooltip: 'Select Visualizer Mode',
+                                        onSelected: (type) {
+                                          setState(() {
+                                            _currentAnalyzerType = type;
+                                          });
+                                        },
+                                        itemBuilder: (context) => [
+                                          const PopupMenuItem(value: 'bar', child: Text('Bar Spectrum')),
+                                          const PopupMenuItem(value: 'area', child: Text('Area Line')),
+                                          ...GlslShaderStyle.values.map(
+                                            (s) => PopupMenuItem(
+                                              value: s.name,
+                                              child: Text(s.displayName),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(width: 4),
+                                      AudioProfileSelector(
+                                        player: widget.player,
+                                        isCompact: true,
+                                        onProfileChanged: () {
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
