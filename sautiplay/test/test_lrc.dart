@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/widgets/synced_lyrics_widget.dart';
+import 'package:sautiplay/widgets/synced_lyrics_widget.dart';
 
 void main() {
   test('LrcParser test with user lyrics', () {

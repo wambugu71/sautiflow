@@ -37,6 +37,14 @@ class SettingsScreen extends StatefulWidget {
   final String spectrumStyle;
   final ValueChanged<String> onSpectrumStyleChanged;
 
+  final List<String> logs;
+  final ValueNotifier<int> logUpdateNotifier;
+  final bool allowInvalidTls;
+  final ValueChanged<bool> onAllowInvalidTlsChanged;
+  final VoidCallback onPollError;
+  final VoidCallback onClearNativeError;
+  final VoidCallback onClearLogs;
+
   const SettingsScreen({
     super.key,
     required this.player,
@@ -75,32 +83,24 @@ class SettingsScreen extends StatefulWidget {
     required this.onClearLogs,
   });
 
-  final List<String> logs;
-  final ValueNotifier<int> logUpdateNotifier;
-  final bool allowInvalidTls;
-  final ValueChanged<bool> onAllowInvalidTlsChanged;
-  final VoidCallback onPollError;
-  final VoidCallback onClearNativeError;
-  final VoidCallback onClearLogs;
-
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Theme colors based on reference
+  // Theme colors
   static const _bgDark = Color(0xFF101922);
   static const _cardDark = Color(0xFF1C252E);
   static const _primary = Color(0xFF137fec);
   static const _textDark = Color(0xFF94A3B8);
 
-  // Local fake state for UI-only settings (to match mockup)
+  // Local UI settings
   String _streamingQuality = 'High Fidelity';
   bool _gaplessPlayback = true;
   bool _normalizeVolume = false;
   bool _streamOverWifi = true;
 
-  // Engine Resampling and Dithering
+  // Engine Resampling & Dithering
   int _resampleAlgorithm = 0;
   int _ditherMode = 0;
   int _eqBandCount = 10;
@@ -141,6 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
     final waveformSaved = await AppStateService.instance.loadUseWaveformSeekBar();
+    if (!mounted) return;
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -219,103 +220,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bgDark,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth >= 800;
-          final isMobile = constraints.maxWidth < 600;
-          return Align(
-            alignment: isDesktop ? Alignment.topCenter : Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1000.0),
-              child: CustomScrollView(
-                slivers: [
-                  SliverAppBar(
-                    backgroundColor: _bgDark.withAlpha(230),
-                    floating: true,
-                    pinned: true,
-                    title: const Text(
-                      'Settings',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    centerTitle: true,
-                  ),
-                  SliverPadding(
-                    padding: EdgeInsets.symmetric(
-                        horizontal: isDesktop ? 48.0 : 0.0),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        const SizedBox(height: 16),
-                        _buildSectionTitle(isMobile ? 'AUDIO' : 'AUDIO QUALITY',
-                            isMobile: isMobile),
-                        _buildAudioQualityCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(
-                            isMobile
-                                ? 'PROTECTION'
-                                : 'SPEAKER & HARDWARE PROTECTION',
-                            isMobile: isMobile),
-                        _buildSpeakerProtectionCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle('PLAYBACK', isMobile: isMobile),
-                        _buildPlaybackCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'EQ' : 'EQUALIZER',
-                            isMobile: isMobile),
-                        _buildEqualizerCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(
-                            isMobile ? 'VISUALS' : 'VISUALIZATION',
-                            isMobile: isMobile),
-                        _buildVisualizationCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(
-                            isMobile ? 'STORAGE' : 'STORAGE & DATA',
-                            isMobile: isMobile),
-                        _buildStorageCard(isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(
-                            isMobile ? 'ABOUT' : 'ABOUT & LICENSES',
-                            isMobile: isMobile),
-                        _buildAboutCard(context, isMobile: isMobile),
-                        const SizedBox(height: 24),
-                        _buildSectionTitle(isMobile ? 'DEBUG' : 'DEBUG & LOGS',
-                            isMobile: isMobile),
-                        _buildDebugAndLogsCard(isMobile: isMobile),
-                        const SizedBox(height: 120),
-                      ]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, {bool isMobile = false}) {
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 16.0 : 24.0,
-        vertical: isMobile ? 4.0 : 8.0,
-      ),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: _textDark,
-          fontSize: isMobile ? 11 : 12,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-
   String _formatAudioDepth(AudioFormat format) {
     switch (format) {
       case AudioFormat.f32:
@@ -331,12 +235,314 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Widget _buildCard({required List<Widget> children, bool isMobile = false}) {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bgDark,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = constraints.maxWidth >= 800;
+          final isMobile = constraints.maxWidth < 600;
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000.0),
+              child: CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    backgroundColor: _bgDark.withAlpha(230),
+                    floating: true,
+                    pinned: true,
+                    title: const Text(
+                      'Settings',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+                    ),
+                    centerTitle: true,
+                  ),
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 36.0 : (isMobile ? 12.0 : 16.0),
+                      vertical: 12.0,
+                    ),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        _buildSettingsHeaderCard(),
+                        const SizedBox(height: 20),
+                        _buildSectionHeader('PREFERENCES & ENGINE'),
+                        const SizedBox(height: 10),
+                        _buildCategoryCard(
+                          title: 'Look & Feel',
+                          subtitle: 'Seek bar style & UI appearance',
+                          icon: Icons.palette_outlined,
+                          accentColor: _primary,
+                          badgeText: _useWaveformSeekBar ? 'Waveform' : 'Classic',
+                          onTap: () => _navigateToSubScreen(_buildLookAndFeelSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Audio & Processing',
+                          subtitle: 'Resampling, Bit depth, Safeguards & ReplayGain',
+                          icon: Icons.graphic_eq_rounded,
+                          accentColor: _primary,
+                          badgeText: widget.exclusiveMode ? 'Bit-Perfect' : _streamingQuality,
+                          onTap: () => _navigateToSubScreen(_buildAudioProcessingSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Equalizer & DSP',
+                          subtitle: 'Band configuration & ViPER FX shortcuts',
+                          icon: Icons.tune_rounded,
+                          accentColor: _primary,
+                          badgeText: '$_eqBandCount-Band',
+                          onTap: () => _navigateToSubScreen(_buildEqualizerSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Visualization & RTA',
+                          subtitle: 'Spectrum analyzer styles, grids, FFT size',
+                          icon: Icons.bar_chart_rounded,
+                          accentColor: _primary,
+                          badgeText: widget.analyzerEnabled
+                              ? widget.spectrumStyle.toUpperCase()
+                              : 'Off',
+                          onTap: () => _navigateToSubScreen(_buildVisualizationSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Playback & Crossfade',
+                          subtitle: 'Gapless mode, crossfade transitions & volume',
+                          icon: Icons.queue_music_rounded,
+                          accentColor: _primary,
+                          badgeText: widget.crossfadeEnabled
+                              ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s'
+                              : 'Gapless',
+                          onTap: () => _navigateToSubScreen(_buildPlaybackSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Library & Storage',
+                          subtitle: 'Wi-Fi streaming preferences & audio cache',
+                          icon: Icons.storage_rounded,
+                          accentColor: _primary,
+                          badgeText: '145 MB Cache',
+                          onTap: () => _navigateToSubScreen(_buildStorageSubScreen()),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCategoryCard(
+                          title: 'Misc & System',
+                          subtitle: 'Open source licenses, TLS, diagnostic logs',
+                          icon: Icons.admin_panel_settings_outlined,
+                          accentColor: _primary,
+                          badgeText: 'v1.0.0',
+                          onTap: () => _navigateToSubScreen(_buildMiscSystemSubScreen()),
+                        ),
+                        const SizedBox(height: 120),
+                      ]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _navigateToSubScreen(Widget subScreen) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => subScreen),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4.0, bottom: 4.0),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: _textDark,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsHeaderCard() {
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: isMobile ? 10.0 : 16.0),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _primary.withAlpha(60),
+            _cardDark,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _primary.withAlpha(40)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _primary.withAlpha(40),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.settings_suggest, color: Colors.white, size: 30),
+          ),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Audio Engine Settings',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Select a group to adjust high-fidelity playback, DSP protection & visual controls.',
+                  style: TextStyle(color: _textDark, fontSize: 13, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accentColor,
+    required String badgeText,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        splashColor: accentColor.withAlpha(40),
+        highlightColor: accentColor.withAlpha(20),
+        child: Ink(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _cardDark,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withAlpha(12)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: accentColor.withAlpha(30),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: accentColor, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: _textDark, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: accentColor.withAlpha(25),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accentColor.withAlpha(60)),
+                ),
+                child: Text(
+                  badgeText,
+                  style: TextStyle(
+                    color: accentColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Sub-Screen Views ---
+
+  Widget _buildSubScreenLayout({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Scaffold(
+      backgroundColor: _bgDark,
+      appBar: AppBar(
+        backgroundColor: _bgDark,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800.0),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardContainer({required List<Widget> children}) {
+    return Container(
       decoration: BoxDecoration(
         color: _cardDark,
-        borderRadius: BorderRadius.circular(isMobile ? 16 : 20),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withAlpha(10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -345,1620 +551,181 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAudioQualityCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        // Streaming Quality Segmented
-        Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _primary.withAlpha(25),
-                      shape: BoxShape.circle,
-                    ),
-                    child:
-                        const Icon(Icons.graphic_eq, color: _primary, size: 24),
-                  ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Streaming Quality',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500)),
-                        SizedBox(height: 4),
-                        Text('Higher quality uses more data',
-                            style: TextStyle(color: _textDark, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() => _streamingQuality = 'High Fidelity');
-                          _persistUiSettings();
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _streamingQuality == 'High Fidelity'
-                                ? _primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            'High Fidelity',
-                            style: TextStyle(
-                              color: _streamingQuality == 'High Fidelity'
-                                  ? Colors.white
-                                  : _textDark,
-                              fontWeight: _streamingQuality == 'High Fidelity'
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() => _streamingQuality = 'Data Saver');
-                          _persistUiSettings();
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _streamingQuality == 'Data Saver'
-                                ? _primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            'Data Saver',
-                            style: TextStyle(
-                              color: _streamingQuality == 'Data Saver'
-                                  ? Colors.white
-                                  : _textDark,
-                              fontWeight: _streamingQuality == 'Data Saver'
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Resampling Algorithm
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.memory, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Resampler',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: SizedBox(
-            width: 160,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+  // 1. Look & Feel Sub-Screen
+  Widget _buildLookAndFeelSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Look & Feel',
+          children: [
+            _buildSectionHeader('INTERFACE & SEEK BAR'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
               children: [
-                Expanded(
-                  child: Text(
-                    _getResampleAlgorithmName(_resampleAlgorithm),
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Waveform Seek Bar',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text(
+                    'Replaces classic time slider with interactive track amplitude waveform',
+                    style: TextStyle(color: _textDark, fontSize: 12),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showResampleAlgorithmDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // DSP Oversampling
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.blur_on, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Oversampler',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Anti-aliasing for ViPER FX & limiters',
-              style: TextStyle(color: _textDark, fontSize: 12)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    _getOversamplingName(_dspOversampling),
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showOversamplingDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Dither Mode
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.waves, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Dither',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    _getDitherModeName(_ditherMode),
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showDitherModeDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Output Format
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.code, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Output Bit',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Supports only certain devices',
-              style: TextStyle(color: _textDark, fontSize: 12)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    _formatAudioDepth(widget.outputFormat),
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showOutputFormatDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // ReplayGain Mode
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.equalizer, color: Colors.white70, size: 20),
-          ),
-          title: const Text('ReplayGain',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    _replayGainMode == ReplayGainMode.none
-                        ? 'None'
-                        : _replayGainMode == ReplayGainMode.track
-                            ? 'Track'
-                            : 'Album',
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showReplayGainModeDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // ReplayGain Preamp Knob
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Preamp',
-                style:
-                    TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-              ),
-              SizedBox(
-                width: 90,
-                child: ModernAudioKnob(
-                  label: 'GAIN',
-                  value: _replayGainPreamp,
-                  min: -15.0,
-                  max: 15.0,
-                  activeColor: _primary,
-                  valueFormatter: (v) =>
-                      '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                  onChanged: (val) {
-                    setState(() => _replayGainPreamp = val);
-                    _persistReplayGainSettings();
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Sample Rate
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.speed, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Sample Rate',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.outputSampleRate == 0
-                        ? 'Native'
-                        : '${widget.outputSampleRate} Hz',
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showSampleRateDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Output Channels
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.speaker_group,
-                color: Colors.white70, size: 20),
-          ),
-          title: const Text('Output Channels',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: SizedBox(
-            width: 150,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.outputChannels == 1 ? 'Mono' : 'Stereo',
-                    style: const TextStyle(color: _textDark, fontSize: 14),
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, color: _textDark, size: 20),
-              ],
-            ),
-          ),
-          onTap: () => _showChannelsDialog(),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Phase Inversion (Polarity Flip)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
+                  secondary: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.swap_calls,
-                        color: Colors.white70, size: 20),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isMobile
-                              ? 'Phase Inversion'
-                              : 'Phase Inversion (Ø 180°)',
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Invert PCM polarity for reversed hardware or phase alignment',
-                          style: TextStyle(color: _textDark, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text('Normal (0°)'),
-                      selected: !_phaseInvertLeft && !_phaseInvertRight,
-                      selectedColor: _primary,
-                      onSelected: (val) {
-                        if (val) {
-                          setState(() {
-                            _phaseInvertLeft = false;
-                            _phaseInvertRight = false;
-                          });
-                          _persistPhaseInversionSettings();
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text('Invert L'),
-                      selected: _phaseInvertLeft,
-                      selectedColor: _primary,
-                      onSelected: (val) {
-                        setState(() => _phaseInvertLeft = val);
-                        _persistPhaseInversionSettings();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text('Invert R'),
-                      selected: _phaseInvertRight,
-                      selectedColor: _primary,
-                      onSelected: (val) {
-                        setState(() => _phaseInvertRight = val);
-                        _persistPhaseInversionSettings();
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.shield, color: Colors.white70, size: 20),
-          ),
-          title: Text(
-              isMobile ? 'Bit-Perfect Playback' : 'Bit-Perfect Playback',
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Bypasses OS Mixer & DSP (Limited support)',
-              style: TextStyle(color: _textDark, fontSize: 12)),
-          value: widget.exclusiveMode,
-          activeThumbColor: _primary,
-          onChanged: (val) async {
-            widget.player.setExclusiveMode(val);
-            await Future.delayed(const Duration(milliseconds: 150));
-            final actual = await widget.player.getExclusiveMode();
-            widget.onExclusiveModeChanged(actual);
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            if (val && !actual) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: _cardDark,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.amberAccent.withAlpha(80)),
-                  ),
-                  content: Row(
-                    children: const [
-                      Icon(Icons.warning_amber_rounded,
-                          color: Colors.amberAccent, size: 20),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Hardware rejected Exclusive Mode. Falling back! Try changing Sample Rate/Format.',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (val && actual) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: _cardDark,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: _primary.withAlpha(100)),
-                  ),
-                  content: Row(
-                    children: const [
-                      Icon(Icons.check_circle_outline,
-                          color: _primary, size: 20),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Exclusive Bit-Perfect Mode Enabled!',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            } else if (!val) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: _cardDark,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.white.withAlpha(25)),
-                  ),
-                  content: Row(
-                    children: const [
-                      Icon(Icons.info_outline, color: Colors.white70, size: 20),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Bit-Perfect Mode Disabled.',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSpeakerProtectionCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        // Master Protection Toggle
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: Text(isMobile ? 'Safeguards' : 'Safeguards',
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: Text(
-            _speakerProtectionEnabled
-                ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
-                : 'Safeguards disabled ',
-            style: TextStyle(
-              color: _speakerProtectionEnabled
-                  ? Colors.greenAccent.shade200
-                  : Colors.amberAccent,
-              fontSize: 12,
-            ),
-          ),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent)
-                  .withAlpha(25),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _speakerProtectionEnabled
-                  ? Icons.health_and_safety
-                  : Icons.warning_amber_rounded,
-              color: _speakerProtectionEnabled ? _primary : Colors.amberAccent,
-              size: 20,
-            ),
-          ),
-          value: _speakerProtectionEnabled,
-          onChanged: (val) {
-            setState(() => _speakerProtectionEnabled = val);
-            _persistSpeakerProtectionSettings();
-          },
-        ),
-        if (_speakerProtectionEnabled) ...[
-          const Divider(color: Colors.white10, height: 1),
-          // Subsonic Cutoff (High Pass Filter)
-          ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(10),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.arrow_upward,
-                  color: Colors.white70, size: 20),
-            ),
-            title: Text(
-                isMobile ? 'Subsonic Filter' : 'Subsonic Filter (High-Pass)',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text(
-                'Cuts invisible low frequencies below woofer tuning',
-                style: TextStyle(color: _textDark, fontSize: 12)),
-            trailing: SizedBox(
-              width: 130,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _subsonicCutoffHz <= 0
-                          ? 'Off'
-                          : '${_subsonicCutoffHz.toInt()} Hz',
-                      style: const TextStyle(color: _textDark, fontSize: 14),
-                      textAlign: TextAlign.right,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chevron_right, color: _textDark, size: 20),
-                ],
-              ),
-            ),
-            onTap: () => _showSubsonicDialog(),
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          // Ultrasonic Cutoff (Low Pass Filter)
-          ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(10),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.arrow_downward,
-                  color: Colors.white70, size: 20),
-            ),
-            title: Text(isMobile ? 'Ultrasonic Guard' : 'Ultrasonic Guard',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Filters frequencies above 18-22kHz',
-                style: TextStyle(color: _textDark, fontSize: 12)),
-            trailing: SizedBox(
-              width: 130,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _ultrasonicCutoffHz >= 24000
-                          ? 'Off'
-                          : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
-                      style: const TextStyle(color: _textDark, fontSize: 14),
-                      textAlign: TextAlign.right,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chevron_right, color: _textDark, size: 20),
-                ],
-              ),
-            ),
-            onTap: () => _showUltrasonicDialog(),
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          // Peak Limiter Threshold & Safety Headroom Knobs
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Peak Ceiling',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
-                        style: const TextStyle(color: _textDark, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 90,
-                  child: ModernAudioKnob(
-                    label: 'CEILING',
-                    value: _limiterThreshold,
-                    min: 0.70,
-                    max: 1.00,
-                    activeColor: _primary,
-                    valueFormatter: (v) => '${(v * 100).toInt()}%',
-                    onChanged: (val) {
-                      setState(() => _limiterThreshold = val);
-                      _persistSpeakerProtectionSettings();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Safety Headroom',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 2),
-                      const Text('Output level attenuation buffer',
-                          style: TextStyle(color: _textDark, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 90,
-                  child: ModernAudioKnob(
-                    label: 'SAFETY',
-                    value: _safetyAttenuationDb,
-                    min: -6.0,
-                    max: 0.0,
-                    activeColor: _primary,
-                    valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
-                    onChanged: (val) {
-                      setState(() => _safetyAttenuationDb = val);
-                      _persistSpeakerProtectionSettings();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildEqualizerCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
                       color: _primary.withAlpha(25),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.settings_input_composite,
-                        color: _primary, size: 24),
+                    child: const Icon(Icons.graphic_eq, color: _primary, size: 20),
                   ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Graphic Equalizer',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500)),
-                        SizedBox(height: 4),
-                        Text('Choose number of frequency bands',
-                            style: TextStyle(color: _textDark, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          setState(() => _eqBandCount = 10);
-                          final state =
-                              await AppStateService.instance.loadEqBands();
-                          await AppStateService.instance.saveEqBands(
-                            enabled: state.enabled,
-                            preset: state.preset,
-                            gains: List.filled(10, 0.0),
-                            preampDb: state.preampDb,
-                            bandCount: 10,
-                          );
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _eqBandCount == 10
-                                ? _primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '10-Band',
-                            style: TextStyle(
-                              color:
-                                  _eqBandCount == 10 ? Colors.white : _textDark,
-                              fontWeight: _eqBandCount == 10
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          setState(() => _eqBandCount = 16);
-                          final state =
-                              await AppStateService.instance.loadEqBands();
-                          await AppStateService.instance.saveEqBands(
-                            enabled: state.enabled,
-                            preset: state.preset,
-                            gains: List.filled(16, 0.0),
-                            preampDb: state.preampDb,
-                            bandCount: 16,
-                          );
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _eqBandCount == 16
-                                ? _primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '16-Band',
-                            style: TextStyle(
-                              color:
-                                  _eqBandCount == 16 ? Colors.white : _textDark,
-                              fontWeight: _eqBandCount == 16
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          setState(() => _eqBandCount = 32);
-                          final state =
-                              await AppStateService.instance.loadEqBands();
-                          await AppStateService.instance.saveEqBands(
-                            enabled: state.enabled,
-                            preset: state.preset,
-                            gains: List.filled(32, 0.0),
-                            preampDb: state.preampDb,
-                            bandCount: 32,
-                          );
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _eqBandCount == 32
-                                ? _primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '32-Band',
-                            style: TextStyle(
-                              color:
-                                  _eqBandCount == 32 ? Colors.white : _textDark,
-                              fontWeight: _eqBandCount == 32
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildVisualizationCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Realtime Analyzer',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text('Show audio spectrum in EQ screen',
-              style: TextStyle(color: _textDark, fontSize: 12)),
-          value: widget.analyzerEnabled,
-          activeThumbColor: _primary,
-          onChanged: widget.onAnalyzerEnabledChanged,
-        ),
-        if (widget.analyzerEnabled) ...[
-          const Divider(color: Colors.white10, height: 1),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Visualization Type',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 16),
-                Container(
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.black26,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => widget.onAnalyzerTypeChanged('bar'),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: widget.analyzerType == 'bar'
-                                  ? _primary
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              'Bar',
-                              style: TextStyle(
-                                color: widget.analyzerType == 'bar'
-                                    ? Colors.white
-                                    : _textDark,
-                                fontWeight: widget.analyzerType == 'bar'
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => widget.onAnalyzerTypeChanged('area'),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: widget.analyzerType == 'area'
-                                  ? _primary
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              'Area',
-                              style: TextStyle(
-                                color: widget.analyzerType == 'area'
-                                    ? Colors.white
-                                    : _textDark,
-                                fontWeight: widget.analyzerType == 'area'
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  value: _useWaveformSeekBar,
+                  onChanged: (val) {
+                    setState(() => _useWaveformSeekBar = val);
+                    setSubState(() {});
+                    AppStateService.instance.saveUseWaveformSeekBar(val);
+                  },
                 ),
               ],
             ),
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          ],
+        );
+      },
+    );
+  }
+
+  // 2. Audio & Processing Sub-Screen
+  Widget _buildAudioProcessingSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Audio & Processing',
+          children: [
+            _buildSectionHeader('STREAMING QUALITY'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
               children: [
-                const Text('Spectrum Visualizer Style',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 4),
-                const Text('Style for the RTA spectrum analyzer bars',
-                    style: TextStyle(color: _textDark, fontSize: 12)),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final entry in {
-                      'neon': ('Neon', Icons.auto_awesome),
-                      'fire': ('Fire', Icons.local_fire_department),
-                      'minimal': ('Minimal', Icons.remove),
-                      'pill': ('Pill', Icons.lens),
-                    }.entries)
-                      GestureDetector(
-                        onTap: () => widget.onSpectrumStyleChanged(entry.key),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: widget.spectrumStyle == entry.key
-                                ? _primary
-                                : Colors.black26,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: widget.spectrumStyle == entry.key
-                                  ? _primary
-                                  : Colors.white10,
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _primary.withAlpha(25),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.graphic_eq,
+                                color: _primary, size: 24),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Streaming Quality',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                                SizedBox(height: 4),
+                                Text('Higher quality uses more network data',
+                                    style: TextStyle(color: _textDark, fontSize: 13)),
+                              ],
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(entry.value.$2,
-                                  size: 16,
-                                  color: widget.spectrumStyle == entry.key
-                                      ? Colors.white
-                                      : _textDark),
-                              const SizedBox(width: 6),
-                              Text(
-                                entry.value.$1,
-                                style: TextStyle(
-                                  color: widget.spectrumStyle == entry.key
-                                      ? Colors.white
-                                      : _textDark,
-                                  fontWeight: widget.spectrumStyle == entry.key
-                                      ? FontWeight.w600
-                                      : FontWeight.normal,
-                                  fontSize: 13,
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() => _streamingQuality = 'High Fidelity');
+                                  setSubState(() {});
+                                  _persistUiSettings();
+                                },
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: _streamingQuality == 'High Fidelity'
+                                        ? _primary
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    'High Fidelity',
+                                    style: TextStyle(
+                                      color: _streamingQuality == 'High Fidelity'
+                                          ? Colors.white
+                                          : _textDark,
+                                      fontWeight: _streamingQuality == 'High Fidelity'
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() => _streamingQuality = 'Data Saver');
+                                  setSubState(() {});
+                                  _persistUiSettings();
+                                },
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: _streamingQuality == 'Data Saver'
+                                        ? _primary
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    'Data Saver',
+                                    style: TextStyle(
+                                      color: _streamingQuality == 'Data Saver'
+                                          ? Colors.white
+                                          : _textDark,
+                                      fontWeight: _streamingQuality == 'Data Saver'
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          SwitchListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            activeThumbColor: Colors.white,
-            activeTrackColor: Color(0xFF137fec),
-            inactiveThumbColor: Colors.white70,
-            inactiveTrackColor: Colors.white10,
-            title: const Text('Auto Fit',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Dynamically adjust Y-axis scale',
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-            value: widget.analyzerAutoFit,
-            onChanged: widget.onAnalyzerAutoFitChanged,
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          SwitchListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            activeThumbColor: Colors.white,
-            activeTrackColor: Color(0xFF137fec),
-            inactiveThumbColor: Colors.white70,
-            inactiveTrackColor: Colors.white10,
-            title: const Text('Show Grids',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            value: widget.analyzerShowGrids,
-            onChanged: widget.onAnalyzerShowGridsChanged,
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          SwitchListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            activeThumbColor: Colors.white,
-            activeTrackColor: Color(0xFF137fec),
-            inactiveThumbColor: Colors.white70,
-            inactiveTrackColor: Colors.white10,
-            title: const Text('Log Scale',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            subtitle: const Text('Logarithmic decibel response curve',
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-            value: widget.analyzerLogScale,
-            onChanged: widget.onAnalyzerLogScaleChanged,
-          ),
-          const Divider(color: Colors.white10, height: 1),
-          // Sample Size
-          ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(10),
-                shape: BoxShape.circle,
-              ),
-              child:
-                  const Icon(Icons.data_array, color: Colors.white70, size: 20),
-            ),
-            title: const Text('Sample Size',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w500)),
-            trailing: SizedBox(
-              width: 150,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.analyzerSampleSize.toString(),
-                      style: const TextStyle(color: _textDark, fontSize: 14),
-                      textAlign: TextAlign.right,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chevron_right, color: _textDark, size: 20),
-                ],
-              ),
-            ),
-            onTap: () => _showAnalyzerSampleSizeDialog(),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildPlaybackCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        // Waveform Seek Bar
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: const Text('Waveform Seek Bar',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: const Text(
-            'Replaces classic time slider with interactive track amplitude waveform',
-            style: TextStyle(color: _textDark, fontSize: 12),
-          ),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: _primary.withAlpha(25),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.graphic_eq, color: _primary, size: 20),
-          ),
-          value: _useWaveformSeekBar,
-          onChanged: (val) {
-            setState(() => _useWaveformSeekBar = val);
-            AppStateService.instance.saveUseWaveformSeekBar(val);
-          },
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Gapless
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: const Text('Gapless Playback',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child:
-                const Icon(Icons.queue_music, color: Colors.white70, size: 20),
-          ),
-          value: _gaplessPlayback,
-          onChanged: (v) {
-            setState(() => _gaplessPlayback = v);
-            _persistUiSettings();
-          },
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Crossfade
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withAlpha(10),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.tune,
-                            color: Colors.white70, size: 20),
-                      ),
-                      const SizedBox(width: 16),
-                      const Text('Crossfade',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500)),
-                    ],
-                  ),
-                  Switch(
-                      activeThumbColor: Colors.white,
-                      activeTrackColor: _primary,
-                      inactiveThumbColor: Colors.white70,
-                      inactiveTrackColor: Colors.white10,
-                      value: widget.crossfadeEnabled,
-                      onChanged: (v) {
-                        widget.onCrossfadeEnabledChanged(v);
-                        widget.player.setCrossfadeEnabled(v);
-                      }),
-                ],
-              ),
-              const SizedBox(height: 16),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
-                  activeTrackColor: _primary,
-                  inactiveTrackColor: Colors.white10,
-                  thumbColor: Colors.white,
-                  disabledActiveTrackColor: _primary.withAlpha(100),
-                  disabledInactiveTrackColor: Colors.white10.withAlpha(50),
-                  disabledThumbColor: Colors.white54,
-                ),
-                child: Slider(
-                  value: widget.crossfadeDurationMs / 1000.0,
-                  min: 0,
-                  max: 12,
-                  divisions: 24, // 0.5s increments
-                  onChanged: widget.crossfadeEnabled
-                      ? (v) {
-                          widget
-                              .onCrossfadeDurationMsChanged((v * 1000).toInt());
-                        }
-                      : null,
-                  onChangeEnd: widget.crossfadeEnabled
-                      ? (v) {
-                          widget.player
-                              .setCrossfadeDurationMs((v * 1000).toInt());
-                        }
-                      : null,
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Off',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
-                  Text(
-                      '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s',
-                      style: TextStyle(
-                          color: widget.crossfadeEnabled ? _primary : _textDark,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold)),
-                  const Text('12s',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
-                ],
-              )
-            ],
-          ),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        // Normalize Volume
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: const Text('Normalize Volume',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
-          ),
-          value: _normalizeVolume,
-          onChanged: (v) {
-            setState(() => _normalizeVolume = v);
-            _persistUiSettings();
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStorageCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: const Text('Stream over Wi-Fi Only',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.wifi, color: Colors.white70, size: 20),
-          ),
-          value: _streamOverWifi,
-          onChanged: (v) {
-            setState(() => _streamOverWifi = v);
-            _persistUiSettings();
-          },
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.dns, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Audio Cache',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: const Text('145 MB',
-              style: TextStyle(color: _textDark, fontSize: 14)),
-        ),
-        InkWell(
-          onTap: () {
-            // clear cache
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Audio cache cleared'),
-                backgroundColor: _cardDark));
-          },
-          child: const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(
-              child: Text('Clear Audio Cache',
-                  style: TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAboutCard(BuildContext context, {bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child:
-                const Icon(Icons.info_outline, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Version',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: const Text('1.0.0',
-              style: TextStyle(color: _textDark, fontSize: 14)),
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.policy_outlined,
-                color: Colors.white70, size: 20),
-          ),
-          title: const Text('Open Source Licenses',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
-          onTap: () {
-            showLicensePage(
-              context: context,
-              applicationName: 'SautiPlay',
-              applicationVersion: '1.0.0',
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDebugAndLogsCard({bool isMobile = false}) {
-    return _buildCard(
-      isMobile: isMobile,
-      children: [
-        SwitchListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          activeThumbColor: Colors.white,
-          activeTrackColor: _primary,
-          inactiveThumbColor: Colors.white70,
-          inactiveTrackColor: Colors.white10,
-          title: Text(
-              isMobile
-                  ? 'Allow invalid TLS certs'
-                  : 'Allow invalid TLS certs (test only)',
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 14)),
-          secondary: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.security, color: Colors.white70, size: 20),
-          ),
-          value: widget.allowInvalidTls,
-          onChanged: widget.onAllowInvalidTlsChanged,
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.refresh, color: Colors.white70, size: 20),
-          ),
-          title: const Text('Poll Native Error',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
-          onTap: widget.onPollError,
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.cleaning_services_outlined,
-                color: Colors.white70, size: 20),
-          ),
-          title: const Text('Clear Native Error',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
-          onTap: widget.onClearNativeError,
-        ),
-        const Divider(color: Colors.white10, height: 1),
-        Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ValueListenableBuilder<int>(
-              valueListenable: widget.logUpdateNotifier,
-              builder: (context, _, __) {
-                return ExpansionTile(
-                  tilePadding:
+            const SizedBox(height: 20),
+            _buildSectionHeader('RESAMPLING & DITHERING'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ListTile(
+                  contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   leading: Container(
                     padding: const EdgeInsets.all(10),
@@ -1966,103 +733,1486 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.article_outlined,
-                        color: Colors.white70, size: 20),
+                    child: const Icon(Icons.memory, color: Colors.white70, size: 20),
                   ),
-                  title: const Text('App Logs',
+                  title: const Text('Resampler',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _primary.withAlpha(50),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text('${widget.logs.length}',
-                        style: const TextStyle(
-                            color: _primary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16.0, vertical: 8.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                if (widget.logs.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                          content: Text('No logs to copy')));
-                                  return;
-                                }
-                                // import 'package:flutter/services.dart'; is needed in this file or we can just use the framework's Clipboard
-                                final text = widget.logs.reversed.join('\n');
-                                await Clipboard.setData(
-                                    ClipboardData(text: text));
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content: Text(
-                                            'Copied ${widget.logs.length} lines'),
-                                        backgroundColor: _cardDark));
-                              },
-                              icon: const Icon(Icons.copy, size: 18),
-                              label: const Text('Copy'),
-                            ),
+                  trailing: SizedBox(
+                    width: 170,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _getResampleAlgorithmName(_resampleAlgorithm),
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: widget.onClearLogs,
-                              icon: const Icon(Icons.delete_sweep, size: 18),
-                              label: const Text('Clear'),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showResampleAlgorithmDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.blur_on, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Oversampler',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Anti-aliasing for ViPER FX & limiters',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _getOversamplingName(_dspOversampling),
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showOversamplingDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.waves, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Dither',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _getDitherModeName(_ditherMode),
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showDitherModeDialog(onDone: () => setSubState(() {})),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('HARDWARE OUTPUT & PHASE'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.code, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Output Bit Depth',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Hardware PCM bit precision',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _formatAudioDepth(widget.outputFormat),
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showOutputFormatDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.speed, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Sample Rate',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.outputSampleRate == 0
+                                ? 'Native'
+                                : '${widget.outputSampleRate} Hz',
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showSampleRateDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.speaker_group,
+                        color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Output Channels',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.outputChannels == 1 ? 'Mono' : 'Stereo',
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showChannelsDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withAlpha(10),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.swap_calls,
+                                color: Colors.white70, size: 20),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Phase Inversion (Ø 180°)',
+                                  style: TextStyle(
+                                      color: Colors.white, fontWeight: FontWeight.w500),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Invert PCM polarity for reversed hardware or phase alignment',
+                                  style: TextStyle(color: _textDark, fontSize: 12),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    Container(
-                      height: 300,
-                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: widget.logs.isEmpty
-                          ? const Center(
-                              child: Text('No logs yet',
-                                  style: TextStyle(color: _textDark)))
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: widget.logs.length,
-                              itemBuilder: (context, index) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 6.0),
-                                  child: SelectableText(
-                                    widget.logs[index],
-                                    style: const TextStyle(
-                                        color: _textDark,
-                                        fontSize: 12,
-                                        fontFamily: 'monospace'),
-                                  ),
-                                );
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text('Normal (0°)'),
+                              selected: !_phaseInvertLeft && !_phaseInvertRight,
+                              selectedColor: _primary,
+                              onSelected: (val) {
+                                if (val) {
+                                  setState(() {
+                                    _phaseInvertLeft = false;
+                                    _phaseInvertRight = false;
+                                  });
+                                  setSubState(() {});
+                                  _persistPhaseInversionSettings();
+                                }
                               },
                             ),
-                    )
-                  ],
-                );
-              }),
-        ),
-      ],
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text('Invert L'),
+                              selected: _phaseInvertLeft,
+                              selectedColor: _primary,
+                              onSelected: (val) {
+                                setState(() => _phaseInvertLeft = val);
+                                setSubState(() {});
+                                _persistPhaseInversionSettings();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text('Invert R'),
+                              selected: _phaseInvertRight,
+                              selectedColor: _primary,
+                              onSelected: (val) {
+                                setState(() => _phaseInvertRight = val);
+                                setSubState(() {});
+                                _persistPhaseInversionSettings();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Bit-Perfect Playback',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Bypasses OS Mixer & DSP (Exclusive Mode)',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: widget.exclusiveMode,
+                  activeThumbColor: _primary,
+                  onChanged: (val) async {
+                    widget.player.setExclusiveMode(val);
+                    await Future.delayed(const Duration(milliseconds: 150));
+                    final actual = await widget.player.getExclusiveMode();
+                    widget.onExclusiveModeChanged(actual);
+                    setSubState(() {});
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    if (val && !actual) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.amberAccent.withAlpha(80)),
+                          ),
+                          content: const Row(
+                            children: [
+                              Icon(Icons.warning_amber_rounded,
+                                  color: Colors.amberAccent, size: 20),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Hardware rejected Exclusive Mode. Falling back!',
+                                  style: TextStyle(color: Colors.white, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('SPEAKER & HARDWARE PROTECTION'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Safeguards Master Switch',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    _speakerProtectionEnabled
+                        ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
+                        : 'Safeguards disabled',
+                    style: TextStyle(
+                      color: _speakerProtectionEnabled
+                          ? Colors.greenAccent.shade200
+                          : Colors.amberAccent,
+                      fontSize: 12,
+                    ),
+                  ),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (_speakerProtectionEnabled ? _primary : Colors.amberAccent)
+                          .withAlpha(25),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _speakerProtectionEnabled
+                          ? Icons.health_and_safety
+                          : Icons.warning_amber_rounded,
+                      color: _speakerProtectionEnabled ? _primary : Colors.amberAccent,
+                      size: 20,
+                    ),
+                  ),
+                  value: _speakerProtectionEnabled,
+                  onChanged: (val) {
+                    setState(() => _speakerProtectionEnabled = val);
+                    setSubState(() {});
+                    _persistSpeakerProtectionSettings();
+                  },
+                ),
+                if (_speakerProtectionEnabled) ...[
+                  const Divider(color: Colors.white10, height: 1),
+                  ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(10),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_upward,
+                          color: Colors.white70, size: 20),
+                    ),
+                    title: const Text('Subsonic Filter (High-Pass)',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: const Text(
+                        'Cuts sub-bass frequencies below woofer tuning',
+                        style: TextStyle(color: _textDark, fontSize: 12)),
+                    trailing: SizedBox(
+                      width: 130,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _subsonicCutoffHz <= 0
+                                  ? 'Off'
+                                  : '${_subsonicCutoffHz.toInt()} Hz',
+                              style: const TextStyle(color: _textDark, fontSize: 13),
+                              textAlign: TextAlign.right,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        ],
+                      ),
+                    ),
+                    onTap: () => _showSubsonicDialog(onDone: () => setSubState(() {})),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(10),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_downward,
+                          color: Colors.white70, size: 20),
+                    ),
+                    title: const Text('Ultrasonic Guard (Low-Pass)',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: const Text('Filters high frequencies above 18-22kHz',
+                        style: TextStyle(color: _textDark, fontSize: 12)),
+                    trailing: SizedBox(
+                      width: 130,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _ultrasonicCutoffHz >= 24000
+                                  ? 'Off'
+                                  : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
+                              style: const TextStyle(color: _textDark, fontSize: 13),
+                              textAlign: TextAlign.right,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        ],
+                      ),
+                    ),
+                    onTap: () => _showUltrasonicDialog(onDone: () => setSubState(() {})),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Peak Ceiling',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
+                                style: const TextStyle(color: _textDark, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 90,
+                          child: ModernAudioKnob(
+                            label: 'CEILING',
+                            value: _limiterThreshold,
+                            min: 0.70,
+                            max: 1.00,
+                            activeColor: _primary,
+                            valueFormatter: (v) => '${(v * 100).toInt()}%',
+                            onChanged: (val) {
+                              setState(() => _limiterThreshold = val);
+                              setSubState(() {});
+                              _persistSpeakerProtectionSettings();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Safety Headroom',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
+                              SizedBox(height: 2),
+                              Text('Output level attenuation buffer',
+                                  style: TextStyle(color: _textDark, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 90,
+                          child: ModernAudioKnob(
+                            label: 'SAFETY',
+                            value: _safetyAttenuationDb,
+                            min: -6.0,
+                            max: 0.0,
+                            activeColor: _primary,
+                            valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+                            onChanged: (val) {
+                              setState(() => _safetyAttenuationDb = val);
+                              setSubState(() {});
+                              _persistSpeakerProtectionSettings();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('REPLAYGAIN & LOUDNESS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.equalizer, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('ReplayGain Mode',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: SizedBox(
+                    width: 150,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _replayGainMode == ReplayGainMode.none
+                                ? 'None'
+                                : _replayGainMode == ReplayGainMode.track
+                                    ? 'Track'
+                                    : 'Album',
+                            style: const TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () => _showReplayGainModeDialog(onDone: () => setSubState(() {})),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Preamp Gain',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                      ),
+                      SizedBox(
+                        width: 90,
+                        child: ModernAudioKnob(
+                          label: 'GAIN',
+                          value: _replayGainPreamp,
+                          min: -15.0,
+                          max: 15.0,
+                          activeColor: _primary,
+                          valueFormatter: (v) =>
+                              '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                          onChanged: (val) {
+                            setState(() => _replayGainPreamp = val);
+                            setSubState(() {});
+                            _persistReplayGainSettings();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
-  // --- Dialogs ---
+  // 3. Equalizer Sub-Screen
+  Widget _buildEqualizerSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Equalizer & DSP',
+          children: [
+            _buildSectionHeader('GRAPHIC EQUALIZER BANDS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _primary.withAlpha(25),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.settings_input_composite,
+                                color: _primary, size: 24),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Frequency Precision',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                                SizedBox(height: 4),
+                                Text('Choose total active EQ bands',
+                                    style: TextStyle(color: _textDark, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            for (final count in [10, 16, 32])
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () async {
+                                    setState(() => _eqBandCount = count);
+                                    setSubState(() {});
+                                    final state =
+                                        await AppStateService.instance.loadEqBands();
+                                    await AppStateService.instance.saveEqBands(
+                                      enabled: state.enabled,
+                                      preset: state.preset,
+                                      gains: List.filled(count, 0.0),
+                                      preampDb: state.preampDb,
+                                      bandCount: count,
+                                    );
+                                  },
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: _eqBandCount == count
+                                          ? _primary
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '$count-Band',
+                                      style: TextStyle(
+                                        color: _eqBandCount == count
+                                            ? Colors.white
+                                            : _textDark,
+                                        fontWeight: _eqBandCount == count
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 4. Visualization Sub-Screen
+  Widget _buildVisualizationSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Visualization & RTA',
+          children: [
+            _buildSectionHeader('REALTIME SPECTRUM ANALYZER'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Realtime Analyzer',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Renders audio spectrum on screens',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: widget.analyzerEnabled,
+                  activeThumbColor: _primary,
+                  onChanged: (v) {
+                    widget.onAnalyzerEnabledChanged(v);
+                    setSubState(() {});
+                  },
+                ),
+                if (widget.analyzerEnabled) ...[
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Visualization Mode',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 16),
+                        Container(
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    widget.onAnalyzerTypeChanged('bar');
+                                    setSubState(() {});
+                                  },
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: widget.analyzerType == 'bar'
+                                          ? _primary
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      'Bar Spectrum',
+                                      style: TextStyle(
+                                        color: widget.analyzerType == 'bar'
+                                            ? Colors.white
+                                            : _textDark,
+                                        fontWeight: widget.analyzerType == 'bar'
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    widget.onAnalyzerTypeChanged('area');
+                                    setSubState(() {});
+                                  },
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: widget.analyzerType == 'area'
+                                          ? _primary
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      'Area Waveform',
+                                      style: TextStyle(
+                                        color: widget.analyzerType == 'area'
+                                            ? Colors.white
+                                            : _textDark,
+                                        fontWeight: widget.analyzerType == 'area'
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Visual Theme Style',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 4),
+                        const Text('Style palette for spectrum bars',
+                            style: TextStyle(color: _textDark, fontSize: 12)),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final entry in {
+                              'neon': ('Neon', Icons.auto_awesome),
+                              'fire': ('Fire', Icons.local_fire_department),
+                              'minimal': ('Minimal', Icons.remove),
+                              'pill': ('Pill', Icons.lens),
+                            }.entries)
+                              GestureDetector(
+                                onTap: () {
+                                  widget.onSpectrumStyleChanged(entry.key);
+                                  setSubState(() {});
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: widget.spectrumStyle == entry.key
+                                        ? _primary
+                                        : Colors.black26,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: widget.spectrumStyle == entry.key
+                                          ? _primary
+                                          : Colors.white10,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(entry.value.$2,
+                                          size: 16,
+                                          color: widget.spectrumStyle == entry.key
+                                              ? Colors.white
+                                              : _textDark),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        entry.value.$1,
+                                        style: TextStyle(
+                                          color: widget.spectrumStyle == entry.key
+                                              ? Colors.white
+                                              : _textDark,
+                                          fontWeight: widget.spectrumStyle == entry.key
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  SwitchListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: _primary,
+                    inactiveThumbColor: Colors.white70,
+                    inactiveTrackColor: Colors.white10,
+                    title: const Text('Auto Fit Scale',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: const Text('Dynamically adjust Y-axis peak range',
+                        style: TextStyle(color: _textDark, fontSize: 12)),
+                    value: widget.analyzerAutoFit,
+                    onChanged: (v) {
+                      widget.onAnalyzerAutoFitChanged(v);
+                      setSubState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  SwitchListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: _primary,
+                    inactiveThumbColor: Colors.white70,
+                    inactiveTrackColor: Colors.white10,
+                    title: const Text('Show Grids & Decibels',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    value: widget.analyzerShowGrids,
+                    onChanged: (v) {
+                      widget.onAnalyzerShowGridsChanged(v);
+                      setSubState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  SwitchListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: _primary,
+                    inactiveThumbColor: Colors.white70,
+                    inactiveTrackColor: Colors.white10,
+                    title: const Text('Logarithmic Decibel Scale',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: const Text('Logarithmic audio response curve',
+                        style: TextStyle(color: _textDark, fontSize: 12)),
+                    value: widget.analyzerLogScale,
+                    onChanged: (v) {
+                      widget.onAnalyzerLogScaleChanged(v);
+                      setSubState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(10),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.data_array,
+                          color: Colors.white70, size: 20),
+                    ),
+                    title: const Text('FFT Sample Size',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    trailing: SizedBox(
+                      width: 150,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.analyzerSampleSize.toString(),
+                              style: const TextStyle(color: _textDark, fontSize: 14),
+                              textAlign: TextAlign.right,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                        ],
+                      ),
+                    ),
+                    onTap: () => _showAnalyzerSampleSizeDialog(onDone: () => setSubState(() {})),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 5. Playback & Crossfade Sub-Screen
+  Widget _buildPlaybackSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Playback & Crossfade',
+          children: [
+            _buildSectionHeader('TRANSITIONS & PLAYBACK'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Gapless Playback',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Seamless transitions between track ends',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.queue_music, color: Colors.white70, size: 20),
+                  ),
+                  value: _gaplessPlayback,
+                  onChanged: (v) {
+                    setState(() => _gaplessPlayback = v);
+                    setSubState(() {});
+                    _persistUiSettings();
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(10),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.tune,
+                                    color: Colors.white70, size: 20),
+                              ),
+                              const SizedBox(width: 16),
+                              const Text('Crossfade Duration',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500)),
+                            ],
+                          ),
+                          Switch(
+                              activeThumbColor: Colors.white,
+                              activeTrackColor: _primary,
+                              inactiveThumbColor: Colors.white70,
+                              inactiveTrackColor: Colors.white10,
+                              value: widget.crossfadeEnabled,
+                              onChanged: (v) {
+                                widget.onCrossfadeEnabledChanged(v);
+                                widget.player.setCrossfadeEnabled(v);
+                                setSubState(() {});
+                              }),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          activeTrackColor: _primary,
+                          inactiveTrackColor: Colors.white10,
+                          thumbColor: Colors.white,
+                          disabledActiveTrackColor: _primary.withAlpha(100),
+                          disabledInactiveTrackColor: Colors.white10.withAlpha(50),
+                          disabledThumbColor: Colors.white54,
+                        ),
+                        child: Slider(
+                          value: widget.crossfadeDurationMs / 1000.0,
+                          min: 0,
+                          max: 12,
+                          divisions: 24,
+                          onChanged: widget.crossfadeEnabled
+                              ? (v) {
+                                  widget.onCrossfadeDurationMsChanged((v * 1000).toInt());
+                                  setSubState(() {});
+                                }
+                              : null,
+                          onChangeEnd: widget.crossfadeEnabled
+                              ? (v) {
+                                  widget.player.setCrossfadeDurationMs((v * 1000).toInt());
+                                }
+                              : null,
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Off', style: TextStyle(color: _textDark, fontSize: 12)),
+                          Text(
+                            '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s',
+                            style: TextStyle(
+                              color: widget.crossfadeEnabled ? _primary : _textDark,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text('12s', style: TextStyle(color: _textDark, fontSize: 12)),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Normalize Volume',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: const Text('Normalizes volume across tracks',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.bar_chart, color: Colors.white70, size: 20),
+                  ),
+                  value: _normalizeVolume,
+                  onChanged: (v) {
+                    setState(() => _normalizeVolume = v);
+                    setSubState(() {});
+                    _persistUiSettings();
+                  },
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 6. Storage Sub-Screen
+  Widget _buildStorageSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Library & Storage',
+          children: [
+            _buildSectionHeader('NETWORK & AUDIO CACHE'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Stream over Wi-Fi Only',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.wifi, color: Colors.white70, size: 20),
+                  ),
+                  value: _streamOverWifi,
+                  onChanged: (v) {
+                    setState(() => _streamOverWifi = v);
+                    setSubState(() {});
+                    _persistUiSettings();
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                const ListTile(
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Icon(Icons.dns, color: Colors.white70, size: 20),
+                  title: Text('Audio Cache Storage',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: Text('145 MB',
+                      style: TextStyle(color: _textDark, fontSize: 14)),
+                ),
+                InkWell(
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Audio cache cleared successfully'),
+                        backgroundColor: _cardDark));
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Text('Clear Audio Cache',
+                          style: TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 7. Misc & System Sub-Screen
+  Widget _buildMiscSystemSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        return _buildSubScreenLayout(
+          title: 'Misc & System',
+          children: [
+            _buildSectionHeader('ABOUT & SYSTEM LICENSES'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                const ListTile(
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                  title: Text('Version',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: Text('1.0.0',
+                      style: TextStyle(color: _textDark, fontSize: 14)),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: const Icon(Icons.policy_outlined,
+                      color: Colors.white70, size: 20),
+                  title: const Text('Open Source Licenses',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  onTap: () {
+                    showLicensePage(
+                      context: context,
+                      applicationName: 'SautiPlay',
+                      applicationVersion: '1.0.0',
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('DEBUG & ENGINE LOGS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: _primary,
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  title: const Text('Allow invalid TLS certs',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14)),
+                  subtitle: const Text('Testing & fallback media server mode',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.security, color: Colors.white70, size: 20),
+                  ),
+                  value: widget.allowInvalidTls,
+                  onChanged: (v) {
+                    widget.onAllowInvalidTlsChanged(v);
+                    setSubState(() {});
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                  title: const Text('Poll Native Error',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  onTap: widget.onPollError,
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: const Icon(Icons.cleaning_services_outlined,
+                      color: Colors.white70, size: 20),
+                  title: const Text('Clear Native Error',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  trailing: const Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  onTap: widget.onClearNativeError,
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: widget.logUpdateNotifier,
+                    builder: (context, _, __) {
+                      return ExpansionTile(
+                        tilePadding:
+                            const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        leading: const Icon(Icons.article_outlined,
+                            color: Colors.white70, size: 20),
+                        title: const Text('App Engine Logs',
+                            style: TextStyle(
+                                color: Colors.white, fontWeight: FontWeight.w500)),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _primary.withAlpha(50),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text('${widget.logs.length}',
+                              style: const TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0, vertical: 8.0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () async {
+                                      if (widget.logs.isEmpty) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                                content: Text('No logs to copy')));
+                                        return;
+                                      }
+                                      final text = widget.logs.reversed.join('\n');
+                                      await Clipboard.setData(
+                                          ClipboardData(text: text));
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                              content: Text(
+                                                  'Copied ${widget.logs.length} lines'),
+                                              backgroundColor: _cardDark));
+                                    },
+                                    icon: const Icon(Icons.copy, size: 18),
+                                    label: const Text('Copy'),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: widget.onClearLogs,
+                                    icon: const Icon(Icons.delete_sweep, size: 18),
+                                    label: const Text('Clear'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            height: 250,
+                            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            decoration: BoxDecoration(
+                              color: Colors.black26,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: widget.logs.isEmpty
+                                ? const Center(
+                                    child: Text('No logs yet',
+                                        style: TextStyle(color: _textDark)))
+                                : ListView.builder(
+                                    padding: const EdgeInsets.all(12),
+                                    itemCount: widget.logs.length,
+                                    itemBuilder: (context, index) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 6.0),
+                                        child: SelectableText(
+                                          widget.logs[index],
+                                          style: const TextStyle(
+                                              color: _textDark,
+                                              fontSize: 12,
+                                              fontFamily: 'monospace'),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          )
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Modal Dialog Helpers ---
 
   String _getResampleAlgorithmName(int index) {
     switch (index) {
@@ -2094,22 +2244,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showOversamplingDialog() {
+  void _showOversamplingDialog({VoidCallback? onDone}) {
     final options = [
-      {
-        'factor': 1,
-        'name': 'Off (1x)',
-        'subtitle': 'Low CPU usage, native sample rate'
-      },
+      {'factor': 1, 'name': 'Off (1x)', 'subtitle': 'Native sample rate'},
       {
         'factor': 2,
         'name': '2x Oversampling',
-        'subtitle': 'High Quality (Reduces aliasing in saturator/limiter)'
+        'subtitle': 'High Quality (Anti-aliasing saturation)'
       },
       {
         'factor': 4,
         'name': '4x Oversampling',
-        'subtitle': 'Ultra HD (Maximum anti-aliasing purity)'
+        'subtitle': 'Ultra HD (Maximum purity)'
       },
     ];
 
@@ -2144,6 +2290,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   setState(() => _dspOversampling = val);
                   widget.player.setViperOversampling(val);
                   AppStateService.instance.saveDspOversampling(val);
+                  onDone?.call();
                   Navigator.pop(ctx);
                 }
               },
@@ -2154,66 +2301,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showResampleAlgorithmDialog() {
+  void _showResampleAlgorithmDialog({VoidCallback? onDone}) {
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Resampling Algorithm',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                for (int i = 0; i <= 5; i++)
-                  _buildRadioOption(_getResampleAlgorithmName(i),
-                      _getResampleAlgorithmName(_resampleAlgorithm), (v) {
-                    setState(() => _resampleAlgorithm = i);
-                    widget.player.setEngineResampleAlgorithm(i);
-                    _persistUiSettings();
-                    Navigator.pop(ctx);
-                  }),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('Resampling Algorithm',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          for (int i = 0; i <= 5; i++)
+            _buildRadioOption(_getResampleAlgorithmName(i),
+                _getResampleAlgorithmName(_resampleAlgorithm), (v) {
+              setState(() => _resampleAlgorithm = i);
+              widget.player.setEngineResampleAlgorithm(i);
+              _persistUiSettings();
+              onDone?.call();
+              Navigator.pop(ctx);
+            }),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
-  void _showAnalyzerSampleSizeDialog() {
+  void _showAnalyzerSampleSizeDialog({VoidCallback? onDone}) {
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Sample Size (FFT)',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                for (final size in [256, 512, 1024, 2048, 4096, 8192])
-                  _buildRadioOption(
-                      size.toString(), widget.analyzerSampleSize.toString(),
-                      (v) {
-                    widget.onAnalyzerSampleSizeChanged(size);
-                    Navigator.pop(ctx);
-                  }),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('Sample Size (FFT)',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          for (final size in [256, 512, 1024, 2048, 4096, 8192])
+            _buildRadioOption(
+                size.toString(), widget.analyzerSampleSize.toString(), (v) {
+              widget.onAnalyzerSampleSizeChanged(size);
+              onDone?.call();
+              Navigator.pop(ctx);
+            }),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
-  Future<void> _showReplayGainModeDialog() async {
+  Future<void> _showReplayGainModeDialog({VoidCallback? onDone}) async {
     return showDialog(
       context: context,
       builder: (context) {
@@ -2225,38 +2375,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('None', style: TextStyle(color: Colors.white)),
+                title: const Text('None', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.none,
                 groupValue: _replayGainMode,
                 onChanged: (val) {
                   setState(() => _replayGainMode = val!);
                   _persistReplayGainSettings();
+                  onDone?.call();
                   Navigator.pop(context);
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('Track', style: TextStyle(color: Colors.white)),
+                title: const Text('Track', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.track,
                 groupValue: _replayGainMode,
                 onChanged: (val) {
                   setState(() => _replayGainMode = val!);
                   _persistReplayGainSettings();
+                  onDone?.call();
                   Navigator.pop(context);
                 },
               ),
               RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('Album', style: TextStyle(color: Colors.white)),
+                title: const Text('Album', style: TextStyle(color: Colors.white)),
                 activeColor: _primary,
                 value: ReplayGainMode.album,
                 groupValue: _replayGainMode,
                 onChanged: (val) {
                   setState(() => _replayGainMode = val!);
                   _persistReplayGainSettings();
+                  onDone?.call();
                   Navigator.pop(context);
                 },
               ),
@@ -2292,7 +2442,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _showDitherModeDialog() async {
+  Future<void> _showDitherModeDialog({VoidCallback? onDone}) async {
     final modes = [
       {'id': 0, 'name': 'None', 'subtitle': 'No dithering applied'},
       {'id': 1, 'name': 'Rectangle (RPDF)', 'subtitle': 'Simple flat dither'},
@@ -2376,6 +2526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _ditherMode = val);
                         widget.player.setEngineDitherMode(val);
                         _persistUiSettings();
+                        onDone?.call();
                         Navigator.pop(ctx);
                       }
                     },
@@ -2390,110 +2541,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showOutputFormatDialog() {
+  void _showOutputFormatDialog({VoidCallback? onDone}) {
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Engine Output Format',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                for (final fmt in [
-                  AudioFormat.f32,
-                  AudioFormat.s32,
-                  AudioFormat.s24,
-                  AudioFormat.s16,
-                  AudioFormat.u8
-                ])
-                  _buildRadioOption(_formatAudioDepth(fmt),
-                      _formatAudioDepth(widget.outputFormat), (v) {
-                    widget.onOutputFormatChanged(fmt);
-                    widget.player.setOutputFormat(fmt);
-                    Navigator.pop(ctx);
-                  }),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('Engine Output Format',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          for (final fmt in [
+            AudioFormat.f32,
+            AudioFormat.s32,
+            AudioFormat.s24,
+            AudioFormat.s16,
+            AudioFormat.u8
+          ])
+            _buildRadioOption(_formatAudioDepth(fmt),
+                _formatAudioDepth(widget.outputFormat), (v) {
+              widget.onOutputFormatChanged(fmt);
+              widget.player.setOutputFormat(fmt);
+              onDone?.call();
+              Navigator.pop(ctx);
+            }),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
-  void _showSampleRateDialog() {
+  void _showSampleRateDialog({VoidCallback? onDone}) {
     final rates = [0, 44100, 48000, 96000, 192000];
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Engine Sample Rate',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                ...rates.map((r) => _buildRadioOption(
-                        r == 0 ? 'Native' : '$r Hz',
-                        widget.outputSampleRate == 0
-                            ? 'Native'
-                            : '${widget.outputSampleRate} Hz', (v) {
-                      final val = v == 'Native'
-                          ? 0
-                          : int.parse(v!.replaceAll(' Hz', ''));
-                      widget.onOutputSampleRateChanged(val);
-                      widget.player.setOutputSampleRate(val);
-                      Navigator.pop(ctx);
-                    })),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('Engine Sample Rate',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          ...rates.map((r) => _buildRadioOption(
+                  r == 0 ? 'Native' : '$r Hz',
+                  widget.outputSampleRate == 0
+                      ? 'Native'
+                      : '${widget.outputSampleRate} Hz', (v) {
+                final val = v == 'Native'
+                    ? 0
+                    : int.parse(v!.replaceAll(' Hz', ''));
+                widget.onOutputSampleRateChanged(val);
+                widget.player.setOutputSampleRate(val);
+                onDone?.call();
+                Navigator.pop(ctx);
+              })),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
-  void _showChannelsDialog() {
+  void _showChannelsDialog({VoidCallback? onDone}) {
     showModalBottomSheet(
-        context: context,
-        backgroundColor: _cardDark,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text('Engine Output Channels',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
-                _buildRadioOption(
-                    'Mono', widget.outputChannels == 1 ? 'Mono' : 'Stereo',
-                    (v) {
-                  widget.onOutputChannelsChanged(1);
-                  widget.player.setOutputChannels(1);
-                  Navigator.pop(ctx);
-                }),
-                _buildRadioOption(
-                    'Stereo', widget.outputChannels == 1 ? 'Mono' : 'Stereo',
-                    (v) {
-                  widget.onOutputChannelsChanged(2);
-                  widget.player.setOutputChannels(2);
-                  Navigator.pop(ctx);
-                }),
-                const SizedBox(height: 20),
-              ],
-            ));
+      context: context,
+      backgroundColor: _cardDark,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Text('Engine Output Channels',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ),
+          _buildRadioOption(
+              'Mono', widget.outputChannels == 1 ? 'Mono' : 'Stereo', (v) {
+            widget.onOutputChannelsChanged(1);
+            widget.player.setOutputChannels(1);
+            onDone?.call();
+            Navigator.pop(ctx);
+          }),
+          _buildRadioOption(
+              'Stereo', widget.outputChannels == 1 ? 'Mono' : 'Stereo', (v) {
+            widget.onOutputChannelsChanged(2);
+            widget.player.setOutputChannels(2);
+            onDone?.call();
+            Navigator.pop(ctx);
+          }),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
   }
 
   Widget _buildRadioOption(
@@ -2507,7 +2663,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showSubsonicDialog() {
+  void _showSubsonicDialog({VoidCallback? onDone}) {
     final options = [
       (0.0, 'Disabled (Off)'),
       (15.0, '15 Hz (Ultra Sub-bass)'),
@@ -2541,6 +2697,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (val != null) {
                     setState(() => _subsonicCutoffHz = val);
                     _persistSpeakerProtectionSettings();
+                    onDone?.call();
                   }
                   Navigator.pop(context);
                 },
@@ -2552,7 +2709,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showUltrasonicDialog() {
+  void _showUltrasonicDialog({VoidCallback? onDone}) {
     final options = [
       (24000.0, 'Disabled (Off)'),
       (22000.0, '22 kHz (Hi-Res Limit)'),
@@ -2585,6 +2742,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (val != null) {
                     setState(() => _ultrasonicCutoffHz = val);
                     _persistSpeakerProtectionSettings();
+                    onDone?.call();
                   }
                   Navigator.pop(context);
                 },

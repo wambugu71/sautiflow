@@ -92,7 +92,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   StreamSubscription? _analyzerSub;
   FftProcessor? _fftProcessor;
 
-  bool _showLyrics = false;
+  final bool _showLyrics = false;
   String? _lyricsRaw;
   bool _isLoadingLyrics = false;
   bool _showLyricsOverlayOnAlbumArt = false;
@@ -179,7 +179,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       setState(() => _useWaveformSeekBar = enabled);
       if (enabled) _updateCurrentTrackWaveform();
     }
-    _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream.listen((enabled) {
+    _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream
+        .listen((enabled) {
       if (mounted) {
         setState(() => _useWaveformSeekBar = enabled);
         if (enabled && _currentWaveformPeaks == null) {
@@ -192,7 +193,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Future<void> _updateCurrentTrackWaveform() async {
     final status = widget.statusNotifier.value;
     String trackPath = '';
-    if (widget.queue.isNotEmpty && status.currentIndex >= 0 && status.currentIndex < widget.queue.length) {
+    if (widget.queue.isNotEmpty &&
+        status.currentIndex >= 0 &&
+        status.currentIndex < widget.queue.length) {
       final track = widget.queue[status.currentIndex];
       trackPath = track.videoId.isNotEmpty ? track.videoId : track.title;
     }
@@ -201,7 +204,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (trackPath.isEmpty) return;
 
-    final peaks = await WaveformExtractorService.instance.getWaveform(trackPath);
+    final peaks =
+        await WaveformExtractorService.instance.getWaveform(trackPath);
     if (mounted) {
       setState(() {
         _currentWaveformPeaks = peaks;
@@ -247,7 +251,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final target = _pendingSeekMs;
     if (target == null) return;
     final enginePosMs = status.positionSeconds * 1000.0;
-    if ((enginePosMs - target).abs() < 4000 || (enginePosMs < 2000 && target > 5000)) {
+    if ((enginePosMs - target).abs() < 4000 ||
+        (enginePosMs < 2000 && target > 5000)) {
       _seekTimeoutTimer?.cancel();
       if (mounted) setState(() => _pendingSeekMs = null);
     }
@@ -260,7 +265,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _isAnalyzerEnabled = widget.analyzerEnabled;
       _setupAnalyzer(_isAnalyzerEnabled);
     }
-    if (oldWidget.videoId != widget.videoId || oldWidget.sourceType != widget.sourceType) {
+    if (oldWidget.videoId != widget.videoId ||
+        oldWidget.sourceType != widget.sourceType) {
       _pendingSeekMs = null;
       _isDragging = false;
       _seekTimeoutTimer?.cancel();
@@ -322,8 +328,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-
-
   String _formatSampleRate(int rateHz) {
     if (rateHz <= 0) return '44.1 kHz';
     if (rateHz % 1000 == 0) {
@@ -356,7 +360,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           final file = File(cleanPath);
           if (file.existsSync()) {
             _fileSizeBytes = file.lengthSync();
-            final info = await AudioFileInspector.inspectNative(widget.player, cleanPath);
+            final info = await AudioFileInspector.inspectNative(
+                widget.player, cleanPath);
             sampleRateStr = info.formattedSampleRate;
             depthStr = info.formattedBitDepth;
             channelsStr = info.formattedChannels;
@@ -367,7 +372,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (metadata.album != null && metadata.album!.isNotEmpty) {
                 _customAlbum = metadata.album!;
               }
-              if (metadata.genres.isNotEmpty && metadata.genres.first.isNotEmpty) {
+              if (metadata.genres.isNotEmpty &&
+                  metadata.genres.first.isNotEmpty) {
                 _customGenre = metadata.genres.first;
               }
               if (metadata.year != null) {
@@ -430,11 +436,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _buildAudioInfoBadgeText(String trackPosition) {
     final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
     final codecPart = _detectedCodec ?? widget.codec;
-    final speedPart = (_currentPitch - 1.0).abs() > 0.01 ? ' ${_currentPitch.toStringAsFixed(2)}X' : '';
-    return '$trackPosition $depthPart$_sampleRate $codecPart$speedPart'.toUpperCase();
+    final speedPart = (_currentPitch - 1.0).abs() > 0.01
+        ? ' ${_currentPitch.toStringAsFixed(2)}X'
+        : '';
+    return '$trackPosition $depthPart$_sampleRate $codecPart$speedPart'
+        .toUpperCase();
   }
-
-
 
   Future<void> _fetchLyrics() async {
     if (widget.videoId == null) return;
@@ -541,12 +548,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             SnackBar(
               content: Row(
                 children: [
-                  const Icon(Icons.lyrics_outlined, color: Color(0xFF137FEC), size: 18),
+                  const Icon(Icons.lyrics_outlined,
+                      color: Color(0xFF137FEC), size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Loaded lyrics: ${_customLyricsFileName!}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -623,22 +632,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       ),
                     ),
                     ListTile(
-                      leading: const Icon(Icons.info_outline, color: Colors.white),
-                      title: const Text('Song Info & Tags', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('View or edit track metadata', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      leading:
+                          const Icon(Icons.info_outline, color: Colors.white),
+                      title: const Text('Song Info & Tags',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600)),
+                      subtitle: const Text('View or edit track metadata',
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 12)),
                       onTap: () {
                         Navigator.pop(sheetContext);
                         _showMusicInfoDialog(context);
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.subtitles_outlined, color: Color(0xFF137FEC)),
-                      title: const Text('Add .lrc Lyrics File', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      leading: const Icon(Icons.subtitles_outlined,
+                          color: Color(0xFF137FEC)),
+                      title: const Text('Add .lrc Lyrics File',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600)),
                       subtitle: Text(
                         _isCustomLyricsLoaded
                             ? 'Loaded: ${_customLyricsFileName ?? "Custom LRC"}'
                             : 'Select synchronized .lrc / .txt file from storage',
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12),
                         overflow: TextOverflow.ellipsis,
                       ),
                       onTap: () {
@@ -648,24 +668,40 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ),
                     SwitchListTile(
                       secondary: Icon(
-                        _showLyricsOverlayOnAlbumArt ? Icons.layers : Icons.layers_clear,
-                        color: _showLyricsOverlayOnAlbumArt ? const Color(0xFF137FEC) : Colors.white54,
+                        _showLyricsOverlayOnAlbumArt
+                            ? Icons.layers
+                            : Icons.layers_clear,
+                        color: _showLyricsOverlayOnAlbumArt
+                            ? const Color(0xFF137FEC)
+                            : Colors.white54,
                       ),
-                      title: const Text('Lyrics Overlay on Album Art', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Display synchronized lyrics over album cover', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      title: const Text('Lyrics Overlay on Album Art',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600)),
+                      subtitle: const Text(
+                          'Display synchronized lyrics over album cover',
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 12)),
                       activeThumbColor: const Color(0xFF137FEC),
                       value: _showLyricsOverlayOnAlbumArt,
                       onChanged: (_lyricsRaw == null && !_isCustomLyricsLoaded)
                           ? null
                           : (val) {
-                              setSheetState(() => _showLyricsOverlayOnAlbumArt = val);
-                              setState(() => _showLyricsOverlayOnAlbumArt = val);
+                              setSheetState(
+                                  () => _showLyricsOverlayOnAlbumArt = val);
+                              setState(
+                                  () => _showLyricsOverlayOnAlbumArt = val);
                             },
                     ),
                     if (_isCustomLyricsLoaded)
                       ListTile(
-                        leading: const Icon(Icons.cleaning_services_outlined, color: Colors.redAccent),
-                        title: const Text('Reset to Default Lyrics', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                        leading: const Icon(Icons.cleaning_services_outlined,
+                            color: Colors.redAccent),
+                        title: const Text('Reset to Default Lyrics',
+                            style: TextStyle(
+                                color: Colors.redAccent,
+                                fontWeight: FontWeight.w600)),
                         onTap: () {
                           Navigator.pop(sheetContext);
                           _clearCustomLyrics();
@@ -717,7 +753,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   padding: const EdgeInsets.fromLTRB(12, 40, 12, 12),
                   child: SyncedLyricsWidget(
                     lyricsRaw: _lyricsRaw ?? '',
-                    currentPosition: Duration(milliseconds: displayPosMs.toInt()),
+                    currentPosition:
+                        Duration(milliseconds: displayPosMs.toInt()),
                     onSeek: (targetTime) {
                       widget.player.seekTo(targetTime);
                     },
@@ -732,7 +769,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: const Color(0xFF137FEC).withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(10),
@@ -740,7 +778,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.lyrics, size: 12, color: Color(0xFF137FEC)),
+                          const Icon(Icons.lyrics,
+                              size: 12, color: Color(0xFF137FEC)),
                           const SizedBox(width: 4),
                           Text(
                             _isCustomLyricsLoaded
@@ -757,7 +796,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ),
                     const Spacer(),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+                      icon: const Icon(Icons.close,
+                          size: 18, color: Colors.white70),
                       onPressed: () {
                         setState(() => _showLyricsOverlayOnAlbumArt = false);
                       },
@@ -779,6 +819,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final h = d.inHours;
     return h > 0 ? '${h.toString().padLeft(2, '0')}:$m:$s' : '$m:$s';
   }
+
   IconData _loopIcon(LoopMode mode) {
     switch (mode) {
       case LoopMode.off:
@@ -866,7 +907,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           initialData: initial,
           stream: AudioHardwareInspector.hardwareStream(widget.player),
           builder: (context, snapshot) {
-            final specs = snapshot.data ?? initial ?? AudioHardwareInspector.currentSpecs;
+            final specs =
+                snapshot.data ?? initial ?? AudioHardwareInspector.currentSpecs;
             return ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.92,
@@ -1143,21 +1185,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          if (node.sublabel != null) ...
-            [
-              const SizedBox(height: 2),
-              Text(
-                node.sublabel!,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: node.isHighlight
-                      ? primaryColor.withValues(alpha: 0.8)
-                      : Colors.white38,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+          if (node.sublabel != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              node.sublabel!,
+              style: TextStyle(
+                fontSize: 10,
+                color: node.isHighlight
+                    ? primaryColor.withValues(alpha: 0.8)
+                    : Colors.white38,
               ),
-            ],
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );
@@ -1186,7 +1227,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  Widget _buildSpecChip(IconData icon, String label, String value, {bool isHiRes = false}) {
+  Widget _buildSpecChip(IconData icon, String label, String value,
+      {bool isHiRes = false}) {
     return Container(
       width: 160,
       padding: const EdgeInsets.all(12),
@@ -1194,7 +1236,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isHiRes ? const Color(0xFF137FEC).withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.08),
+          color: isHiRes
+              ? const Color(0xFF137FEC).withValues(alpha: 0.6)
+              : Colors.white.withValues(alpha: 0.08),
         ),
       ),
       child: Column(
@@ -1202,7 +1246,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         children: [
           Row(
             children: [
-              Icon(icon, size: 14, color: isHiRes ? const Color(0xFF137FEC) : Colors.white54),
+              Icon(icon,
+                  size: 14,
+                  color: isHiRes ? const Color(0xFF137FEC) : Colors.white54),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1324,880 +1370,1261 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   physics: const BouncingScrollPhysics(),
                   children: [
                     LayoutBuilder(builder: (context, constraints) {
-                  final isDesktop = constraints.maxWidth >= 800;
+                      final isDesktop = constraints.maxWidth >= 800;
 
-                  final pureLyrics = _isLoadingLyrics
-                      ? Center(
-                          child: LoadingIndicatorM3E(
-                              color: primaryColor,
-                              containerColor: primaryColor.withAlpha(50)))
-                      : _lyricsRaw == null
+                      final pureLyrics = _isLoadingLyrics
                           ? Center(
-                              child: Text(
-                                'No lyrics available',
-                                style: TextStyle(color: textDark, fontSize: 16),
-                              ),
-                            )
-                          : SyncedLyricsWidget(
-                              lyricsRaw: _lyricsRaw!,
-                              currentPosition: Duration(milliseconds: displayPosMs.toInt()),
-                              onSeek: (targetTime) {
-                                widget.player.seekTo(targetTime);
-                              },
-                            );
-
-
-                  Widget content;
-                  if (isDesktop) {
-                    content = Column(
-                      children: [
-                        const SizedBox(height: 24),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 64.0, vertical: 24.0),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // Left Column (Album Art with Overlay)
-                                Expanded(
-                                  flex: 10,
-                                  child: Center(
-                                    child: AspectRatio(
-                                      aspectRatio: 1.0,
-                                      child: Stack(
-                                        children: [
-                                          // Album Art Image
-                                          Positioned.fill(
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                borderRadius: BorderRadius.circular(32.0),
-                                                color: surfaceColor,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withValues(alpha: 0.5),
-                                                    blurRadius: 40,
-                                                    spreadRadius: 2,
-                                                    offset: const Offset(0, 10),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: ClipRRect(
-                                                borderRadius: BorderRadius.circular(32.0),
-                                                child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
-                                                    ? Container(
-                                                        decoration: BoxDecoration(
-                                                          image: DecorationImage(
-                                                            image: MemoryImage(widget.albumArt!),
-                                                            fit: BoxFit.cover,
-                                                          ),
-                                                        ),
-                                                      )
-                                                    : RotationTransition(
-                                                         turns: _rotationController,
-                                                         child: Container(
-                                                           color: surfaceColor,
-                                                           padding: const EdgeInsets.all(32.0),
-                                                           child: Image.asset(
-                                                             'assets/icon/splash.png',
-                                                             fit: BoxFit.contain,
-                                                           ),
-                                                         ),
-                                                       ),
-                                              ),
-                                            ),
-                                          ),
-                                          // Gradient Overlay at the bottom
-                                          Positioned(
-                                            bottom: 0,
-                                            left: 0,
-                                            right: 0,
-                                            height: 160,
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32.0)),
-                                                gradient: LinearGradient(
-                                                  begin: Alignment.topCenter,
-                                                  end: Alignment.bottomCenter,
-                                                  colors: [
-                                                    Colors.transparent,
-                                                    Colors.black.withValues(alpha: 0.9),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          // Lyrics Overlay on Album Art
-                                          _buildAlbumArtLyricsOverlay(
-                                            borderRadius: 32.0,
-                                            bottomOffset: 130.0,
-                                            displayPosMs: displayPosMs,
-                                          ),
-                                          // Text (Title, Artist)
-                                          Positioned(
-                                            left: 32,
-                                            bottom: 80,
-                                            right: 32,
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                AdaptiveMarqueeText(
-                                         text: title,
-                                         style: const TextStyle(
-                                           fontSize: 36,
-                                           fontWeight: FontWeight.bold,
-                                           color: textLight,
-                                         ),
-                                         blankSpace: 40.0,
-                                         velocity: 30.0,
-                                       ),
-                                                const SizedBox(height: 8),
-                                                Text(
-                                                  subtitle,
-                                                  style: const TextStyle(
-                                                    fontSize: 20,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.white70,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          // Buttons at the bottom edge
-                                          Positioned(
-                                            bottom: 24,
-                                            left: 32,
-                                            right: 32,
-                                            child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    // Like
-                                                    ValueListenableBuilder<List<LikedSong>>(
-                                                      valueListenable: LikedSongsService.instance.likedSongsNotifier,
-                                                      builder: (context, likedSongs, _) {
-                                                        final trackId = widget.videoId ?? widget.getTitle(status.currentIndex);
-                                                        final isCurrentlyLiked = likedSongs.any((s) => s.videoId == trackId);
-                                                        return GestureDetector(
-                                                          onTap: () async {
-                                                            if (trackId.isEmpty) return;
-                                                            if (isCurrentlyLiked) {
-                                                              await LikedSongsService.instance.removeLikedSong(trackId);
-                                                            } else {
-                                                              await LikedSongsService.instance.addLikedSong(LikedSong(
-                                                                videoId: trackId,
-                                                                title: title,
-                                                                artist: subtitle,
-                                                                thumbnailUrl: widget.albumArt == null ? null : trackId,
-                                                                durationSeconds: duration.inSeconds,
-                                                                likedAt: DateTime.now(),
-                                                              ));
-                                                            }
-                                                          },
-                                                          child: CircleAvatar(
-                                                            backgroundColor: isCurrentlyLiked ? primaryColor : Colors.white.withValues(alpha: 0.2),
-                                                            radius: 24,
-                                                            child: Icon(isCurrentlyLiked ? Icons.thumb_up : Icons.thumb_up_outlined, color: Colors.white, size: 24),
-                                                          ),
-                                                        );
-                                                      },
-                                                    ),
-                                                    const SizedBox(width: 16),
-                                                    // Dislike
-                                                    CircleAvatar(
-                                                      backgroundColor: Colors.white.withValues(alpha: 0.2),
-                                                      radius: 24,
-                                                      child: const Icon(Icons.thumb_down_outlined, color: Colors.white, size: 24),
-                                                    ),
-                                                  ],
-                                                ),
-                                                Row(
-                                                  children: [
-                                                    // Queue/Playlist
-                                                    GestureDetector(
-                                                      onTap: () => _showQueueSheet(context),
-                                                      child: CircleAvatar(
-                                                        backgroundColor: Colors.white.withValues(alpha: 0.2),
-                                                        radius: 24,
-                                                        child: const Icon(Icons.playlist_play, color: Colors.white, size: 24),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 16),
-                                                     // More options
-                                                     IconButton(
-                                                       icon: Icon(
-                                               Icons.more_vert,
-                                               color: _isCustomLyricsLoaded ? const Color(0xFF137FEC) : Colors.white,
-                                             ),
-                                                       onPressed: () => _showMoreOptionsMenu(context),
-                                                       tooltip: 'Track Options',
-                                                     ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          // Minimize icon at top left
-                                          Positioned(
-                                            top: 24,
-                                            left: 24,
-                                            child: IconButton(
-                                              icon: const Icon(Icons.keyboard_arrow_down, size: 40, color: textLight),
-                                              onPressed: widget.onMinimize,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                              child: LoadingIndicatorM3E(
+                                  color: primaryColor,
+                                  containerColor: primaryColor.withAlpha(50)))
+                          : _lyricsRaw == null
+                              ? Center(
+                                  child: Text(
+                                    'No lyrics available',
+                                    style: TextStyle(
+                                        color: textDark, fontSize: 16),
                                   ),
-                                ),
-                                const SizedBox(width: 64),
-                                // Right Column (Lyrics/Spacer, Controls)
-                                Expanded(
-                                  flex: 11,
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      if (_showLyrics)
-                                        Expanded(child: pureLyrics)
-                                      else
-                                        const Spacer(),
-                                        
-                                      // Action Buttons Row
-                                      FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            _buildActionIcon(Icons.graphic_eq, () {
-                                              Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
-                                                player: widget.player,
-                                                analyzerEnabled: _isAnalyzerEnabled,
-                                                analyzerType: widget.analyzerType,
-                                                analyzerAutoFit: widget.analyzerAutoFit,
-                                                analyzerShowGrids: widget.analyzerShowGrids,
-                                                outputSampleRate: widget.outputSampleRate,
-                                              )));
-                                            }),
-                                            _buildActionIcon(
-                                              (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
-                                              () => showPlaybackSpeedModal(
-                                                context,
-                                                widget.player,
-                                                currentPitch: _currentPitch,
-                                                onPitchChanged: (p) => setState(() => _currentPitch = p),
-                                              ),
-                                            ),
-                                            _buildActionIcon(_loopIcon(status.loopMode), () {
-                                              final currentMode = status.loopMode;
-                                              final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
-                                              widget.player.setLoopMode(nextMode);
-                                            }),
-                                            _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
-                                            // A-B Repeat button
-                                            _buildAbRepeatButton(
-                                              currentPositionMs: displayPosMs,
-                                              maxMs: maxMs,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 48),
-                                      
-                                      // Playback Controls
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.fast_rewind, size: 36, color: Colors.white54),
-                                            onPressed: () { widget.player.seekTo(Duration(milliseconds: (displayPosMs - 10000).toInt().clamp(0, maxMs.toInt()))); },
-                                          ),
-                                          const SizedBox(width: 16),
-                                          IconButton(
-                                            icon: const Icon(Icons.skip_previous, size: 48, color: Colors.white),
-                                            onPressed: widget.player.seekToPrevious,
-                                          ),
-                                          const SizedBox(width: 24),
-                                          GestureDetector(
-                                            onTap: status.isPlaying ? widget.player.pause : widget.player.play,
-                                            child: Container(
-                                              width: 96,
-                                              height: 96,
-                                              decoration: const BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: Colors.black,
-                                              ),
-                                              child: Icon(
-                                                status.isPlaying ? Icons.pause : Icons.play_arrow,
-                                                size: 56,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 24),
-                                          IconButton(
-                                            icon: const Icon(Icons.skip_next, size: 48, color: Colors.white),
-                                            onPressed: widget.player.seekToNext,
-                                          ),
-                                          const SizedBox(width: 16),
-                                          IconButton(
-                                            icon: const Icon(Icons.fast_forward, size: 36, color: Colors.white54),
-                                            onPressed: () { widget.player.seekTo(Duration(milliseconds: (displayPosMs + 10000).toInt().clamp(0, maxMs.toInt()))); },
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 40),
-                                       // Progress Bar & Info Badge
-                                       Column(
-                                         children: [
-                                          // A-B region labels
-                                          if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
-                                          LayoutBuilder(
-                                            builder: (context, constraints) {
-                                              return _buildSeekBarWidget(
-                                                displayPosMs: displayPosMs,
-                                                maxMs: maxMs,
-                                                totalWidth: constraints.maxWidth,
-                                                isMobile: false,
-                                                primaryColor: primaryColor,
-                                              );
-                                            },
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                )
+                              : SyncedLyricsWidget(
+                                  lyricsRaw: _lyricsRaw!,
+                                  currentPosition: Duration(
+                                      milliseconds: displayPosMs.toInt()),
+                                  onSeek: (targetTime) {
+                                    widget.player.seekTo(targetTime);
+                                  },
+                                );
+
+                      Widget content;
+                      if (isDesktop) {
+                        content = Column(
+                          children: [
+                            const SizedBox(height: 24),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 64.0, vertical: 24.0),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    // Left Column (Album Art with Overlay)
+                                    Expanded(
+                                      flex: 10,
+                                      child: Center(
+                                        child: AspectRatio(
+                                          aspectRatio: 1.0,
+                                          child: Stack(
                                             children: [
-                                              Text(
-                                                _fmt(Duration(milliseconds: displayPosMs.toInt())),
-                                                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                                              ),
-                                              // Audio Info Badge
-                                              GestureDetector(
-                                                onTap: () => _showHardwareSpecsModal(context),
+                                              // Album Art Image
+                                              Positioned.fill(
                                                 child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.white.withValues(alpha: 0.1),
-                                                    borderRadius: BorderRadius.circular(16),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(Icons.info_outline, size: 12, color: Colors.white70),
-                                                      const SizedBox(width: 4),
-                                                      Text(
-                                                        _buildAudioInfoBadgeText(trackPosition),
-                                                        style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            32.0),
+                                                    color: surfaceColor,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withValues(
+                                                                alpha: 0.5),
+                                                        blurRadius: 40,
+                                                        spreadRadius: 2,
+                                                        offset:
+                                                            const Offset(0, 10),
                                                       ),
                                                     ],
                                                   ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            32.0),
+                                                    child: (widget.albumArt !=
+                                                                null &&
+                                                            widget.albumArt!
+                                                                .isNotEmpty)
+                                                        ? Container(
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              image:
+                                                                  DecorationImage(
+                                                                image: MemoryImage(
+                                                                    widget
+                                                                        .albumArt!),
+                                                                fit: BoxFit
+                                                                    .cover,
+                                                              ),
+                                                            ),
+                                                          )
+                                                        : RotationTransition(
+                                                            turns:
+                                                                _rotationController,
+                                                            child: Container(
+                                                              color:
+                                                                  surfaceColor,
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                      .all(
+                                                                      32.0),
+                                                              child:
+                                                                  Image.asset(
+                                                                'assets/icon/splash.png',
+                                                                fit: BoxFit
+                                                                    .contain,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                  ),
                                                 ),
                                               ),
-                                              Text(
-                                                _fmt(duration),
-                                                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+                                              // Gradient Overlay at the bottom
+                                              Positioned(
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                height: 160,
+                                                child: Container(
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        const BorderRadius
+                                                            .vertical(
+                                                            bottom:
+                                                                Radius.circular(
+                                                                    32.0)),
+                                                    gradient: LinearGradient(
+                                                      begin:
+                                                          Alignment.topCenter,
+                                                      end: Alignment
+                                                          .bottomCenter,
+                                                      colors: [
+                                                        Colors.transparent,
+                                                        Colors.black.withValues(
+                                                            alpha: 0.9),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              // Lyrics Overlay on Album Art
+                                              _buildAlbumArtLyricsOverlay(
+                                                borderRadius: 32.0,
+                                                bottomOffset: 130.0,
+                                                displayPosMs: displayPosMs,
+                                              ),
+                                              // Text (Title, Artist)
+                                              Positioned(
+                                                left: 32,
+                                                bottom: 80,
+                                                right: 32,
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    AdaptiveMarqueeText(
+                                                      text: title,
+                                                      style: const TextStyle(
+                                                        fontSize: 36,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: textLight,
+                                                      ),
+                                                      blankSpace: 40.0,
+                                                      velocity: 30.0,
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    Text(
+                                                      subtitle,
+                                                      style: const TextStyle(
+                                                        fontSize: 20,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color: Colors.white70,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              // Buttons at the bottom edge
+                                              Positioned(
+                                                bottom: 24,
+                                                left: 32,
+                                                right: 32,
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Row(
+                                                      children: [
+                                                        // Like
+                                                        ValueListenableBuilder<
+                                                            List<LikedSong>>(
+                                                          valueListenable:
+                                                              LikedSongsService
+                                                                  .instance
+                                                                  .likedSongsNotifier,
+                                                          builder: (context,
+                                                              likedSongs, _) {
+                                                            final trackId = widget
+                                                                    .videoId ??
+                                                                widget.getTitle(
+                                                                    status
+                                                                        .currentIndex);
+                                                            final isCurrentlyLiked =
+                                                                likedSongs.any((s) =>
+                                                                    s.videoId ==
+                                                                    trackId);
+                                                            return GestureDetector(
+                                                              onTap: () async {
+                                                                if (trackId
+                                                                    .isEmpty)
+                                                                  return;
+                                                                if (isCurrentlyLiked) {
+                                                                  await LikedSongsService
+                                                                      .instance
+                                                                      .removeLikedSong(
+                                                                          trackId);
+                                                                } else {
+                                                                  await LikedSongsService
+                                                                      .instance
+                                                                      .addLikedSong(
+                                                                          LikedSong(
+                                                                    videoId:
+                                                                        trackId,
+                                                                    title:
+                                                                        title,
+                                                                    artist:
+                                                                        subtitle,
+                                                                    thumbnailUrl: widget.albumArt ==
+                                                                            null
+                                                                        ? null
+                                                                        : trackId,
+                                                                    durationSeconds:
+                                                                        duration
+                                                                            .inSeconds,
+                                                                    likedAt:
+                                                                        DateTime
+                                                                            .now(),
+                                                                  ));
+                                                                }
+                                                              },
+                                                              child:
+                                                                  CircleAvatar(
+                                                                backgroundColor: isCurrentlyLiked
+                                                                    ? primaryColor
+                                                                    : Colors
+                                                                        .white
+                                                                        .withValues(
+                                                                            alpha:
+                                                                                0.2),
+                                                                radius: 24,
+                                                                child: Icon(
+                                                                    isCurrentlyLiked
+                                                                        ? Icons
+                                                                            .thumb_up
+                                                                        : Icons
+                                                                            .thumb_up_outlined,
+                                                                    color: Colors
+                                                                        .white,
+                                                                    size: 24),
+                                                              ),
+                                                            );
+                                                          },
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 16),
+                                                        // Dislike
+                                                        CircleAvatar(
+                                                          backgroundColor:
+                                                              Colors.white
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.2),
+                                                          radius: 24,
+                                                          child: const Icon(
+                                                              Icons
+                                                                  .thumb_down_outlined,
+                                                              color:
+                                                                  Colors.white,
+                                                              size: 24),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    Row(
+                                                      children: [
+                                                        // Queue/Playlist
+                                                        GestureDetector(
+                                                          onTap: () =>
+                                                              _showQueueSheet(
+                                                                  context),
+                                                          child: CircleAvatar(
+                                                            backgroundColor:
+                                                                Colors.white
+                                                                    .withValues(
+                                                                        alpha:
+                                                                            0.2),
+                                                            radius: 24,
+                                                            child: const Icon(
+                                                                Icons
+                                                                    .playlist_play,
+                                                                color: Colors
+                                                                    .white,
+                                                                size: 24),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 16),
+                                                        // More options
+                                                        IconButton(
+                                                          icon: Icon(
+                                                            Icons.more_vert,
+                                                            color: _isCustomLyricsLoaded
+                                                                ? const Color(
+                                                                    0xFF137FEC)
+                                                                : Colors.white,
+                                                          ),
+                                                          onPressed: () =>
+                                                              _showMoreOptionsMenu(
+                                                                  context),
+                                                          tooltip:
+                                                              'Track Options',
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              // Minimize icon at top left
+                                              Positioned(
+                                                top: 24,
+                                                left: 24,
+                                                child: IconButton(
+                                                  icon: const Icon(
+                                                      Icons.keyboard_arrow_down,
+                                                      size: 40,
+                                                      color: textLight),
+                                                  onPressed: widget.onMinimize,
+                                                ),
                                               ),
                                             ],
                                           ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 64),
+                                    // Right Column (Lyrics/Spacer, Controls)
+                                    Expanded(
+                                      flex: 11,
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          if (_showLyrics)
+                                            Expanded(child: pureLyrics)
+                                          else
+                                            const Spacer(),
+
+                                          // Action Buttons Row
+                                          FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                _buildActionIcon(
+                                                    Icons.graphic_eq, () {
+                                                  Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                          builder: (context) =>
+                                                              EffectsScreen(
+                                                                player: widget
+                                                                    .player,
+                                                                analyzerEnabled:
+                                                                    _isAnalyzerEnabled,
+                                                                analyzerType: widget
+                                                                    .analyzerType,
+                                                                analyzerAutoFit:
+                                                                    widget
+                                                                        .analyzerAutoFit,
+                                                                analyzerShowGrids:
+                                                                    widget
+                                                                        .analyzerShowGrids,
+                                                                outputSampleRate:
+                                                                    widget
+                                                                        .outputSampleRate,
+                                                              )));
+                                                }),
+                                                _buildActionIcon(
+                                                  (_currentPitch - 1.0).abs() >
+                                                          0.01
+                                                      ? Icons.speed_rounded
+                                                      : Icons.speed_outlined,
+                                                  () => showPlaybackSpeedModal(
+                                                    context,
+                                                    widget.player,
+                                                    currentPitch: _currentPitch,
+                                                    onPitchChanged: (p) =>
+                                                        setState(() =>
+                                                            _currentPitch = p),
+                                                  ),
+                                                ),
+                                                _buildActionIcon(
+                                                    _loopIcon(status.loopMode),
+                                                    () {
+                                                  final currentMode =
+                                                      status.loopMode;
+                                                  final nextMode =
+                                                      currentMode ==
+                                                              LoopMode.off
+                                                          ? LoopMode.all
+                                                          : (currentMode ==
+                                                                  LoopMode.all
+                                                              ? LoopMode.one
+                                                              : LoopMode.off);
+                                                  widget.player
+                                                      .setLoopMode(nextMode);
+                                                }),
+                                                _buildActionIcon(
+                                                    status.shuffleEnabled
+                                                        ? Icons.shuffle_on
+                                                        : Icons.shuffle, () {
+                                                  widget.player
+                                                      .setShuffleModeEnabled(
+                                                          !status
+                                                              .shuffleEnabled);
+                                                }),
+                                                // A-B Repeat button
+                                                _buildAbRepeatButton(
+                                                  currentPositionMs:
+                                                      displayPosMs,
+                                                  maxMs: maxMs,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 48),
+
+                                          // Playback Controls
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(
+                                                    Icons.fast_rewind,
+                                                    size: 36,
+                                                    color: Colors.white54),
+                                                onPressed: () {
+                                                  widget.player.seekTo(Duration(
+                                                      milliseconds:
+                                                          (displayPosMs - 10000)
+                                                              .toInt()
+                                                              .clamp(
+                                                                  0,
+                                                                  maxMs
+                                                                      .toInt())));
+                                                },
+                                              ),
+                                              const SizedBox(width: 16),
+                                              IconButton(
+                                                icon: const Icon(
+                                                    Icons.skip_previous,
+                                                    size: 48,
+                                                    color: Colors.white),
+                                                onPressed: widget
+                                                    .player.seekToPrevious,
+                                              ),
+                                              const SizedBox(width: 24),
+                                              GestureDetector(
+                                                onTap: status.isPlaying
+                                                    ? widget.player.pause
+                                                    : widget.player.play,
+                                                child: Container(
+                                                  width: 96,
+                                                  height: 96,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color: Colors.black,
+                                                  ),
+                                                  child: Icon(
+                                                    status.isPlaying
+                                                        ? Icons.pause
+                                                        : Icons.play_arrow,
+                                                    size: 56,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 24),
+                                              IconButton(
+                                                icon: const Icon(
+                                                    Icons.skip_next,
+                                                    size: 48,
+                                                    color: Colors.white),
+                                                onPressed:
+                                                    widget.player.seekToNext,
+                                              ),
+                                              const SizedBox(width: 16),
+                                              IconButton(
+                                                icon: const Icon(
+                                                    Icons.fast_forward,
+                                                    size: 36,
+                                                    color: Colors.white54),
+                                                onPressed: () {
+                                                  widget.player.seekTo(Duration(
+                                                      milliseconds:
+                                                          (displayPosMs + 10000)
+                                                              .toInt()
+                                                              .clamp(
+                                                                  0,
+                                                                  maxMs
+                                                                      .toInt())));
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 40),
+                                          // Progress Bar & Info Badge
+                                          Column(
+                                            children: [
+                                              // A-B region labels
+                                              if (_abRepeatState >= 1)
+                                                _buildAbRegionLabels(
+                                                    maxMs: maxMs),
+                                              LayoutBuilder(
+                                                builder:
+                                                    (context, constraints) {
+                                                  return _buildSeekBarWidget(
+                                                    displayPosMs: displayPosMs,
+                                                    maxMs: maxMs,
+                                                    totalWidth:
+                                                        constraints.maxWidth,
+                                                    isMobile: false,
+                                                    primaryColor: primaryColor,
+                                                  );
+                                                },
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    _fmt(Duration(
+                                                        milliseconds:
+                                                            displayPosMs
+                                                                .toInt())),
+                                                    style: const TextStyle(
+                                                        fontSize: 16,
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                            FontWeight.bold),
+                                                  ),
+                                                  // Audio Info Badge
+                                                  GestureDetector(
+                                                    onTap: () =>
+                                                        _showHardwareSpecsModal(
+                                                            context),
+                                                    child: Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 16,
+                                                          vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                                alpha: 0.1),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(16),
+                                                      ),
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(
+                                                              Icons
+                                                                  .info_outline,
+                                                              size: 12,
+                                                              color: Colors
+                                                                  .white70),
+                                                          const SizedBox(
+                                                              width: 4),
+                                                          Text(
+                                                            _buildAudioInfoBadgeText(
+                                                                trackPosition),
+                                                            style: const TextStyle(
+                                                                fontSize: 12,
+                                                                color: Colors
+                                                                    .white70,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                letterSpacing:
+                                                                    0.5),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    _fmt(duration),
+                                                    style: const TextStyle(
+                                                        fontSize: 16,
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                            FontWeight.bold),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                          if (!_showLyrics) const Spacer(),
                                         ],
                                       ),
-                                      if (!_showLyrics) const Spacer(),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  } else {
-                    content = Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        // ── AppBar-style header ───────────────────────────
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8.0, vertical: 4.0),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                    Icons.keyboard_arrow_down,
-                                    size: 32,
-                                    color: textLight),
-                                onPressed: widget.onMinimize,
-                              ),
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'PLAYING FROM PLAYLIST',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.5,
-                                        color: primaryColor,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    const Text(
-                                      'Now Playing',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        color: textLight,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        // Top Album Art Section
-                        Expanded(
-                          flex: 5,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                            child: Center(
-                              child: AspectRatio(
-                                aspectRatio: 1.0,
-                                child: Stack(
-                                  children: [
-                                    // Album Art Image
-                                    Positioned.fill(
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(24.0),
-                                          color: surfaceColor,
-                                        ),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(24.0),
-                                          child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
-                                              ? Container(
-                                                  decoration: BoxDecoration(
-                                                    image: DecorationImage(
-                                                      image: MemoryImage(widget.albumArt!),
-                                                      fit: BoxFit.cover,
-                                                    ),
-                                                  ),
-                                                )
-                                              : RotationTransition(
-                                                  turns: _rotationController,
-                                                  child: Container(
-                                                    color: surfaceColor,
-                                                    padding: const EdgeInsets.all(24.0),
-                                                    child: Image.asset(
-                                                      'assets/icon/splash.png',
-                                                      fit: BoxFit.contain,
-                                                    ),
-                                                  ),
-                                                ),
-                                        ),
-                                      ),
-                                    ),
-                                // Gradient Overlay at the bottom
-                                Positioned(
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 120,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24.0)),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          Colors.transparent,
-                                          Colors.black.withValues(alpha: 0.8),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // Lyrics Overlay on Album Art
-                                _buildAlbumArtLyricsOverlay(
-                                  borderRadius: 24.0,
-                                  bottomOffset: 100.0,
-                                  displayPosMs: displayPosMs,
-                                ),
-                                // Text (Title, Artist)
-                                Positioned(
-                                  left: 16,
-                                  bottom: 60,
-                                  right: 16,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      AdaptiveMarqueeText(
-                                        text: title,
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: textLight,
-                                        ),
-                                        blankSpace: 40.0,
-                                        velocity: 30.0,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        subtitle,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white70,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                // Buttons at the bottom edge
-                                Positioned(
-                                  bottom: 12,
-                                  left: 16,
-                                  right: 16,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          // Like
-                                          ValueListenableBuilder<List<LikedSong>>(
-                                            valueListenable: LikedSongsService.instance.likedSongsNotifier,
-                                            builder: (context, likedSongs, _) {
-                                              final trackId = widget.videoId ?? widget.getTitle(status.currentIndex);
-                                              final isCurrentlyLiked = likedSongs.any((s) => s.videoId == trackId);
-                                              return GestureDetector(
-                                                onTap: () async {
-                                                  if (trackId.isEmpty) return;
-                                                  if (isCurrentlyLiked) {
-                                                    await LikedSongsService.instance.removeLikedSong(trackId);
-                                                  } else {
-                                                    await LikedSongsService.instance.addLikedSong(LikedSong(
-                                                      videoId: trackId,
-                                                      title: title,
-                                                      artist: subtitle,
-                                                      thumbnailUrl: widget.albumArt == null ? null : trackId,
-                                                      durationSeconds: duration.inSeconds,
-                                                      likedAt: DateTime.now(),
-                                                    ));
-                                                  }
-                                                },
-                                                child: CircleAvatar(
-                                                  backgroundColor: isCurrentlyLiked ? primaryColor : Colors.white.withValues(alpha: 0.2),
-                                                  radius: 18,
-                                                  child: Icon(isCurrentlyLiked ? Icons.thumb_up : Icons.thumb_up_outlined, color: Colors.white, size: 18),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          const SizedBox(width: 8),
-                                          // Dislike
-                                          CircleAvatar(
-                                            backgroundColor: Colors.white.withValues(alpha: 0.2),
-                                            radius: 18,
-                                            child: const Icon(Icons.thumb_down_outlined, color: Colors.white, size: 18),
-                                          ),
-                                        ],
-                                      ),
-                                      Row(
-                                        children: [
-                                          // Queue/Playlist
-                                          GestureDetector(
-                                            onTap: () => _showQueueSheet(context),
-                                            child: CircleAvatar(
-                                              backgroundColor: Colors.white.withValues(alpha: 0.2),
-                                              radius: 18,
-                                              child: const Icon(Icons.playlist_play, color: Colors.white, size: 18),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          // More options
-                                          IconButton(
-                                            icon: const Icon(Icons.more_vert, color: Colors.white),
-                                            onPressed: () => _showMoreOptionsMenu(context),
-                                            tooltip: 'Song Info & Tags',
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                        
-                        const SizedBox(height: 32),
-                        
-                        // Playback Controls
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.fast_rewind, size: 32, color: Colors.white54),
-                              onPressed: () { widget.player.seekTo(Duration(milliseconds: (displayPosMs - 10000).toInt().clamp(0, maxMs.toInt()))); },
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.skip_previous, size: 40, color: Colors.white),
-                              onPressed: widget.player.seekToPrevious,
-                            ),
-                            const SizedBox(width: 16),
-                            GestureDetector(
-                              onTap: status.isPlaying ? widget.player.pause : widget.player.play,
-                              child: Container(
-                                width: 80,
-                                height: 80,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.black,
-                                ),
-                                child: Icon(
-                                  status.isPlaying ? Icons.pause : Icons.play_arrow,
-                                  size: 48,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              icon: const Icon(Icons.skip_next, size: 40, color: Colors.white),
-                              onPressed: widget.player.seekToNext,
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.fast_forward, size: 32, color: Colors.white54),
-                              onPressed: () { widget.player.seekTo(Duration(milliseconds: (displayPosMs + 10000).toInt().clamp(0, maxMs.toInt()))); },
                             ),
                           ],
-                        ),
-                        
-                        const SizedBox(height: 24),
-                        
-                        // Progress Bar & Info Badge
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Column(
-                            children: [
-                              // A-B region labels
-                              if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  return _buildSeekBarWidget(
-                                    displayPosMs: displayPosMs,
-                                    maxMs: maxMs,
-                                    totalWidth: constraints.maxWidth,
-                                    isMobile: true,
-                                    primaryColor: primaryColor,
-                                  );
-                                },
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        );
+                      } else {
+                        content = Column(
+                          children: [
+                            const SizedBox(height: 16),
+                            // ── AppBar-style header ───────────────────────────
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8.0, vertical: 4.0),
+                              child: Row(
                                 children: [
-                                  Text(
-                                    _fmt(Duration(milliseconds: displayPosMs.toInt())),
-                                    style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                                  IconButton(
+                                    icon: const Icon(Icons.keyboard_arrow_down,
+                                        size: 32, color: textLight),
+                                    onPressed: widget.onMinimize,
                                   ),
-                                  // Audio Info Badge
-                                  Flexible(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                                      child: GestureDetector(
-                                        onTap: () => _showHardwareSpecsModal(context),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(12),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'PLAYING FROM PLAYLIST',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 1.5,
+                                            color: primaryColor,
                                           ),
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const Icon(Icons.info_outline, size: 10, color: Colors.white70),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  _buildAudioInfoBadgeText(trackPosition),
-                                                  style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        const Text(
+                                          'Now Playing',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            color: textLight,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            // Top Album Art Section
+                            Expanded(
+                              flex: 5,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16.0),
+                                child: Center(
+                                  child: AspectRatio(
+                                    aspectRatio: 1.0,
+                                    child: Stack(
+                                      children: [
+                                        // Album Art Image
+                                        Positioned.fill(
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(24.0),
+                                              color: surfaceColor,
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(24.0),
+                                              child: (widget.albumArt != null &&
+                                                      widget
+                                                          .albumArt!.isNotEmpty)
+                                                  ? Container(
+                                                      decoration: BoxDecoration(
+                                                        image: DecorationImage(
+                                                          image: MemoryImage(
+                                                              widget.albumArt!),
+                                                          fit: BoxFit.cover,
+                                                        ),
+                                                      ),
+                                                    )
+                                                  : RotationTransition(
+                                                      turns:
+                                                          _rotationController,
+                                                      child: Container(
+                                                        color: surfaceColor,
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .all(24.0),
+                                                        child: Image.asset(
+                                                          'assets/icon/splash.png',
+                                                          fit: BoxFit.contain,
+                                                        ),
+                                                      ),
+                                                    ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Gradient Overlay at the bottom
+                                        Positioned(
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
+                                          height: 120,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  const BorderRadius.vertical(
+                                                      bottom: Radius.circular(
+                                                          24.0)),
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.transparent,
+                                                  Colors.black
+                                                      .withValues(alpha: 0.8),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Lyrics Overlay on Album Art
+                                        _buildAlbumArtLyricsOverlay(
+                                          borderRadius: 24.0,
+                                          bottomOffset: 100.0,
+                                          displayPosMs: displayPosMs,
+                                        ),
+                                        // Text (Title, Artist)
+                                        Positioned(
+                                          left: 16,
+                                          bottom: 60,
+                                          right: 16,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              AdaptiveMarqueeText(
+                                                text: title,
+                                                style: const TextStyle(
+                                                  fontSize: 24,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: textLight,
                                                 ),
-                                              ],
+                                                blankSpace: 40.0,
+                                                velocity: 30.0,
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                subtitle,
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.white70,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // Buttons at the bottom edge
+                                        Positioned(
+                                          bottom: 12,
+                                          left: 16,
+                                          right: 16,
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  // Like
+                                                  ValueListenableBuilder<
+                                                      List<LikedSong>>(
+                                                    valueListenable:
+                                                        LikedSongsService
+                                                            .instance
+                                                            .likedSongsNotifier,
+                                                    builder: (context,
+                                                        likedSongs, _) {
+                                                      final trackId = widget
+                                                              .videoId ??
+                                                          widget.getTitle(status
+                                                              .currentIndex);
+                                                      final isCurrentlyLiked =
+                                                          likedSongs.any((s) =>
+                                                              s.videoId ==
+                                                              trackId);
+                                                      return GestureDetector(
+                                                        onTap: () async {
+                                                          if (trackId.isEmpty)
+                                                            return;
+                                                          if (isCurrentlyLiked) {
+                                                            await LikedSongsService
+                                                                .instance
+                                                                .removeLikedSong(
+                                                                    trackId);
+                                                          } else {
+                                                            await LikedSongsService
+                                                                .instance
+                                                                .addLikedSong(
+                                                                    LikedSong(
+                                                              videoId: trackId,
+                                                              title: title,
+                                                              artist: subtitle,
+                                                              thumbnailUrl:
+                                                                  widget.albumArt ==
+                                                                          null
+                                                                      ? null
+                                                                      : trackId,
+                                                              durationSeconds:
+                                                                  duration
+                                                                      .inSeconds,
+                                                              likedAt: DateTime
+                                                                  .now(),
+                                                            ));
+                                                          }
+                                                        },
+                                                        child: CircleAvatar(
+                                                          backgroundColor:
+                                                              isCurrentlyLiked
+                                                                  ? primaryColor
+                                                                  : Colors.white
+                                                                      .withValues(
+                                                                          alpha:
+                                                                              0.2),
+                                                          radius: 18,
+                                                          child: Icon(
+                                                              isCurrentlyLiked
+                                                                  ? Icons
+                                                                      .thumb_up
+                                                                  : Icons
+                                                                      .thumb_up_outlined,
+                                                              color:
+                                                                  Colors.white,
+                                                              size: 18),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  // Dislike
+                                                  CircleAvatar(
+                                                    backgroundColor: Colors
+                                                        .white
+                                                        .withValues(alpha: 0.2),
+                                                    radius: 18,
+                                                    child: const Icon(
+                                                        Icons
+                                                            .thumb_down_outlined,
+                                                        color: Colors.white,
+                                                        size: 18),
+                                                  ),
+                                                ],
+                                              ),
+                                              Row(
+                                                children: [
+                                                  // Queue/Playlist
+                                                  GestureDetector(
+                                                    onTap: () =>
+                                                        _showQueueSheet(
+                                                            context),
+                                                    child: CircleAvatar(
+                                                      backgroundColor: Colors
+                                                          .white
+                                                          .withValues(
+                                                              alpha: 0.2),
+                                                      radius: 18,
+                                                      child: const Icon(
+                                                          Icons.playlist_play,
+                                                          color: Colors.white,
+                                                          size: 18),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  // More options
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                        Icons.more_vert,
+                                                        color: Colors.white),
+                                                    onPressed: () =>
+                                                        _showMoreOptionsMenu(
+                                                            context),
+                                                    tooltip: 'Song Info & Tags',
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 32),
+
+                            // Playback Controls
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.fast_rewind,
+                                      size: 32, color: Colors.white54),
+                                  onPressed: () {
+                                    widget.player.seekTo(Duration(
+                                        milliseconds: (displayPosMs - 10000)
+                                            .toInt()
+                                            .clamp(0, maxMs.toInt())));
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.skip_previous,
+                                      size: 40, color: Colors.white),
+                                  onPressed: widget.player.seekToPrevious,
+                                ),
+                                const SizedBox(width: 16),
+                                GestureDetector(
+                                  onTap: status.isPlaying
+                                      ? widget.player.pause
+                                      : widget.player.play,
+                                  child: Container(
+                                    width: 80,
+                                    height: 80,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black,
+                                    ),
+                                    child: Icon(
+                                      status.isPlaying
+                                          ? Icons.pause
+                                          : Icons.play_arrow,
+                                      size: 48,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                IconButton(
+                                  icon: const Icon(Icons.skip_next,
+                                      size: 40, color: Colors.white),
+                                  onPressed: widget.player.seekToNext,
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.fast_forward,
+                                      size: 32, color: Colors.white54),
+                                  onPressed: () {
+                                    widget.player.seekTo(Duration(
+                                        milliseconds: (displayPosMs + 10000)
+                                            .toInt()
+                                            .clamp(0, maxMs.toInt())));
+                                  },
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // Progress Bar & Info Badge
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24.0),
+                              child: Column(
+                                children: [
+                                  // A-B region labels
+                                  if (_abRepeatState >= 1)
+                                    _buildAbRegionLabels(maxMs: maxMs),
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      return _buildSeekBarWidget(
+                                        displayPosMs: displayPosMs,
+                                        maxMs: maxMs,
+                                        totalWidth: constraints.maxWidth,
+                                        isMobile: true,
+                                        primaryColor: primaryColor,
+                                      );
+                                    },
+                                  ),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        _fmt(Duration(
+                                            milliseconds:
+                                                displayPosMs.toInt())),
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      // Audio Info Badge
+                                      Flexible(
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6.0),
+                                          child: GestureDetector(
+                                            onTap: () =>
+                                                _showHardwareSpecsModal(
+                                                    context),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.1),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(
+                                                        Icons.info_outline,
+                                                        size: 10,
+                                                        color: Colors.white70),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      _buildAudioInfoBadgeText(
+                                                          trackPosition),
+                                                      style: const TextStyle(
+                                                          fontSize: 10,
+                                                          color: Colors.white70,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          letterSpacing: 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ),
-                                  Text(
-                                    _fmt(duration),
-                                    style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 32),
-                        
-                        // Action Buttons Row (Eq, Timer, Repeat, Shuffle)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildActionIcon(Icons.graphic_eq, () {
-                                  Navigator.push(context, MaterialPageRoute(builder: (context) => EffectsScreen(
-                                    player: widget.player,
-                                    analyzerEnabled: _isAnalyzerEnabled,
-                                    analyzerType: widget.analyzerType,
-                                    analyzerAutoFit: widget.analyzerAutoFit,
-                                    analyzerShowGrids: widget.analyzerShowGrids,
-                                    outputSampleRate: widget.outputSampleRate,
-                                  )));
-                                }),
-                                _buildActionIcon(
-                                  (_currentPitch - 1.0).abs() > 0.01 ? Icons.speed_rounded : Icons.speed_outlined,
-                                  () => showPlaybackSpeedModal(
-                                    context,
-                                    widget.player,
-                                    currentPitch: _currentPitch,
-                                    onPitchChanged: (p) => setState(() => _currentPitch = p),
-                                  ),
-                                ),
-                                _buildActionIcon(_loopIcon(status.loopMode), () {
-                                  final currentMode = status.loopMode;
-                                  final nextMode = currentMode == LoopMode.off ? LoopMode.all : (currentMode == LoopMode.all ? LoopMode.one : LoopMode.off);
-                                  widget.player.setLoopMode(nextMode);
-                                }),
-                                _buildActionIcon(status.shuffleEnabled ? Icons.shuffle_on : Icons.shuffle, () { widget.player.setShuffleModeEnabled(!status.shuffleEnabled); }),
-                                // A-B Repeat button
-                                _buildAbRepeatButton(
-                                  currentPositionMs: displayPosMs,
-                                  maxMs: maxMs,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 48),
-                        
-                      ],
-                    );
-                  }
-
-                  final bottomPadding = MediaQuery.of(context).padding.bottom;
-
-                  return Stack(
-                    children: [
-                      Align(
-                        alignment: Alignment.topCenter,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                              maxWidth: isDesktop ? double.infinity : 600.0),
-                          child: SafeArea(
-                            child: content,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: bottomPadding + 6,
-                        left: 0,
-                        right: 0,
-                        child: Center(
-                          child: GestureDetector(
-                            onTap: () => _showQueueSheet(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(Icons.keyboard_arrow_up,
-                                      size: 16, color: Colors.white70),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'UP NEXT',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1.0,
-                                      color: Colors.white70,
-                                    ),
+                                      Text(
+                                        _fmt(duration),
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
                             ),
+
+                            const SizedBox(height: 32),
+
+                            // Action Buttons Row (Eq, Timer, Repeat, Shuffle)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16.0),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildActionIcon(Icons.graphic_eq, () {
+                                      Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (context) =>
+                                                  EffectsScreen(
+                                                    player: widget.player,
+                                                    analyzerEnabled:
+                                                        _isAnalyzerEnabled,
+                                                    analyzerType:
+                                                        widget.analyzerType,
+                                                    analyzerAutoFit:
+                                                        widget.analyzerAutoFit,
+                                                    analyzerShowGrids: widget
+                                                        .analyzerShowGrids,
+                                                    outputSampleRate:
+                                                        widget.outputSampleRate,
+                                                  )));
+                                    }),
+                                    _buildActionIcon(
+                                      (_currentPitch - 1.0).abs() > 0.01
+                                          ? Icons.speed_rounded
+                                          : Icons.speed_outlined,
+                                      () => showPlaybackSpeedModal(
+                                        context,
+                                        widget.player,
+                                        currentPitch: _currentPitch,
+                                        onPitchChanged: (p) =>
+                                            setState(() => _currentPitch = p),
+                                      ),
+                                    ),
+                                    _buildActionIcon(_loopIcon(status.loopMode),
+                                        () {
+                                      final currentMode = status.loopMode;
+                                      final nextMode =
+                                          currentMode == LoopMode.off
+                                              ? LoopMode.all
+                                              : (currentMode == LoopMode.all
+                                                  ? LoopMode.one
+                                                  : LoopMode.off);
+                                      widget.player.setLoopMode(nextMode);
+                                    }),
+                                    _buildActionIcon(
+                                        status.shuffleEnabled
+                                            ? Icons.shuffle_on
+                                            : Icons.shuffle, () {
+                                      widget.player.setShuffleModeEnabled(
+                                          !status.shuffleEnabled);
+                                    }),
+                                    // A-B Repeat button
+                                    _buildAbRepeatButton(
+                                      currentPositionMs: displayPosMs,
+                                      maxMs: maxMs,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 48),
+                          ],
+                        );
+                      }
+
+                      final bottomPadding =
+                          MediaQuery.of(context).padding.bottom;
+
+                      return Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                  maxWidth:
+                                      isDesktop ? double.infinity : 600.0),
+                              child: SafeArea(
+                                child: content,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: bottomPadding + 6,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: GestureDetector(
+                                onTap: () => _showQueueSheet(context),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.15),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.keyboard_arrow_up,
+                                          size: 16, color: Colors.white70),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'UP NEXT',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1.0,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }),
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width >= 800
+                                ? double.infinity
+                                : 600.0),
+                        child: SafeArea(
+                          child: QueueScreen(
+                            queue: widget.queue,
+                            videoId: widget.videoId,
+                            albumArt: widget.albumArt,
+                            onPlayQueueIndex: widget.onPlayQueueIndex,
+                            onReorderQueue: widget.onReorderQueue,
+                            statusNotifier: widget.statusNotifier,
+                            onClose: () {
+                              if (_pageController.hasClients) {
+                                _pageController.animateToPage(
+                                  0,
+                                  duration: const Duration(milliseconds: 350),
+                                  curve: Curves.easeOutCubic,
+                                );
+                              }
+                            },
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }),
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width >= 800
-                            ? double.infinity
-                            : 600.0),
-                    child: SafeArea(
-                      child: QueueScreen(
-                        queue: widget.queue,
-                        videoId: widget.videoId,
-                        albumArt: widget.albumArt,
-                        onPlayQueueIndex: widget.onPlayQueueIndex,
-                        onReorderQueue: widget.onReorderQueue,
-                        statusNotifier: widget.statusNotifier,
-                        onClose: () {
-                          if (_pageController.hasClients) {
-                            _pageController.animateToPage(
-                              0,
-                              duration: const Duration(milliseconds: 350),
-                              curve: Curves.easeOutCubic,
-                            );
-                          }
-                        },
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
-  },
-);
   }
 
-  Widget _buildActionIcon(IconData icon, VoidCallback onTap, [bool isActive = false]) {
+  Widget _buildActionIcon(IconData icon, VoidCallback onTap,
+      [bool isActive = false]) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -2295,9 +2722,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
 
     return GestureDetector(
-      onLongPress: _abRepeatState == 2
-          ? () => _showAbRepeatSheet(context, maxMs)
-          : null,
+      onLongPress:
+          _abRepeatState == 2 ? () => _showAbRepeatSheet(context, maxMs) : null,
       child: Tooltip(
         message: tooltip,
         child: InkWell(
@@ -2325,11 +2751,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     SnackBar(
                       content: Row(
                         children: [
-                          const Icon(Icons.repeat_on_rounded, color: Color(0xFF137FEC), size: 18),
+                          const Icon(Icons.repeat_on_rounded,
+                              color: Color(0xFF137FEC), size: 18),
                           const SizedBox(width: 8),
                           Text(
                             'A-B Loop Active: ${_fmt(Duration(milliseconds: a.toInt()))} ⇄ ${_fmt(Duration(milliseconds: b.toInt()))}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -2341,7 +2770,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // B too close to A — reset
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Point B must be at least 0.5s after Point A'),
+                      content:
+                          Text('Point B must be at least 0.5s after Point A'),
                       backgroundColor: Color(0xFF1E2D3D),
                       duration: Duration(seconds: 2),
                     ),
@@ -2352,7 +2782,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _abRepeatState = 0;
                 _abPointAMs = null;
                 _abPointBMs = null;
-                widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
+                widget.player.setAbRepeat(
+                    enabled: false, startSeconds: 0, endSeconds: 0);
               }
             });
           },
@@ -2445,7 +2876,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 children: [
                   Center(
                     child: Container(
-                      width: 36, height: 4,
+                      width: 36,
+                      height: 4,
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
                         color: Colors.white24,
@@ -2466,17 +2898,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // Point A
                   Row(
                     children: [
-                      const Text('Point A', style: TextStyle(color: Color(0xFFFFA726), fontWeight: FontWeight.bold)),
+                      const Text('Point A',
+                          style: TextStyle(
+                              color: Color(0xFFFFA726),
+                              fontWeight: FontWeight.bold)),
                       const Spacer(),
                       IconButton(
                         icon: const Icon(Icons.remove, color: Colors.white70),
-                        onPressed: () { setSheetState(() { localA = (localA - 100).clamp(0, localB - 500); }); apply(); },
+                        onPressed: () {
+                          setSheetState(() {
+                            localA = (localA - 100).clamp(0, localB - 500);
+                          });
+                          apply();
+                        },
                         tooltip: '-100ms',
                       ),
-                      Text(_fmt(Duration(milliseconds: localA.toInt())), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(_fmt(Duration(milliseconds: localA.toInt())),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
                       IconButton(
                         icon: const Icon(Icons.add, color: Colors.white70),
-                        onPressed: () { setSheetState(() { localA = (localA + 100).clamp(0, localB - 500); }); apply(); },
+                        onPressed: () {
+                          setSheetState(() {
+                            localA = (localA + 100).clamp(0, localB - 500);
+                          });
+                          apply();
+                        },
                         tooltip: '+100ms',
                       ),
                     ],
@@ -2484,17 +2932,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // Point B
                   Row(
                     children: [
-                      const Text('Point B', style: TextStyle(color: Color(0xFF137FEC), fontWeight: FontWeight.bold)),
+                      const Text('Point B',
+                          style: TextStyle(
+                              color: Color(0xFF137FEC),
+                              fontWeight: FontWeight.bold)),
                       const Spacer(),
                       IconButton(
                         icon: const Icon(Icons.remove, color: Colors.white70),
-                        onPressed: () { setSheetState(() { localB = (localB - 100).clamp(localA + 500, maxMs); }); apply(); },
+                        onPressed: () {
+                          setSheetState(() {
+                            localB = (localB - 100).clamp(localA + 500, maxMs);
+                          });
+                          apply();
+                        },
                         tooltip: '-100ms',
                       ),
-                      Text(_fmt(Duration(milliseconds: localB.toInt())), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(_fmt(Duration(milliseconds: localB.toInt())),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
                       IconButton(
                         icon: const Icon(Icons.add, color: Colors.white70),
-                        onPressed: () { setSheetState(() { localB = (localB + 100).clamp(localA + 500, maxMs); }); apply(); },
+                        onPressed: () {
+                          setSheetState(() {
+                            localB = (localB + 100).clamp(localA + 500, maxMs);
+                          });
+                          apply();
+                        },
                         tooltip: '+100ms',
                       ),
                     ],
@@ -2516,7 +2980,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               _abPointAMs = null;
                               _abPointBMs = null;
                             });
-                            widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
+                            widget.player.setAbRepeat(
+                                enabled: false, startSeconds: 0, endSeconds: 0);
                             Navigator.pop(ctx);
                           },
                         ),
@@ -2539,7 +3004,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required bool isMobile,
     required Color primaryColor,
   }) {
-    if (_useWaveformSeekBar && _currentWaveformPeaks != null && _currentWaveformPeaks!.isNotEmpty) {
+    if (_useWaveformSeekBar &&
+        _currentWaveformPeaks != null &&
+        _currentWaveformPeaks!.isNotEmpty) {
       return WaveformSeekBarWidget(
         peaks: _currentWaveformPeaks!,
         displayPosMs: displayPosMs,
@@ -2593,8 +3060,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             inactiveTrackColor: Colors.white12,
             thumbColor: Colors.white,
             overlayColor: Colors.white24,
-            thumbShape: RoundSliderThumbShape(enabledThumbRadius: isMobile ? 6.0 : 8.0),
-            overlayShape: RoundSliderOverlayShape(overlayRadius: isMobile ? 14.0 : 16.0),
+            thumbShape:
+                RoundSliderThumbShape(enabledThumbRadius: isMobile ? 6.0 : 8.0),
+            overlayShape:
+                RoundSliderOverlayShape(overlayRadius: isMobile ? 14.0 : 16.0),
           ),
           child: Slider(
             value: displayPosMs,
@@ -2647,10 +3116,13 @@ class _AbRegionPainter extends StatelessWidget {
   Widget build(BuildContext context) {
     if (maxMs <= 0) return const SizedBox.shrink();
     const double thumbRadius = 8.0;
-    const double horizontalPadding = 24.0; // matches Flutter Slider internal padding
+    const double horizontalPadding =
+        24.0; // matches Flutter Slider internal padding
     final double usable = totalWidth - horizontalPadding * 2 - thumbRadius * 2;
-    final double left = horizontalPadding + thumbRadius + (pointAMs / maxMs) * usable;
-    final double right = horizontalPadding + thumbRadius + (pointBMs / maxMs) * usable;
+    final double left =
+        horizontalPadding + thumbRadius + (pointAMs / maxMs) * usable;
+    final double right =
+        horizontalPadding + thumbRadius + (pointBMs / maxMs) * usable;
     return CustomPaint(
       painter: _AbHighlightCustomPainter(left: left, right: right),
     );
@@ -2675,13 +3147,15 @@ class _AbHighlightCustomPainter extends CustomPainter {
     final pinPaint = Paint()
       ..color = const Color(0xFFFFA726)
       ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTRB(left - 1.5, 0, left + 1.5, size.height), pinPaint);
+    canvas.drawRect(
+        Rect.fromLTRB(left - 1.5, 0, left + 1.5, size.height), pinPaint);
 
     // Pin B
     final pinBPaint = Paint()
       ..color = const Color(0xFF137FEC)
       ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTRB(right - 1.5, 0, right + 1.5, size.height), pinBPaint);
+    canvas.drawRect(
+        Rect.fromLTRB(right - 1.5, 0, right + 1.5, size.height), pinBPaint);
   }
 
   @override
@@ -2770,4 +3244,3 @@ class _AbRepeatCustomIcon extends StatelessWidget {
     );
   }
 }
-

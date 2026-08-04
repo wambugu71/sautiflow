@@ -11,8 +11,6 @@ import 'package:sautiflow/sautiflow.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'services/autoeq_parser.dart';
 
-
-
 const primaryColor = Color(0xFF137fec);
 const bgDarkColor = Color(0xFF101922);
 const surfaceDarkColor = Color(0xFF1C252E);
@@ -387,8 +385,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
   // --- Equalization ---
   bool _firEqEnabled = false;
-  List<double> _firEqFreqs = [100.0, 250.0, 1000.0, 4000.0, 8000.0];
-  List<double> _firEqGains = [0.0, 0.0, 0.0, 0.0, 0.0];
+  final List<double> _firEqFreqs = [100.0, 250.0, 1000.0, 4000.0, 8000.0];
+  final List<double> _firEqGains = [0.0, 0.0, 0.0, 0.0, 0.0];
 
   bool _dynamicEqEnabled = false;
   List<double> _dynamicEqFreqs = [100.0, 250.0, 1000.0, 4000.0, 8000.0];
@@ -400,8 +398,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   List<int> _dynamicEqFilterTypes = [0, 0, 0, 0, 0];
 
   bool _iirEqEnabled = false;
-  List<double> _iirEqFreqs = [100.0, 250.0, 1000.0, 4000.0, 8000.0];
-  List<double> _iirEqGains = [0.0, 0.0, 0.0, 0.0, 0.0];
+  final List<double> _iirEqFreqs = [100.0, 250.0, 1000.0, 4000.0, 8000.0];
+  final List<double> _iirEqGains = [0.0, 0.0, 0.0, 0.0, 0.0];
 
   String? _convolverFolder;
   String? _selectedConvolverFile;
@@ -436,7 +434,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   void initState() {
     super.initState();
     _loadState();
-    _eqSettingsSub = AppStateService.instance.eqSettingsChanged.stream.listen((_) {
+    _eqSettingsSub =
+        AppStateService.instance.eqSettingsChanged.stream.listen((_) {
       if (mounted) _loadState();
     });
   }
@@ -582,13 +581,11 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         (map['masterLimiterThreshold'] as num?)?.toDouble() ?? 1.0;
     _masterLimiterVolume =
         (map['masterLimiterVolume'] as num?)?.toDouble() ?? 1.0;
-    _masterLimiterPan =
-        (map['masterLimiterPan'] as num?)?.toDouble() ?? 0.0;
+    _masterLimiterPan = (map['masterLimiterPan'] as num?)?.toDouble() ?? 0.0;
     _playbackGainEnabled = map['playbackGainEnabled'] ?? false;
     _playbackGainStrength =
         (map['playbackGainStrength'] as num?)?.toDouble() ?? 0.5;
-    _playbackGainMax =
-        (map['playbackGainMax'] as num?)?.toDouble() ?? 0.5;
+    _playbackGainMax = (map['playbackGainMax'] as num?)?.toDouble() ?? 0.5;
     _playbackGainThreshold =
         (map['playbackGainThreshold'] as num?)?.toDouble() ?? 0.9;
     _lufsEnabled = map['lufsEnabled'] ?? false;
@@ -599,28 +596,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _alcMode = (map['alcMode'] as num?)?.toInt() ?? 0;
     _alcStrength = (map['alcStrength'] as num?)?.toDouble() ?? 1.0;
     _stereoImagerEnabled = map['stereoImagerEnabled'] ?? false;
-    _stereoLowWidth =
-        (map['stereoLowWidth'] as num?)?.toDouble() ?? 100.0;
-    _stereoMidWidth =
-        (map['stereoMidWidth'] as num?)?.toDouble() ?? 100.0;
-    _stereoHighWidth =
-        (map['stereoHighWidth'] as num?)?.toDouble() ?? 100.0;
+    _stereoLowWidth = (map['stereoLowWidth'] as num?)?.toDouble() ?? 100.0;
+    _stereoMidWidth = (map['stereoMidWidth'] as num?)?.toDouble() ?? 100.0;
+    _stereoHighWidth = (map['stereoHighWidth'] as num?)?.toDouble() ?? 100.0;
     _stereoLowCrossover =
         (map['stereoLowCrossover'] as num?)?.toDouble() ?? 300.0;
-    _stereoHighCrossover = (map['stereoHighCrossover'] as num?)?.toDouble() ??
-        3000.0;
+    _stereoHighCrossover =
+        (map['stereoHighCrossover'] as num?)?.toDouble() ?? 3000.0;
     _cureEnabled = map['cureEnabled'] ?? false;
     _curePreset = (map['curePreset'] as num?)?.toInt() ?? 0;
-    _headphoneSurroundEnabled =
-        map['headphoneSurroundEnabled'] ?? false;
+    _headphoneSurroundEnabled = map['headphoneSurroundEnabled'] ?? false;
     _headphoneSurroundQuality =
         (map['headphoneSurroundQuality'] as num?)?.toInt() ?? 1;
-    _fieldSurroundEnabled =
-        map['fieldSurroundEnabled'] ?? false;
-    _fieldWidening =
-        (map['fieldWidening'] as num?)?.toDouble() ?? 0.5;
-    _fieldMidImage =
-        (map['fieldMidImage'] as num?)?.toDouble() ?? 0.5;
+    _fieldSurroundEnabled = map['fieldSurroundEnabled'] ?? false;
+    _fieldWidening = (map['fieldWidening'] as num?)?.toDouble() ?? 0.5;
+    _fieldMidImage = (map['fieldMidImage'] as num?)?.toDouble() ?? 0.5;
     _fieldDepth = (map['fieldDepth'] as num?)?.toInt() ?? 2;
     _diffSurroundEnabled = map['diffSurroundEnabled'] ?? false;
     _diffDelay = (map['diffDelay'] as num?)?.toDouble() ?? 5.0;
@@ -633,8 +623,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _reverbDamp = (map['reverbDamp'] as num?)?.toDouble() ?? 0.5;
     _reverbWet = (map['reverbWet'] as num?)?.toDouble() ?? 0.5;
     _reverbDry = (map['reverbDry'] as num?)?.toDouble() ?? 0.5;
-    _dynamicSystemEnabled =
-        map['dynamicSystemEnabled'] ?? false;
+    _dynamicSystemEnabled = map['dynamicSystemEnabled'] ?? false;
     _dynamicSystemStrength =
         (map['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
     _dynPreset = (map['dynPreset'] as num?)?.toInt() ?? 0;
@@ -642,12 +631,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _dynXHigh = (map['dynXHigh'] as num?)?.toDouble() ?? 60.0;
     _dynYLow = (map['dynYLow'] as num?)?.toDouble() ?? 100.0;
     _dynYHigh = (map['dynYHigh'] as num?)?.toDouble() ?? 150.0;
-    _dynSideGainLow =
-        (map['dynSideGainLow'] as num?)?.toDouble() ?? 1.0;
-    _dynSideGainHigh =
-        (map['dynSideGainHigh'] as num?)?.toDouble() ?? 1.0;
-    _multibandCompressorEnabled =
-        map['multibandCompressorEnabled'] ?? false;
+    _dynSideGainLow = (map['dynSideGainLow'] as num?)?.toDouble() ?? 1.0;
+    _dynSideGainHigh = (map['dynSideGainHigh'] as num?)?.toDouble() ?? 1.0;
+    _multibandCompressorEnabled = map['multibandCompressorEnabled'] ?? false;
     _mbcCrossFreqs = (map['mbcCrossFreqs'] as List?)
             ?.map((e) => (e as num).toDouble())
             .toList() ??
@@ -672,8 +658,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             ?.map((e) => (e as num).toDouble())
             .toList() ??
         _mbcGains;
-    _fetCompressorEnabled =
-        map['fetCompressorEnabled'] ?? false;
+    _fetCompressorEnabled = map['fetCompressorEnabled'] ?? false;
     _fetThreshold = (map['fetThreshold'] as num?)?.toDouble() ?? 0.0;
     _fetRatio = (map['fetRatio'] as num?)?.toDouble() ?? 1.0;
     _fetKnee = (map['fetKnee'] as num?)?.toDouble() ?? 0.0;
@@ -702,18 +687,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _bassMonoAntiPop = map['bassMonoAntiPop'] ?? false;
     _psychoBassEnabled = map['psychoBassEnabled'] ?? false;
     _psychoCutoff = (map['psychoCutoff'] as num?)?.toDouble() ?? 80.0;
-    _psychoIntensity =
-        (map['psychoIntensity'] as num?)?.toDouble() ?? 50.0;
-    _psychoHarmonicOrder =
-        (map['psychoHarmonicOrder'] as num?)?.toInt() ?? 2;
-    _psychoOriginalLevel = (map['psychoOriginalLevel'] as num?)?.toDouble() ??
-        100.0;
+    _psychoIntensity = (map['psychoIntensity'] as num?)?.toDouble() ?? 50.0;
+    _psychoHarmonicOrder = (map['psychoHarmonicOrder'] as num?)?.toInt() ?? 2;
+    _psychoOriginalLevel =
+        (map['psychoOriginalLevel'] as num?)?.toDouble() ?? 100.0;
     _clarityEnabled = map['clarityEnabled'] ?? false;
     _clarityMode = (map['clarityMode'] as num?)?.toInt() ?? 0;
     _clarityGain = (map['clarityGain'] as num?)?.toDouble() ?? 0.5;
     _spectrumEnabled = map['spectrumEnabled'] ?? false;
-    _spectrumStrength =
-        (map['spectrumStrength'] as num?)?.toDouble() ?? 50.0;
+    _spectrumStrength = (map['spectrumStrength'] as num?)?.toDouble() ?? 50.0;
     _spectrumExciter = (map['spectrumExciter'] as num?)?.toDouble() ?? 0.5;
     _firEqEnabled = map['firEqEnabled'] ?? false;
     _dynamicEqEnabled = map['dynamicEqEnabled'] ?? false;
@@ -749,8 +731,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _tubeEnabled = map['tubeEnabled'] ?? false;
     _analogXEnabled = map['analogXEnabled'] ?? false;
     _analogXMode = (map['analogXMode'] as num?)?.toInt() ?? 1;
-    _speakerCorrectionEnabled =
-        map['speakerCorrectionEnabled'] ?? false;
+    _speakerCorrectionEnabled = map['speakerCorrectionEnabled'] ?? false;
     _convolverEnabled = map['convolverEnabled'] ?? false;
     _convolverCrossChannel =
         (map['convolverCrossChannel'] as num?)?.toDouble() ?? 0.0;
@@ -983,7 +964,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: isEnabled ? primaryColor.withValues(alpha: 0.35) : Colors.white.withValues(alpha: 0.06),
+          color: isEnabled
+              ? primaryColor.withValues(alpha: 0.35)
+              : Colors.white.withValues(alpha: 0.06),
           width: 1,
         ),
       ),
@@ -998,7 +981,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: isEnabled ? primaryColor.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+                  color: isEnabled
+                      ? primaryColor.withValues(alpha: 0.18)
+                      : Colors.white.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -1024,7 +1009,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: isEnabled ? primaryColor.withValues(alpha: 0.85) : Colors.white38,
+                        color: isEnabled
+                            ? primaryColor.withValues(alpha: 0.85)
+                            : Colors.white38,
                         fontSize: 12,
                       ),
                     ),
@@ -1052,7 +1039,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     );
   }
 
-  void _openDetailScreen(String title, IconData icon, WidgetBuilder contentBuilder) {
+  void _openDetailScreen(
+      String title, IconData icon, WidgetBuilder contentBuilder) {
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -1175,10 +1163,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _buildEffectTileCard(
                   icon: Icons.tune,
                   title: 'Core & Limits',
-                  subtitle: _viperEnabled ? 'Master Limiter, AGC & LUFS' : 'Disabled',
+                  subtitle:
+                      _viperEnabled ? 'Master Limiter, AGC & LUFS' : 'Disabled',
                   isEnabled: _viperEnabled,
                   onToggle: _toggleMaster,
-                  onTapDetail: () => _openDetailScreen('Core & Limits', Icons.tune, (_) => _buildDeckViews()[0]),
+                  onTapDetail: () => _openDetailScreen(
+                      'Core & Limits', Icons.tune, (_) => _buildDeckViews()[0]),
                 ),
 
                 // Section 2: VIPRR System & Dynamics
@@ -1186,20 +1176,28 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _buildEffectTileCard(
                   icon: Icons.bolt,
                   title: 'VIPRR Dynamic System',
-                  subtitle: _dynamicSystemEnabled ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%' : 'Disabled',
+                  subtitle: _dynamicSystemEnabled
+                      ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%'
+                      : 'Disabled',
                   isEnabled: _dynamicSystemEnabled,
                   onToggle: (v) {
                     setState(() => _dynamicSystemEnabled = v);
                     _updateEngine();
                   },
-                  onTapDetail: () => _openDetailScreen('VIPRR Dynamic System', Icons.bolt, (_) => _buildDeckViews()[1]),
+                  onTapDetail: () => _openDetailScreen('VIPRR Dynamic System',
+                      Icons.bolt, (_) => _buildDeckViews()[1]),
                 ),
                 _buildEffectTileCard(
                   icon: Icons.compress,
                   title: 'Dynamics & Compressors',
-                  subtitle: (_multibandCompressorEnabled || _fetCompressorEnabled) ? '5-Band & FET Active' : 'Disabled',
-                  isEnabled: _multibandCompressorEnabled || _fetCompressorEnabled,
-                  onTapDetail: () => _openDetailScreen('Dynamics & Compressors', Icons.compress, (_) => _buildDeckViews()[2]),
+                  subtitle:
+                      (_multibandCompressorEnabled || _fetCompressorEnabled)
+                          ? '5-Band & FET Active'
+                          : 'Disabled',
+                  isEnabled:
+                      _multibandCompressorEnabled || _fetCompressorEnabled,
+                  onTapDetail: () => _openDetailScreen('Dynamics & Compressors',
+                      Icons.compress, (_) => _buildDeckViews()[2]),
                 ),
 
                 // Section 3: Bass & Clarity Enhancement
@@ -1207,9 +1205,20 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _buildEffectTileCard(
                   icon: Icons.equalizer,
                   title: 'Bass & Clarity Engine',
-                  subtitle: (_bassEnabled || _bassMonoEnabled || _psychoBassEnabled || _clarityEnabled || _spectrumEnabled) ? 'Active' : 'Disabled',
-                  isEnabled: _bassEnabled || _bassMonoEnabled || _psychoBassEnabled || _clarityEnabled || _spectrumEnabled,
-                  onTapDetail: () => _openDetailScreen('Bass & Clarity Engine', Icons.equalizer, (_) => _buildDeckViews()[3]),
+                  subtitle: (_bassEnabled ||
+                          _bassMonoEnabled ||
+                          _psychoBassEnabled ||
+                          _clarityEnabled ||
+                          _spectrumEnabled)
+                      ? 'Active'
+                      : 'Disabled',
+                  isEnabled: _bassEnabled ||
+                      _bassMonoEnabled ||
+                      _psychoBassEnabled ||
+                      _clarityEnabled ||
+                      _spectrumEnabled,
+                  onTapDetail: () => _openDetailScreen('Bass & Clarity Engine',
+                      Icons.equalizer, (_) => _buildDeckViews()[3]),
                 ),
 
                 // Section 4: Spatial & Surround Sound
@@ -1217,20 +1226,36 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _buildEffectTileCard(
                   icon: Icons.surround_sound,
                   title: 'Spatial & Surround Engine',
-                  subtitle: (_stereoImagerEnabled || _cureEnabled || _headphoneSurroundEnabled || _fieldSurroundEnabled || _diffSurroundEnabled) ? 'Active' : 'Disabled',
-                  isEnabled: _stereoImagerEnabled || _cureEnabled || _headphoneSurroundEnabled || _fieldSurroundEnabled || _diffSurroundEnabled,
-                  onTapDetail: () => _openDetailScreen('Spatial & Surround Engine', Icons.surround_sound, (_) => _buildDeckViews()[4]),
+                  subtitle: (_stereoImagerEnabled ||
+                          _cureEnabled ||
+                          _headphoneSurroundEnabled ||
+                          _fieldSurroundEnabled ||
+                          _diffSurroundEnabled)
+                      ? 'Active'
+                      : 'Disabled',
+                  isEnabled: _stereoImagerEnabled ||
+                      _cureEnabled ||
+                      _headphoneSurroundEnabled ||
+                      _fieldSurroundEnabled ||
+                      _diffSurroundEnabled,
+                  onTapDetail: () => _openDetailScreen(
+                      'Spatial & Surround Engine',
+                      Icons.surround_sound,
+                      (_) => _buildDeckViews()[4]),
                 ),
                 _buildEffectTileCard(
                   icon: Icons.meeting_room,
                   title: 'ViPER Reverb',
-                  subtitle: _reverbEnabled ? 'Room: ${(_reverbRoom * 100).toInt()}%' : 'Disabled',
+                  subtitle: _reverbEnabled
+                      ? 'Room: ${(_reverbRoom * 100).toInt()}%'
+                      : 'Disabled',
                   isEnabled: _reverbEnabled,
                   onToggle: (v) {
                     setState(() => _reverbEnabled = v);
                     _updateEngine();
                   },
-                  onTapDetail: () => _openDetailScreen('ViPER Reverb', Icons.meeting_room, (_) => _buildDeckViews()[5]),
+                  onTapDetail: () => _openDetailScreen('ViPER Reverb',
+                      Icons.meeting_room, (_) => _buildDeckViews()[5]),
                 ),
 
                 // Section 5: Equalization, Impulse & Emulation
@@ -1238,23 +1263,42 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _buildEffectTileCard(
                   icon: Icons.show_chart,
                   title: 'Dynamic EQ & FIR Filter',
-                  subtitle: (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled) ? 'Active' : 'Disabled',
-                  isEnabled: _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
-                  onTapDetail: () => _openDetailScreen('Dynamic EQ & FIR Filter', Icons.show_chart, (_) => _buildDeckViews()[6]),
+                  subtitle:
+                      (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled)
+                          ? 'Active'
+                          : 'Disabled',
+                  isEnabled:
+                      _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
+                  onTapDetail: () => _openDetailScreen(
+                      'Dynamic EQ & FIR Filter',
+                      Icons.show_chart,
+                      (_) => _buildDeckViews()[6]),
                 ),
                 _buildEffectTileCard(
                   icon: Icons.graphic_eq,
                   title: 'Convolver & DDC Loader',
-                  subtitle: (_convolverEnabled || _ddcEnabled) ? 'Impulse / DDC Active' : 'Disabled',
+                  subtitle: (_convolverEnabled || _ddcEnabled)
+                      ? 'Impulse / DDC Active'
+                      : 'Disabled',
                   isEnabled: _convolverEnabled || _ddcEnabled,
-                  onTapDetail: () => _openDetailScreen('Convolver & DDC Loader', Icons.graphic_eq, (_) => _buildDeckViews()[7]),
+                  onTapDetail: () => _openDetailScreen('Convolver & DDC Loader',
+                      Icons.graphic_eq, (_) => _buildDeckViews()[7]),
                 ),
                 _buildEffectTileCard(
                   icon: Icons.album,
                   title: 'AnalogX & Tube Simulator',
-                  subtitle: (_tubeEnabled || _analogXEnabled || _speakerCorrectionEnabled) ? 'Tube/AnalogX Active' : 'Disabled',
-                  isEnabled: _tubeEnabled || _analogXEnabled || _speakerCorrectionEnabled,
-                  onTapDetail: () => _openDetailScreen('AnalogX & Tube Simulator', Icons.album, (_) => _buildDeckViews()[8]),
+                  subtitle: (_tubeEnabled ||
+                          _analogXEnabled ||
+                          _speakerCorrectionEnabled)
+                      ? 'Tube/AnalogX Active'
+                      : 'Disabled',
+                  isEnabled: _tubeEnabled ||
+                      _analogXEnabled ||
+                      _speakerCorrectionEnabled,
+                  onTapDetail: () => _openDetailScreen(
+                      'AnalogX & Tube Simulator',
+                      Icons.album,
+                      (_) => _buildDeckViews()[8]),
                 ),
               ],
             ),
@@ -1265,2051 +1309,1890 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   }
 
   List<Widget> _buildDeckViews() => [
-                  // Deck 0: Core & Limits
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                    child: Column(
+        // Deck 0: Core & Limits
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('Master Limiter', 'Peak threshold, volume & pan', true,
+                  (_) {},
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
                       children: [
-                        _buildCard('Master Limiter',
-                            'Peak threshold, volume & pan', true, (_) {},
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Wrap(
-                                spacing: 16,
-                                runSpacing: 16,
-                                children: [
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'THRESH',
-                                          value: _masterLimiterThreshold,
-                                          min: 0.0,
-                                          max: 1.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${(v * 100).round()}%',
-                                          onChanged: _viperEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _masterLimiterThreshold =
-                                                          v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'VOLUME',
-                                          value: _masterLimiterVolume,
-                                          min: 0.0,
-                                          max: 2.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${v.toStringAsFixed(1)}x',
-                                          onChanged: _viperEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _masterLimiterVolume = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'PAN',
-                                          value: _masterLimiterPan,
-                                          min: -1.0,
-                                          max: 1.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              v.toStringAsFixed(2),
-                                          onChanged: _viperEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _masterLimiterPan = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard('Playback Gain', 'AGC volume normalisation',
-                            _playbackGainEnabled, (v) {
-                          setState(() => _playbackGainEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Wrap(
-                                spacing: 16,
-                                runSpacing: 16,
-                                children: [
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'STRENGTH',
-                                          value: _playbackGainStrength,
-                                          min: 0.0,
-                                          max: 1.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${(v * 100).round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _playbackGainEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _playbackGainStrength =
-                                                          v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'MAX GAIN',
-                                          value: _playbackGainMax,
-                                          min: 0.0,
-                                          max: 2.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${(v * 100).round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _playbackGainEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _playbackGainMax = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'THRESH',
-                                          value: _playbackGainThreshold,
-                                          min: 0.0,
-                                          max: 1.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${(v * 100).round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _playbackGainEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _playbackGainThreshold =
-                                                          v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard('LUFS Normalizer',
-                            'EBU R128 loudness target', _lufsEnabled, (v) {
-                          setState(() => _lufsEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  Wrap(
-                                    spacing: 16,
-                                    runSpacing: 16,
-                                    children: [
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'TARGET',
-                                              value: _lufsTarget,
-                                              min: -24.0,
-                                              max: -6.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.toStringAsFixed(1)}dB',
-                                              onChanged:
-                                                  _viperEnabled && _lufsEnabled
-                                                      ? (v) {
-                                                          setState(() =>
-                                                              _lufsTarget = v);
-                                                          _updateEngine();
-                                                        }
-                                                      : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'MAX GAIN',
-                                              value: _lufsMaxGainDb,
-                                              min: 0.0,
-                                              max: 20.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.toStringAsFixed(1)}dB',
-                                              onChanged: _viperEnabled &&
-                                                      _lufsEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _lufsMaxGainDb = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  const Text('Speed',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Slow',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Normal',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Fast',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_lufsSpeed},
-                                    onSelectionChanged:
-                                        _viperEnabled && _lufsEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _lufsSpeed =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard('ALC Dynamics', 'Automatic Limiter Control',
-                            _alcEnabled, (v) {
-                          setState(() => _alcEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  Wrap(
-                                    spacing: 16,
-                                    runSpacing: 16,
-                                    children: [
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'STRENGTH',
-                                              value: _alcStrength,
-                                              min: 0.0,
-                                              max: 1.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${(v * 100).round()}%',
-                                              onChanged:
-                                                  _viperEnabled && _alcEnabled
-                                                      ? (v) {
-                                                          setState(() =>
-                                                              _alcStrength = v);
-                                                          _updateEngine();
-                                                        }
-                                                      : (_) {})),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  const Text('Mode',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Natural',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Mild',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Punchy',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_alcMode},
-                                    onSelectionChanged: _viperEnabled &&
-                                            _alcEnabled
-                                        ? (Set<int> newSelection) {
-                                            setState(() =>
-                                                _alcMode = newSelection.first);
-                                            _updateEngine();
-                                          }
-                                        : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'THRESH',
+                                value: _masterLimiterThreshold,
+                                min: 0.0,
+                                max: 1.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${(v * 100).round()}%',
+                                onChanged: _viperEnabled
+                                    ? (v) {
+                                        setState(
+                                            () => _masterLimiterThreshold = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'VOLUME',
+                                value: _masterLimiterVolume,
+                                min: 0.0,
+                                max: 2.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) =>
+                                    '${v.toStringAsFixed(1)}x',
+                                onChanged: _viperEnabled
+                                    ? (v) {
+                                        setState(
+                                            () => _masterLimiterVolume = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'PAN',
+                                value: _masterLimiterPan,
+                                min: -1.0,
+                                max: 1.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => v.toStringAsFixed(2),
+                                onChanged: _viperEnabled
+                                    ? (v) {
+                                        setState(() => _masterLimiterPan = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
                       ],
                     ),
-                  ),
-
-                  // Deck 1: VIPRR Dynamic System
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                    child: _buildCard(
-                        'Dynamic System',
-                        'Psychoacoustic bass enhancer',
-                        _dynamicSystemEnabled, (v) {
-                      setState(() => _dynamicSystemEnabled = v);
-                      _updateEngine();
-                    },
-                        child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Column(children: [
-                              const Text('Preset',
-                                  style: TextStyle(
-                                      color: Colors.white70, fontSize: 11)),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: Colors.black26,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.white10),
-                                ),
-                                child: DropdownButton<int>(
-                                  value: _dynPreset,
-                                  dropdownColor: surfaceDarkColor,
-                                  isExpanded: true,
-                                  underline: const SizedBox(),
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 12),
-                                  onChanged:
-                                      _viperEnabled && _dynamicSystemEnabled
-                                          ? (int? newValue) {
-                                              if (newValue != null) {
-                                                setState(() {
-                                                  _dynPreset = newValue;
-                                                  switch (newValue) {
-                                                    case 1:
-                                                      _dynXLow = 30;
-                                                      _dynXHigh = 50;
-                                                      _dynYLow = 80;
-                                                      _dynYHigh = 120;
-                                                      _dynSideGainLow = 1.2;
-                                                      _dynSideGainHigh = 1.0;
-                                                      break;
-                                                    case 2:
-                                                      _dynXLow = 40;
-                                                      _dynXHigh = 60;
-                                                      _dynYLow = 100;
-                                                      _dynYHigh = 150;
-                                                      _dynSideGainLow = 1.3;
-                                                      _dynSideGainHigh = 1.1;
-                                                      break;
-                                                    case 3:
-                                                      _dynXLow = 50;
-                                                      _dynXHigh = 70;
-                                                      _dynYLow = 120;
-                                                      _dynYHigh = 170;
-                                                      _dynSideGainLow = 1.4;
-                                                      _dynSideGainHigh = 1.2;
-                                                      break;
-                                                    case 4:
-                                                      _dynXLow = 60;
-                                                      _dynXHigh = 80;
-                                                      _dynYLow = 140;
-                                                      _dynYHigh = 190;
-                                                      _dynSideGainLow = 1.5;
-                                                      _dynSideGainHigh = 1.3;
-                                                      break;
-                                                    case 5:
-                                                      _dynXLow = 60;
-                                                      _dynXHigh = 100;
-                                                      _dynYLow = 150;
-                                                      _dynYHigh = 200;
-                                                      _dynSideGainLow = 1.8;
-                                                      _dynSideGainHigh = 1.5;
-                                                      break;
-                                                    case 6:
-                                                      _dynXLow = 40;
-                                                      _dynXHigh = 70;
-                                                      _dynYLow = 100;
-                                                      _dynYHigh = 150;
-                                                      _dynSideGainLow = 1.5;
-                                                      _dynSideGainHigh = 1.2;
-                                                      break;
-                                                    case 7:
-                                                      _dynXLow = 30;
-                                                      _dynXHigh = 50;
-                                                      _dynYLow = 80;
-                                                      _dynYHigh = 120;
-                                                      _dynSideGainLow = 1.2;
-                                                      _dynSideGainHigh = 1.0;
-                                                      break;
-                                                    case 8:
-                                                      _dynXLow = 20;
-                                                      _dynXHigh = 40;
-                                                      _dynYLow = 60;
-                                                      _dynYHigh = 100;
-                                                      _dynSideGainLow = 2.0;
-                                                      _dynSideGainHigh = 1.5;
-                                                      break;
-                                                  }
-                                                });
-                                                _updateEngine();
-                                              }
-                                            }
-                                          : null,
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: 0, child: Text('Custom')),
-                                    DropdownMenuItem(
-                                        value: 1,
-                                        child: Text('Unknown Type I')),
-                                    DropdownMenuItem(
-                                        value: 2,
-                                        child: Text('Unknown Type II')),
-                                    DropdownMenuItem(
-                                        value: 3,
-                                        child: Text('Unknown Type III')),
-                                    DropdownMenuItem(
-                                        value: 4,
-                                        child: Text('Unknown Type IV')),
-                                    DropdownMenuItem(
-                                        value: 5, child: Text('Earbud')),
-                                    DropdownMenuItem(
-                                        value: 6, child: Text('In-Ear')),
-                                    DropdownMenuItem(
-                                        value: 7, child: Text('Over-Ear')),
-                                    DropdownMenuItem(
-                                        value: 8,
-                                        child: Text('Extreme Headphone')),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                  spacing: 16,
-                                  runSpacing: 16,
-                                  alignment: WrapAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                        width: 75,
-                                        child: ModernAudioKnob(
-                                            label: 'STRENGTH',
-                                            value: _dynamicSystemStrength,
-                                            min: 0.0,
-                                            max: 1.0,
-                                            activeColor: primaryColor,
-                                            isPercentage: true,
-                                            onChanged: _viperEnabled &&
-                                                    _dynamicSystemEnabled
-                                                ? (v) {
-                                                    setState(() =>
-                                                        _dynamicSystemStrength =
-                                                            v);
-                                                    _updateEngine();
-                                                  }
-                                                : (_) {})),
-                                    if (_dynPreset == 0) ...[
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'X LOW',
-                                              value: _dynXLow,
-                                              min: 20.0,
-                                              max: 200.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.round()}Hz',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(
-                                                          () => _dynXLow = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'X HIGH',
-                                              value: _dynXHigh,
-                                              min: 20.0,
-                                              max: 200.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.round()}Hz',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(
-                                                          () => _dynXHigh = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'Y LOW',
-                                              value: _dynYLow,
-                                              min: 50.0,
-                                              max: 500.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.round()}Hz',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(
-                                                          () => _dynYLow = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'Y HIGH',
-                                              value: _dynYHigh,
-                                              min: 50.0,
-                                              max: 500.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.round()}Hz',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(
-                                                          () => _dynYHigh = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'SIDE LOW',
-                                              value: _dynSideGainLow,
-                                              min: 0.0,
-                                              max: 5.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.toStringAsFixed(1)}x',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _dynSideGainLow = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'SIDE HIGH',
-                                              value: _dynSideGainHigh,
-                                              min: 0.0,
-                                              max: 5.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.toStringAsFixed(1)}x',
-                                              onChanged: _viperEnabled &&
-                                                      _dynamicSystemEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _dynSideGainHigh = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                    ]
-                                  ]),
-                            ]))),
-                  ),
-
-                  // Deck 2: Dynamics & Compression
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                    child: Column(
+                  )),
+              const SizedBox(height: 12),
+              _buildCard('Playback Gain', 'AGC volume normalisation',
+                  _playbackGainEnabled, (v) {
+                setState(() => _playbackGainEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
                       children: [
-                        _buildCard('Multiband Compressor', '5-band dynamics',
-                            _multibandCompressorEnabled, (v) {
-                          setState(() => _multibandCompressorEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Column(children: [
-                              _buildMbcCrossovers(),
-                              const SizedBox(height: 12),
-                              _buildCompressorBands(),
-                            ])),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'FET Compressor',
-                            'Vintage dynamics processing',
-                            _fetCompressorEnabled, (v) {
-                          setState(() => _fetCompressorEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'THRESH',
-                                                value: _fetThreshold,
-                                                min: -60.0,
-                                                max: 0.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.toStringAsFixed(1)}dB',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetThreshold = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'RATIO',
-                                                value: _fetRatio,
-                                                min: 1.0,
-                                                max: 20.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.toStringAsFixed(1)}:1',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetRatio = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'KNEE',
-                                                value: _fetKnee,
-                                                min: 0.0,
-                                                max: 60.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled &&
-                                                        !_fetKneeAuto
-                                                    ? (v) {
-                                                        setState(
-                                                            () => _fetKnee = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'GAIN',
-                                                value: _fetGain,
-                                                min: -60.0,
-                                                max: 60.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.toStringAsFixed(1)}dB',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled &&
-                                                        !_fetGainAuto
-                                                    ? (v) {
-                                                        setState(
-                                                            () => _fetGain = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'ATTACK',
-                                                value: _fetAttack,
-                                                min: 0.0,
-                                                max: 100.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}ms',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled &&
-                                                        !_fetAttackAuto
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetAttack = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'RELEASE',
-                                                value: _fetRelease,
-                                                min: 10.0,
-                                                max: 1000.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}ms',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled &&
-                                                        !_fetReleaseAuto
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetRelease = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'KNEE MULT',
-                                                value: _fetKneeMulti,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${(v * 100).round()}%',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetKneeMulti = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'MAX ATK',
-                                                value: _fetMaxAttack,
-                                                min: 0.0,
-                                                max: 100.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}ms',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetMaxAttack = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'MAX REL',
-                                                value: _fetMaxRelease,
-                                                min: 10.0,
-                                                max: 1000.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}ms',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetMaxRelease = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'CREST',
-                                                value: _fetCrest,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${(v * 100).round()}%',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetCrest = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'ADAPT',
-                                                value: _fetAdapt,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${(v * 100).round()}%',
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetAdapt = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                      ]),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                      spacing: 8,
-                                      runSpacing: 0,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 150,
-                                            child: SwitchListTile(
-                                                title: const Text('Auto Knee',
-                                                    style: TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11)),
-                                                value: _fetKneeAuto,
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetKneeAuto = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : null,
-                                                activeColor: primaryColor,
-                                                dense: true,
-                                                contentPadding:
-                                                    EdgeInsets.zero)),
-                                        SizedBox(
-                                            width: 150,
-                                            child: SwitchListTile(
-                                                title: const Text('Auto Gain',
-                                                    style: TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11)),
-                                                value: _fetGainAuto,
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetGainAuto = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : null,
-                                                activeColor: primaryColor,
-                                                dense: true,
-                                                contentPadding:
-                                                    EdgeInsets.zero)),
-                                        SizedBox(
-                                            width: 150,
-                                            child: SwitchListTile(
-                                                title: const Text('Auto Attack',
-                                                    style: TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11)),
-                                                value: _fetAttackAuto,
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetAttackAuto = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : null,
-                                                activeColor: primaryColor,
-                                                dense: true,
-                                                contentPadding:
-                                                    EdgeInsets.zero)),
-                                        SizedBox(
-                                            width: 150,
-                                            child: SwitchListTile(
-                                                title: const Text(
-                                                    'Auto Release',
-                                                    style: TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11)),
-                                                value: _fetReleaseAuto,
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetReleaseAuto =
-                                                                v);
-                                                        _updateEngine();
-                                                      }
-                                                    : null,
-                                                activeColor: primaryColor,
-                                                dense: true,
-                                                contentPadding:
-                                                    EdgeInsets.zero)),
-                                        SizedBox(
-                                            width: 150,
-                                            child: SwitchListTile(
-                                                title: const Text('No Clip',
-                                                    style: TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11)),
-                                                value: _fetNoClip,
-                                                onChanged: _viperEnabled &&
-                                                        _fetCompressorEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _fetNoClip = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : null,
-                                                activeColor: primaryColor,
-                                                dense: true,
-                                                contentPadding:
-                                                    EdgeInsets.zero)),
-                                      ])
-                                ]))),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'STRENGTH',
+                                value: _playbackGainStrength,
+                                min: 0.0,
+                                max: 1.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${(v * 100).round()}%',
+                                onChanged: _viperEnabled && _playbackGainEnabled
+                                    ? (v) {
+                                        setState(
+                                            () => _playbackGainStrength = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'MAX GAIN',
+                                value: _playbackGainMax,
+                                min: 0.0,
+                                max: 2.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${(v * 100).round()}%',
+                                onChanged: _viperEnabled && _playbackGainEnabled
+                                    ? (v) {
+                                        setState(() => _playbackGainMax = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'THRESH',
+                                value: _playbackGainThreshold,
+                                min: 0.0,
+                                max: 1.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${(v * 100).round()}%',
+                                onChanged: _viperEnabled && _playbackGainEnabled
+                                    ? (v) {
+                                        setState(
+                                            () => _playbackGainThreshold = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
                       ],
                     ),
-                  ),
-
-                  // Deck 3: Bass & Clarity
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                  )),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'LUFS Normalizer', 'EBU R128 loudness target', _lufsEnabled,
+                  (v) {
+                setState(() => _lufsEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Column(
                       children: [
-                        _buildCard(
-                            'ViPER Bass', 'Stereo bass boost', _bassEnabled,
-                            (v) {
-                          setState(() => _bassEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  const Text('Mode',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Natural',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Pure',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Subwoofer',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_bassMode},
-                                    onSelectionChanged: _viperEnabled &&
-                                            _bassEnabled
-                                        ? (Set<int> newSelection) {
-                                            setState(() =>
-                                                _bassMode = newSelection.first);
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          children: [
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'TARGET',
+                                    value: _lufsTarget,
+                                    min: -24.0,
+                                    max: -6.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${v.toStringAsFixed(1)}dB',
+                                    onChanged: _viperEnabled && _lufsEnabled
+                                        ? (v) {
+                                            setState(() => _lufsTarget = v);
                                             _updateEngine();
                                           }
-                                        : null,
-                                    style: SegmentedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        foregroundColor: Colors.white,
-                                        selectedForegroundColor: primaryColor,
-                                        selectedBackgroundColor:
-                                            primaryColor.withAlpha(50),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 4)),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'FREQ',
-                                                value: _bassFreq,
-                                                min: 20.0,
-                                                max: 120.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}Hz',
-                                                onChanged: _viperEnabled &&
-                                                        _bassEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _bassFreq = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'GAIN',
-                                                value: _bassGain,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                isPercentage: true,
-                                                onChanged: _viperEnabled &&
-                                                        _bassEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _bassGain = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                      ]),
-                                  SwitchListTile(
-                                      title: const Text('Anti-Pop',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      value: _bassAntiPop,
-                                      onChanged: _viperEnabled && _bassEnabled
-                                          ? (v) {
-                                              setState(() => _bassAntiPop = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero),
-                                ]))),
-                        const SizedBox(height: 12),
-                        _buildCard('ViPER Bass Mono', 'Sub-bass reinforcement',
-                            _bassMonoEnabled, (v) {
-                          setState(() => _bassMonoEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  const Text('Mode',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Natural',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Pure',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Subwoofer',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_bassMonoMode},
-                                    onSelectionChanged:
-                                        _viperEnabled && _bassMonoEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _bassMonoMode =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        foregroundColor: Colors.white,
-                                        selectedForegroundColor: primaryColor,
-                                        selectedBackgroundColor:
-                                            primaryColor.withAlpha(50),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 4)),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'FREQ',
-                                                value: _bassMonoFreq,
-                                                min: 20.0,
-                                                max: 120.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}Hz',
-                                                onChanged: _viperEnabled &&
-                                                        _bassMonoEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _bassMonoFreq = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'GAIN',
-                                                value: _bassMonoGain,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                isPercentage: true,
-                                                onChanged: _viperEnabled &&
-                                                        _bassMonoEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _bassMonoGain = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                      ]),
-                                  SwitchListTile(
-                                      title: const Text('Anti-Pop',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      value: _bassMonoAntiPop,
-                                      onChanged: _viperEnabled &&
-                                              _bassMonoEnabled
-                                          ? (v) {
-                                              setState(
-                                                  () => _bassMonoAntiPop = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero),
-                                ]))),
-                        const SizedBox(height: 12),
-                        _buildCard('Psychoacoustic Bass', 'Harmonic synthesis',
-                            _psychoBassEnabled, (v) {
-                          setState(() => _psychoBassEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  const Text('Harmonic Order',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('2nd',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 3,
-                                          label: Text('3rd',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 4,
-                                          label: Text('4th',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 5,
-                                          label: Text('5th',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_psychoHarmonicOrder},
-                                    onSelectionChanged:
-                                        _viperEnabled && _psychoBassEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() =>
-                                                    _psychoHarmonicOrder =
-                                                        newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'CUTOFF',
-                                                value: _psychoCutoff,
-                                                min: 30.0,
-                                                max: 150.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}Hz',
-                                                onChanged: _viperEnabled &&
-                                                        _psychoBassEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _psychoCutoff = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'INTENS',
-                                                value: _psychoIntensity,
-                                                min: 0.0,
-                                                max: 100.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}%',
-                                                onChanged: _viperEnabled &&
-                                                        _psychoBassEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _psychoIntensity =
-                                                                v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'ORIG BASS',
-                                                value: _psychoOriginalLevel,
-                                                min: 0.0,
-                                                max: 100.0,
-                                                activeColor: primaryColor,
-                                                valueFormatter: (v) =>
-                                                    '${v.round()}%',
-                                                onChanged: _viperEnabled &&
-                                                        _psychoBassEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _psychoOriginalLevel =
-                                                                v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                      ]),
-                                ]))),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'ViPER Clarity',
-                            'Vocal and treble extraction',
-                            _clarityEnabled, (v) {
-                          setState(() => _clarityEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  const Text('Mode',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Natural',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Ozone+',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('XHiFi',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_clarityMode},
-                                    onSelectionChanged:
-                                        _viperEnabled && _clarityEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _clarityMode =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        foregroundColor: Colors.white,
-                                        selectedForegroundColor: primaryColor,
-                                        selectedBackgroundColor:
-                                            primaryColor.withAlpha(50),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 4)),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                            width: 75,
-                                            child: ModernAudioKnob(
-                                                label: 'GAIN',
-                                                value: _clarityGain,
-                                                min: 0.0,
-                                                max: 1.0,
-                                                activeColor: primaryColor,
-                                                isPercentage: true,
-                                                onChanged: _viperEnabled &&
-                                                        _clarityEnabled
-                                                    ? (v) {
-                                                        setState(() =>
-                                                            _clarityGain = v);
-                                                        _updateEngine();
-                                                      }
-                                                    : (_) {})),
-                                      ]),
-                                ]))),
-                        const SizedBox(height: 12),
-                        _buildCard('Spectrum Extension', 'High-frequency air',
-                            _spectrumEnabled, (v) {
-                          setState(() => _spectrumEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Wrap(
-                                    spacing: 16,
-                                    runSpacing: 16,
-                                    alignment: WrapAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'STRENGTH',
-                                              value: _spectrumStrength,
-                                              min: 0.0,
-                                              max: 100.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${v.round()}%',
-                                              onChanged: _viperEnabled &&
-                                                      _spectrumEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _spectrumStrength =
-                                                              v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'EXCITER',
-                                              value: _spectrumExciter,
-                                              min: 0.0,
-                                              max: 1.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${(v * 100).round()}%',
-                                              onChanged: _viperEnabled &&
-                                                      _spectrumEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _spectrumExciter = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                    ]))),
+                                        : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'MAX GAIN',
+                                    value: _lufsMaxGainDb,
+                                    min: 0.0,
+                                    max: 20.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${v.toStringAsFixed(1)}dB',
+                                    onChanged: _viperEnabled && _lufsEnabled
+                                        ? (v) {
+                                            setState(() => _lufsMaxGainDb = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Speed',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Slow',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Normal',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Fast',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_lufsSpeed},
+                          onSelectionChanged: _viperEnabled && _lufsEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _lufsSpeed = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-
-                  // Deck 4: Spatial & Surround
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                  )),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'ALC Dynamics', 'Automatic Limiter Control', _alcEnabled,
+                  (v) {
+                setState(() => _alcEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Column(
                       children: [
-                        _buildCard(
-                            'Stereo Imager',
-                            'Multiband width & crossover control',
-                            _stereoImagerEnabled, (v) {
-                          setState(() => _stereoImagerEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Wrap(
-                                spacing: 16,
-                                runSpacing: 16,
-                                alignment: WrapAlignment.center,
-                                children: [
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'LOW',
-                                          value: _stereoLowWidth,
-                                          min: 0.0,
-                                          max: 200.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${v.round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _stereoImagerEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _stereoLowWidth = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'MID',
-                                          value: _stereoMidWidth,
-                                          min: 0.0,
-                                          max: 200.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${v.round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _stereoImagerEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _stereoMidWidth = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'HIGH',
-                                          value: _stereoHighWidth,
-                                          min: 0.0,
-                                          max: 200.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${v.round()}%',
-                                          onChanged: _viperEnabled &&
-                                                  _stereoImagerEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _stereoHighWidth = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'LOW X-OVER',
-                                          value: _stereoLowCrossover,
-                                          min: 50.0,
-                                          max: 1000.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${v.round()}Hz',
-                                          onChanged: _viperEnabled &&
-                                                  _stereoImagerEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _stereoLowCrossover = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                  SizedBox(
-                                      width: 75,
-                                      child: ModernAudioKnob(
-                                          label: 'HIGH X-OVER',
-                                          value: _stereoHighCrossover,
-                                          min: 1000.0,
-                                          max: 10000.0,
-                                          activeColor: primaryColor,
-                                          valueFormatter: (v) =>
-                                              '${(v / 1000).toStringAsFixed(1)}kHz',
-                                          onChanged: _viperEnabled &&
-                                                  _stereoImagerEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _stereoHighCrossover = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard('Auditory System Protection',
-                            'Cure Tech+ binaural crossfeed', _cureEnabled, (v) {
-                          setState(() => _cureEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  const Text('Binaural Level',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Off',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Slight',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Extreme',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_curePreset},
-                                    onSelectionChanged:
-                                        _viperEnabled && _cureEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _curePreset =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'Headphone Surround+',
-                            'Eliminates in-head fatigue',
-                            _headphoneSurroundEnabled, (v) {
-                          setState(() => _headphoneSurroundEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  const Text('Quality',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Low',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Mid',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('High',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_headphoneSurroundQuality},
-                                    onSelectionChanged: _viperEnabled &&
-                                            _headphoneSurroundEnabled
-                                        ? (Set<int> newSelection) {
-                                            setState(() =>
-                                                _headphoneSurroundQuality =
-                                                    newSelection.first);
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          children: [
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'STRENGTH',
+                                    value: _alcStrength,
+                                    min: 0.0,
+                                    max: 1.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${(v * 100).round()}%',
+                                    onChanged: _viperEnabled && _alcEnabled
+                                        ? (v) {
+                                            setState(() => _alcStrength = v);
                                             _updateEngine();
                                           }
-                                        : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'Field Surround',
-                            'ColorfulMusic field expansion',
-                            _fieldSurroundEnabled, (v) {
-                          setState(() => _fieldSurroundEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  const Text('Surround Depth Level',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Lvl 1',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Lvl 2',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Lvl 3',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 3,
-                                          label: Text('Lvl 4',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 4,
-                                          label: Text('Lvl 5',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_fieldDepth},
-                                    onSelectionChanged:
-                                        _viperEnabled && _fieldSurroundEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _fieldDepth =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      foregroundColor: Colors.white,
-                                      selectedForegroundColor: primaryColor,
-                                      selectedBackgroundColor:
-                                          primaryColor.withAlpha(50),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Wrap(
-                                    spacing: 16,
-                                    runSpacing: 16,
-                                    alignment: WrapAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'WIDENING',
-                                              value: _fieldWidening,
-                                              min: 0.0,
-                                              max: 1.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${(v * 100).round()}%',
-                                              onChanged: _viperEnabled &&
-                                                      _fieldSurroundEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _fieldWidening = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                      SizedBox(
-                                          width: 75,
-                                          child: ModernAudioKnob(
-                                              label: 'MID IMG',
-                                              value: _fieldMidImage,
-                                              min: 0.0,
-                                              max: 1.0,
-                                              activeColor: primaryColor,
-                                              valueFormatter: (v) =>
-                                                  '${(v * 100).round()}%',
-                                              onChanged: _viperEnabled &&
-                                                      _fieldSurroundEnabled
-                                                  ? (v) {
-                                                      setState(() =>
-                                                          _fieldMidImage = v);
-                                                      _updateEngine();
-                                                    }
-                                                  : (_) {})),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            )),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'Differential Surround',
-                            'Haas effect delay panning',
-                            _diffSurroundEnabled, (v) {
-                          setState(() => _diffSurroundEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Column(children: [
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Wrap(
-                                  spacing: 16,
-                                  runSpacing: 16,
-                                  children: [
-                                    SizedBox(
-                                        width: 75,
-                                        child: ModernAudioKnob(
-                                            label: 'DELAY',
-                                            value: _diffDelay,
-                                            min: 0.0,
-                                            max: 50.0,
-                                            activeColor: primaryColor,
-                                            valueFormatter: (v) =>
-                                                '${v.toStringAsFixed(1)}ms',
-                                            onChanged: _viperEnabled &&
-                                                    _diffSurroundEnabled
-                                                ? (v) {
-                                                    setState(
-                                                        () => _diffDelay = v);
-                                                    _updateEngine();
-                                                  }
-                                                : (_) {})),
-                                    SizedBox(
-                                        width: 75,
-                                        child: ModernAudioKnob(
-                                            label: 'WET/DRY',
-                                            value: _diffWetDry,
-                                            min: 0.0,
-                                            max: 1.0,
-                                            activeColor: primaryColor,
-                                            valueFormatter: (v) =>
-                                                '${(v * 100).round()}%',
-                                            onChanged: _viperEnabled &&
-                                                    _diffSurroundEnabled
-                                                ? (v) {
-                                                    setState(
-                                                        () => _diffWetDry = v);
-                                                    _updateEngine();
-                                                  }
-                                                : (_) {})),
-                                    SizedBox(
-                                        width: 75,
-                                        child: ModernAudioKnob(
-                                            label: 'CUTOFF',
-                                            value: _diffLpCutoff,
-                                            min: 20.0,
-                                            max: 20000.0,
-                                            activeColor: primaryColor,
-                                            valueFormatter: (v) =>
-                                                '${v.round()}Hz',
-                                            onChanged: _viperEnabled &&
-                                                    _diffSurroundEnabled
-                                                ? (v) {
-                                                    setState(() =>
-                                                        _diffLpCutoff = v);
-                                                    _updateEngine();
-                                                  }
-                                                : (_) {})),
-                                  ],
-                                ),
-                              ),
-                              SwitchListTile(
-                                  title: const Text('Reverse',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  value: _diffReverse,
-                                  onChanged:
-                                      _viperEnabled && _diffSurroundEnabled
-                                          ? (v) {
-                                              setState(() => _diffReverse = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
+                                        : (_) {})),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Mode',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Natural',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Mild',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Punchy',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_alcMode},
+                          onSelectionChanged: _viperEnabled && _alcEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(() => _alcMode = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
+          ),
+        ),
+
+        // Deck 1: VIPRR Dynamic System
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: _buildCard('Dynamic System', 'Psychoacoustic bass enhancer',
+              _dynamicSystemEnabled, (v) {
+            setState(() => _dynamicSystemEnabled = v);
+            _updateEngine();
+          },
+              child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(children: [
+                    const Text('Preset',
+                        style: TextStyle(color: Colors.white70, fontSize: 11)),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: DropdownButton<int>(
+                        value: _dynPreset,
+                        dropdownColor: surfaceDarkColor,
+                        isExpanded: true,
+                        underline: const SizedBox(),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
+                        onChanged: _viperEnabled && _dynamicSystemEnabled
+                            ? (int? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _dynPreset = newValue;
+                                    switch (newValue) {
+                                      case 1:
+                                        _dynXLow = 30;
+                                        _dynXHigh = 50;
+                                        _dynYLow = 80;
+                                        _dynYHigh = 120;
+                                        _dynSideGainLow = 1.2;
+                                        _dynSideGainHigh = 1.0;
+                                        break;
+                                      case 2:
+                                        _dynXLow = 40;
+                                        _dynXHigh = 60;
+                                        _dynYLow = 100;
+                                        _dynYHigh = 150;
+                                        _dynSideGainLow = 1.3;
+                                        _dynSideGainHigh = 1.1;
+                                        break;
+                                      case 3:
+                                        _dynXLow = 50;
+                                        _dynXHigh = 70;
+                                        _dynYLow = 120;
+                                        _dynYHigh = 170;
+                                        _dynSideGainLow = 1.4;
+                                        _dynSideGainHigh = 1.2;
+                                        break;
+                                      case 4:
+                                        _dynXLow = 60;
+                                        _dynXHigh = 80;
+                                        _dynYLow = 140;
+                                        _dynYHigh = 190;
+                                        _dynSideGainLow = 1.5;
+                                        _dynSideGainHigh = 1.3;
+                                        break;
+                                      case 5:
+                                        _dynXLow = 60;
+                                        _dynXHigh = 100;
+                                        _dynYLow = 150;
+                                        _dynYHigh = 200;
+                                        _dynSideGainLow = 1.8;
+                                        _dynSideGainHigh = 1.5;
+                                        break;
+                                      case 6:
+                                        _dynXLow = 40;
+                                        _dynXHigh = 70;
+                                        _dynYLow = 100;
+                                        _dynYHigh = 150;
+                                        _dynSideGainLow = 1.5;
+                                        _dynSideGainHigh = 1.2;
+                                        break;
+                                      case 7:
+                                        _dynXLow = 30;
+                                        _dynXHigh = 50;
+                                        _dynYLow = 80;
+                                        _dynYHigh = 120;
+                                        _dynSideGainLow = 1.2;
+                                        _dynSideGainHigh = 1.0;
+                                        break;
+                                      case 8:
+                                        _dynXLow = 20;
+                                        _dynXHigh = 40;
+                                        _dynYLow = 60;
+                                        _dynYHigh = 100;
+                                        _dynSideGainLow = 2.0;
+                                        _dynSideGainHigh = 1.5;
+                                        break;
+                                    }
+                                  });
+                                  _updateEngine();
+                                }
+                              }
+                            : null,
+                        items: const [
+                          DropdownMenuItem(value: 0, child: Text('Custom')),
+                          DropdownMenuItem(
+                              value: 1, child: Text('Unknown Type I')),
+                          DropdownMenuItem(
+                              value: 2, child: Text('Unknown Type II')),
+                          DropdownMenuItem(
+                              value: 3, child: Text('Unknown Type III')),
+                          DropdownMenuItem(
+                              value: 4, child: Text('Unknown Type IV')),
+                          DropdownMenuItem(value: 5, child: Text('Earbud')),
+                          DropdownMenuItem(value: 6, child: Text('In-Ear')),
+                          DropdownMenuItem(value: 7, child: Text('Over-Ear')),
+                          DropdownMenuItem(
+                              value: 8, child: Text('Extreme Headphone')),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'STRENGTH',
+                                  value: _dynamicSystemStrength,
+                                  min: 0.0,
+                                  max: 1.0,
                                   activeColor: primaryColor,
-                                  dense: true),
-                            ])),
-                      ],
-                    ),
-                  ),
+                                  isPercentage: true,
+                                  onChanged: _viperEnabled &&
+                                          _dynamicSystemEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _dynamicSystemStrength = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          if (_dynPreset == 0) ...[
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'X LOW',
+                                    value: _dynXLow,
+                                    min: 20.0,
+                                    max: 200.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) => '${v.round()}Hz',
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynXLow = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'X HIGH',
+                                    value: _dynXHigh,
+                                    min: 20.0,
+                                    max: 200.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) => '${v.round()}Hz',
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynXHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'Y LOW',
+                                    value: _dynYLow,
+                                    min: 50.0,
+                                    max: 500.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) => '${v.round()}Hz',
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynYLow = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'Y HIGH',
+                                    value: _dynYHigh,
+                                    min: 50.0,
+                                    max: 500.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) => '${v.round()}Hz',
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynYHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'SIDE LOW',
+                                    value: _dynSideGainLow,
+                                    min: 0.0,
+                                    max: 5.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${v.toStringAsFixed(1)}x',
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() => _dynSideGainLow = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'SIDE HIGH',
+                                    value: _dynSideGainHigh,
+                                    min: 0.0,
+                                    max: 5.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${v.toStringAsFixed(1)}x',
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _dynSideGainHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
+                          ]
+                        ]),
+                  ]))),
+        ),
 
-                  // Deck 5: ViPER Reverb
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                    child: _buildCard(
-                        'Reverberation', 'Room simulation', _reverbEnabled,
-                        (v) {
-                      setState(() => _reverbEnabled = v);
-                      _updateEngine();
-                    },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Wrap(
+        // Deck 2: Dynamics & Compression
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('Multiband Compressor', '5-band dynamics',
+                  _multibandCompressorEnabled, (v) {
+                setState(() => _multibandCompressorEnabled = v);
+                _updateEngine();
+              },
+                  child: Column(children: [
+                    _buildMbcCrossovers(),
+                    const SizedBox(height: 12),
+                    _buildCompressorBands(),
+                  ])),
+              const SizedBox(height: 12),
+              _buildCard('FET Compressor', 'Vintage dynamics processing',
+                  _fetCompressorEnabled, (v) {
+                setState(() => _fetCompressorEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        Wrap(
                             spacing: 16,
                             runSpacing: 16,
+                            alignment: WrapAlignment.center,
                             children: [
                               SizedBox(
                                   width: 75,
                                   child: ModernAudioKnob(
-                                      label: 'ROOM',
-                                      value: _reverbRoom,
-                                      min: 0.0,
-                                      max: 1.0,
+                                      label: 'THRESH',
+                                      value: _fetThreshold,
+                                      min: -60.0,
+                                      max: 0.0,
                                       activeColor: primaryColor,
                                       valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled && _reverbEnabled
+                                          '${v.toStringAsFixed(1)}dB',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
                                           ? (v) {
-                                              setState(() => _reverbRoom = v);
+                                              setState(() => _fetThreshold = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
                               SizedBox(
                                   width: 75,
                                   child: ModernAudioKnob(
-                                      label: 'WIDTH',
-                                      value: _reverbWidth,
-                                      min: 0.0,
-                                      max: 1.0,
+                                      label: 'RATIO',
+                                      value: _fetRatio,
+                                      min: 1.0,
+                                      max: 20.0,
                                       activeColor: primaryColor,
                                       valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled && _reverbEnabled
+                                          '${v.toStringAsFixed(1)}:1',
+                                      onChanged:
+                                          _viperEnabled && _fetCompressorEnabled
+                                              ? (v) {
+                                                  setState(() => _fetRatio = v);
+                                                  _updateEngine();
+                                                }
+                                              : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'KNEE',
+                                      value: _fetKnee,
+                                      min: 0.0,
+                                      max: 60.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled &&
+                                              !_fetKneeAuto
                                           ? (v) {
-                                              setState(() => _reverbWidth = v);
+                                              setState(() => _fetKnee = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
                               SizedBox(
                                   width: 75,
                                   child: ModernAudioKnob(
-                                      label: 'DAMP',
-                                      value: _reverbDamp,
-                                      min: 0.0,
-                                      max: 1.0,
+                                      label: 'GAIN',
+                                      value: _fetGain,
+                                      min: -60.0,
+                                      max: 60.0,
                                       activeColor: primaryColor,
                                       valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled && _reverbEnabled
+                                          '${v.toStringAsFixed(1)}dB',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled &&
+                                              !_fetGainAuto
                                           ? (v) {
-                                              setState(() => _reverbDamp = v);
+                                              setState(() => _fetGain = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
                               SizedBox(
                                   width: 75,
                                   child: ModernAudioKnob(
-                                      label: 'WET',
-                                      value: _reverbWet,
+                                      label: 'ATTACK',
+                                      value: _fetAttack,
                                       min: 0.0,
-                                      max: 1.0,
+                                      max: 100.0,
                                       activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled && _reverbEnabled
+                                      valueFormatter: (v) => '${v.round()}ms',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled &&
+                                              !_fetAttackAuto
                                           ? (v) {
-                                              setState(() => _reverbWet = v);
+                                              setState(() => _fetAttack = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
                               SizedBox(
                                   width: 75,
                                   child: ModernAudioKnob(
-                                      label: 'DRY',
-                                      value: _reverbDry,
+                                      label: 'RELEASE',
+                                      value: _fetRelease,
+                                      min: 10.0,
+                                      max: 1000.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}ms',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled &&
+                                              !_fetReleaseAuto
+                                          ? (v) {
+                                              setState(() => _fetRelease = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'KNEE MULT',
+                                      value: _fetKneeMulti,
                                       min: 0.0,
                                       max: 1.0,
                                       activeColor: primaryColor,
                                       valueFormatter: (v) =>
                                           '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled && _reverbEnabled
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
                                           ? (v) {
-                                              setState(() => _reverbDry = v);
+                                              setState(() => _fetKneeMulti = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
-                            ],
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'MAX ATK',
+                                      value: _fetMaxAttack,
+                                      min: 0.0,
+                                      max: 100.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}ms',
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetMaxAttack = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'MAX REL',
+                                      value: _fetMaxRelease,
+                                      min: 10.0,
+                                      max: 1000.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}ms',
+                                      onChanged:
+                                          _viperEnabled && _fetCompressorEnabled
+                                              ? (v) {
+                                                  setState(
+                                                      () => _fetMaxRelease = v);
+                                                  _updateEngine();
+                                                }
+                                              : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'CREST',
+                                      value: _fetCrest,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) =>
+                                          '${(v * 100).round()}%',
+                                      onChanged:
+                                          _viperEnabled && _fetCompressorEnabled
+                                              ? (v) {
+                                                  setState(() => _fetCrest = v);
+                                                  _updateEngine();
+                                                }
+                                              : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'ADAPT',
+                                      value: _fetAdapt,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) =>
+                                          '${(v * 100).round()}%',
+                                      onChanged:
+                                          _viperEnabled && _fetCompressorEnabled
+                                              ? (v) {
+                                                  setState(() => _fetAdapt = v);
+                                                  _updateEngine();
+                                                }
+                                              : (_) {})),
+                            ]),
+                        const SizedBox(height: 16),
+                        Wrap(
+                            spacing: 8,
+                            runSpacing: 0,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              SizedBox(
+                                  width: 150,
+                                  child: SwitchListTile(
+                                      title: const Text('Auto Knee',
+                                          style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11)),
+                                      value: _fetKneeAuto,
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetKneeAuto = v);
+                                              _updateEngine();
+                                            }
+                                          : null,
+                                      activeThumbColor: primaryColor,
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero)),
+                              SizedBox(
+                                  width: 150,
+                                  child: SwitchListTile(
+                                      title: const Text('Auto Gain',
+                                          style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11)),
+                                      value: _fetGainAuto,
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetGainAuto = v);
+                                              _updateEngine();
+                                            }
+                                          : null,
+                                      activeThumbColor: primaryColor,
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero)),
+                              SizedBox(
+                                  width: 150,
+                                  child: SwitchListTile(
+                                      title: const Text('Auto Attack',
+                                          style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11)),
+                                      value: _fetAttackAuto,
+                                      onChanged:
+                                          _viperEnabled && _fetCompressorEnabled
+                                              ? (v) {
+                                                  setState(
+                                                      () => _fetAttackAuto = v);
+                                                  _updateEngine();
+                                                }
+                                              : null,
+                                      activeThumbColor: primaryColor,
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero)),
+                              SizedBox(
+                                  width: 150,
+                                  child: SwitchListTile(
+                                      title: const Text('Auto Release',
+                                          style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11)),
+                                      value: _fetReleaseAuto,
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(
+                                                  () => _fetReleaseAuto = v);
+                                              _updateEngine();
+                                            }
+                                          : null,
+                                      activeThumbColor: primaryColor,
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero)),
+                              SizedBox(
+                                  width: 150,
+                                  child: SwitchListTile(
+                                      title: const Text('No Clip',
+                                          style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11)),
+                                      value: _fetNoClip,
+                                      onChanged: _viperEnabled &&
+                                              _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetNoClip = v);
+                                              _updateEngine();
+                                            }
+                                          : null,
+                                      activeThumbColor: primaryColor,
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero)),
+                            ])
+                      ]))),
+            ],
+          ),
+        ),
+
+        // Deck 3: Bass & Clarity
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('ViPER Bass', 'Stereo bass boost', _bassEnabled, (v) {
+                setState(() => _bassEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        const Text('Mode',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Natural',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Pure',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Subwoofer',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_bassMode},
+                          onSelectionChanged: _viperEnabled && _bassEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _bassMode = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                              selectedForegroundColor: primaryColor,
+                              selectedBackgroundColor:
+                                  primaryColor.withAlpha(50),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4)),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'FREQ',
+                                      value: _bassFreq,
+                                      min: 20.0,
+                                      max: 120.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}Hz',
+                                      onChanged: _viperEnabled && _bassEnabled
+                                          ? (v) {
+                                              setState(() => _bassFreq = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'GAIN',
+                                      value: _bassGain,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: primaryColor,
+                                      isPercentage: true,
+                                      onChanged: _viperEnabled && _bassEnabled
+                                          ? (v) {
+                                              setState(() => _bassGain = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                            ]),
+                        SwitchListTile(
+                            title: const Text('Anti-Pop',
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 11)),
+                            value: _bassAntiPop,
+                            onChanged: _viperEnabled && _bassEnabled
+                                ? (v) {
+                                    setState(() => _bassAntiPop = v);
+                                    _updateEngine();
+                                  }
+                                : null,
+                            activeThumbColor: primaryColor,
+                            dense: true,
+                            contentPadding: EdgeInsets.zero),
+                      ]))),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'ViPER Bass Mono', 'Sub-bass reinforcement', _bassMonoEnabled,
+                  (v) {
+                setState(() => _bassMonoEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        const Text('Mode',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Natural',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Pure',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Subwoofer',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_bassMonoMode},
+                          onSelectionChanged: _viperEnabled && _bassMonoEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _bassMonoMode = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                              selectedForegroundColor: primaryColor,
+                              selectedBackgroundColor:
+                                  primaryColor.withAlpha(50),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4)),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'FREQ',
+                                      value: _bassMonoFreq,
+                                      min: 20.0,
+                                      max: 120.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}Hz',
+                                      onChanged: _viperEnabled &&
+                                              _bassMonoEnabled
+                                          ? (v) {
+                                              setState(() => _bassMonoFreq = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'GAIN',
+                                      value: _bassMonoGain,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: primaryColor,
+                                      isPercentage: true,
+                                      onChanged: _viperEnabled &&
+                                              _bassMonoEnabled
+                                          ? (v) {
+                                              setState(() => _bassMonoGain = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                            ]),
+                        SwitchListTile(
+                            title: const Text('Anti-Pop',
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 11)),
+                            value: _bassMonoAntiPop,
+                            onChanged: _viperEnabled && _bassMonoEnabled
+                                ? (v) {
+                                    setState(() => _bassMonoAntiPop = v);
+                                    _updateEngine();
+                                  }
+                                : null,
+                            activeThumbColor: primaryColor,
+                            dense: true,
+                            contentPadding: EdgeInsets.zero),
+                      ]))),
+              const SizedBox(height: 12),
+              _buildCard('Psychoacoustic Bass', 'Harmonic synthesis',
+                  _psychoBassEnabled, (v) {
+                setState(() => _psychoBassEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        const Text('Harmonic Order',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('2nd',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 3,
+                                label: Text('3rd',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 4,
+                                label: Text('4th',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 5,
+                                label: Text('5th',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_psychoHarmonicOrder},
+                          onSelectionChanged:
+                              _viperEnabled && _psychoBassEnabled
+                                  ? (Set<int> newSelection) {
+                                      setState(() => _psychoHarmonicOrder =
+                                          newSelection.first);
+                                      _updateEngine();
+                                    }
+                                  : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
                           ),
-                        )),
-                  ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'CUTOFF',
+                                      value: _psychoCutoff,
+                                      min: 30.0,
+                                      max: 150.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}Hz',
+                                      onChanged: _viperEnabled &&
+                                              _psychoBassEnabled
+                                          ? (v) {
+                                              setState(() => _psychoCutoff = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'INTENS',
+                                      value: _psychoIntensity,
+                                      min: 0.0,
+                                      max: 100.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}%',
+                                      onChanged: _viperEnabled &&
+                                              _psychoBassEnabled
+                                          ? (v) {
+                                              setState(
+                                                  () => _psychoIntensity = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'ORIG BASS',
+                                      value: _psychoOriginalLevel,
+                                      min: 0.0,
+                                      max: 100.0,
+                                      activeColor: primaryColor,
+                                      valueFormatter: (v) => '${v.round()}%',
+                                      onChanged:
+                                          _viperEnabled && _psychoBassEnabled
+                                              ? (v) {
+                                                  setState(() =>
+                                                      _psychoOriginalLevel = v);
+                                                  _updateEngine();
+                                                }
+                                              : (_) {})),
+                            ]),
+                      ]))),
+              const SizedBox(height: 12),
+              _buildCard('ViPER Clarity', 'Vocal and treble extraction',
+                  _clarityEnabled, (v) {
+                setState(() => _clarityEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        const Text('Mode',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Natural',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Ozone+',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('XHiFi',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_clarityMode},
+                          onSelectionChanged: _viperEnabled && _clarityEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _clarityMode = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                              selectedForegroundColor: primaryColor,
+                              selectedBackgroundColor:
+                                  primaryColor.withAlpha(50),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4)),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              SizedBox(
+                                  width: 75,
+                                  child: ModernAudioKnob(
+                                      label: 'GAIN',
+                                      value: _clarityGain,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: primaryColor,
+                                      isPercentage: true,
+                                      onChanged: _viperEnabled &&
+                                              _clarityEnabled
+                                          ? (v) {
+                                              setState(() => _clarityGain = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                            ]),
+                      ]))),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'Spectrum Extension', 'High-frequency air', _spectrumEnabled,
+                  (v) {
+                setState(() => _spectrumEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'STRENGTH',
+                                    value: _spectrumStrength,
+                                    min: 0.0,
+                                    max: 100.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) => '${v.round()}%',
+                                    onChanged: _viperEnabled && _spectrumEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _spectrumStrength = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'EXCITER',
+                                    value: _spectrumExciter,
+                                    min: 0.0,
+                                    max: 1.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${(v * 100).round()}%',
+                                    onChanged: _viperEnabled && _spectrumEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _spectrumExciter = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                          ]))),
+            ],
+          ),
+        ),
 
-                  // Deck 6: Dynamic EQ & FIR
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                    child: Column(
+        // Deck 4: Spatial & Surround
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('Stereo Imager', 'Multiband width & crossover control',
+                  _stereoImagerEnabled, (v) {
+                setState(() => _stereoImagerEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      alignment: WrapAlignment.center,
                       children: [
-                        _buildCard('FIR Equalizer', 'FIR bands processing',
-                            _firEqEnabled, (v) {
-                          setState(() => _firEqEnabled = v);
-                          _updateEngine();
-                        },
-                            child: _buildEqBands(
-                                _firEqFreqs, _firEqGains, _firEqEnabled)),
-                        const SizedBox(height: 12),
-                        _buildCard('Dynamic EQ', 'Adaptive frequency scaling',
-                            _dynamicEqEnabled, (v) {
-                          setState(() => _dynamicEqEnabled = v);
-                          _updateEngine();
-                        }, child: _buildDynamicEqBands()),
-                        const SizedBox(height: 12),
-                        _buildCard('IIR Order EQ', 'IIR bands processing',
-                            _iirEqEnabled, (v) {
-                          setState(() => _iirEqEnabled = v);
-                          _updateEngine();
-                        },
-                            child: _buildEqBands(
-                                _iirEqFreqs, _iirEqGains, _iirEqEnabled)),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'LOW',
+                                value: _stereoLowWidth,
+                                min: 0.0,
+                                max: 200.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${v.round()}%',
+                                onChanged: _viperEnabled && _stereoImagerEnabled
+                                    ? (v) {
+                                        setState(() => _stereoLowWidth = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'MID',
+                                value: _stereoMidWidth,
+                                min: 0.0,
+                                max: 200.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${v.round()}%',
+                                onChanged: _viperEnabled && _stereoImagerEnabled
+                                    ? (v) {
+                                        setState(() => _stereoMidWidth = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'HIGH',
+                                value: _stereoHighWidth,
+                                min: 0.0,
+                                max: 200.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${v.round()}%',
+                                onChanged: _viperEnabled && _stereoImagerEnabled
+                                    ? (v) {
+                                        setState(() => _stereoHighWidth = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'LOW X-OVER',
+                                value: _stereoLowCrossover,
+                                min: 50.0,
+                                max: 1000.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) => '${v.round()}Hz',
+                                onChanged: _viperEnabled && _stereoImagerEnabled
+                                    ? (v) {
+                                        setState(() => _stereoLowCrossover = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
+                        SizedBox(
+                            width: 75,
+                            child: ModernAudioKnob(
+                                label: 'HIGH X-OVER',
+                                value: _stereoHighCrossover,
+                                min: 1000.0,
+                                max: 10000.0,
+                                activeColor: primaryColor,
+                                valueFormatter: (v) =>
+                                    '${(v / 1000).toStringAsFixed(1)}kHz',
+                                onChanged: _viperEnabled && _stereoImagerEnabled
+                                    ? (v) {
+                                        setState(
+                                            () => _stereoHighCrossover = v);
+                                        _updateEngine();
+                                      }
+                                    : (_) {})),
                       ],
                     ),
-                  ),
-
-                  // Deck 7: Convolver & DDC
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                  )),
+              const SizedBox(height: 12),
+              _buildCard('Auditory System Protection',
+                  'Cure Tech+ binaural crossfeed', _cureEnabled, (v) {
+                setState(() => _cureEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Column(
                       children: [
-                        _buildAutoEqImporter(),
-                        const SizedBox(height: 12),
-                        _buildCard('Convolver', 'IRS Convolver processing',
-                            _convolverEnabled, (v) {
-                          setState(() => _convolverEnabled = v);
-                          _updateEngine();
-                        }, child: _buildConvolverSelector()),
-                        const SizedBox(height: 12),
-                        _buildCard('Viper DDC', 'Device-Dependent Correction',
-                            _ddcEnabled, (v) {
-                          setState(() => _ddcEnabled = v);
-                          _updateEngine();
-                        }, child: _buildDdcSelector()),
+                        const Text('Binaural Level',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Off',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Slight',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Extreme',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_curePreset},
+                          onSelectionChanged: _viperEnabled && _cureEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _curePreset = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-
-                  // Deck 8: Analog & Tube
-                  SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                  )),
+              const SizedBox(height: 12),
+              _buildCard('Headphone Surround+', 'Eliminates in-head fatigue',
+                  _headphoneSurroundEnabled, (v) {
+                setState(() => _headphoneSurroundEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Column(
                       children: [
-                        _buildCard('Tube Simulator', '6N1J analog warmth',
-                            _tubeEnabled, (v) {
-                          setState(() => _tubeEnabled = v);
-                          _updateEngine();
-                        }),
-                        const SizedBox(height: 12),
-                        _buildCard('AnalogX', 'Analog sound signature',
-                            _analogXEnabled, (v) {
-                          setState(() => _analogXEnabled = v);
-                          _updateEngine();
-                        },
-                            child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                child: Column(children: [
-                                  const Text('Mode',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 11)),
-                                  const SizedBox(height: 4),
-                                  SegmentedButton<int>(
-                                    segments: const [
-                                      ButtonSegment(
-                                          value: 0,
-                                          label: Text('Mild',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 1,
-                                          label: Text('Moderate',
-                                              style: TextStyle(fontSize: 10))),
-                                      ButtonSegment(
-                                          value: 2,
-                                          label: Text('Aggressive',
-                                              style: TextStyle(fontSize: 10))),
-                                    ],
-                                    selected: {_analogXMode},
-                                    onSelectionChanged:
-                                        _viperEnabled && _analogXEnabled
-                                            ? (Set<int> newSelection) {
-                                                setState(() => _analogXMode =
-                                                    newSelection.first);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                    style: SegmentedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        foregroundColor: Colors.white,
-                                        selectedForegroundColor: primaryColor,
-                                        selectedBackgroundColor:
-                                            primaryColor.withAlpha(50),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 4)),
-                                  ),
-                                ]))),
-                        const SizedBox(height: 12),
-                        _buildCard(
-                            'Speaker Correction',
-                            'Impulse response correction',
-                            _speakerCorrectionEnabled, (v) {
-                          setState(() => _speakerCorrectionEnabled = v);
-                          _updateEngine();
-                        }),
+                        const Text('Quality',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Low',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Mid',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('High',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_headphoneSurroundQuality},
+                          onSelectionChanged:
+                              _viperEnabled && _headphoneSurroundEnabled
+                                  ? (Set<int> newSelection) {
+                                      setState(() => _headphoneSurroundQuality =
+                                          newSelection.first);
+                                      _updateEngine();
+                                    }
+                                  : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-  ];
+                  )),
+              const SizedBox(height: 12),
+              _buildCard('Field Surround', 'ColorfulMusic field expansion',
+                  _fieldSurroundEnabled, (v) {
+                setState(() => _fieldSurroundEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      children: [
+                        const Text('Surround Depth Level',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Lvl 1',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Lvl 2',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Lvl 3',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 3,
+                                label: Text('Lvl 4',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 4,
+                                label: Text('Lvl 5',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_fieldDepth},
+                          onSelectionChanged: _viperEnabled &&
+                                  _fieldSurroundEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _fieldDepth = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            selectedForegroundColor: primaryColor,
+                            selectedBackgroundColor: primaryColor.withAlpha(50),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'WIDENING',
+                                    value: _fieldWidening,
+                                    min: 0.0,
+                                    max: 1.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${(v * 100).round()}%',
+                                    onChanged: _viperEnabled &&
+                                            _fieldSurroundEnabled
+                                        ? (v) {
+                                            setState(() => _fieldWidening = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                            SizedBox(
+                                width: 75,
+                                child: ModernAudioKnob(
+                                    label: 'MID IMG',
+                                    value: _fieldMidImage,
+                                    min: 0.0,
+                                    max: 1.0,
+                                    activeColor: primaryColor,
+                                    valueFormatter: (v) =>
+                                        '${(v * 100).round()}%',
+                                    onChanged: _viperEnabled &&
+                                            _fieldSurroundEnabled
+                                        ? (v) {
+                                            setState(() => _fieldMidImage = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )),
+              const SizedBox(height: 12),
+              _buildCard('Differential Surround', 'Haas effect delay panning',
+                  _diffSurroundEnabled, (v) {
+                setState(() => _diffSurroundEnabled = v);
+                _updateEngine();
+              },
+                  child: Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'DELAY',
+                                  value: _diffDelay,
+                                  min: 0.0,
+                                  max: 50.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}ms',
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffDelay = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'WET/DRY',
+                                  value: _diffWetDry,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffWetDry = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'CUTOFF',
+                                  value: _diffLpCutoff,
+                                  min: 20.0,
+                                  max: 20000.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}Hz',
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffLpCutoff = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
+                        ],
+                      ),
+                    ),
+                    SwitchListTile(
+                        title: const Text('Reverse',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        value: _diffReverse,
+                        onChanged: _viperEnabled && _diffSurroundEnabled
+                            ? (v) {
+                                setState(() => _diffReverse = v);
+                                _updateEngine();
+                              }
+                            : null,
+                        activeThumbColor: primaryColor,
+                        dense: true),
+                  ])),
+            ],
+          ),
+        ),
+
+        // Deck 5: ViPER Reverb
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: _buildCard('Reverberation', 'Room simulation', _reverbEnabled,
+              (v) {
+            setState(() => _reverbEnabled = v);
+            _updateEngine();
+          },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    SizedBox(
+                        width: 75,
+                        child: ModernAudioKnob(
+                            label: 'ROOM',
+                            value: _reverbRoom,
+                            min: 0.0,
+                            max: 1.0,
+                            activeColor: primaryColor,
+                            valueFormatter: (v) => '${(v * 100).round()}%',
+                            onChanged: _viperEnabled && _reverbEnabled
+                                ? (v) {
+                                    setState(() => _reverbRoom = v);
+                                    _updateEngine();
+                                  }
+                                : (_) {})),
+                    SizedBox(
+                        width: 75,
+                        child: ModernAudioKnob(
+                            label: 'WIDTH',
+                            value: _reverbWidth,
+                            min: 0.0,
+                            max: 1.0,
+                            activeColor: primaryColor,
+                            valueFormatter: (v) => '${(v * 100).round()}%',
+                            onChanged: _viperEnabled && _reverbEnabled
+                                ? (v) {
+                                    setState(() => _reverbWidth = v);
+                                    _updateEngine();
+                                  }
+                                : (_) {})),
+                    SizedBox(
+                        width: 75,
+                        child: ModernAudioKnob(
+                            label: 'DAMP',
+                            value: _reverbDamp,
+                            min: 0.0,
+                            max: 1.0,
+                            activeColor: primaryColor,
+                            valueFormatter: (v) => '${(v * 100).round()}%',
+                            onChanged: _viperEnabled && _reverbEnabled
+                                ? (v) {
+                                    setState(() => _reverbDamp = v);
+                                    _updateEngine();
+                                  }
+                                : (_) {})),
+                    SizedBox(
+                        width: 75,
+                        child: ModernAudioKnob(
+                            label: 'WET',
+                            value: _reverbWet,
+                            min: 0.0,
+                            max: 1.0,
+                            activeColor: primaryColor,
+                            valueFormatter: (v) => '${(v * 100).round()}%',
+                            onChanged: _viperEnabled && _reverbEnabled
+                                ? (v) {
+                                    setState(() => _reverbWet = v);
+                                    _updateEngine();
+                                  }
+                                : (_) {})),
+                    SizedBox(
+                        width: 75,
+                        child: ModernAudioKnob(
+                            label: 'DRY',
+                            value: _reverbDry,
+                            min: 0.0,
+                            max: 1.0,
+                            activeColor: primaryColor,
+                            valueFormatter: (v) => '${(v * 100).round()}%',
+                            onChanged: _viperEnabled && _reverbEnabled
+                                ? (v) {
+                                    setState(() => _reverbDry = v);
+                                    _updateEngine();
+                                  }
+                                : (_) {})),
+                  ],
+                ),
+              )),
+        ),
+
+        // Deck 6: Dynamic EQ & FIR
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('FIR Equalizer', 'FIR bands processing', _firEqEnabled,
+                  (v) {
+                setState(() => _firEqEnabled = v);
+                _updateEngine();
+              }, child: _buildEqBands(_firEqFreqs, _firEqGains, _firEqEnabled)),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'Dynamic EQ', 'Adaptive frequency scaling', _dynamicEqEnabled,
+                  (v) {
+                setState(() => _dynamicEqEnabled = v);
+                _updateEngine();
+              }, child: _buildDynamicEqBands()),
+              const SizedBox(height: 12),
+              _buildCard('IIR Order EQ', 'IIR bands processing', _iirEqEnabled,
+                  (v) {
+                setState(() => _iirEqEnabled = v);
+                _updateEngine();
+              }, child: _buildEqBands(_iirEqFreqs, _iirEqGains, _iirEqEnabled)),
+            ],
+          ),
+        ),
+
+        // Deck 7: Convolver & DDC
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildAutoEqImporter(),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'Convolver', 'IRS Convolver processing', _convolverEnabled,
+                  (v) {
+                setState(() => _convolverEnabled = v);
+                _updateEngine();
+              }, child: _buildConvolverSelector()),
+              const SizedBox(height: 12),
+              _buildCard(
+                  'Viper DDC', 'Device-Dependent Correction', _ddcEnabled, (v) {
+                setState(() => _ddcEnabled = v);
+                _updateEngine();
+              }, child: _buildDdcSelector()),
+            ],
+          ),
+        ),
+
+        // Deck 8: Analog & Tube
+        SingleChildScrollView(
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          child: Column(
+            children: [
+              _buildCard('Tube Simulator', '6N1J analog warmth', _tubeEnabled,
+                  (v) {
+                setState(() => _tubeEnabled = v);
+                _updateEngine();
+              }),
+              const SizedBox(height: 12),
+              _buildCard('AnalogX', 'Analog sound signature', _analogXEnabled,
+                  (v) {
+                setState(() => _analogXEnabled = v);
+                _updateEngine();
+              },
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(children: [
+                        const Text('Mode',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
+                        const SizedBox(height: 4),
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(
+                                value: 0,
+                                label: Text('Mild',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 1,
+                                label: Text('Moderate',
+                                    style: TextStyle(fontSize: 10))),
+                            ButtonSegment(
+                                value: 2,
+                                label: Text('Aggressive',
+                                    style: TextStyle(fontSize: 10))),
+                          ],
+                          selected: {_analogXMode},
+                          onSelectionChanged: _viperEnabled && _analogXEnabled
+                              ? (Set<int> newSelection) {
+                                  setState(
+                                      () => _analogXMode = newSelection.first);
+                                  _updateEngine();
+                                }
+                              : null,
+                          style: SegmentedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                              selectedForegroundColor: primaryColor,
+                              selectedBackgroundColor:
+                                  primaryColor.withAlpha(50),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4)),
+                        ),
+                      ]))),
+              const SizedBox(height: 12),
+              _buildCard('Speaker Correction', 'Impulse response correction',
+                  _speakerCorrectionEnabled, (v) {
+                setState(() => _speakerCorrectionEnabled = v);
+                _updateEngine();
+              }),
+            ],
+          ),
+        ),
+      ];
 
   Widget _buildCard(String title, String subtitle, bool enabled,
       ValueChanged<bool> onEnableChanged,
@@ -4110,8 +3993,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           } else if (ext == '.irs' || ext == '.wav') {
                             final targetDir = Directory(
                                 '${Directory.systemTemp.path}${Platform.pathSeparator}sautiplay_irs');
-                            if (!targetDir.existsSync())
+                            if (!targetDir.existsSync()) {
                               targetDir.createSync(recursive: true);
+                            }
                             final newPath =
                                 p.join(targetDir.path, p.basename(path));
                             File(path).copySync(newPath);
@@ -4133,8 +4017,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           } else if (ext == '.vdc') {
                             final targetDir = Directory(
                                 '${Directory.systemTemp.path}${Platform.pathSeparator}sautiplay_vdc');
-                            if (!targetDir.existsSync())
+                            if (!targetDir.existsSync()) {
                               targetDir.createSync(recursive: true);
+                            }
                             final newPath =
                                 p.join(targetDir.path, p.basename(path));
                             File(path).copySync(newPath);

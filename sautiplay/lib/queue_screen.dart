@@ -34,7 +34,8 @@ class QueueScreen extends StatefulWidget {
   State<QueueScreen> createState() => _QueueScreenState();
 }
 
-class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClientMixin {
+class _QueueScreenState extends State<QueueScreen>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
   late ScrollController _scrollController;
@@ -62,7 +63,8 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
       oldWidget.statusNotifier?.removeListener(_onStatusChanged);
       widget.statusNotifier?.addListener(_onStatusChanged);
     }
-    if (oldWidget.videoId != widget.videoId || oldWidget.queue != widget.queue) {
+    if (oldWidget.videoId != widget.videoId ||
+        oldWidget.queue != widget.queue) {
       final newIndex = _getPlayingIndex(widget.statusNotifier?.value);
       if (_lastPlayingIndex != newIndex) {
         _lastPlayingIndex = newIndex;
@@ -83,7 +85,7 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
   void _onStatusChanged() {
     if (!mounted) return;
     final newIndex = _getPlayingIndex(widget.statusNotifier?.value);
-    
+
     // Performance optimization: Avoid rebuilding the queue screen on playback position ticks.
     // Only update state if the current playing index actually changed.
     if (_lastPlayingIndex == newIndex) {
@@ -156,9 +158,7 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
     final hours = totalSec ~/ 3600;
     final mins = (totalSec % 3600) ~/ 60;
 
-    final durationStr = hours > 0
-        ? '${hours}h ${mins}m'
-        : '${mins} min';
+    final durationStr = hours > 0 ? '${hours}h ${mins}m' : '$mins min';
 
     return '${widget.queue.length} tracks • $durationStr';
   }
@@ -183,12 +183,15 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                 const SizedBox(height: 16),
                 // ── Top Header matching NowPlayingScreen top level exactly ──
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8.0, vertical: 4.0),
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 32),
-                        onPressed: widget.onClose ?? () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.keyboard_arrow_down,
+                            color: Colors.white, size: 32),
+                        onPressed:
+                            widget.onClose ?? () => Navigator.of(context).pop(),
                       ),
                       Expanded(
                         child: Column(
@@ -219,7 +222,8 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                                 ),
                                 const SizedBox(width: 6),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 1.5),
                                   decoration: BoxDecoration(
                                     color: primaryColor.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(8),
@@ -252,7 +256,8 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                       ),
                       if (widget.queue.isNotEmpty)
                         IconButton(
-                          icon: const Icon(Icons.my_location_rounded, color: primaryColor, size: 22),
+                          icon: const Icon(Icons.my_location_rounded,
+                              color: primaryColor, size: 22),
                           tooltip: 'Center playing track',
                           onPressed: () => _scrollToPlayingItem(animate: true),
                         )
@@ -276,17 +281,22 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                                   color: Colors.white.withValues(alpha: 0.04),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(Icons.queue_music_rounded, color: Colors.white30, size: 36),
+                                child: const Icon(Icons.queue_music_rounded,
+                                    color: Colors.white30, size: 36),
                               ),
                               const SizedBox(height: 16),
                               const Text(
                                 'Queue is empty',
-                                style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600),
                               ),
                               const SizedBox(height: 4),
                               const Text(
                                 'Play a track or album to populate the queue',
-                                style: TextStyle(color: Colors.white38, fontSize: 13),
+                                style: TextStyle(
+                                    color: Colors.white38, fontSize: 13),
                               ),
                             ],
                           ),
@@ -296,169 +306,188 @@ class _QueueScreenState extends State<QueueScreen> with AutomaticKeepAliveClient
                             canvasColor: Colors.transparent,
                           ),
                           child: ReorderableListView.builder(
-                      scrollController: _scrollController,
-                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                      itemCount: widget.queue.length,
-                      onReorder: widget.onReorderQueue,
-                      itemBuilder: (context, index) {
-                  final track = widget.queue[index];
-                  final isPlaying = (playingIndex == index) ||
-                      (widget.videoId != null && track.videoId == widget.videoId);
+                            scrollController: _scrollController,
+                            physics: const BouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics()),
+                            itemCount: widget.queue.length,
+                            onReorder: widget.onReorderQueue,
+                            itemBuilder: (context, index) {
+                              final track = widget.queue[index];
+                              final isPlaying = (playingIndex == index) ||
+                                  (widget.videoId != null &&
+                                      track.videoId == widget.videoId);
 
-                  return Container(
-                    key: ValueKey('${track.videoId}_$index'),
-                    margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: isPlaying
-                          ? primaryColor.withValues(alpha: 0.16)
-                          : Colors.white.withValues(alpha: 0.035),
-                      borderRadius: BorderRadius.circular(14),
-                      border: isPlaying
-                          ? Border.all(
-                              color: primaryColor.withValues(alpha: 0.55),
-                              width: 1.5,
-                            )
-                          : Border.all(color: Colors.white.withValues(alpha: 0.03)),
-                      boxShadow: isPlaying
-                          ? [
-                              BoxShadow(
-                                color: primaryColor.withValues(alpha: 0.22),
-                                blurRadius: 12,
-                                spreadRadius: 0,
-                                offset: const Offset(0, 2),
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.only(left: 8, right: 12, top: 2, bottom: 2),
-                      leading: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Track index number or playing icon indicator
-                          SizedBox(
-                            width: 24,
-                            child: isPlaying
-                                ? const Icon(Icons.volume_up_rounded, color: primaryColor, size: 16)
-                                : Text(
-                                    '${index + 1}',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.white30,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                              return Container(
+                                key: ValueKey('${track.videoId}_$index'),
+                                margin: const EdgeInsets.symmetric(
+                                    vertical: 3, horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: isPlaying
+                                      ? primaryColor.withValues(alpha: 0.16)
+                                      : Colors.white.withValues(alpha: 0.035),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: isPlaying
+                                      ? Border.all(
+                                          color: primaryColor.withValues(
+                                              alpha: 0.55),
+                                          width: 1.5,
+                                        )
+                                      : Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.03)),
+                                  boxShadow: isPlaying
+                                      ? [
+                                          BoxShadow(
+                                            color: primaryColor.withValues(
+                                                alpha: 0.22),
+                                            blurRadius: 12,
+                                            spreadRadius: 0,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.only(
+                                      left: 8, right: 12, top: 2, bottom: 2),
+                                  leading: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Track index number or playing icon indicator
+                                      SizedBox(
+                                        width: 24,
+                                        child: isPlaying
+                                            ? const Icon(
+                                                Icons.volume_up_rounded,
+                                                color: primaryColor,
+                                                size: 16)
+                                            : Text(
+                                                '${index + 1}',
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  color: Colors.white30,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _QueueTrackArtwork(
+                                        track: track,
+                                        isPlaying: isPlaying,
+                                        albumArt: widget.albumArt,
+                                        primaryColor: primaryColor,
+                                      ),
+                                    ],
                                   ),
+                                  title: isPlaying
+                                      ? AdaptiveMarqueeText(
+                                          text: track.title,
+                                          style: const TextStyle(
+                                            color: primaryColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                          ),
+                                          blankSpace: 30.0,
+                                          velocity: 30.0,
+                                        )
+                                      : Text(
+                                          track.title,
+                                          style: TextStyle(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.92),
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 15,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                  subtitle: Row(
+                                    children: [
+                                      if (isPlaying) ...[
+                                        MiniMusicVisualizer(
+                                          color: primaryColor,
+                                          width: 3,
+                                          height: 12,
+                                          animate: true,
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          track.artist,
+                                          style: TextStyle(
+                                            color: isPlaying
+                                                ? primaryColor.withValues(
+                                                    alpha: 0.85)
+                                                : Colors.white
+                                                    .withValues(alpha: 0.5),
+                                            fontWeight: isPlaying
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
+                                            fontSize: 13,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (track.durationSeconds != null &&
+                                          track.durationSeconds! > 0)
+                                        Text(
+                                          _formatDuration(
+                                              track.durationSeconds),
+                                          style: TextStyle(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.35),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (widget.onRemoveFromQueue != null)
+                                        IconButton(
+                                          icon: const Icon(Icons.close_rounded,
+                                              size: 18, color: Colors.white30),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          splashRadius: 18,
+                                          tooltip: 'Remove from queue',
+                                          onPressed: () =>
+                                              widget.onRemoveFromQueue!(index),
+                                        ),
+                                      const SizedBox(width: 6),
+                                      ReorderableDragStartListener(
+                                        index: index,
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4.0),
+                                          child: Icon(
+                                            Icons.drag_handle_rounded,
+                                            color: Colors.white38,
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    widget.onPlayQueueIndex(index);
+                                  },
+                                ),
+                              );
+                            },
                           ),
-                          const SizedBox(width: 6),
-                          _QueueTrackArtwork(
-                            track: track,
-                            isPlaying: isPlaying,
-                            albumArt: widget.albumArt,
-                            primaryColor: primaryColor,
-                          ),
-                        ],
-                      ),
-                      title: isPlaying
-                          ? AdaptiveMarqueeText(
-                              text: track.title,
-                              style: const TextStyle(
-                                color: primaryColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                              blankSpace: 30.0,
-                              velocity: 30.0,
-                            )
-                          : Text(
-                              track.title,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.92),
-                                fontWeight: FontWeight.w500,
-                                fontSize: 15,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                      subtitle: Row(
-                        children: [
-                          if (isPlaying) ...[
-                            MiniMusicVisualizer(
-                              color: primaryColor,
-                              width: 3,
-                              height: 12,
-                              animate: true,
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              track.artist,
-                              style: TextStyle(
-                                color: isPlaying
-                                    ? primaryColor.withValues(alpha: 0.85)
-                                    : Colors.white.withValues(alpha: 0.5),
-                                fontWeight: isPlaying
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                fontSize: 13,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (track.durationSeconds != null && track.durationSeconds! > 0)
-                            Text(
-                              _formatDuration(track.durationSeconds),
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.onRemoveFromQueue != null)
-                            IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white30),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              splashRadius: 18,
-                              tooltip: 'Remove from queue',
-                              onPressed: () => widget.onRemoveFromQueue!(index),
-                            ),
-                          const SizedBox(width: 6),
-                          ReorderableDragStartListener(
-                            index: index,
-                            child: const Padding(
-                              padding: EdgeInsets.all(4.0),
-                              child: Icon(
-                                Icons.drag_handle_rounded,
-                                color: Colors.white38,
-                                size: 22,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      onTap: () {
-                        widget.onPlayQueueIndex(index);
-                      },
-                    ),
-                  );
-                },
-              ),
+                        ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
-    ),
-  ),
-),
-);
+    );
   }
 
   static String _formatDuration(int? seconds) {
@@ -523,7 +552,8 @@ class _QueueTrackArtwork extends StatelessWidget {
     }
 
     final thumb = track.thumbnailUrl;
-    if (thumb != null && (thumb.startsWith('http://') || thumb.startsWith('https://'))) {
+    if (thumb != null &&
+        (thumb.startsWith('http://') || thumb.startsWith('https://'))) {
       return CachedNetworkImage(
         imageUrl: thumb,
         fit: BoxFit.cover,
@@ -545,7 +575,11 @@ class _QueueTrackArtwork extends StatelessWidget {
     }
 
     // Fallback to local audio extractor if track.videoId looks like a file path
-    if (track.videoId.contains('/') || track.videoId.contains('\\') || track.videoId.endsWith('.mp3') || track.videoId.endsWith('.flac') || track.videoId.endsWith('.m4a')) {
+    if (track.videoId.contains('/') ||
+        track.videoId.contains('\\') ||
+        track.videoId.endsWith('.mp3') ||
+        track.videoId.endsWith('.flac') ||
+        track.videoId.endsWith('.m4a')) {
       return LocalAlbumArt(
         path: track.videoId,
         size: 46,

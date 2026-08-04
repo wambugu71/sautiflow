@@ -8,63 +8,63 @@ import '../services/fft_processor.dart';
 
 enum GlslShaderStyle {
   cyberTunnel(
-    displayName: 'GLSL: Cyber Tunnel',
+    displayName: 'Cyber Tunnel',
     assetPath: 'shaders/audio_cyber_tunnel.frag',
   ),
   plasmaSphere(
-    displayName: 'GLSL: Plasma Sphere',
+    displayName: 'Plasma Sphere',
     assetPath: 'shaders/audio_plasma_sphere.frag',
   ),
   neonSpectrum(
-    displayName: 'GLSL: Liquid Spectrum',
+    displayName: 'Liquid Spectrum',
     assetPath: 'shaders/audio_neon_spectrum.frag',
   ),
   warpVortex(
-    displayName: 'GLSL: Hyper Warp Vortex',
+    displayName: 'Hyper Warp Vortex',
     assetPath: 'shaders/audio_warp_vortex.frag',
   ),
   solarFlare(
-    displayName: 'GLSL: Solar Flare Ring',
+    displayName: 'Solar Flare Ring',
     assetPath: 'shaders/audio_solar_flare.frag',
   ),
   cyberGrid(
-    displayName: 'GLSL: Synthwave Grid',
+    displayName: 'Synthwave Grid',
     assetPath: 'shaders/audio_cyber_grid.frag',
   ),
   quantumNebula(
-    displayName: 'GLSL: Cosmic Nebula',
+    displayName: 'Cosmic Nebula',
     assetPath: 'shaders/audio_quantum_nebula.frag',
   ),
   electricRing(
-    displayName: 'GLSL: Electric Arc Ring',
+    displayName: 'Electric Arc Ring',
     assetPath: 'shaders/audio_electric_ring.frag',
   ),
   equalizerBars3D(
-    displayName: 'GLSL: 3D Equalizer Bars',
+    displayName: '3D Equalizer Bars',
     assetPath: 'shaders/audio_bars_3d.frag',
   ),
   kaleidoscope(
-    displayName: 'GLSL: Prismatic Mandala',
+    displayName: 'Prismatic Mandala',
     assetPath: 'shaders/audio_kaleidoscope.frag',
   ),
   cyberLattice(
-    displayName: 'GLSL: Crystal Lattice',
+    displayName: 'Crystal Lattice',
     assetPath: 'shaders/audio_lattice.frag',
   ),
   biolumWaves(
-    displayName: 'GLSL: Ocean Bioluminescence',
+    displayName: 'Ocean Bioluminescence',
     assetPath: 'shaders/audio_biolum_waves.frag',
   ),
   sonicStarburst(
-    displayName: 'GLSL: Sonic Starburst',
+    displayName: 'Sonic Starburst',
     assetPath: 'shaders/audio_starburst.frag',
   ),
   matrixRain(
-    displayName: 'GLSL: Audio Matrix Rain',
+    displayName: 'Audio Matrix Rain',
     assetPath: 'shaders/audio_matrix_rain.frag',
   ),
   vaporwaveSun(
-    displayName: 'GLSL: Vaporwave Horizon',
+    displayName: 'Vaporwave Horizon',
     assetPath: 'shaders/audio_vaporwave_sun.frag',
   );
 
@@ -84,7 +84,6 @@ enum GlslShaderStyle {
   }
 }
 
-/// Senior-engineered GPU GLSL Audio-Reactive Visualizer.
 /// Loads GLSL runtime shaders and updates uniforms at 60 FPS using FFT audio energy metrics.
 class GlslAudioVisualizerWidget extends StatefulWidget {
   final Stream<Float32List>? analyzerStream;
@@ -105,7 +104,8 @@ class GlslAudioVisualizerWidget extends StatefulWidget {
   });
 
   @override
-  State<GlslAudioVisualizerWidget> createState() => _GlslAudioVisualizerWidgetState();
+  State<GlslAudioVisualizerWidget> createState() =>
+      _GlslAudioVisualizerWidgetState();
 }
 
 class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
@@ -232,10 +232,18 @@ class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
         double totalEnergy = (rawBass * 0.5 + rawMid * 0.3 + rawTreble * 0.2);
 
         // Dynamic attack & decay smoothing
-        _bass = rawBass > _bass ? _bass * 0.3 + rawBass * 0.7 : _bass * 0.82 + rawBass * 0.18;
-        _mid = rawMid > _mid ? _mid * 0.3 + rawMid * 0.7 : _mid * 0.82 + rawMid * 0.18;
-        _treble = rawTreble > _treble ? _treble * 0.3 + rawTreble * 0.7 : _treble * 0.82 + rawTreble * 0.18;
-        _energy = totalEnergy > _energy ? _energy * 0.3 + totalEnergy * 0.7 : _energy * 0.82 + totalEnergy * 0.18;
+        _bass = rawBass > _bass
+            ? _bass * 0.3 + rawBass * 0.7
+            : _bass * 0.82 + rawBass * 0.18;
+        _mid = rawMid > _mid
+            ? _mid * 0.3 + rawMid * 0.7
+            : _mid * 0.82 + rawMid * 0.18;
+        _treble = rawTreble > _treble
+            ? _treble * 0.3 + rawTreble * 0.7
+            : _treble * 0.82 + rawTreble * 0.18;
+        _energy = totalEnergy > _energy
+            ? _energy * 0.3 + totalEnergy * 0.7
+            : _energy * 0.82 + totalEnergy * 0.18;
       });
     }
   }
@@ -261,7 +269,8 @@ class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
           child: SizedBox(
             width: 24,
             height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54),
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: Colors.white54),
           ),
         ),
       );
