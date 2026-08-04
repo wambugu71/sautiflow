@@ -129,7 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _phaseInvertRight = false;
 
   // Neutron HiFi Engine Settings
-  bool _64BitProcessingEnabled = false;
+  bool _use64BitProcessingEnabled = false;
   bool _autoBitPerfectEnabled = false;
 
   // Waveform Seek Bar UI Setting
@@ -172,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _safetyAttenuationDb = spSaved.safetyAttenuationDb;
       _phaseInvertLeft = phaseSaved.invertLeft;
       _phaseInvertRight = phaseSaved.invertRight;
-      _64BitProcessingEnabled = is64Bit;
+      _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
       _useWaveformSeekBar = waveformSaved;
     });
@@ -1199,10 +1199,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text(
                       'Double-precision floating-point (-320dB headroom)',
                       style: TextStyle(color: _textDark, fontSize: 12)),
-                  value: _64BitProcessingEnabled,
+                  value: _use64BitProcessingEnabled,
                   activeThumbColor: _primary,
                   onChanged: (val) {
-                    setState(() => _64BitProcessingEnabled = val);
+                    setState(() => _use64BitProcessingEnabled = val);
                     widget.player.set64BitProcessingEnabled(val);
                     AppStateService.instance.save64BitProcessingEnabled(val);
                     setSubState(() {});
