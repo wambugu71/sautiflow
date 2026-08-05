@@ -10,8 +10,6 @@ import 'services/app_state_service.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
-
-
 // Tailwind Colors Ported
 const primaryColor = Color(0xFF137fec);
 const bgLightColor = Color(0xFFf6f7f8);
@@ -35,7 +33,8 @@ class EqScreen extends StatefulWidget {
   State<EqScreen> createState() => _EqScreenState();
 }
 
-class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin {
+class _EqScreenState extends State<EqScreen>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -274,7 +273,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     final dynamicBass = await AppStateService.instance.loadDynamicBass();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
-    final stereoEnhancement = await AppStateService.instance.loadStereoEnhancement();
+    final stereoEnhancement =
+        await AppStateService.instance.loadStereoEnhancement();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
@@ -732,7 +732,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: isEnabled ? primaryColor.withValues(alpha: 0.35) : Colors.white.withValues(alpha: 0.06),
+          color: isEnabled
+              ? primaryColor.withValues(alpha: 0.35)
+              : Colors.white.withValues(alpha: 0.06),
           width: 1,
         ),
       ),
@@ -747,7 +749,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: isEnabled ? primaryColor.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.04),
+                  color: isEnabled
+                      ? primaryColor.withValues(alpha: 0.18)
+                      : Colors.white.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -773,7 +777,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: isEnabled ? primaryColor.withValues(alpha: 0.85) : Colors.white38,
+                        color: isEnabled
+                            ? primaryColor.withValues(alpha: 0.85)
+                            : Colors.white38,
                         fontSize: 12,
                       ),
                     ),
@@ -801,7 +807,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
     );
   }
 
-  void _openDetailScreen(String title, IconData icon, WidgetBuilder contentBuilder) {
+  void _openDetailScreen(
+      String title, IconData icon, WidgetBuilder contentBuilder) {
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -901,24 +908,31 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                 children: [
                   // Top Master Control Bar
                   Padding(
-                    padding: const EdgeInsets.only(left: 16.0, right: 8.0, top: 12.0, bottom: 4.0),
+                    padding: const EdgeInsets.only(
+                        left: 16.0, right: 8.0, top: 12.0, bottom: 4.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.info_outline, color: Colors.white54),
+                              icon: const Icon(Icons.info_outline,
+                                  color: Colors.white54),
                               onPressed: _showPipelineInfo,
                             ),
                             const SizedBox(width: 4),
-                            const Text('Master EQ', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('Master EQ',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold)),
                           ],
                         ),
                         Row(
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              icon: const Icon(Icons.refresh,
+                                  color: Colors.white),
                               tooltip: 'Reset All',
                               onPressed: _resetAll,
                             ),
@@ -941,8 +955,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   // Warning Banner (Dismissible)
                   if (_showWarningBanner)
                     Container(
-
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
@@ -952,17 +966,22 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.warning_amber_rounded, color: Colors.red[400], size: 20),
+                          Icon(Icons.warning_amber_rounded,
+                              color: Colors.red[400], size: 20),
                           const SizedBox(width: 10),
                           const Expanded(
                             child: Text(
                               'Improper equalizer, limiter, or biquad settings can cause audio distortion or clipping. Proceed with caution.',
-                              style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.3),
+                              style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  height: 1.3),
                             ),
                           ),
                           IconButton(
                             onPressed: _dismissWarningBanner,
-                            icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                            icon: const Icon(Icons.close,
+                                color: Colors.white54, size: 18),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                             splashRadius: 18,
@@ -981,7 +1000,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.equalizer,
                           title: '${_eqFrequencies.length}-Band Equalizer',
-                          subtitle: _masterEqEnabled ? '${_eqFrequencies.length}-Band ($_activePreset)' : 'Disabled',
+                          subtitle: _masterEqEnabled
+                              ? '${_eqFrequencies.length}-Band ($_activePreset)'
+                              : 'Disabled',
                           isEnabled: _masterEqEnabled,
                           onToggle: (v) {
                             setState(() => _masterEqEnabled = v);
@@ -997,13 +1018,16 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.speed_rounded,
                           title: 'Playback Speed & Pitch',
-                          subtitle: (_playbackPitch - 1.0).abs() >= 0.01 ? '${_playbackPitch.toStringAsFixed(2)}x Speed' : 'Normal Speed (1.0x)',
+                          subtitle: (_playbackPitch - 1.0).abs() >= 0.01
+                              ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
+                              : 'Normal Speed (1.0x)',
                           isEnabled: (_playbackPitch - 1.0).abs() >= 0.01,
                           onToggle: (v) {
                             final newPitch = v ? 1.25 : 1.0;
                             setState(() => _playbackPitch = newPitch);
                             widget.player.setPitch(newPitch);
-                            AppStateService.instance.savePlaybackSpeed(newPitch);
+                            AppStateService.instance
+                                .savePlaybackSpeed(newPitch);
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Playback Speed & Pitch',
@@ -1032,7 +1056,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.show_chart,
                           title: 'Parametric EQ',
-                          subtitle: _parametricEqEnabled ? '${_parametricBands.length} Active Bands' : 'Disabled',
+                          subtitle: _parametricEqEnabled
+                              ? '${_parametricBands.length} Active Bands'
+                              : 'Disabled',
                           isEnabled: _parametricEqEnabled,
                           onToggle: (v) {
                             setState(() => _parametricEqEnabled = v);
@@ -1051,14 +1077,19 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.waves,
                           title: 'Dynamic Bass',
-                          subtitle: _dynamicBassEnabled ? 'Gain: ${_dynamicBassGain.toInt()}%' : 'Disabled',
+                          subtitle: _dynamicBassEnabled
+                              ? 'Gain: ${_dynamicBassGain.toInt()}%'
+                              : 'Disabled',
                           isEnabled: _dynamicBassEnabled,
                           onToggle: (v) {
                             setState(() => _dynamicBassEnabled = v);
                             if (v) {
                               _updateDynamicBass();
                             } else {
-                              widget.player.setDynamicBass(enabled: false, preset: _dynamicBassPreset, gain: _dynamicBassGain);
+                              widget.player.setDynamicBass(
+                                  enabled: false,
+                                  preset: _dynamicBassPreset,
+                                  gain: _dynamicBassGain);
                             }
                             _saveEqState();
                           },
@@ -1071,7 +1102,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.auto_fix_high,
                           title: 'Crystalizer',
-                          subtitle: _crystalizerEnabled ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%' : 'Disabled',
+                          subtitle: _crystalizerEnabled
+                              ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
+                              : 'Disabled',
                           isEnabled: _crystalizerEnabled,
                           onToggle: (v) {
                             setState(() => _crystalizerEnabled = v);
@@ -1087,7 +1120,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.compress,
                           title: 'Soft Limiter',
-                          subtitle: _limiterEnabled ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%' : 'Disabled',
+                          subtitle: _limiterEnabled
+                              ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%'
+                              : 'Disabled',
                           isEnabled: _limiterEnabled,
                           onToggle: (v) {
                             setState(() => _limiterEnabled = v);
@@ -1111,7 +1146,13 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                           icon: Icons.headphones,
                           title: 'Audiophile Crossfeed',
                           subtitle: _crossfeedEnabled
-                              ? (_crossfeedPreset == 1 ? 'BS2B Weak' : _crossfeedPreset == 2 ? 'BS2B Strong' : _crossfeedPreset == 3 ? 'Joe0bloggs 3D' : 'Ambiophonics R.A.C.E.')
+                              ? (_crossfeedPreset == 1
+                                  ? 'BS2B Weak'
+                                  : _crossfeedPreset == 2
+                                      ? 'BS2B Strong'
+                                      : _crossfeedPreset == 3
+                                          ? 'Joe0bloggs 3D'
+                                          : 'Ambiophonics R.A.C.E.')
                               : 'Disabled',
                           isEnabled: _crossfeedEnabled,
                           onToggle: (v) {
@@ -1119,7 +1160,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                             if (v) {
                               _updateCrossfeed();
                             } else {
-                              widget.player.setCrossfeed(enabled: false, preset: _crossfeedPreset);
+                              widget.player.setCrossfeed(
+                                  enabled: false, preset: _crossfeedPreset);
                             }
                             _saveEqState();
                           },
@@ -1132,14 +1174,19 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.swap_horiz,
                           title: 'Stereo Stage Widener',
-                          subtitle: _stereoWidenEnabled ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x' : 'Disabled',
+                          subtitle: _stereoWidenEnabled
+                              ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
+                              : 'Disabled',
                           isEnabled: _stereoWidenEnabled,
                           onToggle: (v) {
                             setState(() => _stereoWidenEnabled = v);
                             if (v) {
                               _updateStereoWiden();
                             } else {
-                              widget.player.setStereoWiden(enabled: false, width: _stereoWidenWidth, delayMs: _stereoWidenDelayMs * 100.0);
+                              widget.player.setStereoWiden(
+                                  enabled: false,
+                                  width: _stereoWidenWidth,
+                                  delayMs: _stereoWidenDelayMs * 100.0);
                             }
                             _saveEqState();
                           },
@@ -1151,8 +1198,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         ),
                         _buildEffectTileCard(
                           icon: Icons.surround_sound,
-                          title: 'JamesDSP Stereo Enhancement',
-                          subtitle: _stereoEnhancementEnabled ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%' : 'Disabled',
+                          title: 'Stereo Enhancement',
+                          subtitle: _stereoEnhancementEnabled
+                              ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
+                              : 'Disabled',
                           isEnabled: _stereoEnhancementEnabled,
                           onToggle: (v) {
                             setState(() => _stereoEnhancementEnabled = v);
@@ -1160,7 +1209,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'JamesDSP Stereo Enhancement',
+                            'Stereo Enhancement',
                             Icons.surround_sound,
                             (_) => _buildStereoEnhancementSection(),
                           ),
@@ -1168,7 +1217,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.spatial_audio_off_outlined,
                           title: 'Spatial Audio',
-                          subtitle: _spatialAudioEnabled ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%' : 'Disabled',
+                          subtitle: _spatialAudioEnabled
+                              ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
+                              : 'Disabled',
                           isEnabled: _spatialAudioEnabled,
                           onToggle: (v) {
                             setState(() => _spatialAudioEnabled = v);
@@ -1185,7 +1236,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.threed_rotation,
                           title: 'True 3D Spatialization',
-                          subtitle: _true3dEnabled ? 'XYZ Positioning Active' : 'Disabled',
+                          subtitle: _true3dEnabled
+                              ? 'XYZ Positioning Active'
+                              : 'Disabled',
                           isEnabled: _true3dEnabled,
                           onToggle: (v) {
                             setState(() => _true3dEnabled = v);
@@ -1205,7 +1258,9 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.repeat,
                           title: 'Delay & Echo',
-                          subtitle: _delayEnabled ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%' : 'Disabled',
+                          subtitle: _delayEnabled
+                              ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
+                              : 'Disabled',
                           isEnabled: _delayEnabled,
                           onToggle: (v) {
                             setState(() => _delayEnabled = v);
@@ -1222,8 +1277,14 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                         _buildEffectTileCard(
                           icon: Icons.filter_alt_outlined,
                           title: 'Custom Filters (LPF / HPF / Biquad)',
-                          subtitle: (_customLpfEnabled || _customHpfEnabled || _customBiquadEnabled) ? 'Active Filters' : 'Disabled',
-                          isEnabled: _customLpfEnabled || _customHpfEnabled || _customBiquadEnabled,
+                          subtitle: (_customLpfEnabled ||
+                                  _customHpfEnabled ||
+                                  _customBiquadEnabled)
+                              ? 'Active Filters'
+                              : 'Disabled',
+                          isEnabled: _customLpfEnabled ||
+                              _customHpfEnabled ||
+                              _customBiquadEnabled,
                           onTapDetail: () => _openDetailScreen(
                             'Custom Filters',
                             Icons.filter_alt_outlined,
@@ -1241,7 +1302,6 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
       ),
     );
   }
-
 
   Widget _buildPresetChip(String label) {
     final isSelected = _activePreset == label;
@@ -1358,7 +1418,10 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
             children: [
               Text(
                 'Current Speed: ${_playbackPitch.toStringAsFixed(2)}x',
-                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold),
               ),
               OutlinedButton.icon(
                 onPressed: () async {
@@ -1372,10 +1435,12 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   }
                 },
                 icon: const Icon(Icons.tune, size: 16, color: primaryColor),
-                label: const Text('Adjust Speed', style: TextStyle(color: primaryColor)),
+                label: const Text('Adjust Speed',
+                    style: TextStyle(color: primaryColor)),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: primaryColor),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18)),
                 ),
               ),
             ],
@@ -1870,8 +1935,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
         // Info chip
         Center(
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0x1A00C9B1),
               borderRadius: BorderRadius.circular(20),
@@ -1892,7 +1956,6 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
   }
 
   Widget _buildCrossfeedSection() {
-
     return _CollapsibleSection(
       icon: Container(
         width: 40,
@@ -1939,7 +2002,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
                   DropdownMenuItem(value: 2, child: Text('BS2B Strong')),
                   DropdownMenuItem(value: 3, child: Text('Joe0bloggs 3D')),
-                  DropdownMenuItem(value: 4, child: Text('Ambiophonics R.A.C.E.')),
+                  DropdownMenuItem(
+                      value: 4, child: Text('Ambiophonics R.A.C.E.')),
                 ],
                 onChanged: (val) {
                   if (val != null) {
@@ -2031,7 +2095,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+        child: const Icon(Icons.surround_sound_rounded,
+            color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancement',
       subtitle: 'JamesDSP Warped PFB M/S Widening',
@@ -2051,7 +2116,8 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
               min: 0.0,
               max: 1.0,
               flatValue: 0.5,
-              activeColor: _stereoEnhancementEnabled ? primaryColor : Colors.white,
+              activeColor:
+                  _stereoEnhancementEnabled ? primaryColor : Colors.white,
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
