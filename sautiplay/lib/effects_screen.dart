@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'services/app_theme_service.dart';
 import 'services/fft_processor.dart';
 import 'viper_fx_screen.dart';
 import 'widgets/glsl_audio_visualizer.dart';
@@ -322,8 +323,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF137fec);
-    const bgColor = Color(0xFF101922);
+    final primaryColor = AppThemeService.instance.currentData.primary;
+    final bgColor = AppThemeService.instance.currentData.bgDark;
     const headerColor = Color(0xFF111a22);
 
     // Calculate the dynamic expanded height based on what's visible
@@ -407,7 +408,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                               children: [
                                 if (Navigator.canPop(context))
                                   const BackButton(color: Colors.white),
-                                const Icon(Icons.tune_rounded, color: primaryColor, size: 22),
+                                Icon(Icons.tune_rounded, color: primaryColor, size: 22),
                                 const SizedBox(width: 8),
                                 const Text(
                                   'Audio Effects & DSP',
@@ -472,7 +473,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       height: 34,
                                       padding: const EdgeInsets.symmetric(horizontal: 10),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF1C252E),
+                                        color: AppThemeService.instance.currentData.cardDark,
                                         borderRadius: BorderRadius.circular(18),
                                         border: Border.all(
                                           color: primaryColor.withValues(alpha: 0.35),
@@ -481,7 +482,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(Icons.auto_awesome_mosaic, color: primaryColor, size: 14),
+                                          Icon(Icons.auto_awesome_mosaic, color: primaryColor, size: 14),
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
@@ -599,7 +600,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         ),
 
                         // TabBar (always pinned at bottom of header)
-                        const TabBar(
+                        TabBar(
                           indicatorColor: primaryColor,
                           labelColor: Colors.white,
                           unselectedLabelColor: Colors.white54,

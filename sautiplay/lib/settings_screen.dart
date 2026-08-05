@@ -5,8 +5,10 @@ import 'package:sautiflow/sautiflow.dart';
 
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'main.dart' show AppThemeProvider;
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
+import 'services/app_theme_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -45,8 +47,10 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback onPollError;
   final VoidCallback onClearNativeError;
   final VoidCallback onClearLogs;
-  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
-  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
+  final void Function(String filePath, String title, String artist)?
+      onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
+      onPlayFtpFolder;
 
   const SettingsScreen({
     super.key,
@@ -93,11 +97,11 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Theme colors
-  static const _bgDark = Color(0xFF101922);
-  static const _cardDark = Color(0xFF1C252E);
-  static const _primary = Color(0xFF137fec);
-  static const _textDark = Color(0xFF94A3B8);
+  // Dynamic theme colors
+  Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+  Color get _cardDark => AppThemeService.instance.currentData.cardDark;
+  Color get _primary => AppThemeService.instance.currentData.primary;
+  Color get _textDark => AppThemeService.instance.currentData.textDark;
 
   // Local UI settings
   String _streamingQuality = 'High Fidelity';
@@ -134,6 +138,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Waveform Seek Bar UI Setting
   bool _useWaveformSeekBar = false;
+
+  // Active theme ID (used to show badge & highlight swatch)
+  AppThemeId _activeThemeId = AppThemeService.instance.current;
 
   @override
   void initState() {
@@ -175,6 +182,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
       _useWaveformSeekBar = waveformSaved;
+      _activeThemeId = AppThemeService.instance.current;
     });
     widget.player.setViperOversampling(oversamplingSaved);
     widget.player.set64BitProcessingEnabled(is64Bit);
@@ -289,11 +297,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 10),
                         _buildCategoryCard(
                           title: 'Look & Feel',
-                          subtitle: 'Seek bar style & UI appearance',
+                          subtitle: 'Theme, seek bar & UI appearance',
                           icon: Icons.palette_outlined,
                           accentColor: _primary,
-                          badgeText:
-                              _useWaveformSeekBar ? 'Waveform' : 'Classic',
+                          badgeText: AppThemeService.dataFor(_activeThemeId).displayName,
                           onTap: () => _navigateToSubScreen(
                               _buildLookAndFeelSubScreen()),
                         ),
@@ -411,7 +418,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.only(left: 4.0, bottom: 4.0),
       child: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           color: _textDark,
           fontSize: 12,
           fontWeight: FontWeight.bold,
@@ -448,11 +455,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: Colors.white, size: 30),
           ),
           const SizedBox(width: 16),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Audio Engine Settings',
                   style: TextStyle(
                     color: Colors.white,
@@ -460,7 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   'Select a group to adjust high-fidelity playback, DSP protection & visual controls.',
                   style: TextStyle(color: _textDark, fontSize: 13, height: 1.3),
@@ -521,7 +528,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: const TextStyle(color: _textDark, fontSize: 13),
+                      style: TextStyle(color: _textDark, fontSize: 13),
                     ),
                   ],
                 ),
@@ -545,7 +552,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right_rounded,
+              Icon(Icons.chevron_right_rounded,
                   color: _textDark, size: 22),
             ],
           ),
@@ -610,9 +617,181 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildLookAndFeelSubScreen() {
     return StatefulBuilder(
       builder: (context, setSubState) {
+        final appTheme = AppThemeProvider.of(context);
+        final cardColor = appTheme.cardDark;
+        final accent = appTheme.primary;
+        final mutedText = appTheme.textDark;
+
         return _buildSubScreenLayout(
           title: 'Look & Feel',
           children: [
+            // ── THEME SECTION ─────────────────────────────────────────────
+            _buildSectionHeader('APP THEME'),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withAlpha(10)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: accent.withAlpha(25),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.palette_outlined,
+                              color: accent, size: 20),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Color Theme',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Changes the look of the entire app',
+                                style: TextStyle(
+                                    color: mutedText, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 130,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: AppThemeService.themes.length,
+                      itemBuilder: (context, index) {
+                        final theme = AppThemeService.themes[index];
+                        final isActive = _activeThemeId == theme.id;
+                        return GestureDetector(
+                          onTap: () {
+                            AppThemeService.instance.saveTheme(theme.id);
+                            setState(() => _activeThemeId = theme.id);
+                            setSubState(() {});
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            width: 80,
+                            margin: const EdgeInsets.only(right: 12, bottom: 16),
+                            decoration: BoxDecoration(
+                              color: theme.bgDark,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isActive
+                                    ? theme.primary
+                                    : Colors.white.withAlpha(18),
+                                width: isActive ? 2.5 : 1.5,
+                              ),
+                              boxShadow: isActive
+                                  ? [
+                                      BoxShadow(
+                                        color:
+                                            theme.primary.withAlpha(80),
+                                        blurRadius: 12,
+                                        spreadRadius: 1,
+                                      )
+                                    ]
+                                  : null,
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // accent dot
+                                Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: theme.cardDark,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: theme.primary.withAlpha(80),
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          theme.icon,
+                                          color: theme.primary,
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ),
+                                    if (isActive)
+                                      Positioned(
+                                        right: 0,
+                                        top: 0,
+                                        child: Container(
+                                          width: 16,
+                                          height: 16,
+                                          decoration: BoxDecoration(
+                                            color: theme.primary,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: theme.bgDark,
+                                                width: 1.5),
+                                          ),
+                                          child: const Icon(
+                                            Icons.check,
+                                            color: Colors.white,
+                                            size: 10,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  theme.displayName,
+                                  style: TextStyle(
+                                    color: isActive
+                                        ? theme.primary
+                                        : Colors.white70,
+                                    fontSize: 11,
+                                    fontWeight: isActive
+                                        ? FontWeight.w700
+                                        : FontWeight.w400,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            // ── SEEK BAR SECTION ──────────────────────────────────────────
             _buildSectionHeader('INTERFACE & SEEK BAR'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -627,7 +806,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Waveform Seek Bar',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text(
+                  subtitle: Text(
                     'Replaces classic time slider with interactive track amplitude waveform',
                     style: TextStyle(color: _textDark, fontSize: 12),
                   ),
@@ -638,7 +817,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       shape: BoxShape.circle,
                     ),
                     child:
-                        const Icon(Icons.graphic_eq, color: _primary, size: 20),
+                        Icon(Icons.graphic_eq, color: _primary, size: 20),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -679,20 +858,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: _primary.withAlpha(25),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.graphic_eq,
+                            child: Icon(Icons.graphic_eq,
                                 color: _primary, size: 24),
                           ),
                           const SizedBox(width: 16),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Streaming Quality',
+                                const Text('Streaming Quality',
                                     style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500)),
-                                SizedBox(height: 4),
+                                const SizedBox(height: 4),
                                 Text('Higher quality uses more network data',
                                     style: TextStyle(
                                         color: _textDark, fontSize: 13)),
@@ -810,13 +989,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             _getResampleAlgorithmName(_resampleAlgorithm),
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -840,7 +1019,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Oversampler',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Anti-aliasing for ViPER FX & limiters',
+                  subtitle: Text('Anti-aliasing for ViPER FX & limiters',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   trailing: SizedBox(
                     width: 150,
@@ -851,13 +1030,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             _getOversamplingName(_dspOversampling),
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -890,13 +1069,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             _getDitherModeName(_ditherMode),
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -926,7 +1105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Output Bit Depth',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Hardware PCM bit precision',
+                  subtitle: Text('Hardware PCM bit precision',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   trailing: SizedBox(
                     width: 150,
@@ -937,13 +1116,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             _formatAudioDepth(widget.outputFormat),
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -978,13 +1157,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ? 'Native'
                                 : '${widget.outputSampleRate} Hz',
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -1017,13 +1196,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             widget.outputChannels == 1 ? 'Mono' : 'Stereo',
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -1050,17 +1229,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 color: Colors.white70, size: 20),
                           ),
                           const SizedBox(width: 16),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
+                                const Text(
                                   'Phase Inversion (Ø 180°)',
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w500),
                                 ),
-                                SizedBox(height: 2),
+                                const SizedBox(height: 2),
                                 Text(
                                   'Invert PCM polarity for reversed hardware or phase alignment',
                                   style:
@@ -1075,45 +1254,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: ChoiceChip(
-                              label: const Text('Normal (0°)'),
-                              selected: !_phaseInvertLeft && !_phaseInvertRight,
-                              selectedColor: _primary,
-                              onSelected: (val) {
-                                if (val) {
-                                  setState(() {
-                                    _phaseInvertLeft = false;
-                                    _phaseInvertRight = false;
-                                  });
-                                  setSubState(() {});
-                                  _persistPhaseInversionSettings();
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ChoiceChip(
-                              label: const Text('Invert L'),
-                              selected: _phaseInvertLeft,
-                              selectedColor: _primary,
-                              onSelected: (val) {
+                            child: SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Left Phase Ø',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13)),
+                              value: _phaseInvertLeft,
+                              activeThumbColor: _primary,
+                              onChanged: (val) {
                                 setState(() => _phaseInvertLeft = val);
-                                setSubState(() {});
                                 _persistPhaseInversionSettings();
+                                setSubState(() {});
                               },
                             ),
                           ),
-                          const SizedBox(width: 8),
                           Expanded(
-                            child: ChoiceChip(
-                              label: const Text('Invert R'),
-                              selected: _phaseInvertRight,
-                              selectedColor: _primary,
-                              onSelected: (val) {
+                            child: SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Right Phase Ø',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13)),
+                              value: _phaseInvertRight,
+                              activeThumbColor: _primary,
+                              onChanged: (val) {
                                 setState(() => _phaseInvertRight = val);
-                                setSubState(() {});
                                 _persistPhaseInversionSettings();
+                                setSubState(() {});
                               },
                             ),
                           ),
@@ -1132,13 +1298,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: Colors.white.withAlpha(10),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.shield,
+                    child: const Icon(Icons.verified,
                         color: Colors.white70, size: 20),
                   ),
                   title: const Text('Bit-Perfect Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text(
+                  subtitle: Text(
                       'Bypasses OS Mixer & DSP (Exclusive Mode)',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.exclusiveMode,
@@ -1193,11 +1359,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.architecture,
                         color: Colors.white70, size: 20),
                   ),
-                  title: const Text('64-Bit Float DSP Pipeline',
+                  title: const Text('64-Bit Float DSP',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text(
-                      'Double-precision floating-point (-320dB headroom)',
+                  subtitle: Text('Double-precision',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _use64BitProcessingEnabled,
                   activeThumbColor: _primary,
@@ -1221,11 +1386,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.graphic_eq,
                         color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Auto Bit-Perfect Frequency Matching',
+                  title: const Text('Auto Bit-Perfect',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text(
-                      'Dynamically re-inits DAC to match audio track sample rate',
+                  subtitle: Text('DAC to match audio track sample rate',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _autoBitPerfectEnabled,
                   activeThumbColor: _primary,
@@ -1239,7 +1403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            _buildSectionHeader('SPEAKER & HARDWARE PROTECTION'),
+            _buildSectionHeader('HARDWARE PROTECTION'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -1250,13 +1414,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   activeTrackColor: _primary,
                   inactiveThumbColor: Colors.white70,
                   inactiveTrackColor: Colors.white10,
-                  title: const Text('Safeguards Master Switch',
+                  title: const Text('Hardware Safeguards',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
                   subtitle: Text(
                     _speakerProtectionEnabled
-                        ? 'Subsonic filter, ultrasonic guard & peak ceiling active'
-                        : 'Safeguards disabled',
+                        ? 'Peak ceiling & subsonic/ultrasonic guard active'
+                        : 'Hardware protection disabled',
                     style: TextStyle(
                       color: _speakerProtectionEnabled
                           ? Colors.greenAccent.shade200
@@ -1307,8 +1471,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Subsonic Filter (High-Pass)',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: const Text(
-                        'Cuts sub-bass frequencies below woofer tuning',
+                    subtitle: Text('Below woofer tuning',
                         style: TextStyle(color: _textDark, fontSize: 12)),
                     trailing: SizedBox(
                       width: 130,
@@ -1320,14 +1483,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _subsonicCutoffHz <= 0
                                   ? 'Off'
                                   : '${_subsonicCutoffHz.toInt()} Hz',
-                              style: const TextStyle(
-                                  color: _textDark, fontSize: 13),
+                              style:
+                                  TextStyle(color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right,
+                          Icon(Icons.chevron_right,
                               color: _textDark, size: 20),
                         ],
                       ),
@@ -1351,8 +1514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Ultrasonic Guard (Low-Pass)',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: const Text(
-                        'Filters high frequencies above 18-22kHz',
+                    subtitle: Text('Filters frequencies above 18-22kHz',
                         style: TextStyle(color: _textDark, fontSize: 12)),
                     trailing: SizedBox(
                       width: 130,
@@ -1364,14 +1526,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _ultrasonicCutoffHz >= 24000
                                   ? 'Off'
                                   : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right,
+                          Icon(Icons.chevron_right,
                               color: _textDark, size: 20),
                         ],
                       ),
@@ -1396,7 +1558,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: _textDark, fontSize: 12),
                               ),
                             ],
@@ -1427,15 +1589,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         horizontal: 20, vertical: 16),
                     child: Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Safety Headroom',
+                              const Text('Safety Headroom',
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w500)),
-                              SizedBox(height: 2),
+                              const SizedBox(height: 2),
                               Text('Output level attenuation buffer',
                                   style: TextStyle(
                                       color: _textDark, fontSize: 12)),
@@ -1497,13 +1659,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ? 'Track'
                                     : 'Album',
                             style:
-                                const TextStyle(color: _textDark, fontSize: 13),
+                                TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right,
+                        Icon(Icons.chevron_right,
                             color: _textDark, size: 20),
                       ],
                     ),
@@ -1575,20 +1737,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: _primary.withAlpha(25),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.settings_input_composite,
+                            child: Icon(Icons.settings_input_composite,
                                 color: _primary, size: 24),
                           ),
                           const SizedBox(width: 16),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Frequency Precision',
+                                const Text('Frequency Precision',
                                     style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500)),
-                                SizedBox(height: 4),
+                                const SizedBox(height: 4),
                                 Text('Choose total active EQ bands',
                                     style: TextStyle(
                                         color: _textDark, fontSize: 13)),
@@ -1663,9 +1825,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Visualization & RTA',
+          title: 'Visualization',
           children: [
-            _buildSectionHeader('REALTIME SPECTRUM ANALYZER'),
+            _buildSectionHeader('SPECTRUM ANALYZER'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -1681,10 +1843,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.bar_chart,
                         color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Realtime Analyzer',
+                  title: const Text('Spectrum Analyzer',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Renders audio spectrum on screens',
+                  subtitle: Text('Audio Spectrum Visualizer',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.analyzerEnabled,
                   activeThumbColor: _primary,
@@ -1700,7 +1862,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Visualization Mode',
+                        const Text('Analyzer Type',
                             style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -1729,7 +1891,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                     alignment: Alignment.center,
                                     child: Text(
-                                      'Bar Spectrum',
+                                      'Bar',
                                       style: TextStyle(
                                         color: widget.analyzerType == 'bar'
                                             ? Colors.white
@@ -1757,7 +1919,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                     alignment: Alignment.center,
                                     child: Text(
-                                      'Area Waveform',
+                                      'Area',
                                       style: TextStyle(
                                         color: widget.analyzerType == 'area'
                                             ? Colors.white
@@ -1783,13 +1945,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Visual Theme Style',
+                        const Text('Spectrum Theme',
                             style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500)),
                         const SizedBox(height: 4),
-                        const Text('Style palette for spectrum bars',
+                        Text('Spectrum visual style',
                             style: TextStyle(color: _textDark, fontSize: 12)),
                         const SizedBox(height: 16),
                         Wrap(
@@ -1865,7 +2027,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Auto Fit Scale',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: const Text('Dynamically adjust Y-axis peak range',
+                    subtitle: Text('Dynamically adjust Y-axis peak range',
                         style: TextStyle(color: _textDark, fontSize: 12)),
                     value: widget.analyzerAutoFit,
                     onChanged: (v) {
@@ -1901,7 +2063,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Logarithmic Decibel Scale',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: const Text('Logarithmic audio response curve',
+                    subtitle: Text('Logarithmic audio response curve',
                         style: TextStyle(color: _textDark, fontSize: 12)),
                     value: widget.analyzerLogScale,
                     onChanged: (v) {
@@ -1933,14 +2095,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Expanded(
                             child: Text(
                               widget.analyzerSampleSize.toString(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: _textDark, fontSize: 14),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right,
+                          Icon(Icons.chevron_right,
                               color: _textDark, size: 20),
                         ],
                       ),
@@ -1978,7 +2140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Gapless Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text(
+                  subtitle: Text(
                       'Seamless transitions between track ends',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   secondary: Container(
@@ -2073,7 +2235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Off',
+                          Text('Off',
                               style: TextStyle(color: _textDark, fontSize: 12)),
                           Text(
                             '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s',
@@ -2085,7 +2247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const Text('12s',
+                          Text('12s',
                               style: TextStyle(color: _textDark, fontSize: 12)),
                         ],
                       )
@@ -2103,7 +2265,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Normalize Volume',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Normalizes volume across tracks',
+                  subtitle: Text('Normalizes volume across tracks',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   secondary: Container(
                     padding: const EdgeInsets.all(10),
@@ -2167,11 +2329,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                const ListTile(
+                ListTile(
                   contentPadding:
-                      EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Icon(Icons.dns, color: Colors.white70, size: 20),
-                  title: Text('Audio Cache Storage',
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: const Icon(Icons.dns, color: Colors.white70, size: 20),
+                  title: const Text('Audio Cache Storage',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: Text('145 MB',
@@ -2179,8 +2341,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 InkWell(
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Audio cache cleared successfully'),
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: const Text('Audio cache cleared successfully'),
                         backgroundColor: _cardDark));
                   },
                   child: const Padding(
@@ -2222,7 +2384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: Text('1.0.0',
-                      style: TextStyle(color: _textDark, fontSize: 14)),
+                      style: TextStyle(color: Colors.white54, fontSize: 14)),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -2233,7 +2395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Open Source Licenses',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right,
+                  trailing: Icon(Icons.chevron_right,
                       color: _textDark, size: 20),
                   onTap: () {
                     showLicensePage(
@@ -2262,7 +2424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
                           fontSize: 14)),
-                  subtitle: const Text('Testing & fallback media server mode',
+                  subtitle: Text('Testing & fallback media server mode',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   secondary: Container(
                     padding: const EdgeInsets.all(10),
@@ -2288,7 +2450,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Poll Native Error',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right,
+                  trailing: Icon(Icons.chevron_right,
                       color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
@@ -2301,7 +2463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Clear Native Error',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right,
+                  trailing: Icon(Icons.chevron_right,
                       color: _textDark, size: 20),
                   onTap: widget.onClearNativeError,
                 ),
@@ -2329,7 +2491,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text('${widget.logs.length}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: _primary,
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold)),
@@ -2385,7 +2547,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: widget.logs.isEmpty
-                                ? const Center(
+                                ? Center(
                                     child: Text('No logs yet',
                                         style: TextStyle(color: _textDark)))
                                 : ListView.builder(
@@ -2397,7 +2559,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             const EdgeInsets.only(bottom: 6.0),
                                         child: SelectableText(
                                           widget.logs[index],
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               color: _textDark,
                                               fontSize: 12,
                                               fontFamily: 'monospace'),
@@ -2488,7 +2650,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(
                       color: Colors.white, fontWeight: FontWeight.w500)),
               subtitle: Text(item['subtitle'] as String,
-                  style: const TextStyle(color: _textDark, fontSize: 12)),
+                  style: TextStyle(color: _textDark, fontSize: 12)),
               value: item['factor'] as int,
               groupValue: _dspOversampling,
               activeColor: _primary,
@@ -2727,7 +2889,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: const TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w500)),
                     subtitle: Text(subtitle,
-                        style: const TextStyle(color: _textDark, fontSize: 12)),
+                        style: TextStyle(color: _textDark, fontSize: 12)),
                     value: id,
                     groupValue: _ditherMode,
                     activeColor: _primary,

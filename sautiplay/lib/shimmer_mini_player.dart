@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
+import 'services/app_theme_service.dart';
 
 class ShimmerMiniPlayer extends StatelessWidget {
   const ShimmerMiniPlayer({super.key});
@@ -10,7 +11,7 @@ class ShimmerMiniPlayer extends StatelessWidget {
       height: 64,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C252E), // surfaceDarkColor
+        color: AppThemeService.instance.currentData.cardDark, // surfaceDarkColor
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.1),

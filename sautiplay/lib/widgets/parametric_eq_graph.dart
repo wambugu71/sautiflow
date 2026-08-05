@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:sautiflow/sautiflow.dart';
+import '../services/app_theme_service.dart';
 
 /// A sleek, real-time frequency response visualization graph for Parametric EQ.
 ///
@@ -12,23 +13,26 @@ class ParametricEqGraph extends StatelessWidget {
   final List<EqBandConfig> bands;
   final bool isEnabled;
   final double height;
-  final Color primaryColor;
+  final Color? primaryColor;
 
   const ParametricEqGraph({
     super.key,
     required this.bands,
     this.isEnabled = true,
     this.height = 100.0,
-    this.primaryColor = const Color(0xFF137FEC),
+    this.primaryColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectivePrimary = primaryColor ?? AppThemeService.instance.currentData.primary;
+    final cardBg = AppThemeService.instance.currentData.cardDark;
+
     return Container(
       height: height,
       margin: const EdgeInsets.symmetric(vertical: 8.0),
       decoration: BoxDecoration(
-        color: const Color(0xFF141D26),
+        color: cardBg,
         borderRadius: BorderRadius.circular(12.0),
         border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
         boxShadow: [
@@ -46,7 +50,7 @@ class ParametricEqGraph extends StatelessWidget {
           painter: _ParametricEqPainter(
             bands: bands,
             isEnabled: isEnabled,
-            primaryColor: primaryColor,
+            primaryColor: effectivePrimary,
           ),
         ),
       ),

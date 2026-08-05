@@ -28,6 +28,7 @@ import 'widgets/playback_speed_modal.dart';
 import 'widgets/synced_lyrics_widget.dart';
 import 'widgets/waveform_seek_bar_widget.dart';
 import 'services/app_state_service.dart';
+import 'services/app_theme_service.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   final ValueNotifier<PlayerStatus> statusNotifier;
@@ -548,8 +549,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             SnackBar(
               content: Row(
                 children: [
-                  const Icon(Icons.lyrics_outlined,
-                      color: Color(0xFF137FEC), size: 18),
+                  Icon(Icons.lyrics_outlined,
+                      color: AppThemeService.instance.currentData.primary, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -616,18 +617,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ),
                       ),
                     ),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: EdgeInsets.only(left: 12, bottom: 8),
-                        child: Text(
-                          'TRACK OPTIONS',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
-                            color: Color(0xFF137FEC),
-                          ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Text(
+                        'TRACK OPTIONS',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                          color: AppThemeService.instance.currentData.primary,
                         ),
                       ),
                     ),
@@ -647,8 +646,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.subtitles_outlined,
-                          color: Color(0xFF137FEC)),
+                      leading: Icon(Icons.subtitles_outlined,
+                          color: AppThemeService.instance.currentData.primary),
                       title: const Text('Add .lrc Lyrics File',
                           style: TextStyle(
                               color: Colors.white,
@@ -672,7 +671,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             ? Icons.layers
                             : Icons.layers_clear,
                         color: _showLyricsOverlayOnAlbumArt
-                            ? const Color(0xFF137FEC)
+                            ? AppThemeService.instance.currentData.primary
                             : Colors.white54,
                       ),
                       title: const Text('Lyrics Overlay on Album Art',
@@ -683,7 +682,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           'Display synchronized lyrics over album cover',
                           style:
                               TextStyle(color: Colors.white54, fontSize: 12)),
-                      activeThumbColor: const Color(0xFF137FEC),
+                      activeThumbColor: AppThemeService.instance.currentData.primary,
                       value: _showLyricsOverlayOnAlbumArt,
                       onChanged: (_lyricsRaw == null && !_isCustomLyricsLoaded)
                           ? null
@@ -737,7 +736,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
           color: Colors.black.withValues(alpha: 0.88),
           border: Border.all(
-            color: const Color(0xFF137FEC).withValues(alpha: 0.4),
+            color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
             width: 1.5,
           ),
         ),
@@ -772,14 +771,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF137FEC).withValues(alpha: 0.3),
+                        color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.lyrics,
-                              size: 12, color: Color(0xFF137FEC)),
+                          Icon(Icons.lyrics,
+                              size: 12, color: AppThemeService.instance.currentData.primary),
                           const SizedBox(width: 4),
                           Text(
                             _isCustomLyricsLoaded
@@ -918,11 +917,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: specs == null
-                      ? const SizedBox(
+                      ? SizedBox(
                           height: 160,
                           child: Center(
                             child: CircularProgressIndicator(
-                              color: Color(0xFF137FEC),
+                              color: AppThemeService.instance.currentData.primary,
                             ),
                           ),
                         )
@@ -937,7 +936,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildHardwareSheetContent(AudioHardwareSpecs specs) {
-    const primaryColor = Color(0xFF137FEC);
+    final primaryColor = AppThemeService.instance.currentData.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -963,14 +962,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 color: primaryColor.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.equalizer, color: primaryColor),
+              child: Icon(Icons.equalizer, color: primaryColor),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'AUDIO OUTPUT CHAIN',
                     style: TextStyle(
                       fontSize: 11,
@@ -1148,7 +1147,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildChainNode(SignalChainNode node) {
-    const primaryColor = Color(0xFF137FEC);
+    final primaryColor = AppThemeService.instance.currentData.primary;
     final accent = node.isHighlight ? primaryColor : Colors.white24;
     final labelColor = node.isHighlight ? primaryColor : Colors.white70;
 
@@ -1237,7 +1236,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isHiRes
-              ? const Color(0xFF137FEC).withValues(alpha: 0.6)
+              ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.6)
               : Colors.white.withValues(alpha: 0.08),
         ),
       ),
@@ -1248,7 +1247,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             children: [
               Icon(icon,
                   size: 14,
-                  color: isHiRes ? const Color(0xFF137FEC) : Colors.white54),
+                  color: isHiRes ? AppThemeService.instance.currentData.primary : Colors.white54),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1256,7 +1255,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: isHiRes ? const Color(0xFF137FEC) : Colors.white54,
+                    color: isHiRes ? AppThemeService.instance.currentData.primary : Colors.white54,
                     letterSpacing: 0.5,
                   ),
                   maxLines: 1,
@@ -1331,17 +1330,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final subtitle = _customArtist ?? widget.artist;
 
         // Theme colors matching the HTML mockup
-        const Color primaryColor = Color(0xFF137FEC);
-        const Color bgColor = Color(0xFF101922);
+        final Color primaryColor = AppThemeService.instance.currentData.primary;
+        final Color bgColor = AppThemeService.instance.currentData.bgDark;
         const Color surfaceColor = Color(0xFF18232E);
         const Color textLight = Colors.white;
-        const Color textDark = Color(0xFF94A3B8); // slate-400
+        final Color textDark = AppThemeService.instance.currentData.textDark; // slate-400
 
         return Theme(
           data: ThemeData.dark().copyWith(
             scaffoldBackgroundColor: bgColor,
             primaryColor: primaryColor,
-            colorScheme: const ColorScheme.dark(
+            colorScheme: ColorScheme.dark(
               primary: primaryColor,
               surface: surfaceColor,
             ),
@@ -2751,8 +2750,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     SnackBar(
                       content: Row(
                         children: [
-                          const Icon(Icons.repeat_on_rounded,
-                              color: Color(0xFF137FEC), size: 18),
+                          Icon(Icons.repeat_on_rounded,
+                              color: AppThemeService.instance.currentData.primary, size: 18),
                           const SizedBox(width: 8),
                           Text(
                             'A-B Loop Active: ${_fmt(Duration(milliseconds: a.toInt()))} ⇄ ${_fmt(Duration(milliseconds: b.toInt()))}',
@@ -2821,16 +2820,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF137FEC).withValues(alpha: 0.2),
+                color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF137FEC), width: 1),
+                border: Border.all(color: AppThemeService.instance.currentData.primary, width: 1),
               ),
               child: Text(
                 'B ${_fmt(Duration(milliseconds: _abPointBMs!.toInt()))}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF137FEC),
+                  color: AppThemeService.instance.currentData.primary,
                 ),
               ),
             )
@@ -2885,13 +2884,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       ),
                     ),
                   ),
-                  const Text(
+                  Text(
                     'A-B REPEAT FINE-TUNE',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2,
-                      color: Color(0xFF137FEC),
+                      color: AppThemeService.instance.currentData.primary,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -2932,9 +2931,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // Point B
                   Row(
                     children: [
-                      const Text('Point B',
+                      Text('Point B',
                           style: TextStyle(
-                              color: Color(0xFF137FEC),
+                              color: AppThemeService.instance.currentData.primary,
                               fontWeight: FontWeight.bold)),
                       const Spacer(),
                       IconButton(
@@ -3139,7 +3138,7 @@ class _AbHighlightCustomPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Highlight band
     final paint = Paint()
-      ..color = const Color(0xFF137FEC).withValues(alpha: 0.25)
+      ..color = AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
       ..style = PaintingStyle.fill;
     canvas.drawRect(Rect.fromLTRB(left, 0, right, size.height), paint);
 
@@ -3152,7 +3151,7 @@ class _AbHighlightCustomPainter extends CustomPainter {
 
     // Pin B
     final pinBPaint = Paint()
-      ..color = const Color(0xFF137FEC)
+      ..color = AppThemeService.instance.currentData.primary
       ..style = PaintingStyle.fill;
     canvas.drawRect(
         Rect.fromLTRB(right - 1.5, 0, right + 1.5, size.height), pinBPaint);
@@ -3188,8 +3187,8 @@ class _AbRepeatCustomIcon extends StatelessWidget {
         iconData = Icons.repeat_one_rounded;
         break;
       case 2:
-        borderClr = const Color(0xFF137FEC);
-        bgClr = const Color(0xFF137FEC).withValues(alpha: 0.25);
+        borderClr = AppThemeService.instance.currentData.primary;
+        bgClr = AppThemeService.instance.currentData.primary.withValues(alpha: 0.25);
         textClr = const Color(0xFF38BDF8);
         label = 'A-B';
         iconData = Icons.repeat_on_rounded;

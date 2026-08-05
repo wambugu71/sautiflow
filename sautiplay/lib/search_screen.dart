@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
 import 'album_detail_screen.dart';
+import 'services/app_theme_service.dart';
 
-// ─ Colors (matching the existing app theme) ─
-const _bgDark = Color(0xFF101922);
-const _surfaceDark = Color(0xFF1C252E);
-const _primary = Color(0xFF137fec);
+// ─ Dynamic theme colors ─
+Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
+Color get _primary => AppThemeService.instance.currentData.primary;
 
 class SearchScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:mini_music_visualizer/mini_music_visualizer.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
+import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/local_album_art.dart';
 
@@ -166,8 +167,8 @@ class _QueueScreenState extends State<QueueScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    const Color primaryColor = Color(0xFF137FEC);
-    const Color bgColor = Color(0xFF101922);
+    final Color primaryColor = AppThemeService.instance.currentData.primary;
+    final Color bgColor = AppThemeService.instance.currentData.bgDark;
 
     final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
 
@@ -228,7 +229,7 @@ class _QueueScreenState extends State<QueueScreen>
                                     color: primaryColor.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: const Text(
+                                  child: Text(
                                     'QUEUE',
                                     style: TextStyle(
                                       color: primaryColor,
@@ -256,7 +257,7 @@ class _QueueScreenState extends State<QueueScreen>
                       ),
                       if (widget.queue.isNotEmpty)
                         IconButton(
-                          icon: const Icon(Icons.my_location_rounded,
+                          icon: Icon(Icons.my_location_rounded,
                               color: primaryColor, size: 22),
                           tooltip: 'Center playing track',
                           onPressed: () => _scrollToPlayingItem(animate: true),
@@ -357,7 +358,7 @@ class _QueueScreenState extends State<QueueScreen>
                                       SizedBox(
                                         width: 24,
                                         child: isPlaying
-                                            ? const Icon(
+                                            ? Icon(
                                                 Icons.volume_up_rounded,
                                                 color: primaryColor,
                                                 size: 16)
@@ -383,7 +384,7 @@ class _QueueScreenState extends State<QueueScreen>
                                   title: isPlaying
                                       ? AdaptiveMarqueeText(
                                           text: track.title,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             color: primaryColor,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 15,

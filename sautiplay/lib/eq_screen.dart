@@ -10,11 +10,13 @@ import 'services/app_state_service.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
-// Tailwind Colors Ported
-const primaryColor = Color(0xFF137fec);
+import 'services/app_theme_service.dart';
+
+// Dynamic Theme Colors
+Color get primaryColor => AppThemeService.instance.currentData.primary;
 const bgLightColor = Color(0xFFf6f7f8);
-const bgDarkColor = Color(0xFF101922);
-const surfaceDarkColor = Color(0xFF1C252E);
+Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
+Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
 const surfaceDarkerColor = Color(0xFF111a22);
 
 class EqScreen extends StatefulWidget {
@@ -578,28 +580,28 @@ class _EqScreenState extends State<EqScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Input File Format',
+              Text('Input File Format',
                   style: TextStyle(
                       color: primaryColor, fontWeight: FontWeight.bold)),
               Text(
                   'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
                   style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
-              const Text('DSP Processing Format',
+              Text('DSP Processing Format',
                   style: TextStyle(
                       color: primaryColor, fontWeight: FontWeight.bold)),
               Text(
                   'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
                   style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
-              const Text('Hardware Output Format',
+              Text('Hardware Output Format',
                   style: TextStyle(
                       color: primaryColor, fontWeight: FontWeight.bold)),
               Text(
                   'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
                   style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 16),
-              const Text('Active DSP Nodes',
+              Text('Active DSP Nodes',
                   style: TextStyle(
                       color: primaryColor, fontWeight: FontWeight.bold)),
               Text(
@@ -707,7 +709,7 @@ class _EqScreenState extends State<EqScreen>
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           color: primaryColor,
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -1363,7 +1365,7 @@ class _EqScreenState extends State<EqScreen>
               labelStyle: const TextStyle(color: Colors.white54),
               enabledBorder: const UnderlineInputBorder(
                   borderSide: BorderSide(color: Colors.white24)),
-              focusedBorder: const UnderlineInputBorder(
+              focusedBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: primaryColor)),
             ),
           ),
@@ -1381,7 +1383,7 @@ class _EqScreenState extends State<EqScreen>
                 }
                 Navigator.pop(context);
               },
-              child: const Text('OK', style: TextStyle(color: primaryColor)),
+              child: Text('OK', style: TextStyle(color: primaryColor)),
             ),
           ],
         );
@@ -1399,7 +1401,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
       ),
       title: 'Playback Speed & Pitch',
       subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
@@ -1434,11 +1436,11 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _playbackPitch = res);
                   }
                 },
-                icon: const Icon(Icons.tune, size: 16, color: primaryColor),
-                label: const Text('Adjust Speed',
+                icon: Icon(Icons.tune, size: 16, color: primaryColor),
+                label: Text('Adjust Speed',
                     style: TextStyle(color: primaryColor)),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: primaryColor),
+                  side: BorderSide(color: primaryColor),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18)),
                 ),
@@ -1459,7 +1461,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.equalizer, color: primaryColor, size: 20),
+        child: Icon(Icons.equalizer, color: primaryColor, size: 20),
       ),
       title: '${_eqFrequencies.length}-Band Equalizer',
       subtitle: 'Enable ${_eqFrequencies.length}-band EQ',
@@ -1687,7 +1689,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.spatial_audio_off_outlined,
+        child: Icon(Icons.spatial_audio_off_outlined,
             color: primaryColor, size: 20),
       ),
       title: 'Spatial Audio',
@@ -1763,7 +1765,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.waves, color: primaryColor, size: 20),
+        child: Icon(Icons.waves, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Bass',
       subtitle: 'Powerful bass enhancement',
@@ -1820,7 +1822,7 @@ class _EqScreenState extends State<EqScreen>
                     dropdownColor: surfaceDarkerColor,
                     underline: const SizedBox(),
                     icon:
-                        const Icon(Icons.arrow_drop_down, color: primaryColor),
+                        Icon(Icons.arrow_drop_down, color: primaryColor),
                     style: const TextStyle(color: Colors.white, fontSize: 13),
                     items: List.generate(19, (index) {
                       // 0=60, 1=65, ... 18=180 mappings.
@@ -1964,7 +1966,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withOpacity(0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.headphones, color: primaryColor, size: 20),
+        child: Icon(Icons.headphones, color: primaryColor, size: 20),
       ),
       title: 'Crossfeed',
       subtitle: 'Simulate speaker listening',
@@ -1984,19 +1986,19 @@ class _EqScreenState extends State<EqScreen>
           children: [
             Text('Algorithm Preset',
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.8), fontSize: 14)),
+                    color: Colors.white.withValues(alpha: 0.8), fontSize: 14)),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
                 color: surfaceDarkColor,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: primaryColor.withOpacity(0.3)),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
               ),
               child: DropdownButton<int>(
                 value: _crossfeedPreset,
                 dropdownColor: surfaceDarkerColor,
                 underline: const SizedBox(),
-                icon: const Icon(Icons.arrow_drop_down, color: primaryColor),
+                icon: Icon(Icons.arrow_drop_down, color: primaryColor),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 items: const [
                   DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
@@ -2029,7 +2031,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.compare_arrows, color: primaryColor, size: 20),
+        child: Icon(Icons.compare_arrows, color: primaryColor, size: 20),
       ),
       title: 'Stereo Stage',
       subtitle: 'M/S & Haas width',
@@ -2095,7 +2097,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.surround_sound_rounded,
+        child: Icon(Icons.surround_sound_rounded,
             color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancement',
@@ -2144,7 +2146,7 @@ class _EqScreenState extends State<EqScreen>
                       ? 'Stereo Widening (Center Subtraction)'
                       : 'Mono Center Extraction'),
               style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
+                color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 11,
               ),
               textAlign: TextAlign.center,
@@ -2164,7 +2166,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.blur_on, color: primaryColor, size: 20),
+        child: Icon(Icons.blur_on, color: primaryColor, size: 20),
       ),
       title: 'Delay / Echo',
       subtitle: 'Repeats & rhythms',
@@ -2294,7 +2296,7 @@ class _EqScreenState extends State<EqScreen>
           shape: BoxShape.circle,
         ),
         child:
-            const Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
+            Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
       ),
       title: 'True 3D Spatial Audio',
       subtitle: 'X/Y/Z Source Placement',
@@ -2370,7 +2372,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.tune, color: primaryColor, size: 20),
+        child: Icon(Icons.tune, color: primaryColor, size: 20),
       ),
       title: 'Audio Tuning',
       subtitle: '3-band EQ',
@@ -2460,7 +2462,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.tune, color: primaryColor, size: 20),
+        child: Icon(Icons.tune, color: primaryColor, size: 20),
       ),
       title: 'Parametric EQ',
       subtitle: 'Advanced mixed FX chain',
@@ -2505,9 +2507,9 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton.icon(
-              icon: const Icon(Icons.add_circle_outline, color: primaryColor),
+              icon: Icon(Icons.add_circle_outline, color: primaryColor),
               label:
-                  const Text('Add Band', style: TextStyle(color: primaryColor)),
+                  Text('Add Band', style: TextStyle(color: primaryColor)),
               onPressed: () {
                 setState(() {
                   _parametricBands.add(const EqBandConfig(
@@ -2555,7 +2557,7 @@ class _EqScreenState extends State<EqScreen>
               Row(
                 children: [
                   Text('${band.frequencyHz.toInt()}Hz',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: primaryColor, fontFamily: 'monospace')),
                   const SizedBox(width: 12),
                   GestureDetector(
@@ -2719,7 +2721,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.filter_list, color: primaryColor, size: 20),
+        child: Icon(Icons.filter_list, color: primaryColor, size: 20),
       ),
       title: 'Custom Filters',
       subtitle: 'Real-Time LPF, HPF, Biquad',
@@ -2943,7 +2945,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.compress, color: primaryColor, size: 20),
+        child: Icon(Icons.compress, color: primaryColor, size: 20),
       ),
       title: 'Soft Limiter',
       subtitle: 'Prevent clipping & distortion',
@@ -3019,7 +3021,7 @@ class ModernAudioKnob extends StatefulWidget {
   final double flatValue;
   final ValueChanged<double> onChanged;
   final String Function(double)? valueFormatter;
-  final Color activeColor;
+  final Color? activeColor;
   final bool isPercentage;
   final double displayMultiplier;
 
@@ -3032,7 +3034,7 @@ class ModernAudioKnob extends StatefulWidget {
     this.flatValue = 1.0,
     required this.onChanged,
     this.valueFormatter,
-    this.activeColor = primaryColor,
+    this.activeColor,
     this.isPercentage = false,
     this.displayMultiplier = 1.0,
   });
@@ -3078,8 +3080,8 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
             size: const Size(60, 60),
             painter: _KnobPainter(
               normalizedValue: normalizedValue,
-              activeColor: widget.activeColor,
-              inactiveColor: Colors.white.withOpacity(0.1),
+              activeColor: widget.activeColor ?? primaryColor,
+              inactiveColor: Colors.white.withValues(alpha: 0.1),
             ),
           ),
         ),
@@ -3147,7 +3149,7 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
                       labelStyle: const TextStyle(color: Colors.white54),
                       enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.white24)),
-                      focusedBorder: const UnderlineInputBorder(
+                      focusedBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: primaryColor)),
                     ),
                   ),
@@ -3177,7 +3179,7 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
                         }
                         Navigator.pop(context);
                       },
-                      child: const Text('OK',
+                      child: Text('OK',
                           style: TextStyle(color: primaryColor)),
                     ),
                   ],

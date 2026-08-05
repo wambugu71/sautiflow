@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import '../services/app_theme_service.dart';
 import '../services/fft_processor.dart';
 
 enum GlslShaderStyle {
@@ -89,7 +90,7 @@ class GlslAudioVisualizerWidget extends StatefulWidget {
   final Stream<Float32List>? analyzerStream;
   final bool isPlaying;
   final GlslShaderStyle style;
-  final Color primaryColor;
+  final Color? primaryColor;
   final double height;
   final double width;
 
@@ -98,7 +99,7 @@ class GlslAudioVisualizerWidget extends StatefulWidget {
     this.analyzerStream,
     this.isPlaying = true,
     this.style = GlslShaderStyle.cyberTunnel,
-    this.primaryColor = const Color(0xFF137fec),
+    this.primaryColor,
     this.height = 160.0,
     this.width = double.infinity,
   });
@@ -309,7 +310,7 @@ class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
             mid: _mid,
             treble: _treble,
             energy: _energy,
-            primaryColor: widget.primaryColor,
+            primaryColor: widget.primaryColor ?? AppThemeService.instance.currentData.primary,
           ),
         ),
       ),

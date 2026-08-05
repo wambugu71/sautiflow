@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
+import 'services/app_theme_service.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'combined_home_screen.dart';
@@ -51,62 +52,76 @@ void main() {
   runApp(const DemoApp());
 }
 
-class DemoApp extends StatelessWidget {
+// ─── InheritedWidget so any descendant can read the current theme ─────────────
+class AppThemeProvider extends InheritedWidget {
+  final AppThemeData themeData;
+
+  const AppThemeProvider({
+    super.key,
+    required this.themeData,
+    required super.child,
+  });
+
+  static AppThemeData of(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.themeData ?? AppThemeService.themes.first;
+  }
+
+  @override
+  bool updateShouldNotify(AppThemeProvider oldWidget) =>
+      themeData.id != oldWidget.themeData.id;
+}
+
+// ─── App root ─────────────────────────────────────────────────────────────────
+class DemoApp extends StatefulWidget {
   const DemoApp({super.key});
 
   @override
+  State<DemoApp> createState() => _DemoAppState();
+}
+
+class _DemoAppState extends State<DemoApp> {
+  AppThemeData _themeData = AppThemeService.themes.first; // default until loaded
+  StreamSubscription<AppThemeId>? _themeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTheme();
+    _themeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
+      if (mounted) {
+        setState(() {
+          _themeData = AppThemeService.dataFor(id);
+        });
+      }
+    });
+  }
+
+  Future<void> _loadTheme() async {
+    await AppThemeService.instance.loadTheme();
+    if (mounted) {
+      setState(() {
+        _themeData = AppThemeService.instance.currentData;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _themeSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SautiPlay',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF101922),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF137fec),
-          surface: Color(0xFF1C252E),
-          onSurface: Colors.white,
-        ),
-        snackBarTheme: SnackBarThemeData(
-          backgroundColor: const Color(0xFF1C252E),
-          contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-          ),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF101922),
-          elevation: 0,
-          scrolledUnderElevation: 0, // prevents color change on scroll
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: const Color(0xFF101922),
-          indicatorColor: const Color(0xFF137fec).withValues(alpha: 0.3),
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const TextStyle(
-                  color: Color(0xFF137fec),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600);
-            }
-            return TextStyle(
-                color: Colors.white.withValues(alpha: 0.7), fontSize: 12);
-          }),
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const IconThemeData(color: Color(0xFF137fec));
-            }
-            return IconThemeData(color: Colors.white.withValues(alpha: 0.7));
-          }),
-        ),
-        bottomSheetTheme: const BottomSheetThemeData(
-          backgroundColor: Color(0xFF1C252E),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-        ),
+    return AppThemeProvider(
+      themeData: _themeData,
+      child: MaterialApp(
+        title: 'SautiPlay',
+        theme: _themeData.toThemeData(),
+        home: const PlayerShell(),
       ),
-      home: const PlayerShell(),
     );
   }
 }

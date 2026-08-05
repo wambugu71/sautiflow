@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
 import 'models/liked_song.dart';
+import 'services/app_theme_service.dart';
 import 'services/liked_songs_service.dart';
 
-// ─ Colors (matching the existing app theme) ─
-const _bgDark = Color(0xFF101922);
-const _surfaceDark = Color(0xFF1C252E);
-const _primary = Color(0xFF137fec);
+// ─ Dynamic theme colors ─
+Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
+Color get _primary => AppThemeService.instance.currentData.primary;
 
 /// Unified track model that works with both dart_ytmusic_api and youtube_explode_dart
 class TrackInfo {

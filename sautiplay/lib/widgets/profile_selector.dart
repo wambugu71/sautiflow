@@ -8,10 +8,11 @@ import '../isolate_player.dart';
 import '../models/audio_profile.dart';
 import '../services/audio_profile_service.dart';
 import '../services/app_state_service.dart';
+import '../services/app_theme_service.dart';
 
-const primaryColor = Color(0xFF137fec);
-const bgDarkColor = Color(0xFF101922);
-const surfaceDarkColor = Color(0xFF1C252E);
+Color get primaryColor => AppThemeService.instance.currentData.primary;
+Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
+Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
 
 /// Reusable profile selector bar for AppBar, EqScreen & ViperFxScreen.
 class AudioProfileSelector extends StatefulWidget {
@@ -153,11 +154,11 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
             backgroundColor: bgDarkColor,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
+            title: Row(
               children: [
                 Icon(Icons.save_outlined, color: primaryColor),
-                SizedBox(width: 10),
-                Text('Save Audio Profile',
+                const SizedBox(width: 10),
+                const Text('Save Audio Profile',
                     style: TextStyle(color: Colors.white)),
               ],
             ),
@@ -169,10 +170,10 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                   TextField(
                     controller: nameController,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Profile Name',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      enabledBorder: UnderlineInputBorder(
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      enabledBorder: const UnderlineInputBorder(
                         borderSide: BorderSide(color: Colors.white30),
                       ),
                       focusedBorder: UnderlineInputBorder(
@@ -219,7 +220,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text('Include Effects in Profile:',
+                  Text('Include Effects in Profile:',
                       style: TextStyle(
                           color: primaryColor,
                           fontWeight: FontWeight.bold,
@@ -333,7 +334,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
             width: 16,
             height: 16,
             child:
-                CircularProgressIndicator(strokeWidth: 2, color: primaryColor),
+                CircularProgressIndicator(strokeWidth: 2),
           ),
         ),
       );
@@ -352,7 +353,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.equalizer, color: primaryColor, size: 14),
+            Icon(Icons.equalizer, color: primaryColor, size: 14),
             const SizedBox(width: 4),
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 100),
@@ -424,7 +425,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
               color: primaryColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.equalizer, color: primaryColor, size: 20),
+            child: Icon(Icons.equalizer, color: primaryColor, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -611,7 +612,7 @@ class _AudioProfileManagerDialogState extends State<AudioProfileManagerDialog> {
           const Text('Manage Audio Profiles',
               style: TextStyle(color: Colors.white)),
           IconButton(
-            icon: const Icon(Icons.file_upload_outlined, color: primaryColor),
+            icon: Icon(Icons.file_upload_outlined, color: primaryColor),
             tooltip: 'Import Profile File',
             onPressed: _importProfile,
           ),
@@ -689,7 +690,7 @@ class _AudioProfileManagerDialogState extends State<AudioProfileManagerDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Close', style: TextStyle(color: primaryColor)),
+          child: Text('Close', style: TextStyle(color: primaryColor)),
         ),
       ],
     );

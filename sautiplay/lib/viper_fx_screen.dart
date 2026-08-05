@@ -9,12 +9,13 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
 import 'widgets/parametric_eq_graph.dart';
+import 'services/app_theme_service.dart';
 import 'services/autoeq_parser.dart';
 
-const primaryColor = Color(0xFF137fec);
-const bgDarkColor = Color(0xFF101922);
-const surfaceDarkColor = Color(0xFF1C252E);
-const surfaceDarkerColor = Color(0xFF111a22);
+Color get primaryColor => AppThemeService.instance.currentData.primary;
+Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
+Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
+Color get surfaceDarkerColor => AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.8);
 
 class ViperFxScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -939,7 +940,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           color: primaryColor,
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -3337,7 +3338,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               child: Column(
                 children: [
                   Text(labels[i],
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: primaryColor,
                           fontSize: 13,
                           fontWeight: FontWeight.bold)),
@@ -3495,7 +3496,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       Text(labels[i],
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: primaryColor,
                               fontSize: 13,
                               fontWeight: FontWeight.bold)),
@@ -3669,7 +3670,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text('${freqs[index].round()} Hz',
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: primaryColor,
                         fontSize: 12,
                         fontWeight: FontWeight.bold)),
@@ -3942,10 +3943,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
-                children: const [
+                children: [
                   Icon(Icons.auto_awesome, color: primaryColor, size: 20),
-                  SizedBox(width: 8),
-                  Text('AutoEQ & Presets Importer',
+                  const SizedBox(width: 8),
+                  const Text('AutoEQ & Presets Importer',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 14,

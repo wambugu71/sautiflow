@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'isolate_player.dart';
+import 'services/app_theme_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
 
@@ -27,10 +28,11 @@ class NetworkSourcesScreen extends StatefulWidget {
 
 class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     with SingleTickerProviderStateMixin {
-  static const _bgDark = Color(0xFF101922);
-  static const _cardDark = Color(0xFF1C252E);
-  static const _primary = Color(0xFF137fec);
-  static const _textDark = Color(0xFF94A3B8);
+  // Dynamic theme colors
+  Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+  Color get _cardDark => AppThemeService.instance.currentData.cardDark;
+  Color get _primary => AppThemeService.instance.currentData.primary;
+  Color get _textDark => AppThemeService.instance.currentData.textDark;
 
   late TabController _tabController;
 
@@ -239,11 +241,11 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           color: _cardDark,
           child: Row(
             children: [
-              const Icon(Icons.dns_rounded, color: _primary),
+              Icon(Icons.dns_rounded, color: _primary),
               const SizedBox(width: 12),
               Expanded(
                 child: _ftpConfigs.isEmpty
-                    ? const Text(
+                    ? Text(
                         'No FTP servers configured',
                         style: TextStyle(color: _textDark),
                       )
@@ -274,7 +276,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       ),
               ),
               IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded,
+                icon: Icon(Icons.add_circle_outline_rounded,
                     color: _primary),
                 tooltip: 'Add FTP Server',
                 onPressed: () => _showAddFtpDialog(),
@@ -309,13 +311,13 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                 Expanded(
                   child: Text(
                     _currentFtpPath,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: _textDark, fontFamily: 'monospace'),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.refresh_rounded,
+                  icon: Icon(Icons.refresh_rounded,
                       color: _primary, size: 20),
                   onPressed: () => _loadFtpDirectory(_currentFtpPath),
                 ),
@@ -333,7 +335,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       'Tap the "+" button above to connect your FTP music server.',
                 )
               : _isLoadingFtp
-                  ? const Center(
+                  ? Center(
                       child: CircularProgressIndicator(color: _primary))
                   : _ftpEntries.isEmpty
                       ? _buildEmptyState(
@@ -357,14 +359,14 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                     color: _primary.withAlpha(25),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(Icons.folder_rounded,
+                                  child: Icon(Icons.folder_rounded,
                                       color: _primary),
                                 ),
                                 title: Text(item.name,
                                     style: const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w500)),
-                                trailing: const Icon(
+                                trailing: Icon(
                                     Icons.chevron_right_rounded,
                                     color: _textDark),
                                 onTap: () => _navigateToFtpSubdir(item.path),
@@ -386,11 +388,11 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                         fontWeight: FontWeight.w500)),
                                 subtitle: Text(
                                   _formatBytes(item.sizeBytes),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: _textDark, fontSize: 12),
                                 ),
                                 trailing: IconButton(
-                                  icon: const Icon(
+                                  icon: Icon(
                                       Icons.play_circle_fill_rounded,
                                       color: _primary,
                                       size: 32),
@@ -435,7 +437,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                     color: _primary.withAlpha(30),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.wifi_tethering_rounded,
+                  child: Icon(Icons.wifi_tethering_rounded,
                       color: _primary, size: 28),
                 ),
                 const SizedBox(width: 16),
@@ -455,7 +457,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                         dlna.isSearching
                             ? 'Searching Wi-Fi network for DLNA hardware…'
                             : 'Found ${dlna.devices.length} total DLNA devices',
-                        style: const TextStyle(color: _textDark, fontSize: 13),
+                        style: TextStyle(color: _textDark, fontSize: 13),
                       ),
                     ],
                   ),
@@ -523,7 +525,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                         ),
                         subtitle: Text(
                           r.locationUrl,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: _textDark, fontSize: 11),
                         ),
                         trailing: ElevatedButton(
@@ -577,9 +579,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600)),
                         subtitle: Text(s.locationUrl,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: _textDark, fontSize: 11)),
-                        trailing: const Icon(Icons.chevron_right_rounded,
+                        trailing: Icon(Icons.chevron_right_rounded,
                             color: _textDark),
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -624,7 +626,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                   TextField(
                     controller: nameCtrl,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Server Label',
                       labelStyle: TextStyle(color: _textDark),
                     ),
@@ -632,7 +634,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                   TextField(
                     controller: hostCtrl,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Host / IP Address',
                       hintText: '192.168.1.100',
                       labelStyle: TextStyle(color: _textDark),
@@ -645,7 +647,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                           controller: portCtrl,
                           keyboardType: TextInputType.number,
                           style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Port',
                             labelStyle: TextStyle(color: _textDark),
                           ),
@@ -668,7 +670,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                   TextField(
                     controller: userCtrl,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Username',
                       labelStyle: TextStyle(color: _textDark),
                     ),
@@ -677,7 +679,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                     controller: passCtrl,
                     obscureText: true,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Password',
                       labelStyle: TextStyle(color: _textDark),
                     ),
@@ -726,7 +728,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             color: _textDark,
             fontSize: 12,
             fontWeight: FontWeight.bold,
@@ -748,7 +750,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
       ),
       child: Text(
         message,
-        style: const TextStyle(color: _textDark, fontSize: 13),
+        style: TextStyle(color: _textDark, fontSize: 13),
         textAlign: TextAlign.center,
       ),
     );
@@ -777,7 +779,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
             const SizedBox(height: 8),
             Text(
               subtitle,
-              style: const TextStyle(color: _textDark, fontSize: 14),
+              style: TextStyle(color: _textDark, fontSize: 14),
               textAlign: TextAlign.center,
             ),
           ],

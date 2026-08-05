@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/app_theme_service.dart';
 
 enum SongOption {
   queue,
@@ -10,21 +11,23 @@ enum SongOption {
 class SongOptionsMenuButton extends StatelessWidget {
   final ValueChanged<SongOption> onOptionSelected;
   final double iconSize;
-  final Color iconColor;
+  final Color? iconColor;
 
   const SongOptionsMenuButton({
     super.key,
     required this.onOptionSelected,
     this.iconSize = 24.0,
-    this.iconColor = const Color(0xFF94A3B8),
+    this.iconColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    const surfaceColor = Color(0xFF18232E);
+    final surfaceColor = AppThemeService.instance.currentData.cardDark;
+    final primary = AppThemeService.instance.currentData.primary;
+    final effectiveIconColor = iconColor ?? AppThemeService.instance.currentData.textDark;
 
     return PopupMenuButton<SongOption>(
-      icon: Icon(Icons.more_vert, color: iconColor, size: iconSize),
+      icon: Icon(Icons.more_vert, color: effectiveIconColor, size: iconSize),
       color: surfaceColor,
       elevation: 8,
       shape: RoundedRectangleBorder(
@@ -36,11 +39,11 @@ class SongOptionsMenuButton extends StatelessWidget {
       ),
       onSelected: onOptionSelected,
       itemBuilder: (BuildContext context) => [
-        const PopupMenuItem<SongOption>(
+        PopupMenuItem<SongOption>(
           value: SongOption.queue,
           child: Row(
             children: [
-              Icon(Icons.queue_music, color: Color(0xFF137FEC), size: 20),
+              Icon(Icons.queue_music, color: primary, size: 20),
               SizedBox(width: 12),
               Text(
                 'Play Next',

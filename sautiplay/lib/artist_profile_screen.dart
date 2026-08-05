@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo + routing
+import 'services/app_theme_service.dart';
 
-const _bgDark = Color(0xFF0a0a0a); // background-dark from HTML
-const _surfaceDark = Color(0xFF111722); // surface-dark from HTML
-const _primary = Color(0xFF2a75ef); // primary from HTML
+Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
+Color get _primary => AppThemeService.instance.currentData.primary;
 
 class ArtistProfileScreen extends StatefulWidget {
   final String artistName;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/app_theme_service.dart';
 
 class MusicInfoDialog extends StatefulWidget {
   final String title;
@@ -134,10 +135,10 @@ Path/ID: ${widget.videoId ?? 'N/A'}
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF137FEC);
-    const surfaceColor = Color(0xFF18232E);
-    const cardBgColor = Color(0xFF101922);
-    const textDark = Color(0xFF94A3B8);
+    final primaryColor = AppThemeService.instance.currentData.primary;
+    final surfaceColor = AppThemeService.instance.currentData.cardDark;
+    final cardBgColor = AppThemeService.instance.currentData.bgDark;
+    final textDark = AppThemeService.instance.currentData.textDark;
 
     final isLocal = widget.sourceType.toLowerCase() == 'local';
 
@@ -210,7 +211,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                                 : widget.artist,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                          style: TextStyle(
                               color: textDark,
                               fontSize: 13,
                             ),
@@ -323,8 +324,8 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                   if (_selectedTab == 0)
                     TextButton.icon(
                       onPressed: () => _copyToClipboard(context),
-                      icon: const Icon(Icons.copy, size: 16, color: primaryColor),
-                      label: const Text('Copy Metadata', style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w600)),
+                      icon: Icon(Icons.copy, size: 16, color: primaryColor),
+                      label: Text('Copy Metadata', style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w600)),
                     )
                   else
                     const SizedBox.shrink(),
@@ -332,7 +333,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                     children: [
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close', style: TextStyle(color: textDark)),
+                        child: Text('Close', style: TextStyle(color: textDark)),
                       ),
                       if (_selectedTab == 1) ...[
                         const SizedBox(width: 8),
@@ -425,8 +426,9 @@ Path/ID: ${widget.videoId ?? 'N/A'}
     required String value,
     bool isCopyable = false,
   }) {
-    const surfaceColor = Color(0xFF18232E);
-    const textDark = Color(0xFF94A3B8);
+    final surfaceColor = AppThemeService.instance.currentData.cardDark;
+    final textDark = AppThemeService.instance.currentData.textDark;
+    final primaryColor = AppThemeService.instance.currentData.primary;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -438,7 +440,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
       ),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF137FEC)),
+          Icon(icon, size: 18, color: primaryColor),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -446,7 +448,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
               children: [
                 Text(
                   label,
-                  style: const TextStyle(fontSize: 11, color: textDark, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 11, color: textDark, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 2),
                 SelectableText(
@@ -459,7 +461,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
           ),
           if (isCopyable)
             IconButton(
-              icon: const Icon(Icons.copy, size: 16, color: textDark),
+              icon: Icon(Icons.copy, size: 16, color: textDark),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: value));
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -531,8 +533,8 @@ Path/ID: ${widget.videoId ?? 'N/A'}
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
   }) {
-    const surfaceColor = Color(0xFF18232E);
-    const primaryColor = Color(0xFF137FEC);
+    final surfaceColor = AppThemeService.instance.currentData.cardDark;
+    final primaryColor = AppThemeService.instance.currentData.primary;
 
     return TextField(
       controller: controller,
@@ -555,7 +557,7 @@ Path/ID: ${widget.videoId ?? 'N/A'}
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: primaryColor, width: 1.5),
+          borderSide: BorderSide(color: primaryColor, width: 1.5),
         ),
       ),
     );

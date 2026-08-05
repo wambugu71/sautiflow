@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 
 class MiniPlayer extends StatefulWidget {
@@ -71,7 +72,7 @@ class _MiniPlayerState extends State<MiniPlayer>
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: const Color(0xFF1C252E), // surfaceDarkColor
+          color: AppThemeService.instance.currentData.cardDark, // surfaceDarkColor
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
@@ -93,7 +94,7 @@ class _MiniPlayerState extends State<MiniPlayer>
               minHeight: 2,
               backgroundColor: Colors.transparent,
               valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF137fec)),
+                  AlwaysStoppedAnimation<Color>(AppThemeService.instance.currentData.primary),
             ),
             // Main content
             Expanded(
@@ -105,7 +106,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                     height: 48,
                     margin: const EdgeInsets.only(left: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF137fec)
+                      color: AppThemeService.instance.currentData.primary
                           .withValues(alpha: 0.2), // primaryColor
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -123,7 +124,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                           : RotationTransition(
                               turns: _rotationController,
                               child: Container(
-                                color: const Color(0xFF137fec).withValues(alpha: 0.2),
+                                color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.2),
                                 padding: const EdgeInsets.all(6.0),
                                 child: Image.asset(
                                   'assets/icon/splash.png',

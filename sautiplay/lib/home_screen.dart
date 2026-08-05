@@ -5,13 +5,14 @@ import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
+import 'services/app_theme_service.dart';
 
-// ─ Colors (matching existing dark theme tokens) ─
-const _bgDark = Color(0xFF101922);
-const _surfaceDark = Color(0xFF1C252E);
-const _surfaceBorder = Color(0xFF26323E);
-const _primary = Color(0xFF137fec);
-const _textSecondary = Color(0xFF94A3B8);
+// ─ Dynamic theme colors ─
+Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
+Color get _surfaceBorder => AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.5);
+Color get _primary => AppThemeService.instance.currentData.primary;
+Color get _textSecondary => AppThemeService.instance.currentData.textDark;
 
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -385,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen>
                       color: _primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text(
+                    child: Text(
                       'FEATURED',
                       style: TextStyle(
                         color: _primary,
@@ -424,7 +425,7 @@ class _HomeScreenState extends State<HomeScreen>
             Container(
               width: 42,
               height: 42,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: _primary,
                 shape: BoxShape.circle,
               ),
@@ -612,7 +613,7 @@ class _HomeScreenState extends State<HomeScreen>
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 color: _textSecondary,
                 fontSize: 12,
                 fontWeight: FontWeight.w400,
@@ -638,7 +639,7 @@ class _HomeScreenState extends State<HomeScreen>
                 shape: BoxShape.circle,
                 border: Border.all(color: _surfaceBorder),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.wifi_off_rounded,
                 size: 44,
                 color: _textSecondary,
@@ -654,7 +655,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Check your network connection and try again.',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -694,7 +695,7 @@ class _HomeScreenState extends State<HomeScreen>
                     label: const Text('Go to Library Tracks'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
-                      side: const BorderSide(color: _surfaceBorder),
+                      side: BorderSide(color: _surfaceBorder),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 18, vertical: 12),
                       shape: RoundedRectangleBorder(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../isolate_player.dart';
 import '../services/app_state_service.dart';
 
+import '../services/app_theme_service.dart';
+
 /// Shows a bottom sheet modal allowing the user to tune Playback Speed / Pitch.
 Future<double?> showPlaybackSpeedModal(
   BuildContext context,
@@ -13,7 +15,7 @@ Future<double?> showPlaybackSpeedModal(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: const Color(0xFF18232E),
+    backgroundColor: AppThemeService.instance.currentData.cardDark,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
@@ -44,7 +46,7 @@ class _PlaybackSpeedSheet extends StatefulWidget {
 
 class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
   late double _pitch;
-  static const primaryColor = Color(0xFF137FEC);
+  Color get primaryColor => AppThemeService.instance.currentData.primary;
 
   final List<double> _presets = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -99,13 +101,13 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
                       color: primaryColor.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.speed_rounded, color: primaryColor, size: 22),
+                    child: Icon(Icons.speed_rounded, color: primaryColor, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'PLAYBACK SPEED & PITCH',
                         style: TextStyle(
                           fontSize: 11,
@@ -219,7 +221,7 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
               ),
               Text(
                 '${_pitch.toStringAsFixed(2)}x',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                   color: primaryColor,

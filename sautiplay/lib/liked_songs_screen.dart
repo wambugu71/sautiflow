@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/liked_song.dart';
+import '../services/app_theme_service.dart';
 import '../services/liked_songs_service.dart';
 
 class LikedSongsScreen extends StatefulWidget {
@@ -18,10 +19,11 @@ class LikedSongsScreen extends StatefulWidget {
 }
 
 class _LikedSongsScreenState extends State<LikedSongsScreen> {
+  Color get bgDark => AppThemeService.instance.currentData.bgDark;
+  Color get primaryColor => AppThemeService.instance.currentData.primary;
+
   @override
   Widget build(BuildContext context) {
-    const Color bgDark = Color(0xFF121212); // background-dark from mockup
-    const Color primaryColor = Color(0xFF256AF4); // primary from mockup
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -221,7 +223,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
             // Like toggle / Context Menu Button
             IconButton(
               icon: Icon(Icons.favorite,
-                  color: const Color(0xFF256AF4), size: isDesktop ? 28 : 24),
+                  color: primaryColor, size: isDesktop ? 28 : 24),
               onPressed: () async {
                 await LikedSongsService.instance.removeLikedSong(track.videoId);
               },

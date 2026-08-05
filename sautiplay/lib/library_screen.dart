@@ -18,6 +18,7 @@ import 'services/m3u_playlist_service.dart';
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
 import 'isolate_player.dart';
+import 'services/app_theme_service.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
@@ -239,9 +240,9 @@ class _LibraryScreenState extends State<LibraryScreen>
             TextField(
               controller: nameController,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Playlist Name (Optional)',
-                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                labelStyle: TextStyle(color: AppThemeService.instance.currentData.textDark),
                 hintText: 'e.g. Live Radio Stations',
                 hintStyle: TextStyle(color: Color(0xFF64748B)),
               ),
@@ -250,9 +251,9 @@ class _LibraryScreenState extends State<LibraryScreen>
             TextField(
               controller: urlController,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'M3U / M3U8 URL',
-                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                labelStyle: TextStyle(color: AppThemeService.instance.currentData.textDark),
                 hintText: 'https://example.com/playlist.m3u8',
                 hintStyle: TextStyle(color: Color(0xFF64748B)),
               ),
@@ -262,11 +263,11 @@ class _LibraryScreenState extends State<LibraryScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('Cancel', style: TextStyle(color: AppThemeService.instance.currentData.textDark)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF137FEC),
+              backgroundColor: AppThemeService.instance.currentData.primary,
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -347,7 +348,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            leading: const Icon(Icons.play_arrow, color: Color(0xFF137FEC)),
+            leading: Icon(Icons.play_arrow, color: AppThemeService.instance.currentData.primary),
             title: Text('Play "${playlist.name}"', style: const TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.of(ctx).pop();
@@ -899,12 +900,12 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
         content: Text(
           'Are you sure you want to delete "${song.title}"? The file will be permanently removed from your storage.',
-          style: const TextStyle(color: Color(0xFF94A3B8)),
+          style: TextStyle(color: AppThemeService.instance.currentData.textDark),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text('Cancel', style: TextStyle(color: AppThemeService.instance.currentData.textDark)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -966,12 +967,12 @@ class _LibraryScreenState extends State<LibraryScreen>
             vertical: isDesktop ? 9 : 7, horizontal: isDesktop ? 14 : 10),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF137fec).withValues(alpha: 0.22)
+              ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.22)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
           border: isSelected
               ? Border.all(
-                  color: const Color(0xFF137fec).withValues(alpha: 0.4),
+                  color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
                   width: 1,
                 )
               : Border.all(color: Colors.transparent, width: 1),
@@ -983,7 +984,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             Icon(
               icon,
               size: isDesktop ? 18 : 15,
-              color: isSelected ? const Color(0xFF137fec) : const Color(0xFF94A3B8),
+              color: isSelected ? AppThemeService.instance.currentData.primary : AppThemeService.instance.currentData.textDark,
             ),
             const SizedBox(width: 6),
             Text(
@@ -991,7 +992,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               style: TextStyle(
                 fontSize: isDesktop ? 15 : 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+                color: isSelected ? Colors.white : AppThemeService.instance.currentData.textDark,
               ),
             ),
           ],
@@ -1004,11 +1005,11 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     super.build(context);
     // Theme colors
-    const Color primaryColor = Color(0xFF137FEC);
-    const Color bgDark = Color(0xFF101922);
-    const Color surfaceColor = Color(0xFF18232E);
-    const Color textLight = Colors.white;
-    const Color textDark = Color(0xFF94A3B8); // slate-400
+    final Color primaryColor = AppThemeService.instance.currentData.primary;
+    final Color bgDark = AppThemeService.instance.currentData.bgDark;
+    final Color surfaceColor = Color(0xFF18232E);
+    final Color textLight = Colors.white;
+    final Color textDark = AppThemeService.instance.currentData.textDark; // slate-400
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1033,7 +1034,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               left: isDesktop ? 32.0 : 16.0,
                               right: isDesktop ? 32.0 : 16.0,
                               bottom: isDesktop ? 12.0 : 8.0),
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: bgDark,
                           ),
                           child: Column(
@@ -1567,7 +1568,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                 size: 18,
                                 color: _trackViewMode == mode
                                     ? primaryColor
-                                    : const Color(0xFF94A3B8),
+                                    : AppThemeService.instance.currentData.textDark,
                               ),
                               const SizedBox(width: 10),
                               Text(
@@ -1635,7 +1636,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                                 size: 18,
                                 color: _groupByOption == choice
                                     ? primaryColor
-                                    : const Color(0xFF94A3B8),
+                                    : AppThemeService.instance.currentData.textDark,
                               ),
                               const SizedBox(width: 10),
                               Text(
@@ -1758,17 +1759,17 @@ class _LibraryScreenState extends State<LibraryScreen>
                             const SizedBox(height: 2),
                             Text(
                               '${songs.length} Track${songs.length == 1 ? '' : 's'} • $_groupByOption',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
-                                color: Color(0xFF94A3B8),
+                                color: AppThemeService.instance.currentData.textDark,
                               ),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.play_circle_fill_rounded,
-                            color: Color(0xFF137FEC), size: 28),
+                        icon: Icon(Icons.play_circle_fill_rounded,
+                            color: AppThemeService.instance.currentData.primary, size: 28),
                         onPressed: () {
                           final paths = songs.map((s) => s.path).toList();
                           widget.onPlayFolder(paths, initialIndex: 0);
@@ -1907,8 +1908,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     artistName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF94A3B8),
+                    style: TextStyle(
+                      color: AppThemeService.instance.currentData.textDark,
                       fontSize: 11,
                     ),
                   ),
@@ -1992,8 +1993,8 @@ class _LibraryScreenState extends State<LibraryScreen>
               artistName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF94A3B8),
+              style: TextStyle(
+                color: AppThemeService.instance.currentData.textDark,
                 fontSize: 11,
               ),
             ),
@@ -2429,9 +2430,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF94A3B8),
+                      color: AppThemeService.instance.currentData.textDark,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2495,9 +2496,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const bgDark = Color(0xFF101922);
+    final bgDark = AppThemeService.instance.currentData.bgDark;
     const surfaceColor = Color(0xFF18232E);
-    const primaryColor = Color(0xFF137FEC);
+    final primaryColor = AppThemeService.instance.currentData.primary;
 
     return Scaffold(
       backgroundColor: bgDark,
@@ -2582,8 +2583,8 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         const SizedBox(height: 4),
                         Text(
                           '${_groupSongs.length} Track${_groupSongs.length == 1 ? '' : 's'} • ${widget.groupType}',
-                          style: const TextStyle(
-                              color: Color(0xFF94A3B8), fontSize: 13),
+                          style: TextStyle(
+                              color: AppThemeService.instance.currentData.textDark, fontSize: 13),
                         ),
                       ],
                     ),
@@ -2612,10 +2613,10 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
             // Track List
             Expanded(
               child: _groupSongs.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'No songs left in this group.',
-                        style: TextStyle(color: Color(0xFF94A3B8)),
+                        style: TextStyle(color: AppThemeService.instance.currentData.textDark),
                       ),
                     )
                   : ListView.builder(
@@ -2636,8 +2637,8 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                           ),
                           subtitle: Text(
                             '${song.artist} • ${song.album}',
-                            style: const TextStyle(
-                                color: Color(0xFF94A3B8), fontSize: 12),
+                            style: TextStyle(
+                                color: AppThemeService.instance.currentData.textDark, fontSize: 12),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -2726,13 +2727,13 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             content: Text(
               'Are you sure you want to delete "${song.title}"? This action cannot be undone.',
-              style: const TextStyle(color: Color(0xFF94A3B8)),
+              style: TextStyle(color: AppThemeService.instance.currentData.textDark),
             ),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel',
-                      style: TextStyle(color: Color(0xFF94A3B8)))),
+                  child: Text('Cancel',
+                      style: TextStyle(color: AppThemeService.instance.currentData.textDark))),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,

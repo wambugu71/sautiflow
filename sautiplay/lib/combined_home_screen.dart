@@ -6,6 +6,7 @@ import 'isolate_player.dart';
 import 'library_screen.dart';
 import 'models/liked_song.dart';
 import 'search_screen.dart';
+import 'services/app_theme_service.dart';
 
 class CombinedHomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -41,8 +42,8 @@ class CombinedHomeScreen extends StatefulWidget {
 class _CombinedHomeScreenState extends State<CombinedHomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final Color _bgDark = const Color(0xFF101922);
-  final Color _surfaceColor = const Color(0xFF18232E);
+  Color get _bgDark => AppThemeService.instance.currentData.bgDark;
+  Color get _surfaceColor => AppThemeService.instance.currentData.cardDark;
 
   @override
   void initState() {
@@ -74,12 +75,12 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
               ),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? const Color(0xFF137fec).withValues(alpha: 0.22)
+                    ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.22)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
                 border: isSelected
                     ? Border.all(
-                        color: const Color(0xFF137fec).withValues(alpha: 0.4),
+                        color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
                         width: 1,
                       )
                     : Border.all(color: Colors.transparent, width: 1),
@@ -92,8 +93,8 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                     icon,
                     size: isDesktop ? 18 : 16,
                     color: isSelected
-                        ? const Color(0xFF137fec)
-                        : const Color(0xFF94A3B8),
+                        ? AppThemeService.instance.currentData.primary
+                        : AppThemeService.instance.currentData.textDark,
                   ),
                   const SizedBox(width: 6),
                   Text(
@@ -103,7 +104,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                       color: isSelected
                           ? Colors.white
-                          : const Color(0xFF94A3B8),
+                          : AppThemeService.instance.currentData.textDark,
                     ),
                   ),
                 ],
