@@ -37,6 +37,7 @@ dependencies:
   image: ^4.3.0
   material_color_utilities: ^0.13.0
   showcaseview: ^3.0.0
+  package_info_plus: ^9.0.1
 
   # Desktop Media Controls & Notifications
   smtc_windows: ^1.1.0

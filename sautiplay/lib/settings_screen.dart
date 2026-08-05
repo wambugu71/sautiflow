@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'eq_screen.dart';
@@ -141,6 +142,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Waveform Seek Bar UI Setting
   bool _useWaveformSeekBar = false;
 
+  // App version state
+  String _appVersion = 'v0.6.20';
+
   // Active theme ID (used to show badge & highlight swatch)
   AppThemeId _activeThemeId = AppThemeService.instance.current;
 
@@ -162,8 +166,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
         await AppStateService.instance.loadUseWaveformSeekBar();
+
+    String versionStr = 'v0.6.20';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      versionStr = 'v${info.version}';
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
+      _appVersion = versionStr;
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
       _normalizeVolume = saved.normalizeVolume;
@@ -392,7 +404,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               'Open source licenses, TLS, diagnostic logs',
                           icon: Icons.admin_panel_settings_outlined,
                           accentColor: _primary,
-                          badgeText: 'v1.0.0',
+                          badgeText: _appVersion,
                           onTap: () =>
                               _navigateToSubScreen(_buildMiscSystemSubScreen()),
                         ),
@@ -2408,16 +2420,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                const ListTile(
+                ListTile(
                   contentPadding:
-                      EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   leading:
-                      Icon(Icons.info_outline, color: Colors.white70, size: 20),
-                  title: Text('Version',
+                      const Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                  title: const Text('Version',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: Text('1.0.0',
-                      style: TextStyle(color: Colors.white54, fontSize: 14)),
+                  trailing: Text(_appVersion,
+                      style: const TextStyle(color: Colors.white54, fontSize: 14)),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -2434,7 +2446,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     showLicensePage(
                       context: context,
                       applicationName: 'SautiPlay',
-                      applicationVersion: '1.0.0',
+                      applicationVersion: _appVersion,
                     );
                   },
                 ),
