@@ -51,14 +51,15 @@ class SettingsScreen extends StatefulWidget {
       onPlayNetworkFile;
   final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
       onPlayFtpFolder;
+  final VoidCallback? onTriggerShowcase;
 
   const SettingsScreen({
     super.key,
     required this.player,
     required this.analyzerEnabled,
     required this.onAnalyzerEnabledChanged,
-    required this.analyzerType,
     required this.onAnalyzerTypeChanged,
+    required this.analyzerType,
     required this.analyzerAutoFit,
     required this.onAnalyzerAutoFitChanged,
     required this.analyzerShowGrids,
@@ -90,6 +91,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onClearLogs,
     this.onPlayNetworkFile,
     this.onPlayFtpFolder,
+    this.onTriggerShowcase,
   });
 
   @override
@@ -824,6 +826,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _useWaveformSeekBar = val);
                     setSubState(() {});
                     AppStateService.instance.saveUseWaveformSeekBar(val);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('ONBOARDING & FEATURE TOUR'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _primary.withAlpha(25),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.tour_rounded, color: _primary, size: 20),
+                  ),
+                  title: const Text('Re-run Feature Tour',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    'Re-start the interactive guided walkthrough for SautiPlay',
+                    style: TextStyle(color: _textDark, fontSize: 12),
+                  ),
+                  trailing: Icon(Icons.play_arrow_rounded, color: _primary),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    widget.onTriggerShowcase?.call();
                   },
                 ),
               ],

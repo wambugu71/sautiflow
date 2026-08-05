@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
+import 'widgets/app_showcase.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
@@ -23,12 +24,14 @@ class EqScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
   final bool analyzerEnabled;
   final String analyzerType;
+  final GlobalKey? effectsKnobKey;
 
   const EqScreen({
     super.key,
     required this.player,
     required this.analyzerEnabled,
     required this.analyzerType,
+    this.effectsKnobKey,
   });
 
   @override
@@ -998,28 +1001,36 @@ class _EqScreenState extends State<EqScreen>
                       padding: const EdgeInsets.only(bottom: 120),
                       children: [
                         // Section 1: Equalization & Tuning
-                        _buildSectionHeader('Equalization & Tuning'),
-                        _buildEffectTileCard(
-                          icon: Icons.equalizer,
-                          title: '${_eqFrequencies.length}-Band Equalizer',
-                          subtitle: _masterEqEnabled
-                              ? '${_eqFrequencies.length}-Band ($_activePreset)'
-                              : 'Disabled',
-                          isEnabled: _masterEqEnabled,
-                          onToggle: (v) {
-                            setState(() => _masterEqEnabled = v);
-                            widget.player.setMultibandEqEnabled(v);
-                            _saveEqState();
-                          },
-                          onTapDetail: () => _openDetailScreen(
-                            '${_eqFrequencies.length}-Band Equalizer',
-                            Icons.equalizer,
-                            (_) => _buildGraphicEqSection(),
+                        _buildSectionHeader('Equalization'),
+                        AppShowcase(
+                          showcaseKey: widget.effectsKnobKey ?? GlobalKey(),
+                          title: 'Knob Controls',
+                          description:
+                              'Drag knobs to adjust EQ. Tip: Long-press any knob to edit values directly with your keyboard!',
+                          currentStep: 3,
+                          totalSteps: 4,
+                          child: _buildEffectTileCard(
+                            icon: Icons.equalizer,
+                            title: '${_eqFrequencies.length}-Band Equalizer',
+                            subtitle: _masterEqEnabled
+                                ? '${_eqFrequencies.length}-Band ($_activePreset)'
+                                : 'Disabled',
+                            isEnabled: _masterEqEnabled,
+                            onToggle: (v) {
+                              setState(() => _masterEqEnabled = v);
+                              widget.player.setMultibandEqEnabled(v);
+                              _saveEqState();
+                            },
+                            onTapDetail: () => _openDetailScreen(
+                              '${_eqFrequencies.length}-Band Equalizer',
+                              Icons.equalizer,
+                              (_) => _buildGraphicEqSection(),
+                            ),
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.speed_rounded,
-                          title: 'Playback Speed & Pitch',
+                          title: 'Playback Speed',
                           subtitle: (_playbackPitch - 1.0).abs() >= 0.01
                               ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
                               : 'Normal Speed (1.0x)',
@@ -1146,15 +1157,15 @@ class _EqScreenState extends State<EqScreen>
                         _buildSectionHeader('Spatial & Headphones'),
                         _buildEffectTileCard(
                           icon: Icons.headphones,
-                          title: 'Audiophile Crossfeed',
+                          title: 'Crossfeed',
                           subtitle: _crossfeedEnabled
                               ? (_crossfeedPreset == 1
                                   ? 'BS2B Weak'
                                   : _crossfeedPreset == 2
                                       ? 'BS2B Strong'
                                       : _crossfeedPreset == 3
-                                          ? 'Joe0bloggs 3D'
-                                          : 'Ambiophonics R.A.C.E.')
+                                          ? 'Joe0bloggs'
+                                          : 'Ambiophonics')
                               : 'Disabled',
                           isEnabled: _crossfeedEnabled,
                           onToggle: (v) {
@@ -1168,14 +1179,14 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'Audiophile Crossfeed',
+                            'Crossfeed',
                             Icons.headphones,
                             (_) => _buildCrossfeedSection(),
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.swap_horiz,
-                          title: 'Stereo Stage Widener',
+                          title: 'Stereo Widener',
                           subtitle: _stereoWidenEnabled
                               ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
                               : 'Disabled',
@@ -1193,7 +1204,7 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'Stereo Stage Widener',
+                            'Stereo Widener',
                             Icons.swap_horiz,
                             (_) => _buildStereoWidenSection(),
                           ),
@@ -1218,7 +1229,7 @@ class _EqScreenState extends State<EqScreen>
                         ),
                         _buildEffectTileCard(
                           icon: Icons.spatial_audio_off_outlined,
-                          title: 'Spatial Audio',
+                          title: '3D Audio',
                           subtitle: _spatialAudioEnabled
                               ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
                               : 'Disabled',
@@ -1230,14 +1241,14 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'Spatial Audio',
+                            '3D Audio',
                             Icons.spatial_audio_off_outlined,
                             (_) => _buildSpatialAudioSection(),
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.threed_rotation,
-                          title: 'True 3D Spatialization',
+                          title: 'True 3D Audio',
                           subtitle: _true3dEnabled
                               ? 'XYZ Positioning Active'
                               : 'Disabled',
@@ -1249,17 +1260,17 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'True 3D Spatialization',
+                            'True 3D Audio',
                             Icons.threed_rotation,
                             (_) => _buildTrue3dSection(),
                           ),
                         ),
 
                         // Section 4: Filters & Custom DSP
-                        _buildSectionHeader('Filters & Custom DSP'),
+                        _buildSectionHeader('Advanced Audio Filters'),
                         _buildEffectTileCard(
                           icon: Icons.repeat,
-                          title: 'Delay & Echo',
+                          title: 'Delay',
                           subtitle: _delayEnabled
                               ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
                               : 'Disabled',
@@ -1271,14 +1282,14 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'Delay & Echo',
+                            'Delay',
                             Icons.repeat,
                             (_) => _buildDelaySection(),
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.filter_alt_outlined,
-                          title: 'Custom Filters (LPF / HPF / Biquad)',
+                          title: 'Advanced Filters',
                           subtitle: (_customLpfEnabled ||
                                   _customHpfEnabled ||
                                   _customBiquadEnabled)
@@ -1288,7 +1299,7 @@ class _EqScreenState extends State<EqScreen>
                               _customHpfEnabled ||
                               _customBiquadEnabled,
                           onTapDetail: () => _openDetailScreen(
-                            'Custom Filters',
+                            'Advanced Filters',
                             Icons.filter_alt_outlined,
                             (_) => _buildCustomFiltersSection(),
                           ),
@@ -1403,7 +1414,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Playback Speed & Pitch',
+      title: 'Speed & Pitch',
       subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
       isEnabled: !isNormal,
       onToggle: (v) {
@@ -1419,7 +1430,7 @@ class _EqScreenState extends State<EqScreen>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Current Speed: ${_playbackPitch.toStringAsFixed(2)}x',
+                'Speed: ${_playbackPitch.toStringAsFixed(2)}x',
                 style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -1437,8 +1448,8 @@ class _EqScreenState extends State<EqScreen>
                   }
                 },
                 icon: Icon(Icons.tune, size: 16, color: primaryColor),
-                label: Text('Adjust Speed',
-                    style: TextStyle(color: primaryColor)),
+                label:
+                    Text('Adjust Speed', style: TextStyle(color: primaryColor)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: primaryColor),
                   shape: RoundedRectangleBorder(
@@ -1463,8 +1474,8 @@ class _EqScreenState extends State<EqScreen>
         ),
         child: Icon(Icons.equalizer, color: primaryColor, size: 20),
       ),
-      title: '${_eqFrequencies.length}-Band Equalizer',
-      subtitle: 'Enable ${_eqFrequencies.length}-band EQ',
+      title: 'Graphic EQ',
+      subtitle: 'Enable Graphic EQ',
       isEnabled: _masterEqEnabled,
       onToggle: (v) {
         setState(() => _masterEqEnabled = v);
@@ -1821,8 +1832,7 @@ class _EqScreenState extends State<EqScreen>
                     value: _dynamicBassPreset,
                     dropdownColor: surfaceDarkerColor,
                     underline: const SizedBox(),
-                    icon:
-                        Icon(Icons.arrow_drop_down, color: primaryColor),
+                    icon: Icon(Icons.arrow_drop_down, color: primaryColor),
                     style: const TextStyle(color: Colors.white, fontSize: 13),
                     items: List.generate(19, (index) {
                       // 0=60, 1=65, ... 18=180 mappings.
@@ -2097,8 +2107,8 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child: Icon(Icons.surround_sound_rounded,
-            color: primaryColor, size: 20),
+        child:
+            Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancement',
       subtitle: 'JamesDSP Warped PFB M/S Widening',
@@ -2295,8 +2305,7 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
-        child:
-            Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
+        child: Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
       ),
       title: 'True 3D Spatial Audio',
       subtitle: 'X/Y/Z Source Placement',
@@ -2508,8 +2517,7 @@ class _EqScreenState extends State<EqScreen>
           children: [
             TextButton.icon(
               icon: Icon(Icons.add_circle_outline, color: primaryColor),
-              label:
-                  Text('Add Band', style: TextStyle(color: primaryColor)),
+              label: Text('Add Band', style: TextStyle(color: primaryColor)),
               onPressed: () {
                 setState(() {
                   _parametricBands.add(const EqBandConfig(
@@ -3179,8 +3187,7 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
                         }
                         Navigator.pop(context);
                       },
-                      child: Text('OK',
-                          style: TextStyle(color: primaryColor)),
+                      child: Text('OK', style: TextStyle(color: primaryColor)),
                     ),
                   ],
                 );

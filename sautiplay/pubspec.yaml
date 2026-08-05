@@ -36,6 +36,7 @@ dependencies:
   flutter_native_splash: ^2.4.4
   image: ^4.3.0
   material_color_utilities: ^0.13.0
+  showcaseview: ^3.0.0
 
   # Desktop Media Controls & Notifications
   smtc_windows: ^1.1.0

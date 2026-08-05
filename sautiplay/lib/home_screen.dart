@@ -10,7 +10,8 @@ import 'services/app_theme_service.dart';
 // ─ Dynamic theme colors ─
 Color get _bgDark => AppThemeService.instance.currentData.bgDark;
 Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
-Color get _surfaceBorder => AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.5);
+Color get _surfaceBorder =>
+    AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.5);
 Color get _primary => AppThemeService.instance.currentData.primary;
 Color get _textSecondary => AppThemeService.instance.currentData.textDark;
 
@@ -538,7 +539,8 @@ class _HomeScreenState extends State<HomeScreen>
                     decoration: BoxDecoration(
                       color: _surfaceDark,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.3),

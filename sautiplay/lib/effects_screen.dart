@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:showcaseview/showcaseview.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
@@ -21,6 +22,7 @@ class EffectsScreen extends StatefulWidget {
   final bool analyzerLogScale;
   final int outputSampleRate;
   final String spectrumStyle;
+  final GlobalKey? effectsKnobKey;
 
   const EffectsScreen({
     super.key,
@@ -32,6 +34,7 @@ class EffectsScreen extends StatefulWidget {
     this.analyzerLogScale = true,
     required this.outputSampleRate,
     this.spectrumStyle = 'neon',
+    this.effectsKnobKey,
   });
 
   @override
@@ -620,6 +623,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
             child: TabBarView(
               children: [
                 EqScreen(
+                  effectsKnobKey: widget.effectsKnobKey,
                   player: widget.player,
                   analyzerEnabled: widget.analyzerEnabled,
                   analyzerType: widget.analyzerType,
