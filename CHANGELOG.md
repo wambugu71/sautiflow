@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.20
+- **[DSP Engine & Audio Architecture]** Upgraded Sautiflow engine & Sautiplay app with 64-bit float DSP pipeline, Auto Bit-Perfect hardware matching, Ambiophonics R.A.C.E. crossfeed, and psychoacoustic noise-shaping dither modes.
+- **[Dynamic Cover Art & Theme Engine]** Added Material 3 Isolate-driven Dynamic Cover Art color extraction (`ArtworkThemeService`) that extracts harmonious palette schemes from album art on the fly without UI stuttering.
+- **[Interactive Waveform Seek Bar]** Added interactive waveform seek bar widget (`WaveformSeekBarWidget`) with background waveform extraction (`WaveformExtractorService`) and robust pending seek state reset handling across track changes.
+- **[GPU GLSL Visualizers]** Added 15 custom GPU GLSL audio-reactive visualizer presets with mobile-optimized pinned control bar and dynamic animation pause/resume on playback state changes.
+- **[Network Sources & Media Streaming]** Added FTP and DLNA/UPnP network source browser, local folder caching, built-in HTTP local media server (`LocalMediaServer`), and Network Stream player navigation.
+- **[App Onboarding]** Integrated `showcaseview` package with themed `AppShowcase` for step-by-step interactive feature onboarding for new app installs.
+- **[Library & Storage]** Added Album and Genre hierarchical groupings for local library, and fixed mobile profile and playlist export file saving on Android and iOS.
+- **[UI Refactoring & Polish]** Reorganized Settings screen into clean category sub-screens with unified Material 3 styling and fixed lint rule compliance.
+
 ## 0.6.19
 - **[AutoEQ & Presets]** Added native AutoEQ profile parser service supporting `GraphicEQ.txt` lines and `ParametricEQ.txt` text blocks (`autoeq_parser.dart`).
 - **[AutoEQ UI]** Added unified AutoEQ & Presets Importer UI in `sautiplay` to import and apply `.txt`, `.irs`, `.wav`, and `.vdc` profiles on the fly.
