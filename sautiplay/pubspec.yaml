@@ -34,6 +34,8 @@ dependencies:
   share_plus: ^10.1.4
   mini_music_visualizer: ^1.1.4
   flutter_native_splash: ^2.4.4
+  image: ^4.3.0
+  material_color_utilities: ^0.13.0
 
   # Desktop Media Controls & Notifications
   smtc_windows: ^1.1.0

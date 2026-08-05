@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'services/app_theme_service.dart';
+import 'services/artwork_theme_service.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'combined_home_screen.dart';
@@ -70,7 +71,9 @@ class AppThemeProvider extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppThemeProvider oldWidget) =>
-      themeData.id != oldWidget.themeData.id;
+      themeData.id != oldWidget.themeData.id ||
+      themeData.primary != oldWidget.themeData.primary ||
+      themeData.bgDark != oldWidget.themeData.bgDark;
 }
 
 // ─── App root ─────────────────────────────────────────────────────────────────
@@ -92,7 +95,7 @@ class _DemoAppState extends State<DemoApp> {
     _themeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
       if (mounted) {
         setState(() {
-          _themeData = AppThemeService.dataFor(id);
+          _themeData = AppThemeService.instance.currentData;
         });
       }
     });
@@ -268,9 +271,23 @@ class _PlayerShellState extends State<PlayerShell> {
     _loadAppState();
 
     _metadata.addListener(_applyReplayGain);
+    _metadata.addListener(_extractArtworkTheme);
     _replayGainSubscription = AppStateService.instance.replayGainChanged.stream.listen((_) {
       _applyReplayGain();
     });
+  }
+
+  void _extractArtworkTheme() {
+    final meta = _metadata.value;
+    final artHash = (meta.albumArt != null && meta.albumArt!.isNotEmpty)
+        ? (meta.albumArt!.length ^ meta.albumArt!.first)
+        : 0;
+    final trackKey = 'track_${_status.value.currentIndex}_$artHash';
+    ArtworkThemeService.instance.extractAndEmit(
+      trackKey: trackKey,
+      artBytes: meta.albumArt,
+      isDark: true,
+    );
   }
 
   Future<void> _applyReplayGain() async {
@@ -436,7 +453,6 @@ class _PlayerShellState extends State<PlayerShell> {
 
     final source = _playlist[idx];
     final title = _nameFromSource(source);
-    final subtitle = _subtitleFromSource(source);
 
     final overrideDuration = _durationFromSource(source);
     final finalDurationSecs = (overrideDuration != null && overrideDuration > 0)
@@ -1343,7 +1359,6 @@ class _PlayerShellState extends State<PlayerShell> {
   Future<void> _playNetworkFile(String filePath, String title, String artist) async {
     _isFtpDownloading = false;
     final file = File(filePath);
-    final uri = file.absolute.uri;
     final src = AudioSource.file(filePath, title: title, artist: artist);
     
     setState(() {

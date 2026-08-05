@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'artwork_theme_service.dart';
+
 // ─── Theme IDs ───────────────────────────────────────────────────────────────
 enum AppThemeId {
   darkBlue,
@@ -11,6 +13,7 @@ enum AppThemeId {
   orange,
   purple,
   amoledBlack,
+  dynamicAlbumArt,
 }
 
 // ─── Per-theme palette ────────────────────────────────────────────────────────
@@ -102,7 +105,13 @@ class AppThemeData {
 
 // ─── Service singleton ────────────────────────────────────────────────────────
 class AppThemeService {
-  AppThemeService._();
+  AppThemeService._() {
+    ArtworkThemeService.instance.onColorSchemeChanged.listen((_) {
+      if (_current == AppThemeId.dynamicAlbumArt) {
+        themeChanged.add(_current);
+      }
+    });
+  }
   static final AppThemeService instance = AppThemeService._();
 
   static const _kAppThemeKey = 'sp_app_theme_id';
@@ -163,6 +172,15 @@ class AppThemeService {
       textDark: Color(0xFF607D8B),
       icon: Icons.phonelink_outlined,
     ),
+    AppThemeData(
+      id: AppThemeId.dynamicAlbumArt,
+      displayName: 'Dynamic Cover',
+      bgDark: Color(0xFF0F172A),
+      cardDark: Color(0xFF1E293B),
+      primary: Color(0xFF38BDF8),
+      textDark: Color(0xFF94A3B8),
+      icon: Icons.palette_outlined,
+    ),
   ];
 
   /// Broadcast stream – emits the new [AppThemeId] whenever the theme changes.
@@ -172,8 +190,24 @@ class AppThemeService {
   AppThemeId _current = AppThemeId.darkBlue;
   AppThemeId get current => _current;
 
-  AppThemeData get currentData =>
-      themes.firstWhere((t) => t.id == _current);
+  AppThemeData get currentData {
+    final base = themes.firstWhere((t) => t.id == _current);
+    if (_current == AppThemeId.dynamicAlbumArt) {
+      final scheme = ArtworkThemeService.instance.currentScheme;
+      if (scheme != null) {
+        return AppThemeData(
+          id: AppThemeId.dynamicAlbumArt,
+          displayName: 'Dynamic Cover',
+          bgDark: scheme.surface,
+          cardDark: scheme.surfaceContainerHigh,
+          primary: scheme.primary,
+          textDark: scheme.onSurface.withValues(alpha: 0.7),
+          icon: Icons.palette_outlined,
+        );
+      }
+    }
+    return base;
+  }
 
   Future<void> loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
@@ -194,3 +228,4 @@ class AppThemeService {
   static AppThemeData dataFor(AppThemeId id) =>
       themes.firstWhere((t) => t.id == id);
 }
+
