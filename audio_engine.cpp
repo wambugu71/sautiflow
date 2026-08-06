@@ -1660,6 +1660,8 @@ namespace
 
 } // namespace
 
+struct AudioEngineHandle;
+
 struct AudioEngineHandle
 {
     ma_device device{};
@@ -2120,6 +2122,11 @@ struct AudioEngineHandle
     PushStreamContext pushStreamForCurrent; // Single slot for now, for simplicity
     bool isPushStreamMode = false;
 };
+
+extern "C"
+{
+    static void restart_and_apply_config(AudioEngineHandle *e);
+}
 
 static void arm_transition_fade_in(AudioEngineHandle *e)
 {
@@ -3470,7 +3477,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
 extern "C"
 {
-
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels)
     {
         if (sample_rate <= 0)
