@@ -549,16 +549,20 @@ namespace
 
     static ma_result src_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
     {
+        if (!pHeapSizeInBytes)
+            return MA_INVALID_ARGS;
         *pHeapSizeInBytes = sizeof(LibSampleRateBackend);
         return MA_SUCCESS;
     }
 
     static ma_result src_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
     {
+        if (!pConfig || !pAllocation || !ppBackend)
+            return MA_INVALID_ARGS;
         LibSampleRateBackend *backend = (LibSampleRateBackend *)pAllocation;
         backend->channels = pConfig->channels;
 
-        // pUserData points to the algorithm int (from AudioEngineHandle)
+        // pUserData points to the algorithm int (from AudioEngineHandle or AEResampler)
         int algo = pUserData ? *(int *)pUserData : 1;
         int converter = SRC_SINC_FASTEST;
         if (algo == 1)
@@ -569,11 +573,11 @@ namespace
             converter = SRC_SINC_FASTEST;
         else if (algo == 4)
             converter = SRC_ZERO_ORDER_HOLD;
-        else if (algo == 5)
+        else if (algo == 5 || algo == 6)
             converter = SRC_LINEAR;
 
         backend->converterType = converter;
-        backend->ratio = (float)pConfig->sampleRateOut / (float)pConfig->sampleRateIn;
+        backend->ratio = (pConfig->sampleRateIn > 0) ? ((float)pConfig->sampleRateOut / (float)pConfig->sampleRateIn) : 1.0f;
 
         int err = 0;
         backend->state = src_new(converter, backend->channels, &err);
@@ -597,14 +601,14 @@ namespace
     static ma_result src_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
     {
         LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
-        if (!backend->state)
+        if (!backend || !backend->state || !pFrameCountIn || !pFrameCountOut)
             return MA_ERROR;
 
         SRC_DATA srcData;
         srcData.data_in = (const float *)pFramesIn;
-        srcData.input_frames = (long)(*pFrameCountIn);
+        srcData.input_frames = (long)std::min<ma_uint64>(*pFrameCountIn, 0x7FFFFFFF);
         srcData.data_out = (float *)pFramesOut;
-        srcData.output_frames = (long)(*pFrameCountOut);
+        srcData.output_frames = (long)std::min<ma_uint64>(*pFrameCountOut, 0x7FFFFFFF);
         srcData.src_ratio = backend->ratio;
         srcData.end_of_input = 0;
 
@@ -612,16 +616,73 @@ namespace
         if (err)
             return MA_ERROR;
 
-        *pFrameCountIn = srcData.input_frames_used;
-        *pFrameCountOut = srcData.output_frames_gen;
+        *pFrameCountIn = (ma_uint64)srcData.input_frames_used;
+        *pFrameCountOut = (ma_uint64)srcData.output_frames_gen;
         return MA_SUCCESS;
     }
 
     static ma_result src_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
     {
         LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
-        backend->ratio = (float)sampleRateOut / (float)sampleRateIn;
-        src_set_ratio(backend->state, backend->ratio);
+        if (!backend)
+            return MA_ERROR;
+        backend->ratio = (sampleRateIn > 0) ? ((float)sampleRateOut / (float)sampleRateIn) : 1.0f;
+        if (backend->state)
+        {
+            src_set_ratio(backend->state, backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_uint64 src_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        return 0;
+    }
+
+    static ma_uint64 src_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        return 0;
+    }
+
+    static ma_result src_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
+    {
+        const LibSampleRateBackend *backend = (const LibSampleRateBackend *)pBackend;
+        if (!pInputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0f)
+        {
+            *pInputFrameCount = outputFrameCount;
+        }
+        else
+        {
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result src_onGetExpectedOutputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 inputFrameCount, ma_uint64 *pOutputFrameCount)
+    {
+        const LibSampleRateBackend *backend = (const LibSampleRateBackend *)pBackend;
+        if (!pOutputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0f)
+        {
+            *pOutputFrameCount = inputFrameCount;
+        }
+        else
+        {
+            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * (double)backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result src_onReset(void *pUserData, ma_resampling_backend *pBackend)
+    {
+        LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
+        if (backend && backend->state)
+        {
+            src_reset(backend->state);
+        }
         return MA_SUCCESS;
     }
 
@@ -631,11 +692,11 @@ namespace
         src_onUninit,
         src_onProcess,
         src_onSetRate,
-        nullptr, // onGetInputLatency
-        nullptr, // onGetOutputLatency
-        nullptr, // onGetRequiredInputFrameCount
-        nullptr, // onGetExpectedOutputFrameCount
-        nullptr  // onReset
+        src_onGetInputLatency,
+        src_onGetOutputLatency,
+        src_onGetRequiredInputFrameCount,
+        src_onGetExpectedOutputFrameCount,
+        src_onReset
     };
 
     struct LimiterState
@@ -1673,6 +1734,8 @@ struct AudioEngineHandle
     bool pitchResamplerInit = false;
     int pitchResamplerRate = 0;
     int pitchResamplerChannels = 0;
+    std::vector<float> pitchInputBuffer;
+    size_t pitchInputUnconsumed = 0;
 
     // Spatialization
     std::mutex spatialMutex;
@@ -2852,34 +2915,63 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                         e->pitchResamplerRate = sr;
                         e->pitchResamplerChannels = ch;
                     }
+                    e->pitchInputBuffer.clear();
+                    e->pitchInputUnconsumed = 0;
                 }
 
                 if (e->pitchResamplerInit)
                 {
-                    ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
+                    const float ratio = (pitch > 0.0001f) ? (1.0f / pitch) : 1.0f;
+                    ma_resampler_set_rate_ratio(&e->pitchResampler, ratio);
 
-                    ma_uint64 outNeeded = (ma_uint64)(frameCount - produced);
+                    const ma_uint64 outNeeded = (ma_uint64)(frameCount - produced);
                     ma_uint64 inNeeded = 0;
                     ma_resampler_get_required_input_frame_count(&e->pitchResampler, outNeeded, &inNeeded);
                     if (inNeeded == 0) inNeeded = outNeeded;
 
-                    std::vector<float> tempIn((size_t)(inNeeded * (ma_uint64)ch));
-                    ma_uint64 inRead = 0;
-                    r = ma_decoder_read_pcm_frames(
-                        e->currentDecoder,
-                        tempIn.data(),
-                        inNeeded,
-                        &inRead);
+                    size_t framesToRead = 0;
+                    if ((size_t)inNeeded > e->pitchInputUnconsumed)
+                    {
+                        framesToRead = (size_t)inNeeded - e->pitchInputUnconsumed;
+                    }
 
+                    size_t requiredCapacityFrames = e->pitchInputUnconsumed + framesToRead;
+                    size_t requiredCapacitySamples = requiredCapacityFrames * (size_t)ch;
+                    if (e->pitchInputBuffer.size() < requiredCapacitySamples)
+                    {
+                        e->pitchInputBuffer.resize(requiredCapacitySamples);
+                    }
+
+                    ma_uint64 inRead = 0;
+                    if (framesToRead > 0)
+                    {
+                        r = ma_decoder_read_pcm_frames(
+                            e->currentDecoder,
+                            e->pitchInputBuffer.data() + (e->pitchInputUnconsumed * (size_t)ch),
+                            (ma_uint64)framesToRead,
+                            &inRead);
+                    }
+
+                    ma_uint64 totalInFrames = e->pitchInputUnconsumed + inRead;
                     ma_uint64 outProcessed = outNeeded;
-                    ma_uint64 inProcessed = inRead;
+                    ma_uint64 inProcessed = totalInFrames;
+
                     ma_resampler_process_pcm_frames(
                         &e->pitchResampler,
-                        tempIn.data(),
+                        e->pitchInputBuffer.data(),
                         &inProcessed,
                         processBuffer + ((size_t)produced * (size_t)ch),
                         &outProcessed);
 
+                    size_t unconsumedLeft = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
+                    if (unconsumedLeft > 0 && inProcessed > 0)
+                    {
+                        std::memmove(
+                            e->pitchInputBuffer.data(),
+                            e->pitchInputBuffer.data() + (inProcessed * (size_t)ch),
+                            unconsumedLeft * (size_t)ch * sizeof(float));
+                    }
+                    e->pitchInputUnconsumed = unconsumedLeft;
                     framesRead = outProcessed;
                 }
                 else
@@ -3849,6 +3941,11 @@ extern "C"
         {
             (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
         }
+        if (e->pitchResamplerInit)
+        {
+            ma_resampler_reset(&e->pitchResampler);
+            e->pitchInputUnconsumed = 0;
+        }
         return true;
     }
 
@@ -3871,7 +3968,14 @@ extern "C"
         if (!ok)
             set_last_error(e, "Seek failed in decoder.");
         else
+        {
+            if (e->pitchResamplerInit)
+            {
+                ma_resampler_reset(&e->pitchResampler);
+                e->pitchInputUnconsumed = 0;
+            }
             clear_last_error(e);
+        }
         return ok;
     }
 
@@ -5485,6 +5589,7 @@ extern "C"
     struct AEResampler
     {
         ma_resampler filter;
+        int algorithmChoice = 1;
     };
 
     // LPF1
@@ -5919,11 +6024,20 @@ extern "C"
     AE_API AEResampler *ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode)
     {
         AEResampler *obj = new AEResampler();
+        obj->algorithmChoice = algorithm;
+
         ma_resample_algorithm algo = ma_resample_algorithm_linear;
-        if (algorithm == AE_RESAMPLE_ALGORITHM_CUSTOM)
+        if (algorithm != AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR)
+        {
             algo = ma_resample_algorithm_custom;
+        }
 
         ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(format), channels, sample_rate_in, sample_rate_out, algo);
+        if (algo == ma_resample_algorithm_custom)
+        {
+            config.pBackendVTable = &g_customResamplerVTable;
+            config.pBackendUserData = &obj->algorithmChoice;
+        }
 
         // This version of miniaudio (0.11.24) does not support ma_dither_mode natively.
         // We ignore the dither_mode parameter here to maintain FFI ABI stability without compiler errors.
