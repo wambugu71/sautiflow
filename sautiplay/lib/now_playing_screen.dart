@@ -236,6 +236,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     if (status.currentIndex != _lastKnownTrackIndex) {
       _lastKnownTrackIndex = status.currentIndex;
+      _pendingSeekMs = null;
+      _isDragging = false;
+      _seekTimeoutTimer?.cancel();
       if (_useWaveformSeekBar) {
         _updateCurrentTrackWaveform();
       }
@@ -244,7 +247,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final target = _pendingSeekMs;
     if (target == null) return;
     final enginePosMs = status.positionSeconds * 1000.0;
-    if ((enginePosMs - target).abs() < 4000) {
+    if ((enginePosMs - target).abs() < 4000 || (enginePosMs < 2000 && target > 5000)) {
       _seekTimeoutTimer?.cancel();
       if (mounted) setState(() => _pendingSeekMs = null);
     }
@@ -258,6 +261,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _setupAnalyzer(_isAnalyzerEnabled);
     }
     if (oldWidget.videoId != widget.videoId || oldWidget.sourceType != widget.sourceType) {
+      _pendingSeekMs = null;
+      _isDragging = false;
+      _seekTimeoutTimer?.cancel();
       _fetchAudioProperties();
       _fetchLyrics();
       if (_useWaveformSeekBar) {
