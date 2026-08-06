@@ -49,5 +49,14 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<key>NSLocalNetworkUsageDescription</key>
+		<string>SautiPlay requires local network access to discover DLNA media servers, speakers, and cast audio.</string>
+		<key>NSBonjourServices</key>
+		<array>
+			<string>_http._tcp</string>
+			<string>_dlna._tcp</string>
+			<string>_urn-schemas-upnp-org-service-ContentDirectory-1._tcp</string>
+			<string>_urn-schemas-upnp-org-service-AVTransport-1._tcp</string>
+		</array>
 	</dict>
 </plist>

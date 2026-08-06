@@ -105,14 +105,23 @@ class MainActivity : AudioServiceActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             METHOD_CHANNEL
         ).setMethodCallHandler { call, result ->
-            if (call.method == "getHardwareAudioSpecs") {
-                try {
-                    result.success(buildSpecsMap())
-                } catch (e: Exception) {
-                    result.error("ERROR", e.message, null)
+            when (call.method) {
+                "getHardwareAudioSpecs" -> {
+                    try {
+                        result.success(buildSpecsMap())
+                    } catch (e: Exception) {
+                        result.error("ERROR", e.message, null)
+                    }
                 }
-            } else {
-                result.notImplemented()
+                "acquireMulticastLock" -> {
+                    acquireMulticastLock()
+                    result.success(true)
+                }
+                "releaseMulticastLock" -> {
+                    releaseMulticastLock()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
             }
         }
 

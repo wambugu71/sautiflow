@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:dlna_dart/dlna.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// Representation of a discovered DLNA device on the local network.
 class DlnaDeviceInfo {
@@ -32,6 +34,9 @@ class DlnaService extends ChangeNotifier {
   static final DlnaService instance = DlnaService._internal();
   DlnaService._internal();
 
+  static const MethodChannel _hardwareChannel =
+      MethodChannel('com.wambugu.sautiflow/hardware');
+
   DLNAManager? _dlnaManager;
   DeviceManager? _deviceManager;
   StreamSubscription? _deviceSubscription;
@@ -54,6 +59,14 @@ class DlnaService extends ChangeNotifier {
     _isSearching = true;
     _devices.clear();
     notifyListeners();
+
+    if (Platform.isAndroid) {
+      try {
+        await _hardwareChannel.invokeMethod('acquireMulticastLock');
+      } catch (e) {
+        debugPrint('[DlnaService] Could not acquire Android MulticastLock: $e');
+      }
+    }
 
     try {
       _dlnaManager = DLNAManager();
@@ -99,6 +112,15 @@ class DlnaService extends ChangeNotifier {
     _dlnaManager = null;
     _deviceManager = null;
     _isSearching = false;
+
+    if (Platform.isAndroid) {
+      try {
+        _hardwareChannel.invokeMethod('releaseMulticastLock');
+      } catch (e) {
+        debugPrint('[DlnaService] Could not release Android MulticastLock: $e');
+      }
+    }
+
     notifyListeners();
   }
 
