@@ -123,6 +123,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _phaseInvertLeft = false;
   bool _phaseInvertRight = false;
 
+  // Waveform Seek Bar UI Setting
+  bool _useWaveformSeekBar = false;
+
   @override
   void initState() {
     super.initState();
@@ -137,6 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
+    final waveformSaved = await AppStateService.instance.loadUseWaveformSeekBar();
     setState(() {
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
@@ -155,6 +159,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _safetyAttenuationDb = spSaved.safetyAttenuationDb;
       _phaseInvertLeft = phaseSaved.invertLeft;
       _phaseInvertRight = phaseSaved.invertRight;
+      _useWaveformSeekBar = waveformSaved;
     });
     widget.player.setViperOversampling(oversamplingSaved);
     widget.player.setPhaseInversion(
@@ -1586,6 +1591,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _buildCard(
       isMobile: isMobile,
       children: [
+        // Waveform Seek Bar
+        SwitchListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          activeThumbColor: Colors.white,
+          activeTrackColor: _primary,
+          inactiveThumbColor: Colors.white70,
+          inactiveTrackColor: Colors.white10,
+          title: const Text('Waveform Seek Bar',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          subtitle: const Text(
+            'Replaces classic time slider with interactive track amplitude waveform',
+            style: TextStyle(color: _textDark, fontSize: 12),
+          ),
+          secondary: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _primary.withAlpha(25),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.graphic_eq, color: _primary, size: 20),
+          ),
+          value: _useWaveformSeekBar,
+          onChanged: (val) {
+            setState(() => _useWaveformSeekBar = val);
+            AppStateService.instance.saveUseWaveformSeekBar(val);
+          },
+        ),
+        const Divider(color: Colors.white10, height: 1),
         // Gapless
         SwitchListTile(
           contentPadding:

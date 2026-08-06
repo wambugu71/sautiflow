@@ -34,13 +34,15 @@ class SavedM3uPlaylist {
 
   factory SavedM3uPlaylist.fromJson(Map<String, dynamic> json) =>
       SavedM3uPlaylist(
-        id: json['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        id: json['id'] as String? ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
         name: json['name'] as String? ?? 'Untitled Playlist',
         pathOrUrl: json['pathOrUrl'] as String? ?? '',
         isNetwork: json['isNetwork'] as bool? ?? false,
         tracks: (json['tracks'] as List<dynamic>?)
-                ?.map((t) => LocalSongItem.fromJson(Map<String, dynamic>.from(t as Map)))
-                ?.toList() ??
+                ?.map((t) =>
+                    LocalSongItem.fromJson(Map<String, dynamic>.from(t as Map)))
+                .toList() ??
             [],
         dateAdded: json['dateAdded'] != null
             ? DateTime.tryParse(json['dateAdded'] as String) ?? DateTime.now()
@@ -102,9 +104,10 @@ class M3uPlaylistService {
     buffer.writeln('#PLAYLIST:$playlistName');
 
     for (final song in tracks) {
-      final artistTitle = song.artist.isNotEmpty && song.artist != 'Unknown Artist'
-          ? '${song.artist} - ${song.title}'
-          : song.title;
+      final artistTitle =
+          song.artist.isNotEmpty && song.artist != 'Unknown Artist'
+              ? '${song.artist} - ${song.title}'
+              : song.title;
       buffer.writeln('#EXTINF:-1,$artistTitle');
       buffer.writeln(song.path);
     }

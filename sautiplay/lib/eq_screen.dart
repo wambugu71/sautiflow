@@ -10,6 +10,8 @@ import 'services/app_state_service.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
+
+
 // Tailwind Colors Ported
 const primaryColor = Color(0xFF137fec);
 const bgLightColor = Color(0xFFf6f7f8);
@@ -939,6 +941,7 @@ class _EqScreenState extends State<EqScreen> with AutomaticKeepAliveClientMixin 
                   // Warning Banner (Dismissible)
                   if (_showWarningBanner)
                     Container(
+
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(

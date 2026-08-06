@@ -23,6 +23,10 @@ class AppStateService {
   final StreamController<void> replayGainChanged =
       StreamController<void>.broadcast();
 
+  // Stream to notify listeners of Waveform Seek Bar setting changes
+  final StreamController<bool> useWaveformSeekBarChanged =
+      StreamController<bool>.broadcast();
+
   // ─── Playback ───────────────────────────────────────────────────────────────
   static const _kQueueJson = 'sp_queue_json';
   static const _kQueueIndex = 'sp_queue_index';
@@ -657,6 +661,20 @@ class AppStateService {
       resampleAlgorithm: prefs.getInt(_kResampleAlgorithm) ?? 0,
       ditherMode: prefs.getInt(_kDitherMode) ?? 0,
     );
+  }
+
+  // ─── Waveform Seek Bar Preference ───────────────────────────────────────
+  static const _kUseWaveformSeekBar = 'sp_use_waveform_seek_bar';
+
+  Future<void> saveUseWaveformSeekBar(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUseWaveformSeekBar, enabled);
+    useWaveformSeekBarChanged.add(enabled);
+  }
+
+  Future<bool> loadUseWaveformSeekBar() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kUseWaveformSeekBar) ?? false;
   }
 
   // ─── ViPER DSP Settings ───────────────────────────────────────────────────

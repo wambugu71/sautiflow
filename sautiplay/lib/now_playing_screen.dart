@@ -21,10 +21,12 @@ import 'services/audio_file_inspector.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
+import 'services/waveform_extractor_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/synced_lyrics_widget.dart';
+import 'widgets/waveform_seek_bar_widget.dart';
 import 'services/app_state_service.dart';
 
 class NowPlayingScreen extends StatefulWidget {
@@ -142,6 +144,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double? _abPointAMs;
   double? _abPointBMs;
 
+  // ── Waveform Seek Bar ──────────────────────────────────────────────────────
+  bool _useWaveformSeekBar = false;
+  List<double>? _currentWaveformPeaks;
+  StreamSubscription<bool>? _waveformSub;
+  int _lastKnownTrackIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +159,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fetchLyrics();
     _fetchAudioProperties();
     _loadPlaybackSpeed();
+    _loadWaveformSetting();
 
     _setupAnalyzer(_isAnalyzerEnabled);
     _initHardwareSpecs();
@@ -162,6 +171,42 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     // Watch engine status to detect when a pending seek has landed.
     widget.statusNotifier.addListener(_onStatusChanged);
+  }
+
+  Future<void> _loadWaveformSetting() async {
+    final enabled = await AppStateService.instance.loadUseWaveformSeekBar();
+    if (mounted) {
+      setState(() => _useWaveformSeekBar = enabled);
+      if (enabled) _updateCurrentTrackWaveform();
+    }
+    _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream.listen((enabled) {
+      if (mounted) {
+        setState(() => _useWaveformSeekBar = enabled);
+        if (enabled && _currentWaveformPeaks == null) {
+          _updateCurrentTrackWaveform();
+        }
+      }
+    });
+  }
+
+  Future<void> _updateCurrentTrackWaveform() async {
+    final status = widget.statusNotifier.value;
+    String trackPath = '';
+    if (widget.queue.isNotEmpty && status.currentIndex >= 0 && status.currentIndex < widget.queue.length) {
+      final track = widget.queue[status.currentIndex];
+      trackPath = track.videoId.isNotEmpty ? track.videoId : track.title;
+    }
+    if (trackPath.isEmpty) {
+      trackPath = widget.videoId ?? widget.getTitle(status.currentIndex);
+    }
+    if (trackPath.isEmpty) return;
+
+    final peaks = await WaveformExtractorService.instance.getWaveform(trackPath);
+    if (mounted) {
+      setState(() {
+        _currentWaveformPeaks = peaks;
+      });
+    }
   }
 
   Future<void> _loadPlaybackSpeed() async {
@@ -189,6 +234,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
     }
 
+    if (status.currentIndex != _lastKnownTrackIndex) {
+      _lastKnownTrackIndex = status.currentIndex;
+      if (_useWaveformSeekBar) {
+        _updateCurrentTrackWaveform();
+      }
+    }
+
     final target = _pendingSeekMs;
     if (target == null) return;
     final enginePosMs = status.positionSeconds * 1000.0;
@@ -208,6 +260,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (oldWidget.videoId != widget.videoId || oldWidget.sourceType != widget.sourceType) {
       _fetchAudioProperties();
       _fetchLyrics();
+      if (_useWaveformSeekBar) {
+        _updateCurrentTrackWaveform();
+      }
     }
   }
 
@@ -217,6 +272,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
     _hardwareSub?.cancel();
+    _waveformSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
     _pageController.dispose();
@@ -1594,45 +1650,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
                                           LayoutBuilder(
                                             builder: (context, constraints) {
-                                              return Stack(
-                                                children: [
-                                                  // A-B highlighted region painted behind the slider
-                                                  if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
-                                                    Positioned.fill(
-                                                      child: ClipRect(
-                                                        child: _AbRegionPainter(
-                                                          pointAMs: _abPointAMs!,
-                                                          pointBMs: _abPointBMs!,
-                                                          maxMs: maxMs,
-                                                          totalWidth: constraints.maxWidth,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  SliderTheme(
-                                                    data: SliderTheme.of(context).copyWith(
-                                                      trackHeight: 6.0,
-                                                      activeTrackColor: Colors.white54,
-                                                      inactiveTrackColor: Colors.white12,
-                                                      thumbColor: Colors.white,
-                                                      overlayColor: Colors.white24,
-                                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
-                                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
-                                                    ),
-                                                    child: Slider(
-                                                      value: displayPosMs,
-                                                      min: 0.0,
-                                                      max: maxMs,
-                                                      onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
-                                                      onChanged: (v) { setState(() => _dragPositionMs = v); },
-                                                      onChangeEnd: (v) {
-                                                        _seekTimeoutTimer?.cancel();
-                                                        setState(() { _isDragging = false; _pendingSeekMs = v; });
-                                                        widget.player.seekTo(Duration(milliseconds: v.toInt()));
-                                                        _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
-                                                      },
-                                                    ),
-                                                  ),
-                                                ],
+                                              return _buildSeekBarWidget(
+                                                displayPosMs: displayPosMs,
+                                                maxMs: maxMs,
+                                                totalWidth: constraints.maxWidth,
+                                                isMobile: false,
+                                                primaryColor: primaryColor,
                                               );
                                             },
                                           ),
@@ -1967,45 +1990,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               if (_abRepeatState >= 1) _buildAbRegionLabels(maxMs: maxMs),
                               LayoutBuilder(
                                 builder: (context, constraints) {
-                                  return Stack(
-                                    children: [
-                                      // A-B highlighted region painted behind the slider
-                                      if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
-                                        Positioned.fill(
-                                          child: ClipRect(
-                                            child: _AbRegionPainter(
-                                              pointAMs: _abPointAMs!,
-                                              pointBMs: _abPointBMs!,
-                                              maxMs: maxMs,
-                                              totalWidth: constraints.maxWidth,
-                                            ),
-                                          ),
-                                        ),
-                                      SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          trackHeight: 4.0,
-                                          activeTrackColor: Colors.white54,
-                                          inactiveTrackColor: Colors.white12,
-                                          thumbColor: Colors.white,
-                                          overlayColor: Colors.white24,
-                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
-                                        ),
-                                        child: Slider(
-                                          value: displayPosMs,
-                                          min: 0.0,
-                                          max: maxMs,
-                                          onChangeStart: (v) { setState(() { _isDragging = true; _dragPositionMs = v; }); },
-                                          onChanged: (v) { setState(() => _dragPositionMs = v); },
-                                          onChangeEnd: (v) {
-                                            _seekTimeoutTimer?.cancel();
-                                            setState(() { _isDragging = false; _pendingSeekMs = v; });
-                                            widget.player.seekTo(Duration(milliseconds: v.toInt()));
-                                            _seekTimeoutTimer = Timer(const Duration(seconds: 45), () { if (mounted) setState(() => _pendingSeekMs = null); });
-                                          },
-                                        ),
-                                      ),
-                                    ],
+                                  return _buildSeekBarWidget(
+                                    displayPosMs: displayPosMs,
+                                    maxMs: maxMs,
+                                    totalWidth: constraints.maxWidth,
+                                    isMobile: true,
+                                    primaryColor: primaryColor,
                                   );
                                 },
                               ),
@@ -2533,6 +2523,100 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           },
         );
       },
+    );
+  }
+
+  Widget _buildSeekBarWidget({
+    required double displayPosMs,
+    required double maxMs,
+    required double totalWidth,
+    required bool isMobile,
+    required Color primaryColor,
+  }) {
+    if (_useWaveformSeekBar && _currentWaveformPeaks != null && _currentWaveformPeaks!.isNotEmpty) {
+      return WaveformSeekBarWidget(
+        peaks: _currentWaveformPeaks!,
+        displayPosMs: displayPosMs,
+        maxMs: maxMs,
+        abRepeatState: _abRepeatState,
+        abPointAMs: _abPointAMs,
+        abPointBMs: _abPointBMs,
+        height: isMobile ? 42.0 : 48.0,
+        activeColor: primaryColor,
+        onDragStateChanged: (dragging) {
+          setState(() {
+            _isDragging = dragging;
+          });
+        },
+        onDragUpdate: (v) {
+          setState(() {
+            _dragPositionMs = v;
+          });
+        },
+        onSeekEnd: (v) {
+          _seekTimeoutTimer?.cancel();
+          setState(() {
+            _isDragging = false;
+            _pendingSeekMs = v;
+          });
+          widget.player.seekTo(Duration(milliseconds: v.toInt()));
+          _seekTimeoutTimer = Timer(const Duration(seconds: 45), () {
+            if (mounted) setState(() => _pendingSeekMs = null);
+          });
+        },
+      );
+    }
+
+    return Stack(
+      children: [
+        if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
+          Positioned.fill(
+            child: ClipRect(
+              child: _AbRegionPainter(
+                pointAMs: _abPointAMs!,
+                pointBMs: _abPointBMs!,
+                maxMs: maxMs,
+                totalWidth: totalWidth,
+              ),
+            ),
+          ),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: isMobile ? 4.0 : 6.0,
+            activeTrackColor: Colors.white54,
+            inactiveTrackColor: Colors.white12,
+            thumbColor: Colors.white,
+            overlayColor: Colors.white24,
+            thumbShape: RoundSliderThumbShape(enabledThumbRadius: isMobile ? 6.0 : 8.0),
+            overlayShape: RoundSliderOverlayShape(overlayRadius: isMobile ? 14.0 : 16.0),
+          ),
+          child: Slider(
+            value: displayPosMs,
+            min: 0.0,
+            max: maxMs,
+            onChangeStart: (v) {
+              setState(() {
+                _isDragging = true;
+                _dragPositionMs = v;
+              });
+            },
+            onChanged: (v) {
+              setState(() => _dragPositionMs = v);
+            },
+            onChangeEnd: (v) {
+              _seekTimeoutTimer?.cancel();
+              setState(() {
+                _isDragging = false;
+                _pendingSeekMs = v;
+              });
+              widget.player.seekTo(Duration(milliseconds: v.toInt()));
+              _seekTimeoutTimer = Timer(const Duration(seconds: 45), () {
+                if (mounted) setState(() => _pendingSeekMs = null);
+              });
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'isolate_player.dart';
 import 'eq_screen.dart';
@@ -9,6 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'services/autoeq_parser.dart';
+
+
 
 const primaryColor = Color(0xFF137fec);
 const bgDarkColor = Color(0xFF101922);
@@ -22,11 +25,9 @@ class ViperFxScreen extends StatefulWidget {
 
   static Future<void> applySavedStateToEngine(IsolateAudioPlayer player) async {
     final map = await AppStateService.instance.loadViperFxState();
-    if (map.isEmpty) return;
 
     bool viperEnabled = map['viperEnabled'] ?? false;
     player.setViperEnabled(viperEnabled);
-    if (!viperEnabled) return;
 
     player.setViperMasterLimiter(
       threshold: map['masterLimiterThreshold'] ?? 1.0,
@@ -429,20 +430,26 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     _subScreenSetState?.call(() {});
   }
 
+  StreamSubscription<void>? _eqSettingsSub;
+
   @override
   void initState() {
     super.initState();
     _loadState();
+    _eqSettingsSub = AppStateService.instance.eqSettingsChanged.stream.listen((_) {
+      if (mounted) _loadState();
+    });
   }
 
   @override
   void dispose() {
+    _eqSettingsSub?.cancel();
     super.dispose();
   }
 
   Future<void> _loadState() async {
     final map = await AppStateService.instance.loadViperFxState();
-    if (map.isNotEmpty && mounted) {
+    if (mounted) {
       setState(() {
         _fromMap(map);
       });
@@ -570,74 +577,77 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   }
 
   void _fromMap(Map<String, dynamic> map) {
-    _viperEnabled = map['viperEnabled'] ?? _viperEnabled;
+    _viperEnabled = map['viperEnabled'] ?? false;
     _masterLimiterThreshold =
-        map['masterLimiterThreshold'] ?? _masterLimiterThreshold;
-    _masterLimiterVolume = map['masterLimiterVolume'] ?? _masterLimiterVolume;
-    _masterLimiterPan = map['masterLimiterPan'] ?? _masterLimiterPan;
-    _playbackGainEnabled = map['playbackGainEnabled'] ?? _playbackGainEnabled;
+        (map['masterLimiterThreshold'] as num?)?.toDouble() ?? 1.0;
+    _masterLimiterVolume =
+        (map['masterLimiterVolume'] as num?)?.toDouble() ?? 1.0;
+    _masterLimiterPan =
+        (map['masterLimiterPan'] as num?)?.toDouble() ?? 0.0;
+    _playbackGainEnabled = map['playbackGainEnabled'] ?? false;
     _playbackGainStrength =
-        map['playbackGainStrength'] ?? _playbackGainStrength;
-    _playbackGainMax = map['playbackGainMax'] ?? _playbackGainMax;
+        (map['playbackGainStrength'] as num?)?.toDouble() ?? 0.5;
+    _playbackGainMax =
+        (map['playbackGainMax'] as num?)?.toDouble() ?? 0.5;
     _playbackGainThreshold =
-        map['playbackGainThreshold'] ?? _playbackGainThreshold;
-    _lufsEnabled = map['lufsEnabled'] ?? _lufsEnabled;
-    _lufsTarget = map['lufsTarget'] ?? _lufsTarget;
-    _lufsMaxGainDb = map['lufsMaxGainDb'] ?? _lufsMaxGainDb;
-    _lufsSpeed = map['lufsSpeed'] ?? _lufsSpeed;
-    _alcEnabled = map['alcEnabled'] ?? _alcEnabled;
-    _alcMode = map['alcMode'] ?? _alcMode;
-    _alcStrength = (map['alcStrength'] as num?)?.toDouble() ?? _alcStrength;
-    _stereoImagerEnabled = map['stereoImagerEnabled'] ?? _stereoImagerEnabled;
+        (map['playbackGainThreshold'] as num?)?.toDouble() ?? 0.9;
+    _lufsEnabled = map['lufsEnabled'] ?? false;
+    _lufsTarget = (map['lufsTarget'] as num?)?.toDouble() ?? -14.0;
+    _lufsMaxGainDb = (map['lufsMaxGainDb'] as num?)?.toDouble() ?? 6.0;
+    _lufsSpeed = (map['lufsSpeed'] as num?)?.toInt() ?? 1;
+    _alcEnabled = map['alcEnabled'] ?? false;
+    _alcMode = (map['alcMode'] as num?)?.toInt() ?? 0;
+    _alcStrength = (map['alcStrength'] as num?)?.toDouble() ?? 1.0;
+    _stereoImagerEnabled = map['stereoImagerEnabled'] ?? false;
     _stereoLowWidth =
-        (map['stereoLowWidth'] as num?)?.toDouble() ?? _stereoLowWidth;
+        (map['stereoLowWidth'] as num?)?.toDouble() ?? 100.0;
     _stereoMidWidth =
-        (map['stereoMidWidth'] as num?)?.toDouble() ?? _stereoMidWidth;
+        (map['stereoMidWidth'] as num?)?.toDouble() ?? 100.0;
     _stereoHighWidth =
-        (map['stereoHighWidth'] as num?)?.toDouble() ?? _stereoHighWidth;
+        (map['stereoHighWidth'] as num?)?.toDouble() ?? 100.0;
     _stereoLowCrossover =
-        (map['stereoLowCrossover'] as num?)?.toDouble() ?? _stereoLowCrossover;
+        (map['stereoLowCrossover'] as num?)?.toDouble() ?? 300.0;
     _stereoHighCrossover = (map['stereoHighCrossover'] as num?)?.toDouble() ??
-        _stereoHighCrossover;
-    _cureEnabled = map['cureEnabled'] ?? _cureEnabled;
-    _curePreset = map['curePreset'] ?? _curePreset;
+        3000.0;
+    _cureEnabled = map['cureEnabled'] ?? false;
+    _curePreset = (map['curePreset'] as num?)?.toInt() ?? 0;
     _headphoneSurroundEnabled =
-        map['headphoneSurroundEnabled'] ?? _headphoneSurroundEnabled;
+        map['headphoneSurroundEnabled'] ?? false;
     _headphoneSurroundQuality =
-        map['headphoneSurroundQuality'] ?? _headphoneSurroundQuality;
+        (map['headphoneSurroundQuality'] as num?)?.toInt() ?? 1;
     _fieldSurroundEnabled =
-        map['fieldSurroundEnabled'] ?? _fieldSurroundEnabled;
+        map['fieldSurroundEnabled'] ?? false;
     _fieldWidening =
-        (map['fieldWidening'] as num?)?.toDouble() ?? _fieldWidening;
+        (map['fieldWidening'] as num?)?.toDouble() ?? 0.5;
     _fieldMidImage =
-        (map['fieldMidImage'] as num?)?.toDouble() ?? _fieldMidImage;
-    _fieldDepth = (map['fieldDepth'] as num?)?.toInt() ?? _fieldDepth;
-    _diffSurroundEnabled = map['diffSurroundEnabled'] ?? _diffSurroundEnabled;
-    _diffDelay = map['diffDelay'] ?? _diffDelay;
-    _diffReverse = map['diffReverse'] ?? _diffReverse;
-    _diffWetDry = map['diffWetDry'] ?? _diffWetDry;
-    _diffLpCutoff = map['diffLpCutoff'] ?? _diffLpCutoff;
-    _reverbEnabled = map['reverbEnabled'] ?? _reverbEnabled;
-    _reverbRoom = map['reverbRoom'] ?? _reverbRoom;
-    _reverbWidth = map['reverbWidth'] ?? _reverbWidth;
-    _reverbDamp = map['reverbDamp'] ?? _reverbDamp;
-    _reverbWet = map['reverbWet'] ?? _reverbWet;
-    _reverbDry = map['reverbDry'] ?? _reverbDry;
+        (map['fieldMidImage'] as num?)?.toDouble() ?? 0.5;
+    _fieldDepth = (map['fieldDepth'] as num?)?.toInt() ?? 2;
+    _diffSurroundEnabled = map['diffSurroundEnabled'] ?? false;
+    _diffDelay = (map['diffDelay'] as num?)?.toDouble() ?? 5.0;
+    _diffReverse = map['diffReverse'] ?? false;
+    _diffWetDry = (map['diffWetDry'] as num?)?.toDouble() ?? 0.5;
+    _diffLpCutoff = (map['diffLpCutoff'] as num?)?.toDouble() ?? 8000.0;
+    _reverbEnabled = map['reverbEnabled'] ?? false;
+    _reverbRoom = (map['reverbRoom'] as num?)?.toDouble() ?? 0.5;
+    _reverbWidth = (map['reverbWidth'] as num?)?.toDouble() ?? 0.5;
+    _reverbDamp = (map['reverbDamp'] as num?)?.toDouble() ?? 0.5;
+    _reverbWet = (map['reverbWet'] as num?)?.toDouble() ?? 0.5;
+    _reverbDry = (map['reverbDry'] as num?)?.toDouble() ?? 0.5;
     _dynamicSystemEnabled =
-        map['dynamicSystemEnabled'] ?? _dynamicSystemEnabled;
+        map['dynamicSystemEnabled'] ?? false;
     _dynamicSystemStrength =
-        map['dynamicSystemStrength'] ?? _dynamicSystemStrength;
-    _dynPreset = map['dynPreset'] ?? _dynPreset;
-    _dynXLow = (map['dynXLow'] as num?)?.toDouble() ?? _dynXLow;
-    _dynXHigh = (map['dynXHigh'] as num?)?.toDouble() ?? _dynXHigh;
-    _dynYLow = (map['dynYLow'] as num?)?.toDouble() ?? _dynYLow;
-    _dynYHigh = (map['dynYHigh'] as num?)?.toDouble() ?? _dynYHigh;
+        (map['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
+    _dynPreset = (map['dynPreset'] as num?)?.toInt() ?? 0;
+    _dynXLow = (map['dynXLow'] as num?)?.toDouble() ?? 40.0;
+    _dynXHigh = (map['dynXHigh'] as num?)?.toDouble() ?? 60.0;
+    _dynYLow = (map['dynYLow'] as num?)?.toDouble() ?? 100.0;
+    _dynYHigh = (map['dynYHigh'] as num?)?.toDouble() ?? 150.0;
     _dynSideGainLow =
-        (map['dynSideGainLow'] as num?)?.toDouble() ?? _dynSideGainLow;
+        (map['dynSideGainLow'] as num?)?.toDouble() ?? 1.0;
     _dynSideGainHigh =
-        (map['dynSideGainHigh'] as num?)?.toDouble() ?? _dynSideGainHigh;
+        (map['dynSideGainHigh'] as num?)?.toDouble() ?? 1.0;
     _multibandCompressorEnabled =
-        map['multibandCompressorEnabled'] ?? _multibandCompressorEnabled;
+        map['multibandCompressorEnabled'] ?? false;
     _mbcCrossFreqs = (map['mbcCrossFreqs'] as List?)
             ?.map((e) => (e as num).toDouble())
             .toList() ??
@@ -663,50 +673,50 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             .toList() ??
         _mbcGains;
     _fetCompressorEnabled =
-        map['fetCompressorEnabled'] ?? _fetCompressorEnabled;
-    _fetThreshold = map['fetThreshold'] ?? _fetThreshold;
-    _fetRatio = map['fetRatio'] ?? _fetRatio;
-    _fetKnee = map['fetKnee'] ?? _fetKnee;
-    _fetKneeAuto = map['fetKneeAuto'] ?? _fetKneeAuto;
-    _fetGain = map['fetGain'] ?? _fetGain;
-    _fetGainAuto = map['fetGainAuto'] ?? _fetGainAuto;
-    _fetAttack = map['fetAttack'] ?? _fetAttack;
-    _fetAttackAuto = map['fetAttackAuto'] ?? _fetAttackAuto;
-    _fetRelease = map['fetRelease'] ?? _fetRelease;
-    _fetReleaseAuto = map['fetReleaseAuto'] ?? _fetReleaseAuto;
-    _fetKneeMulti = map['fetKneeMulti'] ?? _fetKneeMulti;
-    _fetMaxAttack = map['fetMaxAttack'] ?? _fetMaxAttack;
-    _fetMaxRelease = map['fetMaxRelease'] ?? _fetMaxRelease;
-    _fetCrest = map['fetCrest'] ?? _fetCrest;
-    _fetAdapt = map['fetAdapt'] ?? _fetAdapt;
-    _fetNoClip = map['fetNoClip'] ?? _fetNoClip;
-    _bassEnabled = map['bassEnabled'] ?? _bassEnabled;
-    _bassMode = map['bassMode'] ?? _bassMode;
-    _bassFreq = (map['bassFreq'] as num?)?.toDouble() ?? _bassFreq;
-    _bassGain = map['bassGain'] ?? _bassGain;
-    _bassAntiPop = map['bassAntiPop'] ?? _bassAntiPop;
-    _bassMonoEnabled = map['bassMonoEnabled'] ?? _bassMonoEnabled;
-    _bassMonoMode = map['bassMonoMode'] ?? _bassMonoMode;
-    _bassMonoFreq = (map['bassMonoFreq'] as num?)?.toDouble() ?? _bassMonoFreq;
-    _bassMonoGain = map['bassMonoGain'] ?? _bassMonoGain;
-    _bassMonoAntiPop = map['bassMonoAntiPop'] ?? _bassMonoAntiPop;
-    _psychoBassEnabled = map['psychoBassEnabled'] ?? _psychoBassEnabled;
-    _psychoCutoff = (map['psychoCutoff'] as num?)?.toDouble() ?? _psychoCutoff;
+        map['fetCompressorEnabled'] ?? false;
+    _fetThreshold = (map['fetThreshold'] as num?)?.toDouble() ?? 0.0;
+    _fetRatio = (map['fetRatio'] as num?)?.toDouble() ?? 1.0;
+    _fetKnee = (map['fetKnee'] as num?)?.toDouble() ?? 0.0;
+    _fetKneeAuto = map['fetKneeAuto'] ?? false;
+    _fetGain = (map['fetGain'] as num?)?.toDouble() ?? 0.0;
+    _fetGainAuto = map['fetGainAuto'] ?? false;
+    _fetAttack = (map['fetAttack'] as num?)?.toDouble() ?? 20.0;
+    _fetAttackAuto = map['fetAttackAuto'] ?? false;
+    _fetRelease = (map['fetRelease'] as num?)?.toDouble() ?? 100.0;
+    _fetReleaseAuto = map['fetReleaseAuto'] ?? false;
+    _fetKneeMulti = (map['fetKneeMulti'] as num?)?.toDouble() ?? 0.0;
+    _fetMaxAttack = (map['fetMaxAttack'] as num?)?.toDouble() ?? 20.0;
+    _fetMaxRelease = (map['fetMaxRelease'] as num?)?.toDouble() ?? 100.0;
+    _fetCrest = (map['fetCrest'] as num?)?.toDouble() ?? 0.0;
+    _fetAdapt = (map['fetAdapt'] as num?)?.toDouble() ?? 0.0;
+    _fetNoClip = map['fetNoClip'] ?? false;
+    _bassEnabled = map['bassEnabled'] ?? false;
+    _bassMode = (map['bassMode'] as num?)?.toInt() ?? 1;
+    _bassFreq = (map['bassFreq'] as num?)?.toDouble() ?? 80.0;
+    _bassGain = (map['bassGain'] as num?)?.toDouble() ?? 0.5;
+    _bassAntiPop = map['bassAntiPop'] ?? false;
+    _bassMonoEnabled = map['bassMonoEnabled'] ?? false;
+    _bassMonoMode = (map['bassMonoMode'] as num?)?.toInt() ?? 1;
+    _bassMonoFreq = (map['bassMonoFreq'] as num?)?.toDouble() ?? 80.0;
+    _bassMonoGain = (map['bassMonoGain'] as num?)?.toDouble() ?? 0.5;
+    _bassMonoAntiPop = map['bassMonoAntiPop'] ?? false;
+    _psychoBassEnabled = map['psychoBassEnabled'] ?? false;
+    _psychoCutoff = (map['psychoCutoff'] as num?)?.toDouble() ?? 80.0;
     _psychoIntensity =
-        (map['psychoIntensity'] as num?)?.toDouble() ?? _psychoIntensity;
+        (map['psychoIntensity'] as num?)?.toDouble() ?? 50.0;
     _psychoHarmonicOrder =
-        (map['psychoHarmonicOrder'] as num?)?.toInt() ?? _psychoHarmonicOrder;
+        (map['psychoHarmonicOrder'] as num?)?.toInt() ?? 2;
     _psychoOriginalLevel = (map['psychoOriginalLevel'] as num?)?.toDouble() ??
-        _psychoOriginalLevel;
-    _clarityEnabled = map['clarityEnabled'] ?? _clarityEnabled;
-    _clarityMode = map['clarityMode'] ?? _clarityMode;
-    _clarityGain = map['clarityGain'] ?? _clarityGain;
-    _spectrumEnabled = map['spectrumEnabled'] ?? _spectrumEnabled;
+        100.0;
+    _clarityEnabled = map['clarityEnabled'] ?? false;
+    _clarityMode = (map['clarityMode'] as num?)?.toInt() ?? 0;
+    _clarityGain = (map['clarityGain'] as num?)?.toDouble() ?? 0.5;
+    _spectrumEnabled = map['spectrumEnabled'] ?? false;
     _spectrumStrength =
-        (map['spectrumStrength'] as num?)?.toDouble() ?? _spectrumStrength;
-    _spectrumExciter = map['spectrumExciter'] ?? _spectrumExciter;
-    _firEqEnabled = map['firEqEnabled'] ?? _firEqEnabled;
-    _dynamicEqEnabled = map['dynamicEqEnabled'] ?? _dynamicEqEnabled;
+        (map['spectrumStrength'] as num?)?.toDouble() ?? 50.0;
+    _spectrumExciter = (map['spectrumExciter'] as num?)?.toDouble() ?? 0.5;
+    _firEqEnabled = map['firEqEnabled'] ?? false;
+    _dynamicEqEnabled = map['dynamicEqEnabled'] ?? false;
     _dynamicEqFreqs = (map['dynamicEqFreqs'] as List?)
             ?.map((e) => (e as num).toDouble())
             .toList() ??
@@ -735,19 +745,18 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             ?.map((e) => (e as num).toInt())
             .toList() ??
         _dynamicEqFilterTypes;
-    _iirEqEnabled = map['iirEqEnabled'] ?? _iirEqEnabled;
-    _tubeEnabled = map['tubeEnabled'] ?? _tubeEnabled;
-    _analogXEnabled = map['analogXEnabled'] ?? _analogXEnabled;
-    _analogXMode = map['analogXMode'] ?? _analogXMode;
+    _iirEqEnabled = map['iirEqEnabled'] ?? false;
+    _tubeEnabled = map['tubeEnabled'] ?? false;
+    _analogXEnabled = map['analogXEnabled'] ?? false;
+    _analogXMode = (map['analogXMode'] as num?)?.toInt() ?? 1;
     _speakerCorrectionEnabled =
-        map['speakerCorrectionEnabled'] ?? _speakerCorrectionEnabled;
-    _convolverEnabled = map['convolverEnabled'] ?? _convolverEnabled;
+        map['speakerCorrectionEnabled'] ?? false;
+    _convolverEnabled = map['convolverEnabled'] ?? false;
     _convolverCrossChannel =
-        (map['convolverCrossChannel'] as num?)?.toDouble() ??
-            _convolverCrossChannel;
+        (map['convolverCrossChannel'] as num?)?.toDouble() ?? 0.0;
     _convolverFolder = map['convolverFolder'];
     _selectedConvolverFile = map['selectedConvolverFile'];
-    _ddcEnabled = map['ddcEnabled'] ?? _ddcEnabled;
+    _ddcEnabled = map['ddcEnabled'] ?? false;
     _ddcFolder = map['ddcFolder'];
     _selectedDdcFile = map['selectedDdcFile'];
 
@@ -1155,8 +1164,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               ],
             ),
           ),
-
           // Grouped List View Hub
+
           Expanded(
             child: ListView(
               padding: const EdgeInsets.only(bottom: 120),

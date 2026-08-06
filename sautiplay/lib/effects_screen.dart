@@ -8,6 +8,7 @@ import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'services/fft_processor.dart';
 import 'viper_fx_screen.dart';
+import 'widgets/profile_selector.dart';
 
 class EffectsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -99,7 +100,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
     }
   }
 
-  Widget _buildVisualizer(Color primaryColor, List<double> currentAnalyzerValues, List<double> peakValues) {
+  Widget _buildVisualizer(Color primaryColor,
+      List<double> currentAnalyzerValues, List<double> peakValues) {
     const int numBars = 60;
     final visualData = <double>[];
     final visualPeaks = <double>[];
@@ -111,7 +113,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
     } else {
       final step = math.max(1, currentAnalyzerValues.length / numBars);
       for (int i = 0; i < numBars; i++) {
-        final index = (i * step).floor().clamp(0, currentAnalyzerValues.length - 1);
+        final index =
+            (i * step).floor().clamp(0, currentAnalyzerValues.length - 1);
         double val = currentAnalyzerValues[index];
         double peak = peakValues[index];
         if (!widget.analyzerLogScale) {
@@ -127,11 +130,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
       show: widget.analyzerShowGrids,
       drawVerticalLine: true,
       horizontalInterval: 0.25,
-      getDrawingHorizontalLine: (value) => FlLine(color: Colors.white10, strokeWidth: 1),
-      getDrawingVerticalLine: (value) => FlLine(color: Colors.white10, strokeWidth: 1),
+      getDrawingHorizontalLine: (value) =>
+          FlLine(color: Colors.white10, strokeWidth: 1),
+      getDrawingVerticalLine: (value) =>
+          FlLine(color: Colors.white10, strokeWidth: 1),
     );
 
-    int maxFreq = widget.outputSampleRate == 0 ? 24000 : widget.outputSampleRate ~/ 2;
+    int maxFreq =
+        widget.outputSampleRate == 0 ? 24000 : widget.outputSampleRate ~/ 2;
     if (maxFreq > 24000) maxFreq = 24000;
 
     double dynamicMaxY = 1.0;
@@ -153,9 +159,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
           showTitles: true,
           reservedSize: 28,
           getTitlesWidget: (value, meta) {
-            if (value == 0 || value >= dynamicMaxY) return const SizedBox.shrink();
+            if (value == 0 || value >= dynamicMaxY)
+              return const SizedBox.shrink();
             return Text(
-              widget.analyzerLogScale ? '${(value * 100).toInt()} dB' : '${(value * 100).toInt()}%',
+              widget.analyzerLogScale
+                  ? '${(value * 100).toInt()} dB'
+                  : '${(value * 100).toInt()}%',
               style: const TextStyle(color: Colors.white54, fontSize: 9),
               textAlign: TextAlign.right,
             );
@@ -169,8 +178,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
           getTitlesWidget: (value, meta) {
             final int idx = value.toInt();
             // Display 6 evenly spaced logarithmic frequency ticks across 20Hz - 20kHz
-            if (idx == 0 || idx == 10 || idx == 22 || idx == 34 || idx == 46 || idx == (numBars - 1)) {
-              double freq = 20.0 * math.pow(maxFreq / 20.0, idx / (numBars - 1));
+            if (idx == 0 ||
+                idx == 10 ||
+                idx == 22 ||
+                idx == 34 ||
+                idx == 46 ||
+                idx == (numBars - 1)) {
+              double freq =
+                  20.0 * math.pow(maxFreq / 20.0, idx / (numBars - 1));
               String label;
               if (freq >= 1000) {
                 final k = freq / 1000;
@@ -251,8 +266,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
               color: Colors.transparent,
               width: 4,
               rodStackItems: [
-                BarChartRodStackItem(0, math.max(0.02, visualData[i]), primaryColor.withValues(alpha: 0.8)),
-                BarChartRodStackItem(math.max(0.0, visualPeaks[i] - 0.02), visualPeaks[i], Colors.white),
+                BarChartRodStackItem(0, math.max(0.02, visualData[i]),
+                    primaryColor.withValues(alpha: 0.8)),
+                BarChartRodStackItem(math.max(0.0, visualPeaks[i] - 0.02),
+                    visualPeaks[i], Colors.white),
               ],
               borderRadius: BorderRadius.circular(2),
             ),
@@ -282,15 +299,24 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
     // Calculate the dynamic expanded height based on what's visible
     final double analyzerChartHeight =
-        (widget.analyzerEnabled && _analyzerValues.isNotEmpty) ? 176.0 : 0.0; // 160 + padding
-    final double spectrumHeight = widget.analyzerEnabled ? 160.0 : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
+        (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
+            ? 176.0
+            : 0.0; // 160 + padding
+    final double spectrumHeight = widget.analyzerEnabled
+        ? 160.0
+        : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
     const double titleBarHeight = 56.0;
     const double tabBarHeight = 48.0;
     const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
-    final double expandedHeight =
-        topPadding + titleBarHeight + analyzerChartHeight + spectrumHeight + dragHandleHeight + tabBarHeight;
-    final double collapsedHeight = topPadding + titleBarHeight + dragHandleHeight + tabBarHeight;
+    final double expandedHeight = topPadding +
+        titleBarHeight +
+        analyzerChartHeight +
+        spectrumHeight +
+        dragHandleHeight +
+        tabBarHeight;
+    final double collapsedHeight =
+        topPadding + titleBarHeight + dragHandleHeight + tabBarHeight;
 
     return DefaultTabController(
       length: 2,
@@ -312,9 +338,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
                   builder: (context, constraints) {
                     // How much space is available beyond the collapsed state
                     final double currentHeight = constraints.maxHeight;
-                    final double expandableRange = expandedHeight - collapsedHeight;
+                    final double expandableRange =
+                        expandedHeight - collapsedHeight;
                     final double scrollFraction = expandableRange > 0
-                        ? ((currentHeight - collapsedHeight) / expandableRange).clamp(0.0, 1.0)
+                        ? ((currentHeight - collapsedHeight) / expandableRange)
+                            .clamp(0.0, 1.0)
                         : 0.0;
 
                     return Column(
@@ -327,19 +355,30 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           height: titleBarHeight,
                           child: Row(
                             children: [
-                              const BackButton(color: Colors.white),
-                              const Expanded(
-                                child: Text(
-                                  'Audio Effects',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
+                              const SizedBox(width: 4),
+                              // const BackButton(color: Colors.white),
+                              const Text(
+                                'Audio Effects',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: AudioProfileSelector(
+                                    player: widget.player,
+                                    isCompact: true,
+                                    onProfileChanged: () {
+                                      setState(() {});
+                                    },
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 48),
+                              const SizedBox(width: 8),
                             ],
                           ),
                         ),
@@ -355,34 +394,47 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   child: Column(
                                     children: [
                                       // FL Chart Realtime Analyzer
-                                      if (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
+                                      if (widget.analyzerEnabled &&
+                                          _analyzerValues.isNotEmpty)
                                         Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 16.0, vertical: 8.0),
                                           child: SizedBox(
                                             height: 160,
-                                            child: _buildVisualizer(primaryColor, _analyzerValues, _peakValues),
+                                            child: _buildVisualizer(
+                                                primaryColor,
+                                                _analyzerValues,
+                                                _peakValues),
                                           ),
                                         ),
 
                                       // Spectrum Visualizer + RMS Meter
                                       if (widget.analyzerEnabled)
                                         Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 16.0, vertical: 6.0),
                                           child: Column(
                                             children: [
                                               SpectrumVisualizerWidget(
-                                                analyzerStream: widget.player.analyzerStream,
+                                                analyzerStream: widget
+                                                    .player.analyzerStream,
                                                 isPlaying: true,
                                                 bandCount: 32,
                                                 height: 85,
-                                                style: SpectrumVisualStyle.values.firstWhere(
-                                                  (s) => s.name == widget.spectrumStyle,
-                                                  orElse: () => SpectrumVisualStyle.neon,
+                                                style: SpectrumVisualStyle
+                                                    .values
+                                                    .firstWhere(
+                                                  (s) =>
+                                                      s.name ==
+                                                      widget.spectrumStyle,
+                                                  orElse: () =>
+                                                      SpectrumVisualStyle.neon,
                                                 ),
                                               ),
                                               const SizedBox(height: 8),
                                               RmsMeterWidget(
-                                                analyzerStream: widget.player.analyzerStream,
+                                                analyzerStream: widget
+                                                    .player.analyzerStream,
                                                 isPlaying: true,
                                               ),
                                             ],
@@ -442,7 +494,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
               ],
             ),
           ),
-
         ),
       ),
     );
