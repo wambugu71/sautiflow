@@ -254,6 +254,10 @@ extern "C"
     // Auto Bit-Perfect Hardware Rate & Bit-Depth Matching
     AE_API void ae_set_auto_bit_perfect_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_auto_bit_perfect_enabled(AudioEngineHandle *engine);
+    // Call this from the Dart/control thread regularly (e.g. on every status poll).
+    // Returns the new sample rate that should be applied, or 0 if no pending change.
+    // If non-zero, the caller must trigger a device restart (e.g. call setOutputSampleRate).
+    AE_API int ae_consume_pending_rate_change(AudioEngineHandle *engine);
 
     // Phase Inversion (Polarity Flip)
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right);

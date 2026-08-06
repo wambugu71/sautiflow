@@ -266,6 +266,14 @@ class MiniAudioPlayer {
   /// Check if Auto Bit-Perfect hardware sample-rate matching is enabled.
   bool get isAutoBitPerfectEnabled => _engine.getAutoBitPerfectEnabled();
 
+  /// Poll for a deferred Auto Bit-Perfect sample-rate switch signalled by the
+  /// native worker thread. Returns the new target sample rate (> 0) if one is
+  /// pending, or 0 if nothing to do.
+  ///
+  /// When non-zero, call [setOutputSampleRate] with the returned value — this
+  /// triggers [restart_and_apply_config] safely from the Dart/control thread.
+  int consumePendingRateChange() => _engine.consumePendingRateChange();
+
   /// Set the desired output audio format (f32, s16, u8).
   /// This may cause the audio engine to restart.
   void setOutputFormat(AudioFormat format) => _engine.setOutputFormat(format);
@@ -666,6 +674,15 @@ class MiniAudioPlayer {
           _lastLog = msg;
           _logController.add(msg);
         }
+      }
+
+      // Auto Bit-Perfect: check if the native worker thread has signalled a
+      // deferred sample-rate change. Apply it here — we are on the isolate
+      // event-loop (the "control thread"), so restart_and_apply_config is safe
+      // to call and will not race with the audio device callback.
+      final pendingRate = _engine.consumePendingRateChange();
+      if (pendingRate > 0) {
+        _engine.setOutputSampleRate(pendingRate);
       }
     });
   }

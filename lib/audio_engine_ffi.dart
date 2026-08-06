@@ -1297,9 +1297,12 @@ class AudioEngineFFI {
           _SetFxEnabledDart>('ae_set_auto_bit_perfect_enabled');
       _getAutoBitPerfectEnabled = _lib.lookupFunction<_GetIntNative,
           _GetIntDart>('ae_get_auto_bit_perfect_enabled');
+      _consumePendingRateChange = _lib.lookupFunction<_GetIntNative,
+          _GetIntDart>('ae_consume_pending_rate_change');
     } catch (_) {
       _setAutoBitPerfectEnabled = null;
       _getAutoBitPerfectEnabled = null;
+      _consumePendingRateChange = null;
     }
 
     try {
@@ -1547,6 +1550,7 @@ class AudioEngineFFI {
   late final _GetIntDart? _get64BitProcessingEnabled;
   late final _SetFxEnabledDart? _setAutoBitPerfectEnabled;
   late final _GetIntDart? _getAutoBitPerfectEnabled;
+  _GetIntDart? _consumePendingRateChange;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
 
@@ -2439,6 +2443,15 @@ class AudioEngineFFI {
   bool getAutoBitPerfectEnabled() {
     if (_engine == ffi.nullptr || _getAutoBitPerfectEnabled == null) return false;
     return _getAutoBitPerfectEnabled!(_engine) != 0;
+  }
+
+  /// Poll for a deferred Auto Bit-Perfect sample-rate change requested by the
+  /// native worker thread. Returns the new sample rate (> 0) if a change is
+  /// pending, or 0 if nothing to do. Call this from your status-poll loop;
+  /// when non-zero, apply it via [setOutputSampleRate].
+  int consumePendingRateChange() {
+    if (_engine == ffi.nullptr || _consumePendingRateChange == null) return 0;
+    return _consumePendingRateChange!(_engine);
   }
 
   // ── Limiter & Clipping Detection ──────────────────────────────────────────

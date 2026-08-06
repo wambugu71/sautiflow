@@ -1668,6 +1668,10 @@ struct AudioEngineHandle
     std::atomic<bool> exclusiveModeEnabled{false};
     std::atomic<bool> use64BitProcessing{false};
     std::atomic<bool> autoBitPerfectEnabled{false};
+    // When worker_loop detects a native rate change, it sets this to the new
+    // sample rate. The Dart control thread polls via ae_consume_pending_rate_change()
+    // and triggers restart_and_apply_config from a safe context.
+    std::atomic<int> pendingAutoBitPerfectRate{0};
 
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
@@ -2609,10 +2613,11 @@ static void worker_loop(AudioEngineHandle *e)
                     const int nativeRate = (int)newCurrent->outputSampleRate;
                     if (nativeRate > 0 && nativeRate != e->outputSampleRate)
                     {
-                        engine_log("Auto Bit-Perfect: Track native sample rate is %d Hz (current hardware rate: %d Hz). Switching DAC sample rate...", nativeRate, e->outputSampleRate);
-                        e->outputSampleRate = nativeRate;
-                        e->sampleRate = nativeRate;
-                        restart_and_apply_config(e);
+                        engine_log("Auto Bit-Perfect: Track native sample rate is %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
+                        // SAFE: do NOT call restart_and_apply_config() here — we are on the
+                        // worker thread and the audio device callback may still be active.
+                        // Signal the control thread (Dart) to call ae_apply_pending_rate_change().
+                        e->pendingAutoBitPerfectRate.store(nativeRate, std::memory_order_release);
                     }
                 }
 
@@ -5217,6 +5222,24 @@ extern "C"
     AE_API int ae_get_auto_bit_perfect_enabled(AudioEngineHandle *engine)
     {
         return engine ? (engine->autoBitPerfectEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    // Called from the Dart control thread (e.g. on status poll) to safely apply
+    // a pending Auto Bit-Perfect sample rate change detected by worker_loop.
+    // Returns the new sample rate, or 0 if nothing is pending.
+    // The caller is responsible for calling ae_set_output_sample_rate() which
+    // triggers restart_and_apply_config() from the correct (control) thread context.
+    AE_API int ae_consume_pending_rate_change(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        // Atomically read and clear the pending rate
+        int pending = engine->pendingAutoBitPerfectRate.exchange(0, std::memory_order_acq_rel);
+        if (pending > 0)
+        {
+            engine_log("ae_consume_pending_rate_change: Applying deferred Auto Bit-Perfect rate = %d Hz", pending);
+        }
+        return pending;
     }
 
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right)
