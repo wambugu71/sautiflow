@@ -1224,13 +1224,9 @@ namespace
                 gain = mix * 2.0f + 1.0f;
         }
 
-        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        void process(float *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 2) return;
-            if (!initialized || cachedSampleRate != sampleRate)
-            {
-                refresh(sampleRate);
-            }
+            if (channels < 2 || !initialized) return;
 
             unsigned int *samplingPeriod = subband0.decimationCounter;
             unsigned int *Sk = subband0.Sk;
@@ -2218,6 +2214,9 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
 
     ma_biquad_config bqCfg = ma_biquad_config_init(ma_format_f32, channels, e->bq_b0, e->bq_b1, e->bq_b2, e->bq_a0, e->bq_a1, e->bq_a2);
     (void)ma_biquad_init(&bqCfg, nullptr, &e->customBiquad);
+
+    e->stereoEnhancement.refresh((int)sampleRate);
+    e->crystalizer.init((int)sampleRate);
 }
 
 static void set_last_error(AudioEngineHandle *e, const std::string &message)
@@ -2298,7 +2297,8 @@ static bool load_decoder_for_path(
     }
 
     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
-    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, (ma_uint32)e->sampleRate);
+    ma_uint32 targetRate = e->autoBitPerfectEnabled.load(std::memory_order_relaxed) ? 0 : (ma_uint32)e->sampleRate;
+    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, targetRate);
     static ma_decoding_backend_vtable *pCustomDecoders[] = {&g_ma_decoding_backend_vtable_mp4_aac};
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
@@ -2596,6 +2596,18 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
                 arm_transition_fade_in(e);
+
+                if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
+                {
+                    const int nativeRate = (int)newCurrent->outputSampleRate;
+                    if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                    {
+                        engine_log("Auto Bit-Perfect: Track native sample rate is %d Hz (current hardware rate: %d Hz). Switching DAC sample rate...", nativeRate, e->outputSampleRate);
+                        e->outputSampleRate = nativeRate;
+                        e->sampleRate = nativeRate;
+                        restart_and_apply_config(e);
+                    }
+                }
 
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                     e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
@@ -3154,13 +3166,25 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
         if (!e->exclusiveModeEnabled)
         {
+            const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
+
             // Volume (main gain × replay gain)
             {
                 const float vol = e->gain * e->replayGainLinear;
                 if (vol != 1.0f)
                 {
-                    for (size_t i = 0; i < produced * e->channels; ++i)
-                        processBuffer[i] *= vol;
+                    if (use64)
+                    {
+                        const double vol64 = (double)vol;
+                        const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] = (float)((double)processBuffer[i] * vol64);
+                    }
+                    else
+                    {
+                        for (size_t i = 0; i < produced * e->channels; ++i)
+                            processBuffer[i] *= vol;
+                    }
                 }
             }
 
@@ -3177,12 +3201,24 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                     for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                     {
-                        const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
-                        const float currentVol = volBeg + (volEnd - volBeg) * t;
                         const size_t base = (size_t)i * (size_t)e->channels;
-                        for (int c = 0; c < e->channels; ++c)
+                        if (use64)
                         {
-                            processBuffer[base + (size_t)c] *= currentVol;
+                            const double t64 = clampd((double)(processed + (ma_uint64)i) / (double)fadeTotal, 0.0, 1.0);
+                            const double currentVol64 = (double)volBeg + ((double)volEnd - (double)volBeg) * t64;
+                            for (int c = 0; c < e->channels; ++c)
+                            {
+                                processBuffer[base + (size_t)c] = (float)((double)processBuffer[base + (size_t)c] * currentVol64);
+                            }
+                        }
+                        else
+                        {
+                            const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                            const float currentVol = volBeg + (volEnd - volBeg) * t;
+                            for (int c = 0; c < e->channels; ++c)
+                            {
+                                processBuffer[base + (size_t)c] *= currentVol;
+                            }
                         }
                         fadeRemaining -= 1;
                     }
@@ -3210,13 +3246,27 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             // Pan (Assume Stereo or more)
             if (e->channels >= 2 && e->pan != 0.0f)
             {
-                float p = e->pan;
-                const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
-                const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
-                for (ma_uint32 i = 0; i < produced; ++i)
+                if (use64)
                 {
-                    processBuffer[i * e->channels] *= l;
-                    processBuffer[i * e->channels + 1] *= r;
+                    const double p = (double)e->pan;
+                    const double l = clampd(1.0 - std::max(0.0, p), 0.0, 1.0);
+                    const double r = clampd(1.0 + std::min(0.0, p), 0.0, 1.0);
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        processBuffer[i * e->channels]     = (float)((double)processBuffer[i * e->channels] * l);
+                        processBuffer[i * e->channels + 1] = (float)((double)processBuffer[i * e->channels + 1] * r);
+                    }
+                }
+                else
+                {
+                    float p = e->pan;
+                    const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
+                    const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        processBuffer[i * e->channels] *= l;
+                        processBuffer[i * e->channels + 1] *= r;
+                    }
                 }
             }
 
@@ -3230,9 +3280,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     for (ma_uint32 i = 0; i < produced; ++i)
                     {
                         if (invL)
-                            processBuffer[i * ch + 0] = -processBuffer[i * ch + 0];
+                            processBuffer[i * ch + 0] = (float)(-(double)processBuffer[i * ch + 0]);
                         if (ch > 1 && invR)
-                            processBuffer[i * ch + 1] = -processBuffer[i * ch + 1];
+                            processBuffer[i * ch + 1] = (float)(-(double)processBuffer[i * ch + 1]);
                     }
                 }
             }
@@ -3251,8 +3301,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             // JamesDSP Stereo Enhancement
             if (e->stereoEnhancementEnabled)
             {
-                const int sr = (e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate;
-                e->stereoEnhancement.process(processBuffer, produced, e->channels, sr);
+                e->stereoEnhancement.process(processBuffer, produced, e->channels);
             }
 
             // Dynamic Bass
@@ -3264,7 +3313,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             // Crystalizer (transient edge reconstruction + air shelf)
             if (e->crystalizerEnabled)
             {
-                e->crystalizer.resetIfRateChanged(e->outputSampleRate > 0 ? e->outputSampleRate : e->sampleRate);
                 e->crystalizer.process(processBuffer, produced, e->channels);
             }
 

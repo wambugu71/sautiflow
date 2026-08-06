@@ -1139,21 +1139,8 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'setEngineResampleAlgorithm':
-          // Changing the resample algorithm reinitialises the internal resampler
-          // which resets the playback cursor to 0.  Save the current position
-          // first and restore it after the change.
-          {
-            final statusBefore = player.status;
-            final posBefore = statusBefore.positionSeconds;
-            player.setEngineResampleAlgorithm(
-                ResampleAlgorithm.values[message['algorithm'] ?? 0]);
-            if (posBefore > 0) {
-              Future.microtask(() {
-                player
-                    .seekTo(Duration(milliseconds: (posBefore * 1000).round()));
-              });
-            }
-          }
+          player.setEngineResampleAlgorithm(
+              ResampleAlgorithm.values[message['algorithm'] ?? 0]);
           break;
         case 'setEngineDitherMode':
           player.setEngineDitherMode(message['mode'] ?? 0);
@@ -1267,19 +1254,7 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setOutputFormat(AudioFormat.values[message['format']]);
           break;
         case 'setOutputSampleRate':
-          // Changing the output sample rate may reinitialise the audio device
-          // and reset the playback cursor.  Restore the position after.
-          {
-            final statusBefore = player.status;
-            final posBefore = statusBefore.positionSeconds;
-            player.setOutputSampleRate(message['rate']);
-            if (posBefore > 0) {
-              Future.microtask(() {
-                player
-                    .seekTo(Duration(milliseconds: (posBefore * 1000).round()));
-              });
-            }
-          }
+          player.setOutputSampleRate(message['rate']);
           break;
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
