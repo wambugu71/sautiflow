@@ -25,10 +25,10 @@ void main() {
         float z = 0.4 / (horizonY - uv.y);
         vec2 gridUv = vec2(uv.x * z, z + uTime * (1.0 + uBass * 2.0));
         
-        // Grid line calculation
-        vec2 gridLines = abs(fract(gridUv - 0.5) - 0.5) / fwidth(gridUv);
-        float line = min(gridLines.x, gridLines.y);
-        float gridIntensity = 1.0 - min(line, 1.0);
+        // Grid line calculation (without fwidth for Flutter GLSL compatibility)
+        vec2 g = abs(fract(gridUv - 0.5) - 0.5);
+        float line = min(g.x, g.y);
+        float gridIntensity = smoothstep(0.04, 0.0, line);
         
         // Grid elevation wave pulsing with bass & mid
         float gridWave = sin(gridUv.x * 4.0 + uTime * 3.0) * uBass * 0.5;
