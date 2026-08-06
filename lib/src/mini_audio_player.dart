@@ -364,6 +364,16 @@ class MiniAudioPlayer {
       _engine.setDirection(x: x, y: y, z: z);
   void setVelocity({required double x, required double y, required double z}) =>
       _engine.setVelocity(x: x, y: y, z: z);
+  void setSoundCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) =>
+      _engine.setSoundCone(
+        innerAngleRad: innerAngleRad,
+        outerAngleRad: outerAngleRad,
+        outerGain: outerGain,
+      );
   void setAttenuationModel(int model) => _engine.setAttenuationModel(model);
   void setRolloff(double rolloff) => _engine.setRolloff(rolloff);
   void setMinGain(double minGain) => _engine.setMinGain(minGain);
@@ -374,6 +384,29 @@ class MiniAudioPlayer {
       _engine.setMaxDistance(maxDistance);
   void setDopplerFactor(double dopplerFactor) =>
       _engine.setDopplerFactor(dopplerFactor);
+
+  void setListenerPosition(
+          {required double x, required double y, required double z}) =>
+      _engine.setListenerPosition(x: x, y: y, z: z);
+  void setListenerDirection(
+          {required double x, required double y, required double z}) =>
+      _engine.setListenerDirection(x: x, y: y, z: z);
+  void setListenerVelocity(
+          {required double x, required double y, required double z}) =>
+      _engine.setListenerVelocity(x: x, y: y, z: z);
+  void setListenerWorldUp(
+          {required double x, required double y, required double z}) =>
+      _engine.setListenerWorldUp(x: x, y: y, z: z);
+  void setListenerCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) =>
+      _engine.setListenerCone(
+        innerAngleRad: innerAngleRad,
+        outerAngleRad: outerAngleRad,
+        outerGain: outerGain,
+      );
 
   // --- Fading & Scheduling ---
   void setFade(double startVol, double endVol, int durationMs) =>

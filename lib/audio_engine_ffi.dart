@@ -13,6 +13,8 @@ enum AudioFormat { f32, s16, u8, s24, s32 }
 
 enum EqBandType { peak, bandpass, notch, lowshelf, highshelf }
 
+enum AttenuationModel { none, inverse, linear, exponential }
+
 class EqBandConfig {
   const EqBandConfig({
     required this.type,
@@ -534,6 +536,12 @@ typedef _SetSpatializationEnabledDart = void Function(
 typedef _SetSpatializationVec3Native = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
 typedef _SetSpatializationVec3Dart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
+// ae_set_sound_cone, ae_set_listener_cone (engine, inner_angle_rad, outer_angle_rad, outer_gain)
+typedef _SetConeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetConeDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
 typedef _SetSingleIntNative = ffi.Void Function(
@@ -1177,6 +1185,8 @@ class AudioEngineFFI {
         _SetSpatializationVec3Dart>('ae_set_direction');
     _setVelocity = _lib.lookupFunction<_SetSpatializationVec3Native,
         _SetSpatializationVec3Dart>('ae_set_velocity');
+    _setSoundCone = _lib.lookupFunction<_SetConeNative,
+        _SetConeDart>('ae_set_sound_cone');
     _setAttenuationModel = _lib
         .lookupFunction<_SetIntNative, _SetIntDart>('ae_set_attenuation_model');
     _setRolloff =
@@ -1197,6 +1207,18 @@ class AudioEngineFFI {
     _setDopplerFactor =
         _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
             'ae_set_doppler_factor');
+
+    // Listener 3D Spatialization
+    _setListenerPosition = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_listener_position');
+    _setListenerDirection = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_listener_direction');
+    _setListenerVelocity = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_listener_velocity');
+    _setListenerWorldUp = _lib.lookupFunction<_SetSpatializationVec3Native,
+        _SetSpatializationVec3Dart>('ae_set_listener_world_up');
+    _setListenerCone = _lib.lookupFunction<_SetConeNative,
+        _SetConeDart>('ae_set_listener_cone');
 
     // Fading & Scheduling
     _setFadeInMilliseconds = _lib.lookupFunction<_SetFadeInMillisecondsNative,
@@ -1484,6 +1506,7 @@ class AudioEngineFFI {
   late final _SetSpatializationVec3Dart _setPosition;
   late final _SetSpatializationVec3Dart _setDirection;
   late final _SetSpatializationVec3Dart _setVelocity;
+  late final _SetConeDart _setSoundCone;
   late final _SetIntDart _setAttenuationModel;
   late final _SetSingleFloatDart _setRolloff;
   late final _SetSingleFloatDart _setMinGain;
@@ -1491,6 +1514,13 @@ class AudioEngineFFI {
   late final _SetSingleFloatDart _setMinDistance;
   late final _SetSingleFloatDart _setMaxDistance;
   late final _SetSingleFloatDart _setDopplerFactor;
+
+  // Listener 3D Spatialization
+  late final _SetSpatializationVec3Dart _setListenerPosition;
+  late final _SetSpatializationVec3Dart _setListenerDirection;
+  late final _SetSpatializationVec3Dart _setListenerVelocity;
+  late final _SetSpatializationVec3Dart _setListenerWorldUp;
+  late final _SetConeDart _setListenerCone;
 
   // Fading & Scheduling
   late final _SetFadeInMillisecondsDart _setFadeInMilliseconds;
@@ -2181,10 +2211,23 @@ class AudioEngineFFI {
     _setVelocity(_engine, x, y, z);
   }
 
+  void setSoundCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setSoundCone(_engine, innerAngleRad, outerAngleRad, outerGain);
+  }
+
   /// 0 = None, 1 = Inverse, 2 = Linear, 3 = Exponential
   void setAttenuationModel(int model) {
     if (_engine == ffi.nullptr) return;
     _setAttenuationModel(_engine, model);
+  }
+
+  void setAttenuationModelEnum(AttenuationModel model) {
+    setAttenuationModel(model.index);
   }
 
   void setRolloff(double rolloff) {
@@ -2215,6 +2258,53 @@ class AudioEngineFFI {
   void setDopplerFactor(double dopplerFactor) {
     if (_engine == ffi.nullptr) return;
     _setDopplerFactor(_engine, dopplerFactor);
+  }
+
+  // Listener 3D Spatialization
+
+  void setListenerPosition({
+    required double x,
+    required double y,
+    required double z,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setListenerPosition(_engine, x, y, z);
+  }
+
+  void setListenerDirection({
+    required double x,
+    required double y,
+    required double z,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setListenerDirection(_engine, x, y, z);
+  }
+
+  void setListenerVelocity({
+    required double x,
+    required double y,
+    required double z,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setListenerVelocity(_engine, x, y, z);
+  }
+
+  void setListenerWorldUp({
+    required double x,
+    required double y,
+    required double z,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setListenerWorldUp(_engine, x, y, z);
+  }
+
+  void setListenerCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setListenerCone(_engine, innerAngleRad, outerAngleRad, outerGain);
   }
 
   // Fading & Scheduling

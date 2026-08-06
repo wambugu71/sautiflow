@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -207,6 +207,18 @@ class _EqScreenState extends State<EqScreen>
   double _spatX = 0.0;
   double _spatY = 0.0;
   double _spatZ = 0.0;
+  int _spatAttenuationModel = 1;
+  double _spatRolloff = 1.0;
+  double _spatMinDistance = 1.0;
+  double _spatMaxDistance = 100.0;
+  double _spatDopplerFactor = 1.0;
+  double _soundConeInnerRad = 3.14;
+  double _soundConeOuterRad = 6.28;
+  double _soundConeOuterGain = 0.5;
+  double _listenerX = 0.0;
+  double _listenerY = 0.0;
+  double _listenerZ = 0.0;
+  double _listenerDirZ = 1.0;
 
   // Custom Filters
   bool _customLpfEnabled = false;
@@ -2296,6 +2308,21 @@ class _EqScreenState extends State<EqScreen>
         .setReverb(mix: _reverbMix, feedback: feedback, delayMs: delayMs);
   }
 
+  Widget _buildSectionSubHeader(String title) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          color: primaryColor.withValues(alpha: 0.8),
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+
   Widget _buildTrue3dSection() {
     return _CollapsibleSection(
       icon: Container(
@@ -2308,7 +2335,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
       ),
       title: 'True 3D Spatial Audio',
-      subtitle: 'X/Y/Z Source Placement',
+      subtitle: 'Positioning, Cones & Attenuation',
       isEnabled: _true3dEnabled,
       onToggle: (v) {
         setState(() => _true3dEnabled = v);
@@ -2317,11 +2344,13 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        _buildSectionSubHeader('Sound Source Position'),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'X (PAN)',
+              label: 'SRC X',
               value: _spatX,
               min: -5.0,
               max: 5.0,
@@ -2335,7 +2364,7 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
             ModernAudioKnob(
-              label: 'Y (UP)',
+              label: 'SRC Y',
               value: _spatY,
               min: -5.0,
               max: 5.0,
@@ -2349,7 +2378,7 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
             ModernAudioKnob(
-              label: 'Z (FWD)',
+              label: 'SRC Z',
               value: _spatZ,
               min: -5.0,
               max: 5.0,
@@ -2364,12 +2393,227 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        _buildSectionSubHeader('Distance Attenuation & Doppler'),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Attenuation Model',
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8), fontSize: 13)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(
+                color: surfaceDarkColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+              ),
+              child: DropdownButton<int>(
+                value: _spatAttenuationModel,
+                dropdownColor: surfaceDarkerColor,
+                underline: const SizedBox(),
+                icon: Icon(Icons.arrow_drop_down, color: primaryColor),
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('None')),
+                  DropdownMenuItem(value: 1, child: Text('Inverse')),
+                  DropdownMenuItem(value: 2, child: Text('Linear')),
+                  DropdownMenuItem(value: 3, child: Text('Exponential')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _spatAttenuationModel = val);
+                    if (_true3dEnabled) _updateTrue3dPositions();
+                    _saveEqState();
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'ROLLOFF',
+              value: _spatRolloff,
+              min: 0.0,
+              max: 5.0,
+              flatValue: 1.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
+              onChanged: (v) {
+                setState(() => _spatRolloff = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MIN DIST',
+              value: _spatMinDistance,
+              min: 0.1,
+              max: 20.0,
+              flatValue: 1.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}m',
+              onChanged: (v) {
+                setState(() => _spatMinDistance = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX DIST',
+              value: _spatMaxDistance,
+              min: 1.0,
+              max: 500.0,
+              flatValue: 100.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()}m',
+              onChanged: (v) {
+                setState(() => _spatMaxDistance = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'DOPPLER',
+              value: _spatDopplerFactor,
+              min: 0.0,
+              max: 5.0,
+              flatValue: 1.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
+              onChanged: (v) {
+                setState(() => _spatDopplerFactor = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _buildSectionSubHeader('Sound Cone & Directivity'),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'INNER CONE',
+              value: _soundConeInnerRad,
+              min: 0.0,
+              max: 6.28,
+              flatValue: 3.14,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${(v * 180 / 3.14159).round()}°',
+              onChanged: (v) {
+                setState(() => _soundConeInnerRad = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'OUTER CONE',
+              value: _soundConeOuterRad,
+              min: 0.0,
+              max: 6.28,
+              flatValue: 6.28,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${(v * 180 / 3.14159).round()}°',
+              onChanged: (v) {
+                setState(() => _soundConeOuterRad = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'OUTER GAIN',
+              value: _soundConeOuterGain,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _soundConeOuterGain = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _buildSectionSubHeader('Listener Position & Orientation'),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'LISTENER X',
+              value: _listenerX,
+              min: -5.0,
+              max: 5.0,
+              flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(1),
+              onChanged: (v) {
+                setState(() => _listenerX = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'LISTENER Y',
+              value: _listenerY,
+              min: -5.0,
+              max: 5.0,
+              flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(1),
+              onChanged: (v) {
+                setState(() => _listenerY = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'LISTENER Z',
+              value: _listenerZ,
+              min: -5.0,
+              max: 5.0,
+              flatValue: 0.0,
+              activeColor: _true3dEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(1),
+              onChanged: (v) {
+                setState(() => _listenerZ = v);
+                if (_true3dEnabled) _updateTrue3dPositions();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
       ],
     );
   }
 
   void _updateTrue3dPositions() {
+    widget.player.setSpatializationEnabled(_true3dEnabled);
     widget.player.setPosition(x: _spatX, y: _spatY, z: _spatZ);
+    widget.player.setAttenuationModel(_spatAttenuationModel);
+    widget.player.setRolloff(_spatRolloff);
+    widget.player.setMinDistance(_spatMinDistance);
+    widget.player.setMaxDistance(_spatMaxDistance);
+    widget.player.setDopplerFactor(_spatDopplerFactor);
+    widget.player.setSoundCone(
+      innerAngleRad: _soundConeInnerRad,
+      outerAngleRad: _soundConeOuterRad,
+      outerGain: _soundConeOuterGain,
+    );
+    widget.player.setListenerPosition(x: _listenerX, y: _listenerY, z: _listenerZ);
+    widget.player.setListenerDirection(x: 0.0, y: 0.0, z: _listenerDirZ);
   }
 
   Widget _buildAudioTuningSection() {

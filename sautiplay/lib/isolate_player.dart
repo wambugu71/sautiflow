@@ -215,6 +215,59 @@ class IsolateAudioPlayer {
   void setPosition({required double x, required double y, required double z}) {
     _send({'cmd': 'setPosition', 'x': x, 'y': y, 'z': z});
   }
+  void setDirection({required double x, required double y, required double z}) =>
+      _send({'cmd': 'setDirection', 'x': x, 'y': y, 'z': z});
+  void setVelocity({required double x, required double y, required double z}) =>
+      _send({'cmd': 'setVelocity', 'x': x, 'y': y, 'z': z});
+  void setSoundCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) =>
+      _send({
+        'cmd': 'setSoundCone',
+        'innerAngleRad': innerAngleRad,
+        'outerAngleRad': outerAngleRad,
+        'outerGain': outerGain,
+      });
+  void setAttenuationModel(int model) =>
+      _send({'cmd': 'setAttenuationModel', 'model': model});
+  void setRolloff(double rolloff) =>
+      _send({'cmd': 'setRolloff', 'rolloff': rolloff});
+  void setMinGain(double minGain) =>
+      _send({'cmd': 'setMinGain', 'minGain': minGain});
+  void setMaxGain(double maxGain) =>
+      _send({'cmd': 'setMaxGain', 'maxGain': maxGain});
+  void setMinDistance(double minDistance) =>
+      _send({'cmd': 'setMinDistance', 'minDistance': minDistance});
+  void setMaxDistance(double maxDistance) =>
+      _send({'cmd': 'setMaxDistance', 'maxDistance': maxDistance});
+  void setDopplerFactor(double dopplerFactor) =>
+      _send({'cmd': 'setDopplerFactor', 'dopplerFactor': dopplerFactor});
+
+  void setListenerPosition(
+          {required double x, required double y, required double z}) =>
+      _send({'cmd': 'setListenerPosition', 'x': x, 'y': y, 'z': z});
+  void setListenerDirection(
+          {required double x, required double y, required double z}) =>
+      _send({'cmd': 'setListenerDirection', 'x': x, 'y': y, 'z': z});
+  void setListenerVelocity(
+          {required double x, required double y, required double z}) =>
+      _send({'cmd': 'setListenerVelocity', 'x': x, 'y': y, 'z': z});
+  void setListenerWorldUp(
+          {required double x, required double y, required double z}) =>
+      _send({'cmd': 'setListenerWorldUp', 'x': x, 'y': y, 'z': z});
+  void setListenerCone({
+    required double innerAngleRad,
+    required double outerAngleRad,
+    required double outerGain,
+  }) =>
+      _send({
+        'cmd': 'setListenerCone',
+        'innerAngleRad': innerAngleRad,
+        'outerAngleRad': outerAngleRad,
+        'outerGain': outerGain,
+      });
 
   void setReverbEnabled(bool enabled) =>
       _send({'cmd': 'setReverbEnabled', 'enabled': enabled});
@@ -891,6 +944,83 @@ void _isolateEntry(_IsolateInitData initData) {
             x: message['x'],
             y: message['y'],
             z: message['z'],
+          );
+          break;
+        case 'setDirection':
+          player.setDirection(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setVelocity':
+          player.setVelocity(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setSoundCone':
+          player.setSoundCone(
+            innerAngleRad: message['innerAngleRad'],
+            outerAngleRad: message['outerAngleRad'],
+            outerGain: message['outerGain'],
+          );
+          break;
+        case 'setAttenuationModel':
+          player.setAttenuationModel(message['model']);
+          break;
+        case 'setRolloff':
+          player.setRolloff(message['rolloff']);
+          break;
+        case 'setMinGain':
+          player.setMinGain(message['minGain']);
+          break;
+        case 'setMaxGain':
+          player.setMaxGain(message['maxGain']);
+          break;
+        case 'setMinDistance':
+          player.setMinDistance(message['minDistance']);
+          break;
+        case 'setMaxDistance':
+          player.setMaxDistance(message['maxDistance']);
+          break;
+        case 'setDopplerFactor':
+          player.setDopplerFactor(message['dopplerFactor']);
+          break;
+        case 'setListenerPosition':
+          player.setListenerPosition(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setListenerDirection':
+          player.setListenerDirection(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setListenerVelocity':
+          player.setListenerVelocity(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setListenerWorldUp':
+          player.setListenerWorldUp(
+            x: message['x'],
+            y: message['y'],
+            z: message['z'],
+          );
+          break;
+        case 'setListenerCone':
+          player.setListenerCone(
+            innerAngleRad: message['innerAngleRad'],
+            outerAngleRad: message['outerAngleRad'],
+            outerGain: message['outerGain'],
           );
           break;
         case 'setReverbEnabled':

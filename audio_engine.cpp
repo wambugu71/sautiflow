@@ -3478,6 +3478,7 @@ extern "C"
             if (e->spatializerInitialized)
             {
                 ma_spatializer_uninit(&e->spatializer, nullptr);
+                ma_spatializer_listener_uninit(&e->spatialListener, nullptr);
                 e->spatializerInitialized = false;
             }
         }
@@ -4758,6 +4759,14 @@ extern "C"
         ma_spatializer_set_velocity(&e->spatializer, x, y, z);
     }
 
+    AE_API void ae_set_sound_cone(AudioEngineHandle *e, float inner_angle_rad, float outer_angle_rad, float outer_gain)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_set_cone(&e->spatializer, inner_angle_rad, outer_angle_rad, outer_gain);
+    }
+
     AE_API void ae_set_attenuation_model(AudioEngineHandle *e, int model)
     {
         if (e == nullptr || !e->spatializerInitialized)
@@ -4826,6 +4835,49 @@ extern "C"
         std::lock_guard<std::mutex> lock(e->spatialMutex);
         ma_spatializer_set_doppler_factor(&e->spatializer, doppler_factor);
     }
+
+    // --- Listener 3D Spatialization Controls ---
+
+    AE_API void ae_set_listener_position(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_listener_set_position(&e->spatialListener, x, y, z);
+    }
+
+    AE_API void ae_set_listener_direction(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_listener_set_direction(&e->spatialListener, x, y, z);
+    }
+
+    AE_API void ae_set_listener_velocity(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_listener_set_velocity(&e->spatialListener, x, y, z);
+    }
+
+    AE_API void ae_set_listener_world_up(AudioEngineHandle *e, float x, float y, float z)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_listener_set_world_up(&e->spatialListener, x, y, z);
+    }
+
+    AE_API void ae_set_listener_cone(AudioEngineHandle *e, float inner_angle_rad, float outer_angle_rad, float outer_gain)
+    {
+        if (e == nullptr || !e->spatializerInitialized)
+            return;
+        std::lock_guard<std::mutex> lock(e->spatialMutex);
+        ma_spatializer_listener_set_cone(&e->spatialListener, inner_angle_rad, outer_angle_rad, outer_gain);
+    }
+
 
     // --- Fading & Scheduling ---
 

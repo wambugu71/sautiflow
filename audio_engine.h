@@ -197,6 +197,7 @@ extern "C"
     AE_API void ae_set_position(AudioEngineHandle *engine, float x, float y, float z);
     AE_API void ae_set_direction(AudioEngineHandle *engine, float x, float y, float z);
     AE_API void ae_set_velocity(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_sound_cone(AudioEngineHandle *engine, float inner_angle_rad, float outer_angle_rad, float outer_gain);
     // Attenuation models: 0=None, 1=Inverse, 2=Linear, 3=Exponential
     AE_API void ae_set_attenuation_model(AudioEngineHandle *engine, int model);
     AE_API void ae_set_rolloff(AudioEngineHandle *engine, float rolloff);
@@ -205,6 +206,13 @@ extern "C"
     AE_API void ae_set_min_distance(AudioEngineHandle *engine, float min_distance);
     AE_API void ae_set_max_distance(AudioEngineHandle *engine, float max_distance);
     AE_API void ae_set_doppler_factor(AudioEngineHandle *engine, float doppler_factor);
+
+    // Listener 3D Spatialization Controls
+    AE_API void ae_set_listener_position(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_listener_direction(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_listener_velocity(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_listener_world_up(AudioEngineHandle *engine, float x, float y, float z);
+    AE_API void ae_set_listener_cone(AudioEngineHandle *engine, float inner_angle_rad, float outer_angle_rad, float outer_gain);
 
     // Fading & Scheduling
     // Wait fade: sets a target volume over ms time
