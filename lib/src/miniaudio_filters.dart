@@ -78,6 +78,45 @@ typedef _CreateBiquadDart = ffi.Pointer<ffi.Void> Function(
     double a1,
     double a2);
 
+typedef _CreateNotch2Native = ffi.Pointer<ffi.Void> Function(
+    ffi.Int32 format,
+    ffi.Int32 channels,
+    ffi.Int32 sampleRate,
+    ffi.Double q,
+    ffi.Double cutoffHz);
+typedef _CreateNotch2Dart = ffi.Pointer<ffi.Void> Function(
+    int format, int channels, int sampleRate, double q, double cutoffHz);
+
+typedef _CreatePeak2Native = ffi.Pointer<ffi.Void> Function(
+    ffi.Int32 format,
+    ffi.Int32 channels,
+    ffi.Int32 sampleRate,
+    ffi.Double gainDb,
+    ffi.Double q,
+    ffi.Double cutoffHz);
+typedef _CreatePeak2Dart = ffi.Pointer<ffi.Void> Function(
+    int format,
+    int channels,
+    int sampleRate,
+    double gainDb,
+    double q,
+    double cutoffHz);
+
+typedef _CreateShelf2Native = ffi.Pointer<ffi.Void> Function(
+    ffi.Int32 format,
+    ffi.Int32 channels,
+    ffi.Int32 sampleRate,
+    ffi.Double gainDb,
+    ffi.Double slope,
+    ffi.Double cutoffHz);
+typedef _CreateShelf2Dart = ffi.Pointer<ffi.Void> Function(
+    int format,
+    int channels,
+    int sampleRate,
+    double gainDb,
+    double slope,
+    double cutoffHz);
+
 typedef _CreateResamplerNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32 format,
     ffi.Int32 channels,
@@ -189,6 +228,72 @@ class MiniaudioFiltersFFI {
     _processHpf = _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
         'ae_hpf_process');
 
+    _createBpf2 = _lib
+        .lookupFunction<_CreateLpf2Native, _CreateLpf2Dart>('ae_bpf2_create');
+    _destroyBpf2 = _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+        'ae_bpf2_destroy');
+    _reinitBpf2 = _lib
+        .lookupFunction<_CreateLpf2Native, _CreateLpf2Dart>('ae_bpf2_reinit');
+    _processBpf2 =
+        _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+            'ae_bpf2_process');
+
+    _createBpf =
+        _lib.lookupFunction<_CreateLpfNative, _CreateLpfDart>('ae_bpf_create');
+    _destroyBpf = _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+        'ae_bpf_destroy');
+    _reinitBpf =
+        _lib.lookupFunction<_CreateLpfNative, _CreateLpfDart>('ae_bpf_reinit');
+    _processBpf = _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+        'ae_bpf_process');
+
+    _createNotch2 = _lib.lookupFunction<_CreateNotch2Native, _CreateNotch2Dart>(
+        'ae_notch2_create');
+    _destroyNotch2 =
+        _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+            'ae_notch2_destroy');
+    _reinitNotch2 = _lib.lookupFunction<_CreateNotch2Native, _CreateNotch2Dart>(
+        'ae_notch2_reinit');
+    _processNotch2 =
+        _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+            'ae_notch2_process');
+
+    _createPeak2 = _lib.lookupFunction<_CreatePeak2Native, _CreatePeak2Dart>(
+        'ae_peak2_create');
+    _destroyPeak2 = _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+        'ae_peak2_destroy');
+    _reinitPeak2 = _lib.lookupFunction<_CreatePeak2Native, _CreatePeak2Dart>(
+        'ae_peak2_reinit');
+    _processPeak2 =
+        _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+            'ae_peak2_process');
+
+    _createLoshelf2 = _lib
+        .lookupFunction<_CreateShelf2Native, _CreateShelf2Dart>(
+            'ae_loshelf2_create');
+    _destroyLoshelf2 =
+        _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+            'ae_loshelf2_destroy');
+    _reinitLoshelf2 = _lib
+        .lookupFunction<_CreateShelf2Native, _CreateShelf2Dart>(
+            'ae_loshelf2_reinit');
+    _processLoshelf2 =
+        _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+            'ae_loshelf2_process');
+
+    _createHishelf2 = _lib
+        .lookupFunction<_CreateShelf2Native, _CreateShelf2Dart>(
+            'ae_hishelf2_create');
+    _destroyHishelf2 =
+        _lib.lookupFunction<_VoidFilterOpNative, _VoidFilterOpDart>(
+            'ae_hishelf2_destroy');
+    _reinitHishelf2 = _lib
+        .lookupFunction<_CreateShelf2Native, _CreateShelf2Dart>(
+            'ae_hishelf2_reinit');
+    _processHishelf2 =
+        _lib.lookupFunction<_ProcessFilterNative, _ProcessFilterDart>(
+            'ae_hishelf2_process');
+
     _createBiquad = _lib.lookupFunction<_CreateBiquadNative, _CreateBiquadDart>(
         'ae_biquad_create');
     _destroyBiquad =
@@ -257,6 +362,36 @@ class MiniaudioFiltersFFI {
   late final _VoidFilterOpDart _destroyHpf;
   late final _CreateLpfDart _reinitHpf;
   late final _ProcessFilterDart _processHpf;
+
+  late final _CreateLpf2Dart _createBpf2;
+  late final _VoidFilterOpDart _destroyBpf2;
+  late final _CreateLpf2Dart _reinitBpf2;
+  late final _ProcessFilterDart _processBpf2;
+
+  late final _CreateLpfDart _createBpf;
+  late final _VoidFilterOpDart _destroyBpf;
+  late final _CreateLpfDart _reinitBpf;
+  late final _ProcessFilterDart _processBpf;
+
+  late final _CreateNotch2Dart _createNotch2;
+  late final _VoidFilterOpDart _destroyNotch2;
+  late final _CreateNotch2Dart _reinitNotch2;
+  late final _ProcessFilterDart _processNotch2;
+
+  late final _CreatePeak2Dart _createPeak2;
+  late final _VoidFilterOpDart _destroyPeak2;
+  late final _CreatePeak2Dart _reinitPeak2;
+  late final _ProcessFilterDart _processPeak2;
+
+  late final _CreateShelf2Dart _createLoshelf2;
+  late final _VoidFilterOpDart _destroyLoshelf2;
+  late final _CreateShelf2Dart _reinitLoshelf2;
+  late final _ProcessFilterDart _processLoshelf2;
+
+  late final _CreateShelf2Dart _createHishelf2;
+  late final _VoidFilterOpDart _destroyHishelf2;
+  late final _CreateShelf2Dart _reinitHishelf2;
+  late final _ProcessFilterDart _processHishelf2;
 
   late final _CreateBiquadDart _createBiquad;
   late final _VoidFilterOpDart _destroyBiquad;
@@ -388,6 +523,128 @@ class MiniaudioFiltersFFI {
   }
 
   void destroyHpf(ffi.Pointer<ffi.Void> filter) => _destroyHpf(filter);
+
+  ffi.Pointer<ffi.Void> createBpf2(AudioFormat format, int channels,
+      int sampleRate, double cutoffHz, double q) {
+    return _createBpf2(format.index, channels, sampleRate, cutoffHz, q);
+  }
+
+  void reinitBpf2(ffi.Pointer<ffi.Void> filter, AudioFormat format,
+      int channels, int sampleRate, double cutoffHz, double q) {
+    _reinitBpf2(format.index, channels, sampleRate, cutoffHz, q);
+  }
+
+  bool processBpf2(
+      ffi.Pointer<ffi.Void> filter,
+      ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    return _processBpf2(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyBpf2(ffi.Pointer<ffi.Void> filter) => _destroyBpf2(filter);
+
+  ffi.Pointer<ffi.Void> createBpf(AudioFormat format, int channels,
+      int sampleRate, double cutoffHz, int order) {
+    return _createBpf(format.index, channels, sampleRate, cutoffHz, order);
+  }
+
+  void reinitBpf(ffi.Pointer<ffi.Void> filter, AudioFormat format, int channels,
+      int sampleRate, double cutoffHz, int order) {
+    _reinitBpf(format.index, channels, sampleRate, cutoffHz, order);
+  }
+
+  bool processBpf(ffi.Pointer<ffi.Void> filter, ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames, int frameCount) {
+    return _processBpf(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyBpf(ffi.Pointer<ffi.Void> filter) => _destroyBpf(filter);
+
+  ffi.Pointer<ffi.Void> createNotch2(
+      AudioFormat format, int channels, int sampleRate, double q, double cutoffHz) {
+    return _createNotch2(format.index, channels, sampleRate, q, cutoffHz);
+  }
+
+  void reinitNotch2(ffi.Pointer<ffi.Void> filter, AudioFormat format,
+      int channels, int sampleRate, double q, double cutoffHz) {
+    _reinitNotch2(format.index, channels, sampleRate, q, cutoffHz);
+  }
+
+  bool processNotch2(
+      ffi.Pointer<ffi.Void> filter,
+      ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    return _processNotch2(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyNotch2(ffi.Pointer<ffi.Void> filter) => _destroyNotch2(filter);
+
+  ffi.Pointer<ffi.Void> createPeak2(AudioFormat format, int channels,
+      int sampleRate, double gainDb, double q, double cutoffHz) {
+    return _createPeak2(
+        format.index, channels, sampleRate, gainDb, q, cutoffHz);
+  }
+
+  void reinitPeak2(ffi.Pointer<ffi.Void> filter, AudioFormat format,
+      int channels, int sampleRate, double gainDb, double q, double cutoffHz) {
+    _reinitPeak2(format.index, channels, sampleRate, gainDb, q, cutoffHz);
+  }
+
+  bool processPeak2(
+      ffi.Pointer<ffi.Void> filter,
+      ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    return _processPeak2(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyPeak2(ffi.Pointer<ffi.Void> filter) => _destroyPeak2(filter);
+
+  ffi.Pointer<ffi.Void> createLoshelf2(AudioFormat format, int channels,
+      int sampleRate, double gainDb, double slope, double cutoffHz) {
+    return _createLoshelf2(
+        format.index, channels, sampleRate, gainDb, slope, cutoffHz);
+  }
+
+  void reinitLoshelf2(ffi.Pointer<ffi.Void> filter, AudioFormat format,
+      int channels, int sampleRate, double gainDb, double slope, double cutoffHz) {
+    _reinitLoshelf2(
+        format.index, channels, sampleRate, gainDb, slope, cutoffHz);
+  }
+
+  bool processLoshelf2(
+      ffi.Pointer<ffi.Void> filter,
+      ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    return _processLoshelf2(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyLoshelf2(ffi.Pointer<ffi.Void> filter) => _destroyLoshelf2(filter);
+
+  ffi.Pointer<ffi.Void> createHishelf2(AudioFormat format, int channels,
+      int sampleRate, double gainDb, double slope, double cutoffHz) {
+    return _createHishelf2(
+        format.index, channels, sampleRate, gainDb, slope, cutoffHz);
+  }
+
+  void reinitHishelf2(ffi.Pointer<ffi.Void> filter, AudioFormat format,
+      int channels, int sampleRate, double gainDb, double slope, double cutoffHz) {
+    _reinitHishelf2(
+        format.index, channels, sampleRate, gainDb, slope, cutoffHz);
+  }
+
+  bool processHishelf2(
+      ffi.Pointer<ffi.Void> filter,
+      ffi.Pointer<ffi.Void> outFrames,
+      ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    return _processHishelf2(filter, outFrames, inFrames, frameCount) != 0;
+  }
+
+  void destroyHishelf2(ffi.Pointer<ffi.Void> filter) => _destroyHishelf2(filter);
 
   ffi.Pointer<ffi.Void> createBiquad(AudioFormat format, int channels,
       double b0, double b1, double b2, double a0, double a1, double a2) {

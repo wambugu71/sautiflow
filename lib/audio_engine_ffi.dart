@@ -11,7 +11,7 @@ enum LoopMode { off, all, one }
 
 enum AudioFormat { f32, s16, u8, s24, s32 }
 
-enum EqBandType { peak, bandpass, notch, lowshelf, highshelf }
+enum EqBandType { peak, bandpass, notch, lowshelf, highshelf, lowpass, highpass }
 
 enum AttenuationModel { none, inverse, linear, exponential }
 

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
+import 'widgets/custom_filters_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 
@@ -220,12 +221,35 @@ class _EqScreenState extends State<EqScreen>
   double _listenerZ = 0.0;
   double _listenerDirZ = 1.0;
 
-  // Custom Filters
+  // Custom Filters & Standalone Miniaudio Bindings
   bool _customLpfEnabled = false;
   double _customLpfCutoff = 500.0;
 
   bool _customHpfEnabled = false;
   double _customHpfCutoff = 120.0;
+
+  bool _customBpfEnabled = false;
+  double _customBpfCutoff = 1000.0;
+  double _customBpfQ = 0.707;
+
+  bool _customNotchEnabled = false;
+  double _customNotchCutoff = 60.0;
+  double _customNotchQ = 10.0;
+
+  bool _customPeakEnabled = false;
+  double _customPeakCutoff = 1000.0;
+  double _customPeakGainDb = 0.0;
+  double _customPeakQ = 1.0;
+
+  bool _customLoshelfEnabled = false;
+  double _customLoshelfCutoff = 250.0;
+  double _customLoshelfGainDb = 0.0;
+  double _customLoshelfSlope = 1.0;
+
+  bool _customHishelfEnabled = false;
+  double _customHishelfCutoff = 8000.0;
+  double _customHishelfGainDb = 0.0;
+  double _customHishelfSlope = 1.0;
 
   bool _customBiquadEnabled = false;
   double _biquadB0 = 1.0;
@@ -695,6 +719,34 @@ class _EqScreenState extends State<EqScreen>
       _customHpfEnabled = false;
       _customHpfCutoff = 120.0;
       widget.player.setCustomHpf1(enabled: false, cutoffHz: _customHpfCutoff);
+
+      _customBpfEnabled = false;
+      _customBpfCutoff = 1000.0;
+      _customBpfQ = 0.707;
+      widget.player.setBandpass(enabled: false, cutoffHz: _customBpfCutoff, q: _customBpfQ);
+
+      _customNotchEnabled = false;
+      _customNotchCutoff = 60.0;
+      _customNotchQ = 10.0;
+      widget.player.setNotch(enabled: false, frequencyHz: _customNotchCutoff, q: _customNotchQ);
+
+      _customPeakEnabled = false;
+      _customPeakCutoff = 1000.0;
+      _customPeakGainDb = 0.0;
+      _customPeakQ = 1.0;
+      widget.player.setPeakEq(enabled: false, frequencyHz: _customPeakCutoff, gainDb: _customPeakGainDb, q: _customPeakQ);
+
+      _customLoshelfEnabled = false;
+      _customLoshelfCutoff = 250.0;
+      _customLoshelfGainDb = 0.0;
+      _customLoshelfSlope = 1.0;
+      widget.player.setLowshelf(enabled: false, frequencyHz: _customLoshelfCutoff, gainDb: _customLoshelfGainDb, slope: _customLoshelfSlope);
+
+      _customHishelfEnabled = false;
+      _customHishelfCutoff = 8000.0;
+      _customHishelfGainDb = 0.0;
+      _customHishelfSlope = 1.0;
+      widget.player.setHighshelf(enabled: false, frequencyHz: _customHishelfCutoff, gainDb: _customHishelfGainDb, slope: _customHishelfSlope);
 
       _customBiquadEnabled = false;
       widget.player.setCustomBiquad(
@@ -1304,11 +1356,21 @@ class _EqScreenState extends State<EqScreen>
                           title: 'Advanced Filters',
                           subtitle: (_customLpfEnabled ||
                                   _customHpfEnabled ||
+                                  _customBpfEnabled ||
+                                  _customNotchEnabled ||
+                                  _customPeakEnabled ||
+                                  _customLoshelfEnabled ||
+                                  _customHishelfEnabled ||
                                   _customBiquadEnabled)
                               ? 'Active Filters'
                               : 'Disabled',
                           isEnabled: _customLpfEnabled ||
                               _customHpfEnabled ||
+                              _customBpfEnabled ||
+                              _customNotchEnabled ||
+                              _customPeakEnabled ||
+                              _customLoshelfEnabled ||
+                              _customHishelfEnabled ||
                               _customBiquadEnabled,
                           onTapDetail: () => _openDetailScreen(
                             'Advanced Filters',
@@ -2842,7 +2904,18 @@ class _EqScreenState extends State<EqScreen>
                 icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 items: EqBandType.values
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t.name)))
+                    .map((t) => DropdownMenuItem(
+                          value: t,
+                          child: Text(switch (t) {
+                            EqBandType.peak => 'Peak EQ',
+                            EqBandType.bandpass => 'Band-Pass',
+                            EqBandType.notch => 'Notch',
+                            EqBandType.lowshelf => 'Low Shelf',
+                            EqBandType.highshelf => 'High Shelf',
+                            EqBandType.lowpass => 'Low-Pass',
+                            EqBandType.highpass => 'High-Pass',
+                          }),
+                        ))
                     .toList(),
                 onChanged: (v) {
                   if (v != null) {
@@ -2862,7 +2935,6 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
           ),
-          //  const SizedBox(height: 16),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -2933,30 +3005,33 @@ class _EqScreenState extends State<EqScreen>
                 },
               ),
 
-              // Gain Knob
-              ModernAudioKnob(
-                label: 'GAIN',
-                value: band.gainDb,
-                min: -24.0,
-                max: 24.0,
-                flatValue: 0.0,
-                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) =>
-                    '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                onChanged: (v) {
-                  setState(() {
-                    _parametricBands[index] = EqBandConfig(
-                      type: band.type,
-                      frequencyHz: band.frequencyHz,
-                      enabled: band.enabled,
-                      q: band.q,
-                      gainDb: v,
-                      slope: band.slope,
-                    );
-                    _applyParametricBands();
-                  });
-                },
-              ),
+              // Gain Knob (for Peak, Low Shelf, High Shelf)
+              if (band.type == EqBandType.peak ||
+                  band.type == EqBandType.lowshelf ||
+                  band.type == EqBandType.highshelf)
+                ModernAudioKnob(
+                  label: 'GAIN',
+                  value: band.gainDb,
+                  min: -24.0,
+                  max: 24.0,
+                  flatValue: 0.0,
+                  activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) =>
+                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  onChanged: (v) {
+                    setState(() {
+                      _parametricBands[index] = EqBandConfig(
+                        type: band.type,
+                        frequencyHz: band.frequencyHz,
+                        enabled: band.enabled,
+                        q: band.q,
+                        gainDb: v,
+                        slope: band.slope,
+                      );
+                      _applyParametricBands();
+                    });
+                  },
+                ),
             ],
           ),
         ],
@@ -2975,10 +3050,48 @@ class _EqScreenState extends State<EqScreen>
         ),
         child: Icon(Icons.filter_list, color: primaryColor, size: 20),
       ),
-      title: 'Custom Filters',
-      subtitle: 'Real-Time LPF, HPF, Biquad',
+      title: 'Advanced Filters',
+      subtitle: 'Real-Time LPF, HPF, BPF, Notch, Peak, Low/High Shelf & Biquad',
       hasSwitch: false,
       children: [
+        // Real-Time Combined Frequency Response Graph
+        CustomFiltersGraph(
+          config: CustomFilterGraphConfig(
+            lpfEnabled: _customLpfEnabled,
+            lpfCutoff: _customLpfCutoff,
+            hpfEnabled: _customHpfEnabled,
+            hpfCutoff: _customHpfCutoff,
+            bpfEnabled: _customBpfEnabled,
+            bpfCutoff: _customBpfCutoff,
+            bpfQ: _customBpfQ,
+            notchEnabled: _customNotchEnabled,
+            notchCutoff: _customNotchCutoff,
+            notchQ: _customNotchQ,
+            peakEnabled: _customPeakEnabled,
+            peakCutoff: _customPeakCutoff,
+            peakGainDb: _customPeakGainDb,
+            peakQ: _customPeakQ,
+            loshelfEnabled: _customLoshelfEnabled,
+            loshelfCutoff: _customLoshelfCutoff,
+            loshelfGainDb: _customLoshelfGainDb,
+            loshelfSlope: _customLoshelfSlope,
+            hishelfEnabled: _customHishelfEnabled,
+            hishelfCutoff: _customHishelfCutoff,
+            hishelfGainDb: _customHishelfGainDb,
+            hishelfSlope: _customHishelfSlope,
+            biquadEnabled: _customBiquadEnabled,
+            biquadB0: _biquadB0,
+            biquadB1: _biquadB1,
+            biquadB2: _biquadB2,
+            biquadA0: _biquadA0,
+            biquadA1: _biquadA1,
+            biquadA2: _biquadA2,
+          ),
+          primaryColor: primaryColor,
+          height: 125.0,
+        ),
+        const SizedBox(height: 12),
+
         // LPF Section
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2986,7 +3099,7 @@ class _EqScreenState extends State<EqScreen>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Low-Pass Filter',
+                const Text('Low-Pass Filter (LPF)',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -3034,7 +3147,7 @@ class _EqScreenState extends State<EqScreen>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('High-Pass Filter',
+                const Text('High-Pass Filter (HPF)',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
@@ -3070,6 +3183,382 @@ class _EqScreenState extends State<EqScreen>
                   }
                 });
               },
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // Band-Pass Filter (BPF) Section
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Band-Pass Filter (BPF)',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                Switch(
+                  value: _customBpfEnabled,
+                  onChanged: (v) {
+                    setState(() {
+                      _customBpfEnabled = v;
+                      _updateBpf();
+                    });
+                  },
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                ModernAudioKnob(
+                  label: 'CUTOFF',
+                  value: _customBpfCutoff,
+                  min: 20.0,
+                  max: 20000.0,
+                  flatValue: 1000.0,
+                  activeColor: _customBpfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() {
+                      _customBpfCutoff = v;
+                      _updateBpf();
+                    });
+                  },
+                ),
+                const SizedBox(width: 12),
+                ModernAudioKnob(
+                  label: 'Q',
+                  value: _customBpfQ,
+                  min: 0.1,
+                  max: 10.0,
+                  flatValue: 0.707,
+                  activeColor: _customBpfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => v.toStringAsFixed(2),
+                  onChanged: (v) {
+                    setState(() {
+                      _customBpfQ = v;
+                      _updateBpf();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // Notch Filter Section
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Notch Filter',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                Switch(
+                  value: _customNotchEnabled,
+                  onChanged: (v) {
+                    setState(() {
+                      _customNotchEnabled = v;
+                      _updateNotch();
+                    });
+                  },
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                ModernAudioKnob(
+                  label: 'FREQ',
+                  value: _customNotchCutoff,
+                  min: 20.0,
+                  max: 20000.0,
+                  flatValue: 60.0,
+                  activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() {
+                      _customNotchCutoff = v;
+                      _updateNotch();
+                    });
+                  },
+                ),
+                const SizedBox(width: 12),
+                ModernAudioKnob(
+                  label: 'Q',
+                  value: _customNotchQ,
+                  min: 0.5,
+                  max: 30.0,
+                  flatValue: 10.0,
+                  activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => v.toStringAsFixed(1),
+                  onChanged: (v) {
+                    setState(() {
+                      _customNotchQ = v;
+                      _updateNotch();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // Peaking EQ Filter Section
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Peaking EQ Filter',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                Switch(
+                  value: _customPeakEnabled,
+                  onChanged: (v) {
+                    setState(() {
+                      _customPeakEnabled = v;
+                      _updatePeak();
+                    });
+                  },
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                ModernAudioKnob(
+                  label: 'FREQ',
+                  value: _customPeakCutoff,
+                  min: 20.0,
+                  max: 20000.0,
+                  flatValue: 1000.0,
+                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() {
+                      _customPeakCutoff = v;
+                      _updatePeak();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'GAIN',
+                  value: _customPeakGainDb,
+                  min: -24.0,
+                  max: 24.0,
+                  flatValue: 0.0,
+                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) =>
+                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  onChanged: (v) {
+                    setState(() {
+                      _customPeakGainDb = v;
+                      _updatePeak();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'Q',
+                  value: _customPeakQ,
+                  min: 0.1,
+                  max: 10.0,
+                  flatValue: 1.0,
+                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => v.toStringAsFixed(2),
+                  onChanged: (v) {
+                    setState(() {
+                      _customPeakQ = v;
+                      _updatePeak();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // Low Shelf Filter Section
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Low Shelf Filter',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                Switch(
+                  value: _customLoshelfEnabled,
+                  onChanged: (v) {
+                    setState(() {
+                      _customLoshelfEnabled = v;
+                      _updateLoshelf();
+                    });
+                  },
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                ModernAudioKnob(
+                  label: 'CUTOFF',
+                  value: _customLoshelfCutoff,
+                  min: 20.0,
+                  max: 5000.0,
+                  flatValue: 250.0,
+                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() {
+                      _customLoshelfCutoff = v;
+                      _updateLoshelf();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'GAIN',
+                  value: _customLoshelfGainDb,
+                  min: -24.0,
+                  max: 24.0,
+                  flatValue: 0.0,
+                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) =>
+                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  onChanged: (v) {
+                    setState(() {
+                      _customLoshelfGainDb = v;
+                      _updateLoshelf();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'SLOPE',
+                  value: _customLoshelfSlope,
+                  min: 0.1,
+                  max: 2.0,
+                  flatValue: 1.0,
+                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => v.toStringAsFixed(2),
+                  onChanged: (v) {
+                    setState(() {
+                      _customLoshelfSlope = v;
+                      _updateLoshelf();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // High Shelf Filter Section
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('High Shelf Filter',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 12),
+                Switch(
+                  value: _customHishelfEnabled,
+                  onChanged: (v) {
+                    setState(() {
+                      _customHishelfEnabled = v;
+                      _updateHishelf();
+                    });
+                  },
+                  activeThumbColor: Colors.white,
+                  activeTrackColor: primaryColor,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                ModernAudioKnob(
+                  label: 'CUTOFF',
+                  value: _customHishelfCutoff,
+                  min: 1000.0,
+                  max: 20000.0,
+                  flatValue: 8000.0,
+                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() {
+                      _customHishelfCutoff = v;
+                      _updateHishelf();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'GAIN',
+                  value: _customHishelfGainDb,
+                  min: -24.0,
+                  max: 24.0,
+                  flatValue: 0.0,
+                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) =>
+                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                  onChanged: (v) {
+                    setState(() {
+                      _customHishelfGainDb = v;
+                      _updateHishelf();
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                ModernAudioKnob(
+                  label: 'SLOPE',
+                  value: _customHishelfSlope,
+                  min: 0.1,
+                  max: 2.0,
+                  flatValue: 1.0,
+                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (v) => v.toStringAsFixed(2),
+                  onChanged: (v) {
+                    setState(() {
+                      _customHishelfSlope = v;
+                      _updateHishelf();
+                    });
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -3148,6 +3637,49 @@ class _EqScreenState extends State<EqScreen>
           ],
         )
       ],
+    );
+  }
+
+  void _updateBpf() {
+    widget.player.setBandpass(
+      enabled: _customBpfEnabled,
+      cutoffHz: _customBpfCutoff,
+      q: _customBpfQ,
+    );
+  }
+
+  void _updateNotch() {
+    widget.player.setNotch(
+      enabled: _customNotchEnabled,
+      frequencyHz: _customNotchCutoff,
+      q: _customNotchQ,
+    );
+  }
+
+  void _updatePeak() {
+    widget.player.setPeakEq(
+      enabled: _customPeakEnabled,
+      frequencyHz: _customPeakCutoff,
+      gainDb: _customPeakGainDb,
+      q: _customPeakQ,
+    );
+  }
+
+  void _updateLoshelf() {
+    widget.player.setLowshelf(
+      enabled: _customLoshelfEnabled,
+      frequencyHz: _customLoshelfCutoff,
+      gainDb: _customLoshelfGainDb,
+      slope: _customLoshelfSlope,
+    );
+  }
+
+  void _updateHishelf() {
+    widget.player.setHighshelf(
+      enabled: _customHishelfEnabled,
+      frequencyHz: _customHishelfCutoff,
+      gainDb: _customHishelfGainDb,
+      slope: _customHishelfSlope,
     );
   }
 

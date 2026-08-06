@@ -74,7 +74,9 @@ extern "C"
         AE_EQ_BAND_BANDPASS = 1,
         AE_EQ_BAND_NOTCH = 2,
         AE_EQ_BAND_LOWSHELF = 3,
-        AE_EQ_BAND_HIGHSHELF = 4
+        AE_EQ_BAND_HIGHSHELF = 4,
+        AE_EQ_BAND_LOWPASS = 5,
+        AE_EQ_BAND_HIGHPASS = 6
     } AEEqBandType;
 
     typedef struct AEPipelineState
@@ -327,6 +329,12 @@ extern "C"
     typedef struct AEHpf AEHpf;
 
     typedef struct AEBiquad AEBiquad;
+    typedef struct AEBpf2 AEBpf2;
+    typedef struct AEBpf AEBpf;
+    typedef struct AENotch2 AENotch2;
+    typedef struct AEPeak2 AEPeak2;
+    typedef struct AELoshelf2 AELoshelf2;
+    typedef struct AEHishelf2 AEHishelf2;
     typedef struct AEResampler AEResampler;
 
     // LPF1
@@ -364,6 +372,42 @@ extern "C"
     AE_API void ae_hpf_destroy(AEHpf *filter);
     AE_API void ae_hpf_reinit(AEHpf *filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
     AE_API int ae_hpf_process(AEHpf *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // BPF2
+    AE_API AEBpf2 *ae_bpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API void ae_bpf2_destroy(AEBpf2 *filter);
+    AE_API void ae_bpf2_reinit(AEBpf2 *filter, int format, int channels, int sample_rate, double cutoff_hz, double q);
+    AE_API int ae_bpf2_process(AEBpf2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // BPF (High order)
+    AE_API AEBpf *ae_bpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API void ae_bpf_destroy(AEBpf *filter);
+    AE_API void ae_bpf_reinit(AEBpf *filter, int format, int channels, int sample_rate, double cutoff_hz, int order);
+    AE_API int ae_bpf_process(AEBpf *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // Notch2
+    AE_API AENotch2 *ae_notch2_create(int format, int channels, int sample_rate, double q, double cutoff_hz);
+    AE_API void ae_notch2_destroy(AENotch2 *filter);
+    AE_API void ae_notch2_reinit(AENotch2 *filter, int format, int channels, int sample_rate, double q, double cutoff_hz);
+    AE_API int ae_notch2_process(AENotch2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // Peak2
+    AE_API AEPeak2 *ae_peak2_create(int format, int channels, int sample_rate, double gain_db, double q, double cutoff_hz);
+    AE_API void ae_peak2_destroy(AEPeak2 *filter);
+    AE_API void ae_peak2_reinit(AEPeak2 *filter, int format, int channels, int sample_rate, double gain_db, double q, double cutoff_hz);
+    AE_API int ae_peak2_process(AEPeak2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // LowShelf2
+    AE_API AELoshelf2 *ae_loshelf2_create(int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz);
+    AE_API void ae_loshelf2_destroy(AELoshelf2 *filter);
+    AE_API void ae_loshelf2_reinit(AELoshelf2 *filter, int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz);
+    AE_API int ae_loshelf2_process(AELoshelf2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
+
+    // HighShelf2
+    AE_API AEHishelf2 *ae_hishelf2_create(int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz);
+    AE_API void ae_hishelf2_destroy(AEHishelf2 *filter);
+    AE_API void ae_hishelf2_reinit(AEHishelf2 *filter, int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz);
+    AE_API int ae_hishelf2_process(AEHishelf2 *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // Biquad
     AE_API AEBiquad *ae_biquad_create(int format, int channels, double b0, double b1, double b2, double a0, double a1, double a2);

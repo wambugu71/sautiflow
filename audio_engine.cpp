@@ -1813,6 +1813,8 @@ struct AudioEngineHandle
         ma_notch2 notch{};
         ma_loshelf2 lowshelf{};
         ma_hishelf2 highshelf{};
+        ma_lpf2 lowpass{};
+        ma_hpf2 highpass{};
     };
 
     bool multibandFxEnabled = false;
@@ -1930,6 +1932,28 @@ struct AudioEngineHandle
                 (void)ma_hishelf2_init(&config, nullptr, &band.highshelf);
                 break;
             }
+            case AE_EQ_BAND_LOWPASS:
+            {
+                ma_lpf2_config config = ma_lpf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    frequencyHz,
+                    q);
+                (void)ma_lpf2_init(&config, nullptr, &band.lowpass);
+                break;
+            }
+            case AE_EQ_BAND_HIGHPASS:
+            {
+                ma_hpf2_config config = ma_hpf2_config_init(
+                    ma_format_f32,
+                    channelsU32,
+                    sampleRateU32,
+                    frequencyHz,
+                    q);
+                (void)ma_hpf2_init(&config, nullptr, &band.highpass);
+                break;
+            }
             case AE_EQ_BAND_PEAK:
             default:
             {
@@ -1967,6 +1991,12 @@ struct AudioEngineHandle
                 break;
             case AE_EQ_BAND_HIGHSHELF:
                 (void)ma_hishelf2_process_pcm_frames(&band.highshelf, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_LOWPASS:
+                (void)ma_lpf2_process_pcm_frames(&band.lowpass, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_HIGHPASS:
+                (void)ma_hpf2_process_pcm_frames(&band.highpass, frames, frames, (ma_uint64)frameCount);
                 break;
             case AE_EQ_BAND_PEAK:
             default:
@@ -5428,6 +5458,30 @@ extern "C"
     {
         ma_biquad filter;
     };
+    struct AEBpf2
+    {
+        ma_bpf2 filter;
+    };
+    struct AEBpf
+    {
+        ma_bpf filter;
+    };
+    struct AENotch2
+    {
+        ma_notch2 filter;
+    };
+    struct AEPeak2
+    {
+        ma_peak2 filter;
+    };
+    struct AELoshelf2
+    {
+        ma_loshelf2 filter;
+    };
+    struct AEHishelf2
+    {
+        ma_hishelf2 filter;
+    };
     struct AEResampler
     {
         ma_resampler filter;
@@ -5629,6 +5683,201 @@ extern "C"
         if (!obj)
             return 0;
         return ma_hpf_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // BPF2
+    AE_API AEBpf2 *ae_bpf2_create(int format, int channels, int sample_rate, double cutoff_hz, double q)
+    {
+        AEBpf2 *obj = new AEBpf2();
+        ma_bpf2_config config = ma_bpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+        if (ma_bpf2_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_bpf2_destroy(AEBpf2 *obj)
+    {
+        if (obj)
+            delete obj;
+    }
+    AE_API void ae_bpf2_reinit(AEBpf2 *obj, int format, int channels, int sample_rate, double cutoff_hz, double q)
+    {
+        if (obj)
+        {
+            ma_bpf2_config config = ma_bpf2_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, q);
+            ma_bpf2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_bpf2_process(AEBpf2 *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_bpf2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // BPF
+    AE_API AEBpf *ae_bpf_create(int format, int channels, int sample_rate, double cutoff_hz, int order)
+    {
+        AEBpf *obj = new AEBpf();
+        ma_bpf_config config = ma_bpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+        if (ma_bpf_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_bpf_destroy(AEBpf *obj)
+    {
+        if (obj)
+        {
+            ma_bpf_uninit(&obj->filter, nullptr);
+            delete obj;
+        }
+    }
+    AE_API void ae_bpf_reinit(AEBpf *obj, int format, int channels, int sample_rate, double cutoff_hz, int order)
+    {
+        if (obj)
+        {
+            ma_bpf_config config = ma_bpf_config_init(ae_format_to_ma(format), channels, sample_rate, cutoff_hz, order);
+            ma_bpf_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_bpf_process(AEBpf *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_bpf_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // Notch2
+    AE_API AENotch2 *ae_notch2_create(int format, int channels, int sample_rate, double q, double cutoff_hz)
+    {
+        AENotch2 *obj = new AENotch2();
+        ma_notch2_config config = ma_notch2_config_init(ae_format_to_ma(format), channels, sample_rate, q, cutoff_hz);
+        if (ma_notch2_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_notch2_destroy(AENotch2 *obj)
+    {
+        if (obj)
+            delete obj;
+    }
+    AE_API void ae_notch2_reinit(AENotch2 *obj, int format, int channels, int sample_rate, double q, double cutoff_hz)
+    {
+        if (obj)
+        {
+            ma_notch2_config config = ma_notch2_config_init(ae_format_to_ma(format), channels, sample_rate, q, cutoff_hz);
+            ma_notch2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_notch2_process(AENotch2 *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_notch2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // Peak2
+    AE_API AEPeak2 *ae_peak2_create(int format, int channels, int sample_rate, double gain_db, double q, double cutoff_hz)
+    {
+        AEPeak2 *obj = new AEPeak2();
+        ma_peak2_config config = ma_peak2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, q, cutoff_hz);
+        if (ma_peak2_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_peak2_destroy(AEPeak2 *obj)
+    {
+        if (obj)
+            delete obj;
+    }
+    AE_API void ae_peak2_reinit(AEPeak2 *obj, int format, int channels, int sample_rate, double gain_db, double q, double cutoff_hz)
+    {
+        if (obj)
+        {
+            ma_peak2_config config = ma_peak2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, q, cutoff_hz);
+            ma_peak2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_peak2_process(AEPeak2 *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_peak2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // LowShelf2
+    AE_API AELoshelf2 *ae_loshelf2_create(int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz)
+    {
+        AELoshelf2 *obj = new AELoshelf2();
+        ma_loshelf2_config config = ma_loshelf2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, slope, cutoff_hz);
+        if (ma_loshelf2_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_loshelf2_destroy(AELoshelf2 *obj)
+    {
+        if (obj)
+            delete obj;
+    }
+    AE_API void ae_loshelf2_reinit(AELoshelf2 *obj, int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz)
+    {
+        if (obj)
+        {
+            ma_loshelf2_config config = ma_loshelf2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, slope, cutoff_hz);
+            ma_loshelf2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_loshelf2_process(AELoshelf2 *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_loshelf2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
+    }
+
+    // HighShelf2
+    AE_API AEHishelf2 *ae_hishelf2_create(int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz)
+    {
+        AEHishelf2 *obj = new AEHishelf2();
+        ma_hishelf2_config config = ma_hishelf2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, slope, cutoff_hz);
+        if (ma_hishelf2_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
+        {
+            delete obj;
+            return nullptr;
+        }
+        return obj;
+    }
+    AE_API void ae_hishelf2_destroy(AEHishelf2 *obj)
+    {
+        if (obj)
+            delete obj;
+    }
+    AE_API void ae_hishelf2_reinit(AEHishelf2 *obj, int format, int channels, int sample_rate, double gain_db, double slope, double cutoff_hz)
+    {
+        if (obj)
+        {
+            ma_hishelf2_config config = ma_hishelf2_config_init(ae_format_to_ma(format), channels, sample_rate, gain_db, slope, cutoff_hz);
+            ma_hishelf2_reinit(&config, &obj->filter);
+        }
+    }
+    AE_API int ae_hishelf2_process(AEHishelf2 *obj, void *out_frames, const void *in_frames, uint64_t frame_count)
+    {
+        if (!obj)
+            return 0;
+        return ma_hishelf2_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
     }
 
     // Biquad

@@ -71,8 +71,8 @@ class _ParametricEqPainter extends CustomPainter {
 
   static const double minFreq = 20.0;
   static const double maxFreq = 20000.0;
-  static const double minDb = -12.0;
-  static const double maxDb = 12.0;
+  static const double minDb = -18.0;
+  static const double maxDb = 18.0;
   static const int numPoints = 150;
   static const double sampleRate = 48000.0;
 
@@ -310,8 +310,8 @@ class _ParametricEqPainter extends CustomPainter {
       fontFamily: 'monospace',
     );
 
-    // Horizontal dB lines (-12dB, -6dB, 0dB, +6dB, +12dB)
-    final dbSteps = [-12.0, -6.0, 0.0, 6.0, 12.0];
+    // Horizontal dB lines (-18dB, -12dB, -6dB, 0dB, +6dB, +12dB, +18dB)
+    final dbSteps = [-18.0, -12.0, -6.0, 0.0, 6.0, 12.0, 18.0];
     for (final db in dbSteps) {
       final norm = (db - minDb) / (maxDb - minDb);
       final y = paddingTop + (1.0 - norm) * graphHeight;
@@ -429,6 +429,28 @@ class _ParametricEqPainter extends CustomPainter {
         b0 = 1.0;
         b1 = -2.0 * cosW0;
         b2 = 1.0;
+        a0 = 1.0 + alpha;
+        a1 = -2.0 * cosW0;
+        a2 = 1.0 - alpha;
+        break;
+
+      case EqBandType.lowpass:
+        final q = band.q > 0 ? band.q : 1.0;
+        final alpha = sinW0 / (2.0 * q);
+        b0 = (1.0 - cosW0) / 2.0;
+        b1 = 1.0 - cosW0;
+        b2 = (1.0 - cosW0) / 2.0;
+        a0 = 1.0 + alpha;
+        a1 = -2.0 * cosW0;
+        a2 = 1.0 - alpha;
+        break;
+
+      case EqBandType.highpass:
+        final q = band.q > 0 ? band.q : 1.0;
+        final alpha = sinW0 / (2.0 * q);
+        b0 = (1.0 + cosW0) / 2.0;
+        b1 = -(1.0 + cosW0);
+        b2 = (1.0 + cosW0) / 2.0;
         a0 = 1.0 + alpha;
         a1 = -2.0 * cosW0;
         a2 = 1.0 - alpha;

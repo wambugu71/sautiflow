@@ -190,6 +190,199 @@ class MiniaudioHpf {
   }
 }
 
+class MiniaudioBpf2 {
+  MiniaudioBpf2(this._ffi, AudioFormat format, int channels, int sampleRate,
+      double cutoffHz, double q)
+      : _pointer = _ffi.createBpf2(format, channels, sampleRate, cutoffHz, q);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double cutoffHz,
+      double q) {
+    if (isInitialized) {
+      _ffi.reinitBpf2(_pointer, format, channels, sampleRate, cutoffHz, q);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processBpf2(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyBpf2(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
+class MiniaudioBpf {
+  MiniaudioBpf(this._ffi, AudioFormat format, int channels, int sampleRate,
+      double cutoffHz, int order)
+      : _pointer =
+            _ffi.createBpf(format, channels, sampleRate, cutoffHz, order);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double cutoffHz,
+      int order) {
+    if (isInitialized) {
+      _ffi.reinitBpf(_pointer, format, channels, sampleRate, cutoffHz, order);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processBpf(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyBpf(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
+class MiniaudioNotch2 {
+  MiniaudioNotch2(this._ffi, AudioFormat format, int channels, int sampleRate,
+      double q, double cutoffHz)
+      : _pointer = _ffi.createNotch2(format, channels, sampleRate, q, cutoffHz);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double q,
+      double cutoffHz) {
+    if (isInitialized) {
+      _ffi.reinitNotch2(_pointer, format, channels, sampleRate, q, cutoffHz);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processNotch2(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyNotch2(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
+class MiniaudioPeak2 {
+  MiniaudioPeak2(this._ffi, AudioFormat format, int channels, int sampleRate,
+      double gainDb, double q, double cutoffHz)
+      : _pointer = _ffi.createPeak2(
+            format, channels, sampleRate, gainDb, q, cutoffHz);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double gainDb,
+      double q, double cutoffHz) {
+    if (isInitialized) {
+      _ffi.reinitPeak2(
+          _pointer, format, channels, sampleRate, gainDb, q, cutoffHz);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processPeak2(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyPeak2(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
+class MiniaudioLoshelf2 {
+  MiniaudioLoshelf2(this._ffi, AudioFormat format, int channels,
+      int sampleRate, double gainDb, double slope, double cutoffHz)
+      : _pointer = _ffi.createLoshelf2(
+            format, channels, sampleRate, gainDb, slope, cutoffHz);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double gainDb,
+      double slope, double cutoffHz) {
+    if (isInitialized) {
+      _ffi.reinitLoshelf2(
+          _pointer, format, channels, sampleRate, gainDb, slope, cutoffHz);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processLoshelf2(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyLoshelf2(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
+class MiniaudioHishelf2 {
+  MiniaudioHishelf2(this._ffi, AudioFormat format, int channels,
+      int sampleRate, double gainDb, double slope, double cutoffHz)
+      : _pointer = _ffi.createHishelf2(
+            format, channels, sampleRate, gainDb, slope, cutoffHz);
+
+  final MiniaudioFiltersFFI _ffi;
+  ffi.Pointer<ffi.Void> _pointer;
+
+  bool get isInitialized => _pointer != ffi.nullptr;
+
+  void reinit(AudioFormat format, int channels, int sampleRate, double gainDb,
+      double slope, double cutoffHz) {
+    if (isInitialized) {
+      _ffi.reinitHishelf2(
+          _pointer, format, channels, sampleRate, gainDb, slope, cutoffHz);
+    }
+  }
+
+  bool process(ffi.Pointer<ffi.Void> outFrames, ffi.Pointer<ffi.Void> inFrames,
+      int frameCount) {
+    if (!isInitialized) return false;
+    return _ffi.processHishelf2(_pointer, outFrames, inFrames, frameCount);
+  }
+
+  void dispose() {
+    if (isInitialized) {
+      _ffi.destroyHishelf2(_pointer);
+      _pointer = ffi.nullptr;
+    }
+  }
+}
+
 class MiniaudioBiquad {
   MiniaudioBiquad(this._ffi, AudioFormat format, int channels, double b0,
       double b1, double b2, double a0, double a1, double a2)
