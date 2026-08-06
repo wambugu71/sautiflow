@@ -1187,7 +1187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            widget.outputChannels == 1 ? 'Mono' : 'Stereo',
+                            _formatChannelCount(widget.outputChannels),
                             style:
                                 TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
@@ -2980,39 +2980,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  String _formatChannelCount(int count) {
+    switch (count) {
+      case 1:
+        return 'Mono (1.0)';
+      case 2:
+        return 'Stereo (2.0)';
+      case 3:
+        return '2.1 Surround (3 CH)';
+      case 4:
+        return '4.0 Quadraphonic (4 CH)';
+      case 5:
+        return '5.0 Surround (5 CH)';
+      case 6:
+        return '5.1 Surround (6 CH)';
+      case 7:
+        return '7.0 Surround (7 CH)';
+      case 8:
+        return '7.1 Surround (8 CH)';
+      default:
+        return '$count CH';
+    }
+  }
+
   void _showChannelsDialog({VoidCallback? onDone}) {
+    final options = [
+      {'ch': 1, 'name': 'Mono (1.0)', 'subtitle': 'Single channel output'},
+      {'ch': 2, 'name': 'Stereo (2.0)', 'subtitle': 'Standard 2-channel Left / Right'},
+      {'ch': 3, 'name': '2.1 Surround (3 CH)', 'subtitle': 'Left, Right, Center/Sub'},
+      {'ch': 4, 'name': '4.0 Quadraphonic (4 CH)', 'subtitle': 'FL, FR, Center, Back Center'},
+      {'ch': 5, 'name': '5.0 Surround (5 CH)', 'subtitle': 'FL, FR, Center, Back L/R'},
+      {'ch': 6, 'name': '5.1 Surround (6 CH)', 'subtitle': 'FL, FR, Center, LFE Sub, Side L/R'},
+      {'ch': 7, 'name': '7.0 Surround (7 CH)', 'subtitle': 'FL, FR, Center, LFE, Back C, Side L/R'},
+      {'ch': 8, 'name': '7.1 Surround (8 CH)', 'subtitle': 'FL, FR, Center, LFE, Back L/R, Side L/R'},
+    ];
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('Engine Output Channels',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          _buildRadioOption(
-              'Mono', widget.outputChannels == 1 ? 'Mono' : 'Stereo', (v) {
-            widget.onOutputChannelsChanged(1);
-            widget.player.setOutputChannels(1);
-            onDone?.call();
-            Navigator.pop(ctx);
-          }),
-          _buildRadioOption(
-              'Stereo', widget.outputChannels == 1 ? 'Mono' : 'Stereo', (v) {
-            widget.onOutputChannelsChanged(2);
-            widget.player.setOutputChannels(2);
-            onDone?.call();
-            Navigator.pop(ctx);
-          }),
-          const SizedBox(height: 20),
-        ],
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('Engine Output Channels',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: options.length,
+                itemBuilder: (context, i) {
+                  final item = options[i];
+                  final ch = item['ch'] as int;
+                  final name = item['name'] as String;
+                  final subtitle = item['subtitle'] as String;
+                  return RadioListTile<int>(
+                    title: Text(name,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w500)),
+                    subtitle: Text(subtitle,
+                        style: TextStyle(color: _textDark, fontSize: 12)),
+                    value: ch,
+                    groupValue: widget.outputChannels,
+                    activeColor: _primary,
+                    onChanged: (val) {
+                      if (val != null) {
+                        widget.onOutputChannelsChanged(val);
+                        widget.player.setOutputChannels(val);
+                        onDone?.call();
+                        Navigator.pop(ctx);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
