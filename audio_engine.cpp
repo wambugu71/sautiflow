@@ -85,8 +85,8 @@ namespace
 
     struct PushStreamContext
     {
-        ma_rb rb;
-        void *rbBuffer; // Raw memory for the ring buffer
+        ma_rb rb{};
+        void *rbBuffer = nullptr; // Raw memory for the ring buffer
         std::atomic<bool> initialized{false};
         std::atomic<bool> isDone{false};
         std::mutex mtx; // Just in case we need coord
@@ -425,7 +425,9 @@ namespace
                 float wetL = delayL[idxL];
                 delayL[idxL] = inL + wetL * feedback;
                 interleaved[base] = inL * (1.0f - mix) + wetL * mix;
-                idxL = (idxL + 1) % delayL.size();
+                idxL++;
+                if (idxL >= delayL.size())
+                    idxL = 0;
 
                 if (stereo)
                 {
@@ -433,7 +435,9 @@ namespace
                     float wetR = delayR[idxR];
                     delayR[idxR] = inR + wetR * feedback;
                     interleaved[base + 1] = inR * (1.0f - mix) + wetR * mix;
-                    idxR = (idxR + 1) % delayR.size();
+                    idxR++;
+                    if (idxR >= delayR.size())
+                        idxR = 0;
                 }
             }
         }
@@ -1531,10 +1535,11 @@ namespace
         {
             intensity = clampf(newIntensity, 0.0f, 1.0f);
             highShelfEnabled = newShelfEnabled;
-            highShelfGainDb = clampf(newShelfGainDb, 0.0f, 6.0f);
+            const float clampedGain = clampf(newShelfGainDb, 0.0f, 6.0f);
 
-            if (cachedSampleRate != sampleRate || newShelfGainDb != highShelfGainDb)
+            if (cachedSampleRate != sampleRate || clampedGain != highShelfGainDb)
             {
+                highShelfGainDb = clampedGain;
                 cachedSampleRate = sampleRate;
                 shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
             }
@@ -1720,6 +1725,152 @@ namespace
         }
     };
 
+    template <typename T>
+    class SPSCBuffer
+    {
+    private:
+        std::vector<T> m_buffer;
+        size_t m_capacityMask = 0;
+        alignas(64) std::atomic<size_t> m_writeIndex{0};
+        alignas(64) std::atomic<size_t> m_readIndex{0};
+
+    public:
+        void init(size_t capacitySamples)
+        {
+            size_t cap = 1;
+            while (cap < capacitySamples) cap <<= 1;
+            m_buffer.assign(cap, T(0));
+            m_capacityMask = cap - 1;
+            m_writeIndex.store(0, std::memory_order_relaxed);
+            m_readIndex.store(0, std::memory_order_relaxed);
+        }
+
+        size_t write(const T *data, size_t count)
+        {
+            if (m_buffer.empty() || count == 0) return 0;
+            const size_t w = m_writeIndex.load(std::memory_order_relaxed);
+            const size_t r = m_readIndex.load(std::memory_order_acquire);
+            const size_t available = (m_capacityMask + 1) - (w - r);
+            const size_t toWrite = std::min(count, available);
+            if (toWrite == 0) return 0;
+
+            const size_t mask = m_capacityMask;
+            const size_t firstChunk = std::min(toWrite, (mask + 1) - (w & mask));
+            std::memcpy(&m_buffer[w & mask], data, firstChunk * sizeof(T));
+            if (toWrite > firstChunk)
+            {
+                std::memcpy(&m_buffer[0], data + firstChunk, (toWrite - firstChunk) * sizeof(T));
+            }
+
+            m_writeIndex.store(w + toWrite, std::memory_order_release);
+            return toWrite;
+        }
+
+        size_t read(T *data, size_t count)
+        {
+            if (m_buffer.empty() || count == 0) return 0;
+            const size_t r = m_readIndex.load(std::memory_order_relaxed);
+            const size_t w = m_writeIndex.load(std::memory_order_acquire);
+            const size_t available = w - r;
+            const size_t toRead = std::min(count, available);
+            if (toRead == 0) return 0;
+
+            const size_t mask = m_capacityMask;
+            const size_t firstChunk = std::min(toRead, (mask + 1) - (r & mask));
+            std::memcpy(data, &m_buffer[r & mask], firstChunk * sizeof(T));
+            if (toRead > firstChunk)
+            {
+                std::memcpy(data + firstChunk, &m_buffer[0], (toRead - firstChunk) * sizeof(T));
+            }
+
+            m_readIndex.store(r + toRead, std::memory_order_release);
+            return toRead;
+        }
+
+        size_t available_read() const
+        {
+            if (m_buffer.empty()) return 0;
+            const size_t w = m_writeIndex.load(std::memory_order_relaxed);
+            const size_t r = m_readIndex.load(std::memory_order_relaxed);
+            return w - r;
+        }
+
+        size_t available_write() const
+        {
+            if (m_buffer.empty()) return 0;
+            const size_t w = m_writeIndex.load(std::memory_order_relaxed);
+            const size_t r = m_readIndex.load(std::memory_order_relaxed);
+            return (m_capacityMask + 1) - (w - r);
+        }
+
+        void reset()
+        {
+            m_writeIndex.store(0, std::memory_order_relaxed);
+            m_readIndex.store(0, std::memory_order_relaxed);
+        }
+    };
+
+    struct RetiredObject
+    {
+        ma_decoder *decoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        NetworkStreamState *stream = nullptr;
+#endif
+    };
+
+    class GarbageQueue
+    {
+    private:
+        std::mutex m_mtx;
+        std::vector<RetiredObject> m_queue;
+
+    public:
+        void push(ma_decoder *dec
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+            , NetworkStreamState *st = nullptr
+#endif
+        )
+        {
+            if (!dec
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                && !st
+#endif
+            ) return;
+
+            std::lock_guard<std::mutex> lk(m_mtx);
+            m_queue.push_back({dec
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                , st
+#endif
+            });
+        }
+
+        void drain()
+        {
+            std::vector<RetiredObject> toDrain;
+            {
+                std::lock_guard<std::mutex> lk(m_mtx);
+                if (m_queue.empty()) return;
+                toDrain.swap(m_queue);
+            }
+
+            for (auto &item : toDrain)
+            {
+                if (item.decoder)
+                {
+                    ma_decoder_uninit(item.decoder);
+                    delete item.decoder;
+                }
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                if (item.stream)
+                {
+                    destroy_network_stream(item.stream);
+                }
+#endif
+            }
+        }
+    };
+
 } // namespace
 
 struct AudioEngineHandle;
@@ -1761,6 +1912,9 @@ struct AudioEngineHandle
 
     std::mutex playlistMutex;
     std::mutex decoderMutex;
+
+    SPSCBuffer<float> pcmRingBuffer;
+    GarbageQueue garbageQueue;
 
     std::mutex workerMutex;
     std::condition_variable workerCv;
@@ -1834,9 +1988,9 @@ struct AudioEngineHandle
     bool notchEnabled = false;
     bool lowshelfEnabled = false;
     bool highshelfEnabled = false;
-    float gain = 1.0f;
-    float replayGainLinear = 1.0f; // Replay Gain multiplier (linear); 1.0 = no change
-    float pan = 0.0f;
+    std::atomic<float> gain{1.0f};
+    std::atomic<float> replayGainLinear{1.0f}; // Replay Gain multiplier (linear); 1.0 = no change
+    std::atomic<float> pan{0.0f};
     EqState eq;
     ReverbState reverb;
     OnePoleState lowpass;
@@ -2242,7 +2396,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         sampleRate,
         clampf(e->bandpassCutoffHz, 20.0f, (float)sampleRate * 0.45f),
         clampf(e->bandpassQ, 0.1f, 18.0f));
-    (void)ma_bpf2_init(&bpfConfig, nullptr, &e->bandpass);
+    (void)ma_bpf2_reinit(&bpfConfig, &e->bandpass);
 
     ma_peak2_config peakConfig = ma_peak2_config_init(
         ma_format_f32,
@@ -2251,7 +2405,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->peakGainDb, -24.0f, 24.0f),
         clampf(e->peakQ, 0.1f, 18.0f),
         clampf(e->peakFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_peak2_init(&peakConfig, nullptr, &e->peakEq);
+    (void)ma_peak2_reinit(&peakConfig, &e->peakEq);
 
     ma_notch2_config notchConfig = ma_notch2_config_init(
         ma_format_f32,
@@ -2259,7 +2413,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         sampleRate,
         clampf(e->notchQ, 0.1f, 18.0f),
         clampf(e->notchFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_notch2_init(&notchConfig, nullptr, &e->notch);
+    (void)ma_notch2_reinit(&notchConfig, &e->notch);
 
     ma_loshelf2_config lowshelfConfig = ma_loshelf2_config_init(
         ma_format_f32,
@@ -2268,7 +2422,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->lowshelfGainDb, -24.0f, 24.0f),
         clampf(e->lowshelfSlope, 0.1f, 2.0f),
         clampf(e->lowshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_loshelf2_init(&lowshelfConfig, nullptr, &e->lowshelf);
+    (void)ma_loshelf2_reinit(&lowshelfConfig, &e->lowshelf);
 
     ma_hishelf2_config highshelfConfig = ma_hishelf2_config_init(
         ma_format_f32,
@@ -2277,16 +2431,16 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->highshelfGainDb, -24.0f, 24.0f),
         clampf(e->highshelfSlope, 0.1f, 2.0f),
         clampf(e->highshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_hishelf2_init(&highshelfConfig, nullptr, &e->highshelf);
+    (void)ma_hishelf2_reinit(&highshelfConfig, &e->highshelf);
 
     ma_lpf1_config lpf1Cfg = ma_lpf1_config_init(ma_format_f32, channels, sampleRate, e->customLpf1Cutoff);
-    (void)ma_lpf1_init(&lpf1Cfg, nullptr, &e->customLpf1);
+    (void)ma_lpf1_reinit(&lpf1Cfg, &e->customLpf1);
 
     ma_hpf1_config hpf1Cfg = ma_hpf1_config_init(ma_format_f32, channels, sampleRate, e->customHpf1Cutoff);
-    (void)ma_hpf1_init(&hpf1Cfg, nullptr, &e->customHpf1);
+    (void)ma_hpf1_reinit(&hpf1Cfg, &e->customHpf1);
 
     ma_biquad_config bqCfg = ma_biquad_config_init(ma_format_f32, channels, e->bq_b0, e->bq_b1, e->bq_b2, e->bq_a0, e->bq_a1, e->bq_a2);
-    (void)ma_biquad_init(&bqCfg, nullptr, &e->customBiquad);
+    (void)ma_biquad_reinit(&bqCfg, &e->customBiquad);
 
     e->stereoEnhancement.refresh((int)sampleRate);
     e->crystalizer.init((int)sampleRate);
@@ -2334,11 +2488,43 @@ static void uninit_decoder_slot(
 #endif
 }
 
+static void uninit_decoder_slot(
+    AudioEngineHandle *e,
+    ma_decoder *&pDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+    ,
+    NetworkStreamState *&pStream
+#endif
+)
+{
+    if (e != nullptr)
+    {
+        e->garbageQueue.push(pDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+            , pStream
+#endif
+        );
+        pDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        pStream = nullptr;
+#endif
+    }
+    else
+    {
+        uninit_decoder_ptr(pDecoder);
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        destroy_network_stream(pStream);
+        pStream = nullptr;
+#endif
+    }
+}
+
 static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
 {
     if (e != nullptr && e->fadingOutDecoder != nullptr)
     {
         uninit_decoder_slot(
+            e,
             e->fadingOutDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
             ,
@@ -3265,7 +3451,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             // Volume (main gain × replay gain)
             {
-                const float vol = e->gain * e->replayGainLinear;
+                const float vol = e->gain.load(std::memory_order_relaxed) * e->replayGainLinear.load(std::memory_order_relaxed);
                 if (vol != 1.0f)
                 {
                     if (use64)
@@ -3339,11 +3525,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
 
             // Pan (Assume Stereo or more)
-            if (e->channels >= 2 && e->pan != 0.0f)
+            const float panVal = e->pan.load(std::memory_order_relaxed);
+            if (e->channels >= 2 && panVal != 0.0f)
             {
                 if (use64)
                 {
-                    const double p = (double)e->pan;
+                    const double p = (double)panVal;
                     const double l = clampd(1.0 - std::max(0.0, p), 0.0, 1.0);
                     const double r = clampd(1.0 + std::min(0.0, p), 0.0, 1.0);
                     for (ma_uint32 i = 0; i < produced; ++i)
@@ -3354,12 +3541,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
                 else
                 {
-                    float p = e->pan;
+                    const float p = panVal;
                     const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
                     const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
                     for (ma_uint32 i = 0; i < produced; ++i)
                     {
-                        processBuffer[i * e->channels] *= l;
+                        processBuffer[i * e->channels]     *= l;
                         processBuffer[i * e->channels + 1] *= r;
                     }
                 }
@@ -3534,7 +3721,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     // Dithering & Format Conversion
     const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
-    if (ditherVal > 0)
+    if (ditherVal > 0 && e->outputFormat != AE_FORMAT_F32)
     {
         e->ditherProcessor.process(ditherVal, e->outputFormat, processBuffer, totalSamples, e->channels);
     }
@@ -4416,6 +4603,18 @@ extern "C"
         if (e == nullptr)
             return ps;
 
+        ps.input_format = (int)AE_FORMAT_F32;
+        ps.input_sample_rate = e->sampleRate;
+        ps.input_channels = e->channels;
+
+        ps.processing_format = (int)AE_FORMAT_F32;
+        ps.processing_sample_rate = e->sampleRate;
+        ps.processing_channels = e->channels;
+
+        ps.output_format = (int)e->outputFormat;
+        ps.output_sample_rate = (e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate;
+        ps.output_channels = (e->outputChannels > 0) ? e->outputChannels : e->channels;
+
         std::lock_guard<std::mutex> fx(e->fxMutex);
         ps.eq_enabled = e->eqEnabled ? 1 : 0;
         ps.reverb_enabled = e->reverbEnabled ? 1 : 0;
@@ -4484,8 +4683,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->gain = clampf(gain, 0.0f, 8.0f);
+        e->gain.store(clampf(gain, 0.0f, 8.0f), std::memory_order_relaxed);
     }
 
     // Applies a ReplayGain offset (in dB) on top of the main gain.
@@ -4494,18 +4692,15 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        // Convert dB to linear multiplier: 10^(dB/20)
         const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->replayGainLinear = linear;
+        e->replayGainLinear.store(linear, std::memory_order_relaxed);
     }
 
     AE_API void ae_set_pan(AudioEngineHandle *e, float pan_minus1_to_plus1)
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->pan = clampf(pan_minus1_to_plus1, -1.0f, 1.0f);
+        e->pan.store(clampf(pan_minus1_to_plus1, -1.0f, 1.0f), std::memory_order_relaxed);
     }
 
     AE_API void ae_set_pitch(AudioEngineHandle *e, float pitch)
@@ -4808,6 +5003,21 @@ extern "C"
         engine->dynamicBass.setBassGain(gain);
     }
 
+    static void device_notification_callback(const ma_device_notification *pNotification)
+    {
+        if (pNotification == nullptr || pNotification->pDevice == nullptr)
+            return;
+        AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pNotification->pDevice->pUserData);
+        if (e == nullptr)
+            return;
+
+        if (pNotification->type == ma_device_notification_type_stopped ||
+            pNotification->type == ma_device_notification_type_rerouted)
+        {
+            engine_log("Audio device notification event %d received. Device route or state changed.", (int)pNotification->type);
+        }
+    }
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -4858,6 +5068,7 @@ extern "C"
         cfg.playback.channels = (ma_uint32)newCh;
         cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate.
         cfg.dataCallback = data_callback;
+        cfg.notificationCallback = device_notification_callback;
         cfg.pUserData = e;
 
         if (e->resampleAlgorithm > 0)
@@ -5252,10 +5463,15 @@ extern "C"
     }
 
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
-
     {
         if (!engine)
             return;
+        if (engine->outputFormat == (AEAudioFormat)format)
+            return;
+        if (ma_device_get_state(&engine->device) == ma_device_state_started)
+        {
+            ma_device_stop(&engine->device);
+        }
         engine->outputFormat = (AEAudioFormat)format;
         restart_and_apply_config(engine);
     }
@@ -5269,6 +5485,12 @@ extern "C"
     {
         if (!engine || sample_rate < 0)
             return;
+        if (engine->outputSampleRate == sample_rate)
+            return;
+        if (ma_device_get_state(&engine->device) == ma_device_state_started)
+        {
+            ma_device_stop(&engine->device);
+        }
         engine->outputSampleRate = sample_rate;
         restart_and_apply_config(engine);
     }
@@ -5282,6 +5504,12 @@ extern "C"
     {
         if (!engine || channels <= 0)
             return;
+        if (engine->outputChannels == channels)
+            return;
+        if (ma_device_get_state(&engine->device) == ma_device_state_started)
+        {
+            ma_device_stop(&engine->device);
+        }
         engine->outputChannels = channels;
         restart_and_apply_config(engine);
     }

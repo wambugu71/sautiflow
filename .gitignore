@@ -59,6 +59,7 @@ Thumbs.db
 **/windows/flutter/ephemeral/
 
 # CMake / native artifacts
+build_win/
 cmake-build-*/
 CMakeFiles/
 sautify/

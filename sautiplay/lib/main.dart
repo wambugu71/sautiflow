@@ -372,6 +372,26 @@ class _PlayerShellState extends State<PlayerShell> {
     _player.setAnalyzerEnabled(_analyzerEnabled);
     _player.configureAnalyzer(frameSize: _analyzerSampleSize);
 
+    // Apply Phase Inversion, Speaker Protection, 64-bit float & Auto Bit-Perfect
+    final phaseSaved = await AppStateService.instance.loadPhaseInversion();
+    final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
+    final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
+    final spSaved = await AppStateService.instance.loadSpeakerProtection();
+
+    _player.set64BitProcessingEnabled(is64Bit);
+    _player.setAutoBitPerfectEnabled(autoBp);
+    _player.setPhaseInversion(
+      invertLeft: phaseSaved.invertLeft,
+      invertRight: phaseSaved.invertRight,
+    );
+    _player.setSpeakerProtectionParams(
+      enabled: spSaved.enabled,
+      subsonicCutoffHz: spSaved.subsonicCutoffHz,
+      ultrasonicCutoffHz: spSaved.ultrasonicCutoffHz,
+      limiterThreshold: spSaved.limiterThreshold,
+      safetyAttenuationDb: spSaved.safetyAttenuationDb,
+    );
+
     // Apply ViPER DSP settings
     await ViperFxScreen.applySavedStateToEngine(_player);
 
