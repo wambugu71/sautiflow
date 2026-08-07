@@ -3256,7 +3256,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
-        if (!e->exclusiveModeEnabled)
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                                 !e->autoBitPerfectEnabled.load(std::memory_order_relaxed);
+
+        if (!bypassAppDsp)
         {
             const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
 
@@ -3507,7 +3510,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             {
                 e->limiter.process(processBuffer, produced, e->channels);
             }
-        } // End of !exclusiveModeEnabled bypass
+        } // End of !bypassAppDsp block
 
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
 
@@ -4868,9 +4871,13 @@ extern "C"
             cfg.resampling.algorithm = ma_resample_algorithm_linear;
         }
 
-        if (e->exclusiveModeEnabled)
+        const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                   e->autoBitPerfectEnabled.load(std::memory_order_relaxed);
+
+        if (wantExclusive)
         {
             cfg.playback.shareMode = ma_share_mode_exclusive;
+            cfg.performanceProfile = ma_performance_profile_low_latency;
             cfg.wasapi.noAutoConvertSRC = 1;
             cfg.wasapi.noDefaultQualitySRC = 1;
             cfg.alsa.noMMap = 0;
@@ -4879,11 +4886,12 @@ extern "C"
 
             if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
             {
-                engine_log("Hardware declined Exclusive Mode config, falling back to Shared Mode.");
-                e->exclusiveModeEnabled = false;
+                engine_log("Hardware declined Exclusive/Low-Latency Mode config, falling back to Shared Mode.");
+                e->exclusiveModeEnabled.store(false, std::memory_order_relaxed);
 
                 // Reset config for shared mode
                 cfg.playback.shareMode = ma_share_mode_shared;
+                cfg.performanceProfile = ma_performance_profile_conservative;
                 cfg.wasapi.noAutoConvertSRC = 0;
                 cfg.wasapi.noDefaultQualitySRC = 0;
                 cfg.noPreSilencedOutputBuffer = 0;
@@ -4896,11 +4904,12 @@ extern "C"
             }
             else
             {
-                engine_log("Exclusive Mode initialized successfully.");
+                engine_log("Exclusive/Low-Latency MMAP Mode initialized successfully.");
             }
         }
         else
         {
+            cfg.performanceProfile = ma_performance_profile_conservative;
             if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
             {
                 set_last_error(e, "Failed to re-initialize device with new config.");
@@ -5327,7 +5336,13 @@ extern "C"
     {
         if (!engine)
             return;
-        engine->autoBitPerfectEnabled.store(enabled != 0, std::memory_order_relaxed);
+        const bool prev = engine->autoBitPerfectEnabled.load(std::memory_order_relaxed);
+        const bool next = (enabled != 0);
+        if (prev != next)
+        {
+            engine->autoBitPerfectEnabled.store(next, std::memory_order_relaxed);
+            restart_and_apply_config(engine);
+        }
     }
 
     AE_API int ae_get_auto_bit_perfect_enabled(AudioEngineHandle *engine)

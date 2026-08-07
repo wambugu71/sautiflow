@@ -1451,7 +1451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Auto Bit-Perfect',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('DAC to match audio track sample rate',
+                  subtitle: Text('Exclusive MMAP, low latency & rate match (App DSP active)',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _autoBitPerfectEnabled,
                   activeThumbColor: _primary,
@@ -1485,7 +1485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: Text(
                                 val
-                                    ? 'Auto Bit-Perfect Enabled (DAC rate will match track rate)'
+                                    ? 'Auto Bit-Perfect Enabled (Exclusive MMAP & Low Latency active, App DSP active)'
                                     : 'Auto Bit-Perfect Disabled',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 13),
