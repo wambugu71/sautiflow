@@ -1124,45 +1124,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.speed,
-                        color: Colors.white70, size: 20),
-                  ),
-                  title: const Text('Sample Rate',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            widget.outputSampleRate == 0
-                                ? 'Native'
-                                : '${widget.outputSampleRate} Hz',
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                // Sample Rate tile is locked when Auto Bit-Perfect is active
+                // (miniaudio uses native device rate in that mode, so manual
+                // selection has no effect and causes pitch-shift confusion)
+                IgnorePointer(
+                  ignoring: _autoBitPerfectEnabled,
+                  child: AnimatedOpacity(
+                    opacity: _autoBitPerfectEnabled ? 0.38 : 1.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withAlpha(10),
+                          shape: BoxShape.circle,
                         ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
-                      ],
+                        child: const Icon(Icons.speed,
+                            color: Colors.white70, size: 20),
+                      ),
+                      title: const Text('Sample Rate',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500)),
+                      subtitle: _autoBitPerfectEnabled
+                          ? Text(
+                              'Managed automatically (Auto Bit-Perfect is on)',
+                              style:
+                                  TextStyle(color: _textDark, fontSize: 12),
+                            )
+                          : null,
+                      trailing: SizedBox(
+                        width: 150,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                widget.outputSampleRate == 0
+                                    ? 'Native'
+                                    : '${widget.outputSampleRate} Hz',
+                                style: TextStyle(
+                                    color: _textDark, fontSize: 13),
+                                textAlign: TextAlign.right,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(Icons.chevron_right,
+                                color: _textDark, size: 20),
+                          ],
+                        ),
+                      ),
+                      onTap: () => _showSampleRateDialog(
+                          onDone: () => setSubState(() {})),
                     ),
                   ),
-                  onTap: () =>
-                      _showSampleRateDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
