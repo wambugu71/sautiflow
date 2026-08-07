@@ -2310,6 +2310,12 @@ static bool load_decoder_for_path(
     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
     ma_uint32 targetRate = e->autoBitPerfectEnabled.load(std::memory_order_relaxed) ? 0 : (ma_uint32)e->sampleRate;
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, targetRate);
+    if (e->resampleAlgorithm > 0)
+    {
+        cfg.resampling.algorithm = ma_resample_algorithm_custom;
+        cfg.resampling.pBackendVTable = &g_customResamplerVTable;
+        cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
+    }
     static ma_decoding_backend_vtable *pCustomDecoders[] = {&g_ma_decoding_backend_vtable_mp4_aac};
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
@@ -2817,6 +2823,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
                     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
                     ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
+                    if (e->resampleAlgorithm > 0)
+                    {
+                        config.resampling.algorithm = ma_resample_algorithm_custom;
+                        config.resampling.pBackendVTable = &g_customResamplerVTable;
+                        config.resampling.pBackendUserData = &e->resampleAlgorithm;
+                    }
                     config.seekPointCount = 100; // Build a seek table for fast MP3 seeking
                     // Dynamically apply pitch if present
                     const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
@@ -2933,6 +2945,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                         e->pitchResamplerInit = false;
                     }
                     ma_resampler_config rcfg = ma_resampler_config_init(ma_format_f32, (ma_uint32)ch, (ma_uint32)sr, (ma_uint32)sr, ma_resample_algorithm_linear);
+                    if (e->resampleAlgorithm > 0)
+                    {
+                        rcfg.algorithm = ma_resample_algorithm_custom;
+                        rcfg.pBackendVTable = &g_customResamplerVTable;
+                        rcfg.pBackendUserData = &e->resampleAlgorithm;
+                    }
                     if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
                     {
                         e->pitchResamplerInit = true;
@@ -4735,6 +4753,7 @@ extern "C"
         }
         ma_device_uninit(&e->device);
 
+        int oldRate = e->sampleRate > 0 ? e->sampleRate : 48000;
         int newRate = e->outputSampleRate > 0 ? e->outputSampleRate : 0;
         int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
 
@@ -4838,6 +4857,25 @@ extern "C"
             e->viper.SetSamplingRate(e->sampleRate);
         }
 
+        // Cleanly reset pitch resampler state and buffers for new sample rate
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->pitchResamplerInit)
+            {
+                ma_resampler_uninit(&e->pitchResampler, nullptr);
+                e->pitchResamplerInit = false;
+            }
+            e->pitchInputBuffer.clear();
+            e->pitchInputUnconsumed = 0;
+        }
+
+        // Scale absolute time counter to the new sample rate
+        {
+            const ma_uint64 oldAbsTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
+            const double absSec = (oldRate > 0) ? ((double)oldAbsTime / (double)oldRate) : 0.0;
+            e->engineAbsoluteTime.store((ma_uint64)(absSec * (double)e->sampleRate), std::memory_order_relaxed);
+        }
+
         // Re-initialize active decoders to match new outCh so miniaudio downmixes properly
         ma_uint64 resumeFrame = 0;
         int resumeIndex = -1;
@@ -4895,8 +4933,12 @@ extern "C"
                 if (load_decoder_for_path(e, path, &newDec, &newLen))
 #endif
                 {
-                    if (resumeFrame > 0)
-                        (void)ma_decoder_seek_to_pcm_frame(newDec, resumeFrame);
+                    if (resumeFrame > 0 && oldRate > 0)
+                    {
+                        const double posSec = (double)resumeFrame / (double)oldRate;
+                        const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)e->sampleRate);
+                        (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
+                    }
 
                     std::lock_guard<std::mutex> d(e->decoderMutex);
                     e->currentDecoder = newDec;
