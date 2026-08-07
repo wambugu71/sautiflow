@@ -1583,9 +1583,9 @@ namespace
         }
     };
 
-    struct NoiseShaperState
+    struct DitherProcessorState
     {
-        float history[8][8] = {}; // Up to 8 channels, 8 taps history
+        float history[16][8] = {}; // Up to 16 channels, 8 taps history
         uint32_t prngState = 0x12345678;
 
         void reset()
@@ -1593,26 +1593,82 @@ namespace
             std::memset(history, 0, sizeof(history));
         }
 
+        inline float getRpdfDither(float scale)
+        {
+            prngState ^= prngState << 13;
+            prngState ^= prngState >> 17;
+            prngState ^= prngState << 5;
+            const float r = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f) - 0.5f;
+            return r * scale;
+        }
+
         inline float getTpdfDither(float scale)
         {
             prngState ^= prngState << 13;
             prngState ^= prngState >> 17;
             prngState ^= prngState << 5;
-            const float r1 = (float)(prngState & 0xFFFF) / 65536.0f;
+            const float r1 = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f);
 
             prngState ^= prngState << 13;
             prngState ^= prngState >> 17;
             prngState ^= prngState << 5;
-            const float r2 = (float)(prngState & 0xFFFF) / 65536.0f;
+            const float r2 = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f);
 
             return (r1 - r2) * scale;
         }
 
         void process(int ditherMode, AEAudioFormat outFmt, float *inOutSamples, size_t totalSamples, int channels)
         {
-            if (ditherMode < 3 || outFmt == AE_FORMAT_F32 || !inOutSamples || totalSamples == 0)
+            if (ditherMode <= 0 || !inOutSamples || totalSamples == 0)
                 return;
 
+            const int activeChannels = (channels > 0) ? channels : 2;
+            const int ch = std::min(std::max(1, activeChannels), 16);
+            const size_t frames = totalSamples / (size_t)activeChannels;
+
+            float lsbScale = 1.0f / 32768.0f; // 16-bit target (default)
+            if (outFmt == AE_FORMAT_S24)
+                lsbScale = 1.0f / 8388608.0f;
+            else if (outFmt == AE_FORMAT_S32)
+                lsbScale = 1.0f / 2147483648.0f;
+            else if (outFmt == AE_FORMAT_U8)
+                lsbScale = 1.0f / 128.0f;
+
+            // Mode 1: Rectangle (RPDF)
+            if (ditherMode == 1)
+            {
+                const float ditherAmp = lsbScale; // 1.0 LSB p-p
+                for (size_t i = 0; i < frames; ++i)
+                {
+                    size_t base = i * (size_t)activeChannels;
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        float x = inOutSamples[base + c];
+                        float d = getRpdfDither(ditherAmp);
+                        inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
+                    }
+                }
+                return;
+            }
+
+            // Mode 2: Triangle (TPDF)
+            if (ditherMode == 2)
+            {
+                const float ditherAmp = lsbScale; // 2.0 LSB p-p
+                for (size_t i = 0; i < frames; ++i)
+                {
+                    size_t base = i * (size_t)activeChannels;
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        float x = inOutSamples[base + c];
+                        float d = getTpdfDither(ditherAmp);
+                        inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
+                    }
+                }
+                return;
+            }
+
+            // Modes 3-8: Psychoacoustic Noise Shaping
             static const float coefLipshitz[5] = {2.033f, -2.165f, 1.959f, -1.137f, 0.321f};
             static const float coefFWeighted[5] = {2.412f, -2.970f, 2.453f, -1.332f, 0.366f};
             static const float coefModEWeighted[5] = {1.836f, -1.574f, 1.212f, -0.638f, 0.174f};
@@ -1632,29 +1688,21 @@ namespace
             default: a = coefShibata; break;
             }
 
-            const int ch = std::min(std::max(1, channels), 8);
-            const size_t frames = totalSamples / (size_t)ch;
-
-            float lsbScale = 1.0f / 32768.0f; // 16-bit
-            if (outFmt == AE_FORMAT_S24)
-                lsbScale = 1.0f / 8388608.0f;
-            else if (outFmt == AE_FORMAT_S32)
-                lsbScale = 1.0f / 2147483648.0f;
-            else if (outFmt == AE_FORMAT_U8)
-                lsbScale = 1.0f / 128.0f;
+            const float ditherAmp = lsbScale; // 2.0 LSB p-p TPDF dither
 
             for (size_t i = 0; i < frames; ++i)
             {
+                size_t base = i * (size_t)activeChannels;
                 for (int c = 0; c < ch; ++c)
                 {
-                    size_t idx = i * (size_t)ch + (size_t)c;
+                    size_t idx = base + (size_t)c;
                     float x = inOutSamples[idx];
 
                     float feedback = a[0] * history[c][0] + a[1] * history[c][1] +
                                      a[2] * history[c][2] + a[3] * history[c][3] +
                                      a[4] * history[c][4];
 
-                    float dither = getTpdfDither(lsbScale * 0.5f);
+                    float dither = getTpdfDither(ditherAmp);
                     float xShaped = x + feedback + dither;
 
                     float quantized = std::round(xShaped / lsbScale) * lsbScale;
@@ -1870,7 +1918,7 @@ struct AudioEngineHandle
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
-    NoiseShaperState noiseShaper;
+    DitherProcessorState ditherProcessor;
 
     std::vector<float> eqFrequencies;
     std::vector<float> eqGains;
@@ -3481,35 +3529,30 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         }
     }
 
-    // Format Conversion if needed
-    ma_dither_mode maDither = ma_dither_mode_none;
+    // Dithering & Format Conversion
     const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
-    if (ditherVal == 1)
-        maDither = ma_dither_mode_rectangle;
-    else if (ditherVal == 2)
-        maDither = ma_dither_mode_triangle;
-    else if (ditherVal >= 3 && e->outputFormat != AE_FORMAT_F32)
+    if (ditherVal > 0)
     {
-        e->noiseShaper.process(ditherVal, e->outputFormat, processBuffer, totalSamples, e->channels);
+        e->ditherProcessor.process(ditherVal, e->outputFormat, processBuffer, totalSamples, e->channels);
     }
 
     if (e->outputFormat == AE_FORMAT_S16)
     {
-        ma_pcm_f32_to_s16(pOutput, processBuffer, totalSamples, maDither);
+        ma_pcm_f32_to_s16(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
     else if (e->outputFormat == AE_FORMAT_U8)
     {
-        ma_pcm_f32_to_u8(pOutput, processBuffer, totalSamples, maDither);
+        ma_pcm_f32_to_u8(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
     else if (e->outputFormat == AE_FORMAT_S24)
     {
-        ma_pcm_f32_to_s24(pOutput, processBuffer, totalSamples, maDither);
+        ma_pcm_f32_to_s24(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
     else if (e->outputFormat == AE_FORMAT_S32)
     {
-        ma_pcm_f32_to_s32(pOutput, processBuffer, totalSamples, maDither);
+        ma_pcm_f32_to_s32(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
-    // else F32 -> already in pOutput
+    // else F32 -> already in pOutput (dithered in processBuffer!)
 }
 
 extern "C"
@@ -5256,7 +5299,11 @@ extern "C"
     {
         if (!engine)
             return;
-        engine->ditherMode.store(dither_mode, std::memory_order_relaxed);
+        int prevMode = engine->ditherMode.exchange(dither_mode, std::memory_order_relaxed);
+        if (prevMode != dither_mode)
+        {
+            engine->ditherProcessor.reset();
+        }
     }
 
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)

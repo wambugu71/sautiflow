@@ -604,6 +604,8 @@ class MiniAudioPlayer {
     _engine.setEngineDitherMode(ditherMode);
   }
 
+  int getEngineDitherMode() => _engine.getEngineDitherMode();
+
   // --- Limiter & Clipping Detection ---
 
   /// Enable or disable the soft limiter.
