@@ -1328,7 +1328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setSubState(() {});
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    if (val && !actual) {
+                    if (val && actual) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           backgroundColor: _cardDark,
@@ -1336,7 +1336,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                             side: BorderSide(
-                                color: Colors.amberAccent.withAlpha(80)),
+                                color: Colors.greenAccent.withAlpha(120)),
+                          ),
+                          content: const Row(
+                            children: [
+                              Icon(Icons.verified_rounded,
+                                  color: Colors.greenAccent, size: 20),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Bit-Perfect Mode Accepted (Exclusive MMAP active)',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else if (val && !actual) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                                color: Colors.amberAccent.withAlpha(120)),
                           ),
                           content: const Row(
                             children: [
@@ -1345,7 +1371,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Hardware rejected Exclusive Mode. Falling back!',
+                                  'Hardware declined Exclusive Mode. Falling back to Shared Mixer!',
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: const BorderSide(color: Colors.white24),
+                          ),
+                          content: const Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  color: Colors.white70, size: 20),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Bit-Perfect Exclusive Mode Disabled (Shared Mixer)',
                                   style: TextStyle(
                                       color: Colors.white, fontSize: 13),
                                 ),
@@ -1409,6 +1460,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     widget.player.setAutoBitPerfectEnabled(val);
                     AppStateService.instance.saveAutoBitPerfectEnabled(val);
                     setSubState(() {});
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: _cardDark,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: val
+                                ? Colors.greenAccent.withAlpha(120)
+                                : Colors.white24,
+                          ),
+                        ),
+                        content: Row(
+                          children: [
+                            Icon(
+                              val ? Icons.graphic_eq : Icons.info_outline,
+                              color: val ? Colors.greenAccent : Colors.white70,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                val
+                                    ? 'Auto Bit-Perfect Enabled (DAC rate will match track rate)'
+                                    : 'Auto Bit-Perfect Disabled',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   },
                 ),
               ],
