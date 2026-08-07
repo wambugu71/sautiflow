@@ -16,6 +16,7 @@ import android.hardware.usb.UsbManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -57,6 +58,7 @@ class MainActivity : AudioServiceActivity() {
     private var bluetoothA2dp: BluetoothA2dp? = null
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var audioDeviceCallback: AudioDeviceCallback? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     // Comprehensive BroadcastReceiver for Wired, Bluetooth, and USB audio events
     private val hardwareReceiver = object : BroadcastReceiver() {
@@ -155,6 +157,7 @@ class MainActivity : AudioServiceActivity() {
         teardownAudioDeviceCallback()
         teardownBluetoothProfile()
         unregisterHardwareReceiver()
+        releaseMulticastLock()
     }
 
     private fun requestBluetoothPermissionIfNeeded() {
@@ -277,6 +280,34 @@ class MainActivity : AudioServiceActivity() {
             unregisterReceiver(hardwareReceiver)
         } catch (e: Exception) {
             // Ignore if not registered
+        }
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            multicastLock = wifiManager?.createMulticastLock("SautiplayMulticastLock")?.apply {
+                setReferenceCounted(true)
+            }
+        }
+        try {
+            if (multicastLock?.isHeld == false) {
+                multicastLock?.acquire()
+                Log.d(TAG, "Wifi MulticastLock acquired")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire Wifi MulticastLock: ${e.message}")
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        try {
+            if (multicastLock?.isHeld == true) {
+                multicastLock?.release()
+                Log.d(TAG, "Wifi MulticastLock released")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to release Wifi MulticastLock: ${e.message}")
         }
     }
 
