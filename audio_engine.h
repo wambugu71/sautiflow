@@ -173,6 +173,7 @@ extern "C"
     AE_API float ae_get_stereo_enhancement_mix(AudioEngineHandle *engine);
     AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset);
+    AE_API void ae_set_race_params(AudioEngineHandle *engine, float delay_ms, float alpha, float lpf_hz);
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain);
 

@@ -395,6 +395,19 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setCrossfeed', 'enabled': enabled, 'preset': preset});
   }
 
+  void setRaceParams({
+    double delayMs = 0.166,
+    double alpha = 0.55,
+    double lpfHz = 2500.0,
+  }) {
+    _send({
+      'cmd': 'setRaceParams',
+      'delayMs': delayMs,
+      'alpha': alpha,
+      'lpfHz': lpfHz,
+    });
+  }
+
   void setDynamicBass(
       {required bool enabled, required int preset, required double gain}) {
     _send({
@@ -1055,6 +1068,13 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setCrossfeed(
               enabled: message['enabled'] ?? false,
               preset: message['preset'] ?? 0);
+          break;
+        case 'setRaceParams':
+          player.setRaceParams(
+            delayMs: (message['delayMs'] as num?)?.toDouble() ?? 0.166,
+            alpha: (message['alpha'] as num?)?.toDouble() ?? 0.55,
+            lpfHz: (message['lpfHz'] as num?)?.toDouble() ?? 2500.0,
+          );
           break;
         case 'setDynamicBass':
           player.setDynamicBass(

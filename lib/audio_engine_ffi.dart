@@ -584,6 +584,11 @@ typedef _SetDynamicBassParamsNative = ffi.Void Function(
 typedef _SetDynamicBassParamsDart = void Function(
     ffi.Pointer<ffi.Void>, int, double);
 
+typedef _SetRaceParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetRaceParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
 // Crystalizer typedefs
 typedef _SetCrystalizerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -1104,6 +1109,10 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetSingleIntNative, _SetSingleIntDart>(
       'ae_set_crossfeed_preset',
     );
+    _setRaceParams =
+        _lib.lookupFunction<_SetRaceParamsNative, _SetRaceParamsDart>(
+      'ae_set_race_params',
+    );
     _setDynamicBassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_dynamic_bass_enabled',
@@ -1477,6 +1486,7 @@ class AudioEngineFFI {
   late final _GetStereoEnhancementMixDart _getStereoEnhancementMix;
   late final _SetFxEnabledDart _setCrossfeedEnabled;
   late final _SetSingleIntDart _setCrossfeedPreset;
+  late final _SetRaceParamsDart _setRaceParams;
   late final _SetFxEnabledDart _setDynamicBassEnabled;
   late final _SetDynamicBassParamsDart _setDynamicBassParams;
 
@@ -2085,6 +2095,15 @@ class AudioEngineFFI {
   void setCrossfeedPreset(int preset) {
     if (_engine == ffi.nullptr) return;
     _setCrossfeedPreset(_engine, preset);
+  }
+
+  void setRaceParams({
+    double delayMs = 0.166,
+    double alpha = 0.55,
+    double lpfHz = 2500.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setRaceParams(_engine, delayMs, alpha, lpfHz);
   }
 
   void setDynamicBassEnabled(bool enabled) {

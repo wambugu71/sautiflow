@@ -266,6 +266,7 @@ class AudioProfileService {
         final cf = dsp['crossfeed'] as Map;
         final enabled = cf['enabled'] ?? false;
         final preset = (cf['preset'] as num?)?.toInt() ?? 1;
+        player.setCrossfeed(enabled: enabled, preset: preset);
         await AppStateService.instance
             .saveCrossfeed(enabled: enabled, preset: preset);
       }
@@ -512,7 +513,7 @@ class AudioProfileService {
         name: 'Audiophile Acoustic',
         category: 'Headphones',
         description:
-            'Subtle crossfeed stereo imaging and transparent tone controls.',
+            'Ambiophonics R.A.C.E. crosstalk cancellation and transparent tone controls.',
         isBuiltIn: true,
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
@@ -523,7 +524,7 @@ class AudioProfileService {
           'gains': List<double>.filled(10, 0.0),
         },
         dspEffectsState: {
-          'crossfeed': {'enabled': true, 'preset': 1},
+          'crossfeed': {'enabled': true, 'preset': 4},
           'stereoEnhancement': {'enabled': true, 'mix': 0.35},
         },
         viperFxState: {

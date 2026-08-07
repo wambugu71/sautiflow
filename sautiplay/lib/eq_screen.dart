@@ -11,6 +11,7 @@ import 'widgets/app_showcase.dart';
 import 'widgets/custom_filters_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
+import 'widgets/race_visualizer.dart';
 
 import 'services/app_theme_service.dart';
 
@@ -184,6 +185,9 @@ class _EqScreenState extends State<EqScreen>
   // Audiophile Crossfeed
   bool _crossfeedEnabled = false;
   int _crossfeedPreset = 1;
+  double _raceDelayMs = 0.166;
+  double _raceAlpha = 0.55;
+  double _raceLpfHz = 2500.0;
 
   // Stereo Widen
   bool _stereoWidenEnabled = false;
@@ -317,6 +321,7 @@ class _EqScreenState extends State<EqScreen>
     final stereoEnhancement =
         await AppStateService.instance.loadStereoEnhancement();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
+    final raceParams = await AppStateService.instance.loadRaceParams();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
     final lpf = await AppStateService.instance.loadCustomLpf();
@@ -364,6 +369,9 @@ class _EqScreenState extends State<EqScreen>
       // Crossfeed
       _crossfeedEnabled = crossfeed.enabled;
       _crossfeedPreset = crossfeed.preset > 0 ? crossfeed.preset : 1;
+      _raceDelayMs = raceParams.delayMs;
+      _raceAlpha = raceParams.alpha;
+      _raceLpfHz = raceParams.lpfHz;
 
       // Stereo Widen
       _stereoWidenEnabled = stereoWiden.enabled;
@@ -495,6 +503,11 @@ class _EqScreenState extends State<EqScreen>
     AppStateService.instance.saveCrossfeed(
       enabled: _crossfeedEnabled,
       preset: _crossfeedPreset,
+    );
+    AppStateService.instance.saveRaceParams(
+      delayMs: _raceDelayMs,
+      alpha: _raceAlpha,
+      lpfHz: _raceLpfHz,
     );
     AppStateService.instance.saveStereoWiden(
       enabled: _stereoWidenEnabled,
@@ -2102,6 +2115,65 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
+        if (_crossfeedPreset == 4) ...[
+          const SizedBox(height: 12),
+          RaceSoundstageVisualizer(
+            delayMs: _raceDelayMs,
+            alpha: _raceAlpha,
+            lpfHz: _raceLpfHz,
+            isEnabled: _crossfeedEnabled,
+            primaryColor: primaryColor,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'ITD DELAY',
+                value: (_raceDelayMs - 0.05) / 0.35,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (0.166 - 0.05) / 0.35,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                valueFormatter: (_) => '${(_raceDelayMs * 1000).round()}µs',
+                onChanged: (v) {
+                  setState(() => _raceDelayMs = 0.05 + v * 0.35);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ATTENUATION',
+                value: (_raceAlpha - 0.10) / 0.80,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (0.55 - 0.10) / 0.80,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (_) => '${(_raceAlpha * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _raceAlpha = 0.10 + v * 0.80);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'HEAD LPF',
+                value: (_raceLpfHz - 500.0) / 7500.0,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (2500.0 - 500.0) / 7500.0,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                valueFormatter: (_) => '${_raceLpfHz.toInt()}Hz',
+                onChanged: (v) {
+                  setState(() => _raceLpfHz = 500.0 + v * 7500.0);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -2348,6 +2420,13 @@ class _EqScreenState extends State<EqScreen>
       enabled: _crossfeedEnabled,
       preset: _crossfeedPreset,
     );
+    if (_crossfeedPreset == 4) {
+      widget.player.setRaceParams(
+        delayMs: _raceDelayMs,
+        alpha: _raceAlpha,
+        lpfHz: _raceLpfHz,
+      );
+    }
   }
 
   void _updateStereoWiden() {

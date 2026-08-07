@@ -810,7 +810,9 @@ namespace
         float raceRingBufferR[RACE_MAX_DELAY] = {};
         size_t raceWriteIdx = 0;
         size_t raceDelaySamples = 8; // ~166us at 48kHz
+        float raceDelayMs = 0.166f;  // ~166us
         float raceAlpha = 0.55f;
+        float raceLpfHz = 2500.0f;
         float raceLpfA0 = 0.0f;
         float raceLpfB1 = 0.0f;
         float raceLpfOutL = 0.0f;
@@ -818,6 +820,24 @@ namespace
 
         int currentPreset = 1;
         int cachedSampleRate = 44100;
+
+        void updateRaceParams(int sampleRate, float delayMs, float alpha, float lpfHz)
+        {
+            if (sampleRate <= 0)
+                sampleRate = cachedSampleRate > 0 ? cachedSampleRate : 44100;
+            cachedSampleRate = sampleRate;
+            raceDelayMs = clampf(delayMs, 0.02f, 2.0f);
+            raceAlpha = clampf(alpha, 0.0f, 1.0f);
+            raceLpfHz = clampf(lpfHz, 200.0f, 16000.0f);
+
+            constexpr double pi = 3.14159265358979323846;
+            size_t d = (size_t)((double)(raceDelayMs / 1000.0f) * (double)sampleRate);
+            raceDelaySamples = (d < 1) ? 1 : ((d >= RACE_MAX_DELAY) ? (RACE_MAX_DELAY - 1) : d);
+
+            double x_race = std::exp(-2.0 * pi * (double)raceLpfHz / (double)sampleRate);
+            raceLpfB1 = (float)x_race;
+            raceLpfA0 = (float)(1.0 - x_race);
+        }
 
         void reset(int sampleRate, int preset)
         {
@@ -828,13 +848,7 @@ namespace
 
             if (preset == 4) // Ambiophonics R.A.C.E.
             {
-                constexpr double pi = 3.14159265358979323846;
-                size_t d = (size_t)(0.000166 * (double)sampleRate);
-                raceDelaySamples = (d < 1) ? 1 : ((d >= RACE_MAX_DELAY) ? (RACE_MAX_DELAY - 1) : d);
-                raceAlpha = 0.55f;
-                double x_race = std::exp(-2.0 * pi * 2500.0 / (double)sampleRate);
-                raceLpfB1 = (float)x_race;
-                raceLpfA0 = (float)(1.0 - x_race);
+                updateRaceParams(sampleRate, raceDelayMs, raceAlpha, raceLpfHz);
                 std::memset(raceRingBufferL, 0, sizeof(raceRingBufferL));
                 std::memset(raceRingBufferR, 0, sizeof(raceRingBufferR));
                 raceWriteIdx = 0;
@@ -4717,6 +4731,14 @@ extern "C"
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->crossfeedPreset = preset;
         engine->crossfeed.reset(engine->sampleRate, preset);
+    }
+
+    AE_API void ae_set_race_params(AudioEngineHandle *engine, float delay_ms, float alpha, float lpf_hz)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeed.updateRaceParams(engine->sampleRate, delay_ms, alpha, lpf_hz);
     }
 
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)

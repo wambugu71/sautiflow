@@ -475,6 +475,14 @@ class MiniAudioPlayer {
     _engine.setCrossfeedPreset(preset);
   }
 
+  void setRaceParams({
+    double delayMs = 0.166,
+    double alpha = 0.55,
+    double lpfHz = 2500.0,
+  }) {
+    _engine.setRaceParams(delayMs: delayMs, alpha: alpha, lpfHz: lpfHz);
+  }
+
   void setDynamicBass({
     required bool enabled,
     int preset = 18,

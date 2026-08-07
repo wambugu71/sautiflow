@@ -242,6 +242,10 @@ class AppStateService {
     );
   }
 
+  static const _kRaceDelayMs = 'sp_race_delay_ms';
+  static const _kRaceAlpha = 'sp_race_alpha';
+  static const _kRaceLpfHz = 'sp_race_lpf_hz';
+
   Future<void> saveCrossfeed({
     required bool enabled,
     required int preset,
@@ -256,6 +260,26 @@ class AppStateService {
     return (
       enabled: prefs.getBool(_kCrossfeedEnabled) ?? false,
       preset: prefs.getInt(_kCrossfeedPreset) ?? 0,
+    );
+  }
+
+  Future<void> saveRaceParams({
+    required double delayMs,
+    required double alpha,
+    required double lpfHz,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kRaceDelayMs, delayMs);
+    await prefs.setDouble(_kRaceAlpha, alpha);
+    await prefs.setDouble(_kRaceLpfHz, lpfHz);
+  }
+
+  Future<({double delayMs, double alpha, double lpfHz})> loadRaceParams() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      delayMs: prefs.getDouble(_kRaceDelayMs) ?? 0.166,
+      alpha: prefs.getDouble(_kRaceAlpha) ?? 0.55,
+      lpfHz: prefs.getDouble(_kRaceLpfHz) ?? 2500.0,
     );
   }
 
