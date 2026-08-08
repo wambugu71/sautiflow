@@ -49,6 +49,9 @@ target_compile_definitions(audio_engine PRIVATE
   HAVE_SYS_TYPES_H=1
   PACKAGE="libsamplerate"
   VERSION="0.2.2"
+  ENABLE_SINC_BEST_CONVERTER=1
+  ENABLE_SINC_MEDIUM_CONVERTER=1
+  ENABLE_SINC_FAST_CONVERTER=1
 )
 
 if(MSVC)

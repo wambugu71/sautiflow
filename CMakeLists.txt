@@ -31,6 +31,21 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
+target_compile_definitions(audio_engine PRIVATE
+  HAVE_INTTYPES_H=1
+  HAVE_MEMCPY=1
+  HAVE_STRING_H=1
+  HAVE_STDBOOL_H=1
+  HAVE_STRINGS_H=1
+  HAVE_SYS_TYPES_H=1
+  PACKAGE="libsamplerate"
+  VERSION="0.2.2"
+  PACKAGE_VERSION="2.11.1"
+  ENABLE_SINC_BEST_CONVERTER=1
+  ENABLE_SINC_MEDIUM_CONVERTER=1
+  ENABLE_SINC_FAST_CONVERTER=1
+)
+
 if (WIN32)
   target_compile_definitions(audio_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
   # Disabled by default on Windows because CMake may resolve MSYS2/MinGW curl

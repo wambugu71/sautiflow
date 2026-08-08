@@ -1284,6 +1284,9 @@ void _isolateEntry(_IsolateInitData initData) {
             invertLeft: message['invertLeft'] == true,
             invertRight: message['invertRight'] == true,
           );
+          initData.sendPort.send(
+            '[log]Phase Inversion updated: L=${message['invertLeft']}, R=${message['invertRight']}',
+          );
           break;
         case 'setExclusiveMode':
           player.setExclusiveMode(message['enabled'] == true);

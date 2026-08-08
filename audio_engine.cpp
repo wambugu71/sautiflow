@@ -586,7 +586,11 @@ namespace
         int err = 0;
         backend->state = src_new(converter, backend->channels, &err);
         if (!backend->state)
+        {
+            engine_log("src_onInit: src_new failed (err=%d: %s) for converter=%d channels=%d",
+                       err, src_strerror(err), converter, backend->channels);
             return MA_ERROR;
+        }
 
         *ppBackend = (ma_resampling_backend *)backend;
         return MA_SUCCESS;
@@ -2539,6 +2543,11 @@ static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
     }
 }
 
+extern "C"
+{
+    static void restart_device_rate_only(AudioEngineHandle *e, int newRate);
+}
+
 static bool load_decoder_for_path(
     AudioEngineHandle *e,
     const std::string &path,
@@ -2867,11 +2876,8 @@ static void worker_loop(AudioEngineHandle *e)
                     const int nativeRate = (int)newCurrent->outputSampleRate;
                     if (nativeRate > 0 && nativeRate != e->outputSampleRate)
                     {
-                        engine_log("Auto Bit-Perfect: Track native sample rate is %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
-                        // SAFE: do NOT call restart_and_apply_config() here — we are on the
-                        // worker thread and the audio device callback may still be active.
-                        // Signal the control thread (Dart) to call ae_apply_pending_rate_change().
-                        e->pendingAutoBitPerfectRate.store(nativeRate, std::memory_order_release);
+                        engine_log("Auto Bit-Perfect: Track native sample rate is %d Hz (current DAC rate: %d Hz). Adapting hardware rate...", nativeRate, e->outputSampleRate);
+                        restart_device_rate_only(e, nativeRate);
                     }
                 }
 
@@ -3147,6 +3153,16 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
 
+                            if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
+                            {
+                                const int nativeRate = (int)e->currentDecoder->outputSampleRate;
+                                if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                                {
+                                    engine_log("Auto Bit-Perfect: Early crossfade track native sample rate is %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
+                                    e->pendingAutoBitPerfectRate.store(nativeRate, std::memory_order_release);
+                                }
+                            }
+
                             // Order cursor update is handled safely on the worker thread via request_preload
 
                             e->hasNext = false;
@@ -3331,6 +3347,16 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     e->currentLengthFrames = e->nextLengthFrames;
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
+
+                    if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
+                    {
+                        const int nativeRate = (int)e->currentDecoder->outputSampleRate;
+                        if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                        {
+                            engine_log("Auto Bit-Perfect: Next track native sample rate is %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
+                            e->pendingAutoBitPerfectRate.store(nativeRate, std::memory_order_release);
+                        }
+                    }
 
                     // Order cursor update is handled safely on the worker thread via request_preload
 
@@ -3552,22 +3578,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
-            // Phase Inversion (Polarity Flip)
-            {
-                const bool invL = e->phaseInvertLeft.load(std::memory_order_relaxed);
-                const bool invR = e->phaseInvertRight.load(std::memory_order_relaxed);
-                if (invL || invR)
-                {
-                    const int ch = e->channels;
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        if (invL)
-                            processBuffer[i * ch + 0] = (float)(-(double)processBuffer[i * ch + 0]);
-                        if (ch > 1 && invR)
-                            processBuffer[i * ch + 1] = (float)(-(double)processBuffer[i * ch + 1]);
-                    }
-                }
-            }
+
 
             if (e->crossfeedEnabled)
             {
@@ -3715,6 +3726,23 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (clippedCountLocal > 0)
             {
                 e->clippedSamplesCount.fetch_add(clippedCountLocal, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    // Phase Inversion (Polarity Flip - applied to output frames)
+    {
+        const bool invL = e->phaseInvertLeft.load(std::memory_order_relaxed);
+        const bool invR = e->phaseInvertRight.load(std::memory_order_relaxed);
+        if (invL || invR)
+        {
+            const int ch = (e->channels > 0) ? e->channels : 2;
+            for (ma_uint32 i = 0; i < produced; ++i)
+            {
+                if (invL)
+                    processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
+                if (ch > 1 && invR)
+                    processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
             }
         }
     }
@@ -5018,6 +5046,101 @@ extern "C"
         }
     }
 
+    // Fast helper to switch DAC sample rate without destroying active decoders/streams
+    static void restart_device_rate_only(AudioEngineHandle *e, int newRate)
+    {
+        if (!e || newRate <= 0)
+            return;
+        if (e->outputSampleRate == newRate && e->sampleRate == newRate)
+            return;
+
+        engine_log("Auto Bit-Perfect: Switching hardware DAC sample rate to %d Hz...", newRate);
+        bool wasPlaying = e->isPlaying.load();
+
+        if (ma_device_get_state(&e->device) == ma_device_state_started)
+        {
+            ma_device_stop(&e->device);
+        }
+        ma_device_uninit(&e->device);
+
+        e->outputSampleRate = newRate;
+        int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
+
+        ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+        switch (e->outputFormat)
+        {
+        case AE_FORMAT_S16: cfg.playback.format = ma_format_s16; break;
+        case AE_FORMAT_U8:  cfg.playback.format = ma_format_u8; break;
+        case AE_FORMAT_S24: cfg.playback.format = ma_format_s24; break;
+        case AE_FORMAT_S32: cfg.playback.format = ma_format_s32; break;
+        default:            cfg.playback.format = ma_format_f32; break;
+        }
+        cfg.playback.channels = (ma_uint32)newCh;
+        cfg.sampleRate = (ma_uint32)newRate;
+        cfg.dataCallback = data_callback;
+        cfg.notificationCallback = device_notification_callback;
+        cfg.pUserData = e;
+
+        if (e->resampleAlgorithm > 0)
+        {
+            cfg.resampling.algorithm = ma_resample_algorithm_custom;
+            cfg.resampling.pBackendVTable = &g_customResamplerVTable;
+            cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
+        }
+        else
+        {
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+        }
+
+        const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                   e->autoBitPerfectEnabled.load(std::memory_order_relaxed);
+
+        if (wantExclusive)
+        {
+            cfg.playback.shareMode = ma_share_mode_exclusive;
+            cfg.performanceProfile = ma_performance_profile_low_latency;
+            cfg.wasapi.noAutoConvertSRC = 1;
+            cfg.wasapi.noDefaultQualitySRC = 1;
+            cfg.alsa.noMMap = 0;
+            cfg.noPreSilencedOutputBuffer = 1;
+
+            if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+            {
+                engine_log("Hardware declined Exclusive Mode at %d Hz, falling back to Shared Mode.", newRate);
+                cfg.playback.shareMode = ma_share_mode_shared;
+                cfg.performanceProfile = ma_performance_profile_conservative;
+                cfg.wasapi.noAutoConvertSRC = 0;
+                cfg.wasapi.noDefaultQualitySRC = 0;
+                cfg.noPreSilencedOutputBuffer = 0;
+                ma_device_init(nullptr, &cfg, &e->device);
+            }
+        }
+        else
+        {
+            cfg.performanceProfile = ma_performance_profile_conservative;
+            ma_device_init(nullptr, &cfg, &e->device);
+        }
+
+        {
+            const int actualRate = (int)e->device.sampleRate;
+            e->sampleRate = (actualRate > 0) ? actualRate : newRate;
+            e->update_eq_filters();
+            e->update_multiband_fx_filters();
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+            reinit_advanced_fx_filters(e);
+        }
+        if (e->viperEnabled)
+        {
+            std::lock_guard<std::mutex> lock(e->viperMutex);
+            e->viper.SetSamplingRate(e->sampleRate);
+        }
+
+        if (wasPlaying)
+        {
+            ma_device_start(&e->device);
+        }
+    }
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -5487,12 +5610,7 @@ extern "C"
             return;
         if (engine->outputSampleRate == sample_rate)
             return;
-        if (ma_device_get_state(&engine->device) == ma_device_state_started)
-        {
-            ma_device_stop(&engine->device);
-        }
-        engine->outputSampleRate = sample_rate;
-        restart_and_apply_config(engine);
+        restart_device_rate_only(engine, sample_rate);
     }
 
     AE_API int ae_get_output_sample_rate(AudioEngineHandle *engine)
@@ -5569,7 +5687,16 @@ extern "C"
         if (prev != next)
         {
             engine->autoBitPerfectEnabled.store(next, std::memory_order_relaxed);
-            restart_and_apply_config(engine);
+            if (next && engine->currentIndex >= 0)
+            {
+                // Re-jump to current index so worker_loop reloads current track with targetRate = 0 (native)
+                // and detects its native sample rate for DAC switching.
+                request_jump(engine, engine->currentIndex);
+            }
+            else
+            {
+                restart_and_apply_config(engine);
+            }
         }
     }
 
@@ -5602,6 +5729,7 @@ extern "C"
             return;
         engine->phaseInvertLeft.store(invert_left != 0, std::memory_order_relaxed);
         engine->phaseInvertRight.store(invert_right != 0, std::memory_order_relaxed);
+        engine_log("Phase Inversion updated: Left=%d, Right=%d", invert_left != 0 ? 1 : 0, invert_right != 0 ? 1 : 0);
     }
 
     AE_API void ae_get_phase_inversion(AudioEngineHandle *engine, int *out_invert_left, int *out_invert_right)
