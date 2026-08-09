@@ -1815,7 +1815,7 @@ class _PlayerShellState extends State<PlayerShell> {
                         return AppShowcase(
                           showcaseKey: _miniPlayerKey,
                           title: 'Interactive Playback',
-                          description: 'Tap the Mini Player to expand full controls, synced lyrics & cover-art dynamic themes.',
+                          description: 'Tap to expand full controls, or swipe left/right to skip to next/previous song.',
                           currentStep: 4,
                           totalSteps: 5,
                           child: MiniPlayer(
@@ -1832,6 +1832,7 @@ class _PlayerShellState extends State<PlayerShell> {
                               }
                             },
                             onNext: () => _player.next(),
+                            onPrevious: () => _player.previous(),
                             onTap: _showNowPlayingScreen,
                           ),
                         );

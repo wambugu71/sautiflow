@@ -11,6 +11,7 @@ class MiniPlayer extends StatefulWidget {
   final bool isPlaying;
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
+  final VoidCallback? onPrevious;
   final VoidCallback onTap;
 
   const MiniPlayer({
@@ -22,6 +23,7 @@ class MiniPlayer extends StatefulWidget {
     required this.isPlaying,
     required this.onPlayPause,
     required this.onNext,
+    this.onPrevious,
     required this.onTap,
   });
 
@@ -32,6 +34,8 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _rotationController;
+  bool _isDragging = false;
+  double _dragOffsetX = 0.0;
 
   @override
   void initState() {
@@ -63,11 +67,55 @@ class _MiniPlayerState extends State<MiniPlayer>
     super.dispose();
   }
 
+  void _handleDragUpdate(DragUpdateDetails details) {
+    setState(() {
+      _isDragging = true;
+      _dragOffsetX += details.delta.dx;
+    });
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    const double swipeThreshold = 40.0;
+    final velocity = details.primaryVelocity ?? 0.0;
+
+    if (_dragOffsetX < -swipeThreshold || velocity < -200) {
+      // Swiped left -> next track
+      widget.onNext();
+    } else if (_dragOffsetX > swipeThreshold || velocity > 200) {
+      // Swiped right -> previous track
+      widget.onPrevious?.call();
+    }
+
+    setState(() {
+      _isDragging = false;
+      _dragOffsetX = 0.0;
+    });
+  }
+
+  void _handleDragCancel() {
+    setState(() {
+      _isDragging = false;
+      _dragOffsetX = 0.0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final slideFraction = screenWidth > 0
+        ? (_dragOffsetX / screenWidth).clamp(-0.25, 0.25)
+        : 0.0;
+
     return GestureDetector(
       onTap: widget.onTap,
-      child: Container(
+      onHorizontalDragUpdate: _handleDragUpdate,
+      onHorizontalDragEnd: _handleDragEnd,
+      onHorizontalDragCancel: _handleDragCancel,
+      child: AnimatedSlide(
+        duration: _isDragging ? Duration.zero : const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        offset: Offset(slideFraction, 0),
+        child: Container(
         height: 64,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         clipBehavior: Clip.antiAlias,
@@ -191,6 +239,7 @@ class _MiniPlayerState extends State<MiniPlayer>
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
