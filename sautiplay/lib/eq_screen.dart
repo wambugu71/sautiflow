@@ -194,7 +194,7 @@ class _EqScreenState extends State<EqScreen>
   double _stereoWidenWidth = 1.5;
   double _stereoWidenDelayMs = 0.15; // Maps to 15ms
 
-  // JamesDSP Stereo Enhancement
+  // DSP Stereo Enhancement
   bool _stereoEnhancementEnabled = false;
   double _stereoEnhancementMix = 0.5;
 
@@ -378,7 +378,7 @@ class _EqScreenState extends State<EqScreen>
       _stereoWidenWidth = stereoWiden.width;
       _stereoWidenDelayMs = stereoWiden.delayMs;
 
-      // JamesDSP Stereo Enhancement
+      // DSP Stereo Enhancement
       _stereoEnhancementEnabled = stereoEnhancement.enabled;
       _stereoEnhancementMix = stereoEnhancement.mix;
 
@@ -736,30 +736,44 @@ class _EqScreenState extends State<EqScreen>
       _customBpfEnabled = false;
       _customBpfCutoff = 1000.0;
       _customBpfQ = 0.707;
-      widget.player.setBandpass(enabled: false, cutoffHz: _customBpfCutoff, q: _customBpfQ);
+      widget.player.setBandpass(
+          enabled: false, cutoffHz: _customBpfCutoff, q: _customBpfQ);
 
       _customNotchEnabled = false;
       _customNotchCutoff = 60.0;
       _customNotchQ = 10.0;
-      widget.player.setNotch(enabled: false, frequencyHz: _customNotchCutoff, q: _customNotchQ);
+      widget.player.setNotch(
+          enabled: false, frequencyHz: _customNotchCutoff, q: _customNotchQ);
 
       _customPeakEnabled = false;
       _customPeakCutoff = 1000.0;
       _customPeakGainDb = 0.0;
       _customPeakQ = 1.0;
-      widget.player.setPeakEq(enabled: false, frequencyHz: _customPeakCutoff, gainDb: _customPeakGainDb, q: _customPeakQ);
+      widget.player.setPeakEq(
+          enabled: false,
+          frequencyHz: _customPeakCutoff,
+          gainDb: _customPeakGainDb,
+          q: _customPeakQ);
 
       _customLoshelfEnabled = false;
       _customLoshelfCutoff = 250.0;
       _customLoshelfGainDb = 0.0;
       _customLoshelfSlope = 1.0;
-      widget.player.setLowshelf(enabled: false, frequencyHz: _customLoshelfCutoff, gainDb: _customLoshelfGainDb, slope: _customLoshelfSlope);
+      widget.player.setLowshelf(
+          enabled: false,
+          frequencyHz: _customLoshelfCutoff,
+          gainDb: _customLoshelfGainDb,
+          slope: _customLoshelfSlope);
 
       _customHishelfEnabled = false;
       _customHishelfCutoff = 8000.0;
       _customHishelfGainDb = 0.0;
       _customHishelfSlope = 1.0;
-      widget.player.setHighshelf(enabled: false, frequencyHz: _customHishelfCutoff, gainDb: _customHishelfGainDb, slope: _customHishelfSlope);
+      widget.player.setHighshelf(
+          enabled: false,
+          frequencyHz: _customHishelfCutoff,
+          gainDb: _customHishelfGainDb,
+          slope: _customHishelfSlope);
 
       _customBiquadEnabled = false;
       widget.player.setCustomBiquad(
@@ -2100,9 +2114,8 @@ class _EqScreenState extends State<EqScreen>
                 items: const [
                   DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
                   DropdownMenuItem(value: 2, child: Text('BS2B Strong')),
-                  DropdownMenuItem(value: 3, child: Text('Joe0bloggs 3D')),
-                  DropdownMenuItem(
-                      value: 4, child: Text('Ambiophonics R.A.C.E.')),
+                  DropdownMenuItem(value: 3, child: Text('Joe0bloggs')),
+                  DropdownMenuItem(value: 4, child: Text('Ambiophonics')),
                 ],
                 onChanged: (val) {
                   if (val != null) {
@@ -2257,7 +2270,7 @@ class _EqScreenState extends State<EqScreen>
             Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancement',
-      subtitle: 'JamesDSP Warped PFB M/S Widening',
+      subtitle: 'Warped PFB M/S Widening',
       isEnabled: _stereoEnhancementEnabled,
       onToggle: (v) {
         setState(() => _stereoEnhancementEnabled = v);
@@ -2753,7 +2766,8 @@ class _EqScreenState extends State<EqScreen>
       outerAngleRad: _soundConeOuterRad,
       outerGain: _soundConeOuterGain,
     );
-    widget.player.setListenerPosition(x: _listenerX, y: _listenerY, z: _listenerZ);
+    widget.player
+        .setListenerPosition(x: _listenerX, y: _listenerY, z: _listenerZ);
     widget.player.setListenerDirection(x: 0.0, y: 0.0, z: _listenerDirZ);
   }
 
@@ -3094,7 +3108,8 @@ class _EqScreenState extends State<EqScreen>
                   min: -24.0,
                   max: 24.0,
                   flatValue: 0.0,
-                  activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _parametricEqEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) =>
                       '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
                   onChanged: (v) {
@@ -3366,7 +3381,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 20.0,
                   max: 20000.0,
                   flatValue: 60.0,
-                  activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customNotchEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => '${v.toInt()} Hz',
                   onChanged: (v) {
                     setState(() {
@@ -3382,7 +3398,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 0.5,
                   max: 30.0,
                   flatValue: 10.0,
-                  activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customNotchEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => v.toStringAsFixed(1),
                   onChanged: (v) {
                     setState(() {
@@ -3513,7 +3530,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 20.0,
                   max: 5000.0,
                   flatValue: 250.0,
-                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customLoshelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => '${v.toInt()} Hz',
                   onChanged: (v) {
                     setState(() {
@@ -3529,7 +3547,8 @@ class _EqScreenState extends State<EqScreen>
                   min: -24.0,
                   max: 24.0,
                   flatValue: 0.0,
-                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customLoshelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) =>
                       '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
                   onChanged: (v) {
@@ -3546,7 +3565,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 0.1,
                   max: 2.0,
                   flatValue: 1.0,
-                  activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customLoshelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => v.toStringAsFixed(2),
                   onChanged: (v) {
                     setState(() {
@@ -3595,7 +3615,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 1000.0,
                   max: 20000.0,
                   flatValue: 8000.0,
-                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customHishelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => '${v.toInt()} Hz',
                   onChanged: (v) {
                     setState(() {
@@ -3611,7 +3632,8 @@ class _EqScreenState extends State<EqScreen>
                   min: -24.0,
                   max: 24.0,
                   flatValue: 0.0,
-                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customHishelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) =>
                       '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
                   onChanged: (v) {
@@ -3628,7 +3650,8 @@ class _EqScreenState extends State<EqScreen>
                   min: 0.1,
                   max: 2.0,
                   flatValue: 1.0,
-                  activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+                  activeColor:
+                      _customHishelfEnabled ? primaryColor : Colors.white,
                   valueFormatter: (v) => v.toStringAsFixed(2),
                   onChanged: (v) {
                     setState(() {

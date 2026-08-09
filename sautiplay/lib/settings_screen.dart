@@ -328,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           accentColor: _primary,
                           badgeText: widget.exclusiveMode
                               ? 'Bit-Perfect'
-                              : _streamingQuality,
+                              : _formatAudioDepth(widget.outputFormat),
                           onTap: () => _navigateToSubScreen(
                               _buildAudioProcessingSubScreen()),
                         ),
@@ -833,126 +833,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio & Processing',
           children: [
-            _buildSectionHeader('STREAMING QUALITY'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: _primary.withAlpha(25),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.graphic_eq,
-                                color: _primary, size: 24),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Streaming Quality',
-                                    style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 4),
-                                Text('Higher quality uses more network data',
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() =>
-                                      _streamingQuality = 'High Fidelity');
-                                  setSubState(() {});
-                                  _persistUiSettings();
-                                },
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: _streamingQuality == 'High Fidelity'
-                                        ? _primary
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'High Fidelity',
-                                    style: TextStyle(
-                                      color:
-                                          _streamingQuality == 'High Fidelity'
-                                              ? Colors.white
-                                              : _textDark,
-                                      fontWeight:
-                                          _streamingQuality == 'High Fidelity'
-                                              ? FontWeight.w600
-                                              : FontWeight.normal,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(
-                                      () => _streamingQuality = 'Data Saver');
-                                  setSubState(() {});
-                                  _persistUiSettings();
-                                },
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: _streamingQuality == 'Data Saver'
-                                        ? _primary
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'Data Saver',
-                                    style: TextStyle(
-                                      color: _streamingQuality == 'Data Saver'
-                                          ? Colors.white
-                                          : _textDark,
-                                      fontWeight:
-                                          _streamingQuality == 'Data Saver'
-                                              ? FontWeight.w600
-                                              : FontWeight.normal,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
             _buildCardContainer(
