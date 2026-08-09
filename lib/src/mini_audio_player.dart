@@ -98,6 +98,7 @@ class MiniAudioPlayer {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool useLazyPreparation = true,
+    bool autoPlay = true,
     Object? shuffleOrder,
   }) {
     final supportsNetwork = isNetworkStreamingSupported();
@@ -113,6 +114,7 @@ class MiniAudioPlayer {
       initialIndex: initialIndex,
       initialPosition: initialPosition,
       useLazyPreparation: useLazyPreparation,
+      autoPlay: autoPlay,
       shuffleOrder: shuffleOrder,
     );
   }
@@ -646,8 +648,8 @@ class MiniAudioPlayer {
 
       int bytesReceived = 0;
       bool playbackStarted = false;
-      // 64KB buffer threshold before starting playback
-      const bufferThreshold = 64 * 1024;
+      // 32KB buffer threshold before starting playback for instant audio start
+      const bufferThreshold = 32 * 1024;
 
       await for (final chunk in response.stream) {
         final size = chunk.length;

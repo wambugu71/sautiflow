@@ -1,4 +1,4 @@
-﻿#include "mp4_aac_decoder.h"
+#include "mp4_aac_decoder.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

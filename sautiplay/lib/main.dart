@@ -434,6 +434,7 @@ class _PlayerShellState extends State<PlayerShell> {
           initialIndex: initialIndex,
           initialPosition: Duration(milliseconds: queueData.positionMs),
           useLazyPreparation: true,
+          autoPlay: false,
         );
 
         _logs.insert(0,
@@ -797,14 +798,8 @@ class _PlayerShellState extends State<PlayerShell> {
       return AudioSource.uri(uri);
     }
 
-    if (uri.scheme != 'http' && uri.scheme != 'https') {
-      _logs.insert(0, '[source] Unsupported URI scheme: ${uri.scheme}');
-      return null;
-    }
-
-    final supportsNativeNetwork = _player.isNetworkStreamingSupported();
-    if (supportsNativeNetwork) {
-      _logs.insert(0, '[source] Using native network source in playlist: $uri');
+    if (uri.scheme == 'http' || uri.scheme == 'https') {
+      _logs.insert(0, '[source] Streaming network source: $uri');
       return AudioSource.network(uri.toString());
     }
 
@@ -1080,6 +1075,8 @@ class _PlayerShellState extends State<PlayerShell> {
     setState(() {
       _isLoading = false;
     });
+
+    _showNowPlayingScreen();
 
     // If only one track was selected, fetch "Up Next" suggestions
     if (tracks.length == 1) {

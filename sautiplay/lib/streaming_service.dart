@@ -17,6 +17,8 @@ class StreamingService {
         if (_streamUrl2.isNotEmpty) _streamUrl2,
       ];
 
+  static final Map<String, String> _urlCache = {};
+
   // ---------------------------------------------------------------------------
   // Single-track resolver (kept for backward compatibility)
   // ---------------------------------------------------------------------------
@@ -25,9 +27,16 @@ class StreamingService {
   /// Automatically falls back to the other server if the primary fails.
   /// Returns null only if ALL servers fail.
   static Future<String?> resolveStreamUrl(String videoId) async {
+    if (_urlCache.containsKey(videoId)) {
+      debugPrint('[streaming] ✓ Cache hit for $videoId');
+      return _urlCache[videoId];
+    }
     for (int i = 0; i < _baseUrls.length; i++) {
       final url = await _fetchFromServer(_baseUrls[i], videoId);
-      if (url != null) return url;
+      if (url != null) {
+        _urlCache[videoId] = url;
+        return url;
+      }
       debugPrint(
           '[streaming] Server ${i + 1} failed for $videoId – trying next…');
     }
@@ -52,17 +61,16 @@ class StreamingService {
   ) async {
     final results = List<String?>.filled(videoIds.length, null);
 
-    // Build futures that resolve each videoId with its assigned server first,
-    // then fall back to the other server if needed.
     final futures = List.generate(videoIds.length, (i) async {
       final videoId = videoIds[i];
-      // Distribute across servers by index
+      if (_urlCache.containsKey(videoId)) {
+        results[i] = _urlCache[videoId];
+        return;
+      }
       final primaryIndex = i % _baseUrls.length;
 
-      // Try primary server
       String? url = await _fetchFromServer(_baseUrls[primaryIndex], videoId);
 
-      // If primary failed, try remaining servers as failover
       if (url == null) {
         for (int j = 1; j < _baseUrls.length; j++) {
           final fallbackIndex = (primaryIndex + j) % _baseUrls.length;
@@ -74,10 +82,12 @@ class StreamingService {
         }
       }
 
+      if (url != null) {
+        _urlCache[videoId] = url;
+      }
       results[i] = url;
     });
 
-    // Wait for all concurrent requests to complete
     await Future.wait(futures);
     return results;
   }

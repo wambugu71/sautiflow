@@ -1895,6 +1895,7 @@ class AudioEngineFFI {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
     bool useLazyPreparation = true,
+    bool autoPlay = true,
     Object? shuffleOrder,
   }) {
     final paths = sources.map((s) => _uriToEnginePath(s.uri)).toList();
@@ -1904,6 +1905,12 @@ class AudioEngineFFI {
     if (sources.isEmpty) return false;
     final idx = initialIndex.clamp(0, sources.length - 1);
     final jumped = jumpToWithPosition(idx, initialPosition);
+
+    // When autoPlay is false (e.g. queue restore), cancel the native engine's
+    // pending auto-play so the track loads but stays paused.
+    if (!autoPlay) {
+      pause();
+    }
 
     if (!useLazyPreparation) {
       // Force preload behavior by briefly touching next/prev ordering.

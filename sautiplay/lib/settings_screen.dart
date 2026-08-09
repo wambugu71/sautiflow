@@ -314,7 +314,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           subtitle: 'Theme, seek bar & UI appearance',
                           icon: Icons.palette_outlined,
                           accentColor: _primary,
-                          badgeText: AppThemeService.dataFor(_activeThemeId).displayName,
+                          badgeText: AppThemeService.dataFor(_activeThemeId)
+                              .displayName,
                           onTap: () => _navigateToSubScreen(
                               _buildLookAndFeelSubScreen()),
                         ),
@@ -514,8 +515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded,
-                  color: _textDark, size: 22),
+              Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
             ],
           ),
         ),
@@ -627,8 +627,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 'Changes the look of the entire app',
-                                style: TextStyle(
-                                    color: mutedText, fontSize: 12),
+                                style:
+                                    TextStyle(color: mutedText, fontSize: 12),
                               ),
                             ],
                           ),
@@ -656,7 +656,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             duration: const Duration(milliseconds: 220),
                             curve: Curves.easeOutCubic,
                             width: 80,
-                            margin: const EdgeInsets.only(right: 12, bottom: 16),
+                            margin:
+                                const EdgeInsets.only(right: 12, bottom: 16),
                             decoration: BoxDecoration(
                               color: theme.bgDark,
                               borderRadius: BorderRadius.circular(16),
@@ -669,8 +670,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               boxShadow: isActive
                                   ? [
                                       BoxShadow(
-                                        color:
-                                            theme.primary.withAlpha(80),
+                                        color: theme.primary.withAlpha(80),
                                         blurRadius: 12,
                                         spreadRadius: 1,
                                       )
@@ -778,8 +778,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: _primary.withAlpha(25),
                       shape: BoxShape.circle,
                     ),
-                    child:
-                        Icon(Icons.graphic_eq, color: _primary, size: 20),
+                    child: Icon(Icons.graphic_eq, color: _primary, size: 20),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -981,15 +980,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getResampleAlgorithmName(_resampleAlgorithm),
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -1022,15 +1019,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getOversamplingName(_dspOversampling),
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -1061,15 +1056,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _getDitherModeName(_ditherMode),
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -1108,15 +1101,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _formatAudioDepth(widget.outputFormat),
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -1151,8 +1142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       subtitle: _autoBitPerfectEnabled
                           ? Text(
                               'Managed automatically (Auto Bit-Perfect is on)',
-                              style:
-                                  TextStyle(color: _textDark, fontSize: 12),
+                              style: TextStyle(color: _textDark, fontSize: 12),
                             )
                           : null,
                       trailing: SizedBox(
@@ -1165,8 +1155,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 widget.outputSampleRate == 0
                                     ? 'Native'
                                     : '${widget.outputSampleRate} Hz',
-                                style: TextStyle(
-                                    color: _textDark, fontSize: 13),
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 13),
                                 textAlign: TextAlign.right,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1206,15 +1196,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Expanded(
                           child: Text(
                             _formatChannelCount(widget.outputChannels),
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -1315,8 +1303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Bit-Perfect Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                      'Bypasses OS Mixer & DSP (Exclusive Mode)',
+                  subtitle: Text('Bypasses OS Mixer',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.exclusiveMode,
                   activeThumbColor: _primary,
@@ -1345,7 +1332,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Bit-Perfect Mode Accepted (Exclusive MMAP active)',
+                                  'Bit-Perfect Mode Accepted',
                                   style: TextStyle(
                                       color: Colors.white, fontSize: 13),
                                 ),
@@ -1424,7 +1411,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('64-Bit Float DSP',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Double-precision',
+                  subtitle: Text('Higher accuracy (requires more power)',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _use64BitProcessingEnabled,
                   activeThumbColor: _primary,
@@ -1448,10 +1435,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.graphic_eq,
                         color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Auto Bit-Perfect',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Exclusive MMAP, low latency & rate match (App DSP active)',
+                  title: Row(
+                    children: [
+                      const Text('Auto Bit-Perfect',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withAlpha(40),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: Colors.amberAccent.withAlpha(140),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Text(
+                          'EXPERIMENTAL',
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Text('Low latency mode',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _autoBitPerfectEnabled,
                   activeThumbColor: _primary,
@@ -1485,7 +1499,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: Text(
                                 val
-                                    ? 'Auto Bit-Perfect Enabled (Exclusive MMAP & Low Latency active, App DSP active)'
+                                    ? 'Low Latency active, App DSP active)'
                                     : 'Auto Bit-Perfect Disabled',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 13),
@@ -1580,15 +1594,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _subsonicCutoffHz <= 0
                                   ? 'Off'
                                   : '${_subsonicCutoffHz.toInt()} Hz',
-                              style:
-                                  TextStyle(color: _textDark, fontSize: 13),
+                              style: TextStyle(color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Icon(Icons.chevron_right,
-                              color: _textDark, size: 20),
+                          Icon(Icons.chevron_right, color: _textDark, size: 20),
                         ],
                       ),
                     ),
@@ -1623,15 +1635,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _ultrasonicCutoffHz >= 24000
                                   ? 'Off'
                                   : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
-                              style: TextStyle(
-                                  color: _textDark, fontSize: 13),
+                              style: TextStyle(color: _textDark, fontSize: 13),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Icon(Icons.chevron_right,
-                              color: _textDark, size: 20),
+                          Icon(Icons.chevron_right, color: _textDark, size: 20),
                         ],
                       ),
                     ),
@@ -1655,8 +1665,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
-                                style: TextStyle(
-                                    color: _textDark, fontSize: 12),
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 12),
                               ),
                             ],
                           ),
@@ -1755,15 +1765,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : _replayGainMode == ReplayGainMode.track
                                     ? 'Track'
                                     : 'Album',
-                            style:
-                                TextStyle(color: _textDark, fontSize: 13),
+                            style: TextStyle(color: _textDark, fontSize: 13),
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Icon(Icons.chevron_right,
-                            color: _textDark, size: 20),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
                       ],
                     ),
                   ),
@@ -2192,15 +2200,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Expanded(
                             child: Text(
                               widget.analyzerSampleSize.toString(),
-                              style: TextStyle(
-                                  color: _textDark, fontSize: 14),
+                              style: TextStyle(color: _textDark, fontSize: 14),
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Icon(Icons.chevron_right,
-                              color: _textDark, size: 20),
+                          Icon(Icons.chevron_right, color: _textDark, size: 20),
                         ],
                       ),
                     ),
@@ -2237,8 +2243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Gapless Playback',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                      'Seamless transitions between track ends',
+                  subtitle: Text('Seamless transitions between track ends',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   secondary: Container(
                     padding: const EdgeInsets.all(10),
@@ -2429,7 +2434,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.dns, color: Colors.white70, size: 20),
+                  leading:
+                      const Icon(Icons.dns, color: Colors.white70, size: 20),
                   title: const Text('Audio Cache Storage',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
@@ -2475,13 +2481,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading:
-                      const Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                  leading: const Icon(Icons.info_outline,
+                      color: Colors.white70, size: 20),
                   title: const Text('Version',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: Text(_appVersion,
-                      style: const TextStyle(color: Colors.white54, fontSize: 14)),
+                      style:
+                          const TextStyle(color: Colors.white54, fontSize: 14)),
                 ),
                 const Divider(color: Colors.white10, height: 1),
                 ListTile(
@@ -2492,8 +2499,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Open Source Licenses',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: Icon(Icons.chevron_right,
-                      color: _textDark, size: 20),
+                  trailing:
+                      Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: () {
                     showLicensePage(
                       context: context,
@@ -2547,8 +2554,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Poll Native Error',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: Icon(Icons.chevron_right,
-                      color: _textDark, size: 20),
+                  trailing:
+                      Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
                 const Divider(color: Colors.white10, height: 1),
@@ -2560,8 +2567,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Clear Native Error',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w500)),
-                  trailing: Icon(Icons.chevron_right,
-                      color: _textDark, size: 20),
+                  trailing:
+                      Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: widget.onClearNativeError,
                 ),
                 const Divider(color: Colors.white10, height: 1),
@@ -3110,13 +3117,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showChannelsDialog({VoidCallback? onDone}) {
     final options = [
       {'ch': 1, 'name': 'Mono (1.0)', 'subtitle': 'Single channel output'},
-      {'ch': 2, 'name': 'Stereo (2.0)', 'subtitle': 'Standard 2-channel Left / Right'},
-      {'ch': 3, 'name': '2.1 Surround (3 CH)', 'subtitle': 'Left, Right, Center/Sub'},
-      {'ch': 4, 'name': '4.0 Quadraphonic (4 CH)', 'subtitle': 'FL, FR, Center, Back Center'},
-      {'ch': 5, 'name': '5.0 Surround (5 CH)', 'subtitle': 'FL, FR, Center, Back L/R'},
-      {'ch': 6, 'name': '5.1 Surround (6 CH)', 'subtitle': 'FL, FR, Center, LFE Sub, Side L/R'},
-      {'ch': 7, 'name': '7.0 Surround (7 CH)', 'subtitle': 'FL, FR, Center, LFE, Back C, Side L/R'},
-      {'ch': 8, 'name': '7.1 Surround (8 CH)', 'subtitle': 'FL, FR, Center, LFE, Back L/R, Side L/R'},
+      {
+        'ch': 2,
+        'name': 'Stereo (2.0)',
+        'subtitle': 'Standard 2-channel Left / Right'
+      },
+      {
+        'ch': 3,
+        'name': '2.1 Surround (3 CH)',
+        'subtitle': 'Left, Right, Center/Sub'
+      },
+      {
+        'ch': 4,
+        'name': '4.0 Quadraphonic (4 CH)',
+        'subtitle': 'FL, FR, Center, Back Center'
+      },
+      {
+        'ch': 5,
+        'name': '5.0 Surround (5 CH)',
+        'subtitle': 'FL, FR, Center, Back L/R'
+      },
+      {
+        'ch': 6,
+        'name': '5.1 Surround (6 CH)',
+        'subtitle': 'FL, FR, Center, LFE Sub, Side L/R'
+      },
+      {
+        'ch': 7,
+        'name': '7.0 Surround (7 CH)',
+        'subtitle': 'FL, FR, Center, LFE, Back C, Side L/R'
+      },
+      {
+        'ch': 8,
+        'name': '7.1 Surround (8 CH)',
+        'subtitle': 'FL, FR, Center, LFE, Back L/R, Side L/R'
+      },
     ];
 
     showModalBottomSheet(

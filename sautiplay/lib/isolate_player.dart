@@ -166,13 +166,15 @@ class IsolateAudioPlayer {
   void setAudioSources(List<AudioSource> sources,
       {int initialIndex = 0,
       Duration? initialPosition,
-      bool useLazyPreparation = true}) {
+      bool useLazyPreparation = true,
+      bool autoPlay = true}) {
     _send({
       'cmd': 'setAudioSources',
       'sources': sources,
       'index': initialIndex,
       'position': initialPosition?.inMilliseconds,
-      'lazy': useLazyPreparation
+      'lazy': useLazyPreparation,
+      'autoPlay': autoPlay,
     });
   }
 
@@ -911,6 +913,7 @@ void _isolateEntry(_IsolateInitData initData) {
               initialPosition: message['position'] != null
                   ? Duration(milliseconds: message['position'])
                   : Duration.zero,
+              autoPlay: message['autoPlay'] ?? true,
             );
           } catch (e) {
             initData.sendPort.send('[log]Error setting sources: $e');
