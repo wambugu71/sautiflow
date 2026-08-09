@@ -483,6 +483,37 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  static Future<String> _computeFastFileHash(File file, int sizeBytes) async {
+    if (sizeBytes <= 0) return '';
+    try {
+      if (!await file.exists()) return '';
+      final raf = await file.open(mode: FileMode.read);
+      try {
+        final sampleSize = sizeBytes > 65536 ? 65536 : sizeBytes;
+        final headerBytes = await raf.read(sampleSize);
+
+        int checksum = 5381;
+        for (int i = 0; i < headerBytes.length; i += 4) {
+          checksum = ((checksum << 5) + checksum) ^ headerBytes[i];
+        }
+
+        if (sizeBytes > 131072) {
+          await raf.setPosition(sizeBytes - 65536);
+          final tailBytes = await raf.read(65536);
+          for (int i = 0; i < tailBytes.length; i += 4) {
+            checksum = ((checksum << 5) + checksum) ^ tailBytes[i];
+          }
+        }
+
+        return '${sizeBytes}_${checksum.toRadixString(16)}';
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<void> _smartScanFolders({bool showFullLoading = false}) async {
     if (_folders.isEmpty) {
       if (mounted) {
@@ -507,10 +538,11 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
 
     final existingSongsMap = <String, LocalSongItem>{
-      for (final song in _allSongs) song.path: song
+      for (final song in _allSongs) p.canonicalize(song.path).toLowerCase(): song
     };
 
     final updatedSongs = <LocalSongItem>[];
+    final seenSongHashes = <String>{};
     bool changesDetected = false;
     int newSongsScanned = 0;
 
@@ -524,16 +556,44 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
 
       for (final path in audioPaths) {
+        final canonicalPath = p.canonicalize(path);
+        final key = canonicalPath.toLowerCase();
+
         try {
-          final file = File(path);
+          final file = File(canonicalPath);
           final stat = await file.stat();
-          final existing = existingSongsMap[path];
+          final existing = existingSongsMap[key];
+
+          String? hash = existing?.fileHash;
+          if (hash == null || hash.isEmpty) {
+            hash = await _computeFastFileHash(file, stat.size);
+          }
+
+          final dedupeKey = (hash != null && hash.isNotEmpty)
+              ? hash
+              : key;
+
+          // Ensure each physical file content is added to updatedSongs ONLY ONCE by hash
+          if (!seenSongHashes.add(dedupeKey)) {
+            continue;
+          }
 
           // Re-use cached metadata if file size and modified timestamp match
           if (existing != null &&
               existing.sizeBytes == stat.size &&
               existing.lastModified.millisecondsSinceEpoch == stat.modified.millisecondsSinceEpoch) {
-            updatedSongs.add(existing);
+            updatedSongs.add(existing.fileHash == hash
+                ? existing
+                : LocalSongItem.fallback(
+                    existing.path,
+                    existing.sizeBytes,
+                    existing.lastModified,
+                    title: existing.title,
+                    artist: existing.artist,
+                    album: existing.album,
+                    genre: existing.genre,
+                    fileHash: hash,
+                  ));
           } else {
             changesDetected = true;
             newSongsScanned++;
@@ -558,17 +618,18 @@ class _LibraryScreenState extends State<LibraryScreen>
             } catch (_) {}
 
             updatedSongs.add(LocalSongItem.fallback(
-              path,
+              canonicalPath,
               stat.size,
               stat.modified,
               title: metaTitle,
               artist: metaArtist,
               album: metaAlbum,
               genre: metaGenre,
+              fileHash: hash,
             ));
           }
         } catch (_) {
-          updatedSongs.add(LocalSongItem.fallback(path, 0, DateTime.now()));
+          updatedSongs.add(LocalSongItem.fallback(canonicalPath, 0, DateTime.now()));
         }
       }
     }
@@ -657,6 +718,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   Future<List<String>> _scanForAudioFiles(String dirPath) async {
     final audioFiles = <String>[];
+    final seenPaths = <String>{};
     final dir = Directory(dirPath);
     if (!await dir.exists()) return audioFiles;
 
@@ -668,7 +730,10 @@ class _LibraryScreenState extends State<LibraryScreen>
         if (entity is File) {
           final ext = p.extension(entity.path).toLowerCase();
           if (allowedExtensions.contains(ext)) {
-            audioFiles.add(entity.path);
+            final canonicalPath = p.canonicalize(entity.path);
+            if (seenPaths.add(canonicalPath.toLowerCase())) {
+              audioFiles.add(canonicalPath);
+            }
           }
         }
       }
@@ -717,31 +782,67 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
     if (selectedDirectory == null) return;
 
-    // Check if duplicate
-    if (_folders.any((f) => f['path'] == selectedDirectory)) {
+    final canonicalSelected = p.canonicalize(selectedDirectory);
+
+    // 1. Check if selectedDirectory is inside/subfolder of an existing tracked folder
+    bool isAlreadyCovered = false;
+    for (final f in _folders) {
+      final existingPath = p.canonicalize(f['path'] as String);
+      if (canonicalSelected == existingPath ||
+          p.isWithin(existingPath, canonicalSelected)) {
+        isAlreadyCovered = true;
+        break;
+      }
+    }
+
+    if (isAlreadyCovered) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Folder is already in your library.')),
+        const SnackBar(
+          content: Text('Folder (or its parent) is already in your library.'),
+        ),
       );
       return;
     }
 
+    // 2. Check if selectedDirectory is a parent of any existing tracked folder(s)
+    final remainingFolders = <Map<String, dynamic>>[];
+    int subsumedCount = 0;
+    for (final f in _folders) {
+      final existingPath = p.canonicalize(f['path'] as String);
+      if (p.isWithin(canonicalSelected, existingPath)) {
+        subsumedCount++;
+      } else {
+        remainingFolders.add(f);
+      }
+    }
+
     setState(() => _isLoading = true);
 
-    final audioPaths = await _scanForAudioFiles(selectedDirectory);
+    final audioPaths = await _scanForAudioFiles(canonicalSelected);
 
     final newFolder = {
-      'path': selectedDirectory,
-      'name': p.basename(selectedDirectory),
+      'path': canonicalSelected,
+      'name': p.basename(canonicalSelected),
       'count': audioPaths.length,
     };
 
     setState(() {
-      _folders.add(newFolder);
+      _folders = remainingFolders..add(newFolder);
     });
 
     await _saveFolders();
     await _updateAllSongs();
+
+    if (mounted && subsumedCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Added folder and merged $subsumedCount subfolder(s) into parent library entry.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _removeFolder(int index) async {
@@ -750,6 +851,77 @@ class _LibraryScreenState extends State<LibraryScreen>
     });
     await _saveFolders();
     await _updateAllSongs();
+  }
+
+  Future<void> _removeDuplicateSongs() async {
+    if (_allSongs.isEmpty && _folders.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Library is empty.')),
+      );
+      return;
+    }
+
+    final uniqueSongs = <LocalSongItem>[];
+    final seenKeys = <String>{};
+    int removedSongsCount = 0;
+
+    for (final song in _allSongs) {
+      final canonicalPath = p.canonicalize(song.path).toLowerCase();
+      final key = (song.fileHash != null && song.fileHash!.isNotEmpty)
+          ? song.fileHash!
+          : (canonicalPath.isNotEmpty
+              ? canonicalPath
+              : '${song.title.toLowerCase()}_${song.artist.toLowerCase()}_${song.sizeBytes}');
+
+      if (seenKeys.add(key)) {
+        uniqueSongs.add(song);
+      } else {
+        removedSongsCount++;
+      }
+    }
+
+    // Deduplicate folder hierarchy in _folders
+    final uniqueFolders = <Map<String, dynamic>>[];
+    for (final f in _folders) {
+      final folderPath = p.canonicalize(f['path'] as String);
+      final isSubsumed = uniqueFolders.any((uf) {
+        final ufPath = p.canonicalize(uf['path'] as String);
+        return folderPath == ufPath || p.isWithin(ufPath, folderPath);
+      });
+      if (!isSubsumed) {
+        uniqueFolders.removeWhere((uf) {
+          final ufPath = p.canonicalize(uf['path'] as String);
+          return p.isWithin(folderPath, ufPath);
+        });
+        uniqueFolders.add(f);
+      }
+    }
+
+    final bool foldersChanged = uniqueFolders.length != _folders.length;
+
+    setState(() {
+      _allSongs = uniqueSongs;
+      _folders = uniqueFolders;
+      _applySearchAndSort();
+    });
+
+    await _saveCachedSongs();
+    if (foldersChanged) {
+      await _saveFolders();
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            (removedSongsCount > 0 || foldersChanged)
+                ? 'Removed $removedSongsCount duplicate track(s) and cleaned folder structure.'
+                : 'No duplicate songs found in your library.',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _playFolder(String dirPath) async {
@@ -765,8 +937,17 @@ class _LibraryScreenState extends State<LibraryScreen>
       return;
     }
 
+    final uniquePaths = <String>[];
+    final seen = <String>{};
+    for (final path in audioPaths) {
+      final key = p.canonicalize(path).toLowerCase();
+      if (seen.add(key)) {
+        uniquePaths.add(path);
+      }
+    }
+
     // Hand off to main player
-    widget.onPlayFolder(audioPaths);
+    widget.onPlayFolder(uniquePaths);
   }
 
   Future<void> _shufflePlayAll() async {
@@ -1083,6 +1264,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         _importM3uUrlDialog();
                                       } else if (value == 'network_sources') {
                                         _navigateToNetworkSources();
+                                      } else if (value == 'clean_duplicates') {
+                                        _removeDuplicateSongs();
                                       } else if (value == 'export_m3u') {
                                         _exportPlaylistToM3u8(
                                             'SautiPlay_Library', _allSongs);
@@ -1133,6 +1316,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                                                 color: Colors.lightBlueAccent, size: 20),
                                             SizedBox(width: 10),
                                             Text('Network Stream (FTP & DLNA)',
+                                                style: TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'clean_duplicates',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.cleaning_services_rounded,
+                                                color: Colors.orangeAccent, size: 20),
+                                            SizedBox(width: 10),
+                                            Text('Clean Up Duplicates',
                                                 style: TextStyle(color: Colors.white)),
                                           ],
                                         ),

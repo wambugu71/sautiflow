@@ -875,11 +875,20 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Future<void> _playFolder(List<String> paths, {int initialIndex = 0}) async {
+    final uniquePaths = <String>[];
+    final seenPaths = <String>{};
+    for (final path in paths) {
+      final key = p.canonicalize(path).toLowerCase();
+      if (seenPaths.add(key)) {
+        uniquePaths.add(path);
+      }
+    }
+
     final sources = <AudioSource>[];
     final uiQueue = <TrackInfo>[];
 
-    for (int i = 0; i < paths.length; i++) {
-      final file = File(paths[i]);
+    for (int i = 0; i < uniquePaths.length; i++) {
+      final file = File(uniquePaths[i]);
       final uri = file.absolute.uri;
       final src = await _materializeSource(uri);
 

@@ -8,6 +8,7 @@ class LocalSongItem {
   final String genre;
   final int sizeBytes;
   final DateTime lastModified;
+  final String? fileHash;
 
   const LocalSongItem({
     required this.path,
@@ -17,6 +18,7 @@ class LocalSongItem {
     this.genre = 'Unknown Genre',
     required this.sizeBytes,
     required this.lastModified,
+    this.fileHash,
   });
 
   factory LocalSongItem.fallback(
@@ -27,6 +29,7 @@ class LocalSongItem {
     String? artist,
     String? album,
     String? genre,
+    String? fileHash,
   }) {
     return LocalSongItem(
       path: path,
@@ -36,6 +39,7 @@ class LocalSongItem {
       genre: (genre != null && genre.isNotEmpty) ? genre : 'Unknown Genre',
       sizeBytes: size,
       lastModified: modified,
+      fileHash: fileHash,
     );
   }
 
@@ -48,6 +52,7 @@ class LocalSongItem {
       'genre': genre,
       'sizeBytes': sizeBytes,
       'lastModified': lastModified.toIso8601String(),
+      'fileHash': fileHash,
     };
   }
 
@@ -62,6 +67,7 @@ class LocalSongItem {
       lastModified: json['lastModified'] != null
           ? (DateTime.tryParse(json['lastModified'] as String) ?? DateTime.now())
           : DateTime.now(),
+      fileHash: json['fileHash'] as String?,
     );
   }
 }
