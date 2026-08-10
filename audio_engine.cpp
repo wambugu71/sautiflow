@@ -1887,6 +1887,7 @@ struct AudioEngineHandle;
 struct AudioEngineHandle
 {
     ma_device device{};
+    mutable std::mutex deviceMutex;
     std::atomic<bool> exclusiveModeEnabled{false};
     std::atomic<bool> use64BitProcessing{false};
     std::atomic<bool> autoBitPerfectEnabled{false};
@@ -1991,6 +1992,8 @@ struct AudioEngineHandle
     std::atomic<ma_uint64> scheduledStartTime{-1ULL};
     std::atomic<ma_uint64> scheduledStopTime{-1ULL};
     std::atomic<ma_uint64> engineAbsoluteTime{0};
+    std::atomic<ma_uint64> playedPcmFrames{0};
+    std::atomic<ma_uint64> seekBasePcmFrame{0};
 
     // End Callback
     AE_EndCallback endCallback = nullptr;
@@ -2795,7 +2798,9 @@ static void worker_loop(AudioEngineHandle *e)
 {
     while (true)
     {
-        int jumpIndex = -1;
+        try
+        {
+            int jumpIndex = -1;
         bool doPreload = false;
 
         {
@@ -2884,15 +2889,6 @@ static void worker_loop(AudioEngineHandle *e)
                 }
                 uninit_fading_out_slot_locked(e);
 
-                e->currentDecoder = newCurrent;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                e->currentStream = newCurrentStream;
-#endif
-                e->currentLengthFrames = newCurrentLen;
-                e->currentIndex = jumpIndex;
-                e->hasCurrent = true;
-                arm_transition_fade_in(e);
-
                 if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
                 {
                     const int nativeRate = (int)newCurrent->outputSampleRate;
@@ -2903,11 +2899,21 @@ static void worker_loop(AudioEngineHandle *e)
                     }
                 }
 
+                e->currentDecoder = newCurrent;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->currentStream = newCurrentStream;
+#endif
+                e->currentLengthFrames = newCurrentLen;
+                e->currentIndex = jumpIndex;
+                e->hasCurrent = true;
+                arm_transition_fade_in(e);
+
+                ma_uint64 startFrame = 0;
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                     e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
                 {
-                    const ma_uint64 frame = e->pendingSeekFrame.load(std::memory_order_acquire);
-                    const ma_result seekRc = ma_decoder_seek_to_pcm_frame(e->currentDecoder, frame);
+                    startFrame = e->pendingSeekFrame.load(std::memory_order_acquire);
+                    const ma_result seekRc = ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
                     if (seekRc != MA_SUCCESS)
                     {
                         engine_log("worker pending seek failed (ma_result=%d) index=%d", (int)seekRc, jumpIndex);
@@ -2916,6 +2922,8 @@ static void worker_loop(AudioEngineHandle *e)
                     e->pendingSeekValid.store(false, std::memory_order_release);
                     e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
+                e->seekBasePcmFrame.store(startFrame, std::memory_order_release);
+                e->playedPcmFrames.store(0, std::memory_order_release);
 
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                 e->nextStream = nullptr;
@@ -3014,6 +3022,11 @@ static void worker_loop(AudioEngineHandle *e)
 
             engine_log("worker preload complete -> nextIndex=%d", nextIdx);
         }
+        }
+        catch (...)
+        {
+            engine_log("worker_loop exception caught cleanly");
+        }
     }
 }
 
@@ -3024,7 +3037,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     while (!e->decodeProducerExit.load(std::memory_order_relaxed))
     {
-        if (!e->isPlaying.load(std::memory_order_relaxed) || e->ringBufferFlushing.load(std::memory_order_relaxed))
+        try
+        {
+            if (!e->isPlaying.load(std::memory_order_relaxed) || e->ringBufferFlushing.load(std::memory_order_relaxed))
         {
             std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
             e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
@@ -3353,6 +3368,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             e->pcmRingBuffer.write(tempChunk.data(), (size_t)produced * ch);
         }
+        }
+        catch (...)
+        {
+            engine_log("decode_producer_loop exception caught cleanly");
+        }
     }
 }
 
@@ -3364,7 +3384,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     if (e == nullptr)
         return;
 
-    float *processBuffer = nullptr;
+    try
+    {
+        float *processBuffer = nullptr;
     ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
 
     if (e->outputFormat == AE_FORMAT_F32)
@@ -3439,6 +3461,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (produced > 0)
     {
+        e->playedPcmFrames.fetch_add(produced, std::memory_order_relaxed);
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
         
@@ -3815,6 +3838,11 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         ma_pcm_f32_to_s32(pOutput, processBuffer, totalSamples, ma_dither_mode_none);
     }
     // else F32 -> already in pOutput (dithered in processBuffer!)
+    }
+    catch (...)
+    {
+        std::memset(pOutput, 0, frameCount * (size_t)e->channels * sizeof(float));
+    }
 }
 
 extern "C"
@@ -4015,7 +4043,10 @@ extern "C"
             }
         }
 
-        ma_device_uninit(&e->device);
+        {
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            ma_device_uninit(&e->device);
+        }
         engine_log("destroy_engine end");
         delete e;
     }
@@ -4387,6 +4418,8 @@ extern "C"
         else
         {
             e->pcmRingBuffer.reset();
+            e->seekBasePcmFrame.store(target, std::memory_order_release);
+            e->playedPcmFrames.store(0, std::memory_order_release);
             if (e->pitchResamplerInit)
             {
                 ma_resampler_reset(&e->pitchResampler);
@@ -4431,6 +4464,16 @@ extern "C"
             set_order_cursor_for_index_locked(e, jumpIndex);
         }
 
+        if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
+        {
+            const int nativeRate = (int)newCurrent->outputSampleRate;
+            if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+            {
+                engine_log("Auto Bit-Perfect (execute_jump_direct): Track native sample rate is %d Hz (current DAC rate: %d Hz). Adapting hardware rate...", nativeRate, e->outputSampleRate);
+                restart_device_rate_only(e, nativeRate);
+            }
+        }
+
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
             if (e->hasCurrent)
@@ -4462,14 +4505,17 @@ extern "C"
             e->hasCurrent = true;
             arm_transition_fade_in(e);
 
+            ma_uint64 startFrame = 0;
             if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                 e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
             {
-                const ma_uint64 frame = e->pendingSeekFrame.load(std::memory_order_acquire);
-                (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, frame);
+                startFrame = e->pendingSeekFrame.load(std::memory_order_acquire);
+                (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
                 e->pendingSeekValid.store(false, std::memory_order_release);
                 e->pendingSeekIndex.store(-1, std::memory_order_release);
             }
+            e->seekBasePcmFrame.store(startFrame, std::memory_order_release);
+            e->playedPcmFrames.store(0, std::memory_order_release);
 
             e->nextDecoder = nullptr;
             e->nextIndex = -1;
@@ -4483,6 +4529,12 @@ extern "C"
             e->isPlaying.store(true, std::memory_order_relaxed);
             e->pcmRingBuffer.reset();
             e->decodeProducerCv.notify_one();
+
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
+            {
+                ma_device_start(&e->device);
+            }
         }
 
         request_preload(e);
@@ -4818,12 +4870,16 @@ extern "C"
             hasCurrent = e->hasCurrent;
             if (e->hasCurrent)
             {
-                ma_uint64 cur = 0;
-                (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &cur);
                 ma_uint64 len = e->currentLengthFrames;
+                ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
+                ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                ma_uint64 currentFrame = baseFrame + played;
+                if (currentFrame > len && len > 0)
+                    currentFrame = len;
 
-                s.position_seconds = (double)cur / (double)e->sampleRate;
-                s.duration_seconds = (double)len / (double)e->sampleRate;
+                const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                s.position_seconds = (double)currentFrame / (double)sr;
+                s.duration_seconds = (double)len / (double)sr;
             }
         }
 
@@ -5253,6 +5309,105 @@ extern "C"
         }
     }
 
+    // Lightweight hardware DAC rate adaptation without decoder destruction
+    static void reinit_hardware_device_only(AudioEngineHandle *e, int newRate)
+    {
+        if (!e || newRate <= 0)
+            return;
+
+        try
+        {
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            bool wasPlaying = e->isPlaying.load(std::memory_order_relaxed);
+
+            if (ma_device_get_state(&e->device) == ma_device_state_started)
+            {
+                ma_device_stop(&e->device);
+            }
+            ma_device_uninit(&e->device);
+
+            e->outputSampleRate = newRate;
+            e->sampleRate = newRate;
+            const int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
+            e->channels = newCh;
+
+            e->update_eq_filters();
+            e->update_multiband_fx_filters();
+            {
+                std::lock_guard<std::mutex> fx(e->fxMutex);
+                reinit_advanced_fx_filters(e);
+            }
+            if (e->viperEnabled)
+            {
+                std::lock_guard<std::mutex> lock(e->viperMutex);
+                e->viper.SetSamplingRate(e->sampleRate);
+            }
+
+            ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+            cfg.playback.format = ma_format_f32;
+            cfg.playback.channels = (ma_uint32)newCh;
+            cfg.sampleRate = (ma_uint32)newRate;
+            cfg.dataCallback = data_callback;
+            cfg.notificationCallback = device_notification_callback;
+            cfg.pUserData = e;
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+
+            const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                       e->autoBitPerfectEnabled.load(std::memory_order_relaxed);
+
+            bool initOk = false;
+            if (wantExclusive)
+            {
+                cfg.playback.shareMode = ma_share_mode_exclusive;
+                cfg.performanceProfile = ma_performance_profile_low_latency;
+                cfg.periodSizeInMilliseconds = 25;
+                cfg.periods = 4;
+                cfg.wasapi.noAutoConvertSRC = 1;
+                cfg.wasapi.noDefaultQualitySRC = 1;
+
+                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+                {
+                    initOk = true;
+                    engine_log("Auto Bit-Perfect hardware rate switched to %u Hz (Exclusive).", cfg.sampleRate);
+                }
+                else
+                {
+                    engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
+                }
+            }
+
+            if (!initOk)
+            {
+                cfg.playback.shareMode = ma_share_mode_shared;
+                cfg.performanceProfile = ma_performance_profile_conservative;
+                cfg.sampleRate = 0;
+                cfg.wasapi.noAutoConvertSRC = 0;
+                cfg.wasapi.noDefaultQualitySRC = 0;
+
+                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+                {
+                    initOk = true;
+                    engine_log("Auto Bit-Perfect fallback to Shared Mode at %u Hz.", e->device.sampleRate);
+                }
+            }
+
+            if (initOk)
+            {
+                const int actualRate = (int)e->device.sampleRate;
+                if (actualRate > 0) e->sampleRate = actualRate;
+
+                if (wasPlaying)
+                {
+                    ma_device_start(&e->device);
+                }
+            }
+        }
+        catch (...)
+        {
+            engine_log("reinit_hardware_device_only exception caught cleanly");
+        }
+    }
+
     // Fast helper to switch DAC sample rate without pitch shift or ring buffer corruption
     static void restart_device_rate_only(AudioEngineHandle *e, int newRate)
     {
@@ -5262,8 +5417,7 @@ extern "C"
             return;
 
         engine_log("Auto Bit-Perfect: Switching hardware DAC sample rate to %d Hz...", newRate);
-        e->outputSampleRate = newRate;
-        restart_and_apply_config(e);
+        reinit_hardware_device_only(e, newRate);
     }
 
     // Helper to restart device with new config
@@ -5271,7 +5425,10 @@ extern "C"
     {
         if (!e)
             return;
-        bool wasPlaying = e->isPlaying.load();
+        try
+        {
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            bool wasPlaying = e->isPlaying.load();
 
         if (ma_device_get_state(&e->device) == ma_device_state_started)
         {
@@ -5337,6 +5494,7 @@ extern "C"
         const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                    e->autoBitPerfectEnabled.load(std::memory_order_relaxed);
 
+        bool initOk = false;
         if (wantExclusive)
         {
             cfg.playback.shareMode = ma_share_mode_exclusive;
@@ -5348,38 +5506,55 @@ extern "C"
             cfg.alsa.noMMap = 0;
             cfg.noPreSilencedOutputBuffer = 0;
 
-
-            if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+            if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
             {
-                engine_log("Hardware declined Exclusive/Low-Latency Mode config, falling back to Shared Mode.");
-                e->exclusiveModeEnabled.store(false, std::memory_order_relaxed);
-
-                // Reset config for shared mode
-                cfg.playback.shareMode = ma_share_mode_shared;
-                cfg.performanceProfile = ma_performance_profile_conservative;
-                cfg.wasapi.noAutoConvertSRC = 0;
-                cfg.wasapi.noDefaultQualitySRC = 0;
-                cfg.noPreSilencedOutputBuffer = 0;
-
-                if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
-                {
-                    set_last_error(e, "Failed to re-initialize device after exclusive mode fallback.");
-                    return;
-                }
+                initOk = true;
+                engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
             }
             else
             {
-                engine_log("Exclusive/Low-Latency MMAP Mode initialized successfully.");
+                engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
             }
         }
-        else
+
+        if (!initOk)
         {
+            // Reset config for safe shared mode (0 = native system device rate)
+            cfg.playback.shareMode = ma_share_mode_shared;
             cfg.performanceProfile = ma_performance_profile_conservative;
-            if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+            cfg.sampleRate = 0;
+            cfg.wasapi.noAutoConvertSRC = 0;
+            cfg.wasapi.noDefaultQualitySRC = 0;
+            cfg.noPreSilencedOutputBuffer = 0;
+
+            if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
             {
-                set_last_error(e, "Failed to re-initialize device with new config.");
-                return;
+                initOk = true;
+                engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
             }
+            else
+            {
+                engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
+                ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
+                safeCfg.playback.format = ma_format_f32;
+                safeCfg.playback.channels = 2;
+                safeCfg.sampleRate = 0;
+                safeCfg.dataCallback = data_callback;
+                safeCfg.notificationCallback = device_notification_callback;
+                safeCfg.pUserData = e;
+
+                if (ma_device_init(nullptr, &safeCfg, &e->device) == MA_SUCCESS)
+                {
+                    initOk = true;
+                    engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                }
+            }
+        }
+
+        if (!initOk)
+        {
+            set_last_error(e, "Failed to re-initialize audio output device.");
+            return;
         }
 
         {
@@ -5478,7 +5653,13 @@ extern "C"
                         const ma_uint64 decRate = (newDec->outputSampleRate > 0) ? (ma_uint64)newDec->outputSampleRate : (ma_uint64)e->sampleRate;
                         const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)decRate);
                         (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
+                        e->seekBasePcmFrame.store(targetFrame, std::memory_order_release);
                     }
+                    else
+                    {
+                        e->seekBasePcmFrame.store(0, std::memory_order_release);
+                    }
+                    e->playedPcmFrames.store(0, std::memory_order_release);
 
                     std::lock_guard<std::mutex> d(e->decoderMutex);
                     e->currentDecoder = newDec;
@@ -5504,6 +5685,11 @@ extern "C"
         }
 
         request_preload(e);
+        }
+        catch (...)
+        {
+            engine_log("restart_and_apply_config exception caught cleanly");
+        }
     }
 
     // --- Spatialization (3D Audio) ---
@@ -7651,80 +7837,85 @@ extern "C"
             return info;
         }
 
-        ma_device *pDevice = &engine->device;
-        if (pDevice->pContext != nullptr)
+        try
         {
-            const char *bname = ma_get_backend_name(pDevice->pContext->backend);
-            if (bname)
+            std::lock_guard<std::mutex> devLock(engine->deviceMutex);
+
+            ma_device *pDevice = &engine->device;
+            if (pDevice->pContext != nullptr && ma_device_get_state(pDevice) != ma_device_state_uninitialized)
             {
-                std::strncpy(info.backend_name, bname, sizeof(info.backend_name) - 1);
+                const char *bname = ma_get_backend_name(pDevice->pContext->backend);
+                if (bname)
+                {
+                    std::strncpy(info.backend_name, bname, sizeof(info.backend_name) - 1);
+                }
             }
-        }
-        else
-        {
-            std::strncpy(info.backend_name, "Unknown", sizeof(info.backend_name) - 1);
-        }
+            else
+            {
+                std::strncpy(info.backend_name, "Unknown", sizeof(info.backend_name) - 1);
+            }
 
-        if (pDevice->playback.name[0] != '\0')
-        {
-            std::strncpy(info.device_name, pDevice->playback.name, sizeof(info.device_name) - 1);
-        }
-        else
-        {
-            std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
-        }
+            if (pDevice->playback.name[0] != '\0')
+            {
+                std::strncpy(info.device_name, pDevice->playback.name, sizeof(info.device_name) - 1);
+            }
+            else
+            {
+                std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
+            }
 
-        ma_format hwFormat = pDevice->playback.internalFormat;
-        info.sample_rate = (int)pDevice->playback.internalSampleRate;
-        info.channels = (int)pDevice->playback.internalChannels;
-        info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
-        info.period_count = (uint32_t)pDevice->playback.internalPeriods;
+            ma_format hwFormat = pDevice->playback.internalFormat;
+            info.sample_rate = (int)pDevice->playback.internalSampleRate;
+            info.channels = (int)pDevice->playback.internalChannels;
+            info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
+            info.period_count = (uint32_t)pDevice->playback.internalPeriods;
 
-        info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
+            info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
 
-        switch (hwFormat)
-        {
-        case ma_format_u8:
-            info.output_format = AE_FORMAT_U8;
-            info.bit_depth = 8;
-            info.is_float = 0;
-            break;
-        case ma_format_s16:
-            info.output_format = AE_FORMAT_S16;
-            info.bit_depth = 16;
-            info.is_float = 0;
-            break;
-        case ma_format_s24:
-            info.output_format = AE_FORMAT_S24;
-            info.bit_depth = 24;
-            info.is_float = 0;
-            break;
-        case ma_format_s32:
-            info.output_format = AE_FORMAT_S32;
-            info.bit_depth = 32;
-            info.is_float = 0;
-            break;
-        case ma_format_f32:
-            info.output_format = AE_FORMAT_F32;
-            info.bit_depth = 32;
-            info.is_float = 1;
-            break;
-        default:
-            info.output_format = AE_FORMAT_F32;
-            info.bit_depth = 32;
-            info.is_float = 1;
-            break;
-        }
+            switch (hwFormat)
+            {
+            case ma_format_u8:
+                info.output_format = AE_FORMAT_U8;
+                info.bit_depth = 8;
+                info.is_float = 0;
+                break;
+            case ma_format_s16:
+                info.output_format = AE_FORMAT_S16;
+                info.bit_depth = 16;
+                info.is_float = 0;
+                break;
+            case ma_format_s24:
+                info.output_format = AE_FORMAT_S24;
+                info.bit_depth = 24;
+                info.is_float = 0;
+                break;
+            case ma_format_s32:
+                info.output_format = AE_FORMAT_S32;
+                info.bit_depth = 32;
+                info.is_float = 0;
+                break;
+            case ma_format_f32:
+            default:
+                info.output_format = AE_FORMAT_F32;
+                info.bit_depth = 32;
+                info.is_float = 1;
+                break;
+            }
 
-        if (info.sample_rate > 0)
-        {
-            double totalFrames = (double)info.period_size_frames * (double)info.period_count;
-            info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
-        }
+            if (info.sample_rate > 0)
+            {
+                double totalFrames = (double)info.period_size_frames * (double)info.period_count;
+                info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
+            }
 
 #if defined(__ANDROID__)
-        query_android_hardware_info(&info);
+            query_android_hardware_info(&info);
 #endif
+        }
+        catch (...)
+        {
+            engine_log("ae_get_hardware_info exception caught cleanly");
+        }
 
         return info;
     }
