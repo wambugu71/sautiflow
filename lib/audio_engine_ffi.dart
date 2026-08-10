@@ -1302,16 +1302,25 @@ class AudioEngineFFI {
     }
 
     try {
-      _setAutoBitPerfectEnabled = _lib.lookupFunction<_SetFxEnabledNative,
-          _SetFxEnabledDart>('ae_set_auto_bit_perfect_enabled');
-      _getAutoBitPerfectEnabled = _lib.lookupFunction<_GetIntNative,
-          _GetIntDart>('ae_get_auto_bit_perfect_enabled');
+      _setAutoSampleRateMatchEnabled = _lib.lookupFunction<_SetFxEnabledNative,
+          _SetFxEnabledDart>('ae_set_auto_sample_rate_match_enabled');
+      _getAutoSampleRateMatchEnabled = _lib.lookupFunction<_GetIntNative,
+          _GetIntDart>('ae_get_auto_sample_rate_match_enabled');
       _consumePendingRateChange = _lib.lookupFunction<_GetIntNative,
           _GetIntDart>('ae_consume_pending_rate_change');
     } catch (_) {
-      _setAutoBitPerfectEnabled = null;
-      _getAutoBitPerfectEnabled = null;
-      _consumePendingRateChange = null;
+      try {
+        _setAutoSampleRateMatchEnabled = _lib.lookupFunction<_SetFxEnabledNative,
+            _SetFxEnabledDart>('ae_set_auto_bit_perfect_enabled');
+        _getAutoSampleRateMatchEnabled = _lib.lookupFunction<_GetIntNative,
+            _GetIntDart>('ae_get_auto_bit_perfect_enabled');
+        _consumePendingRateChange = _lib.lookupFunction<_GetIntNative,
+            _GetIntDart>('ae_consume_pending_rate_change');
+      } catch (_) {
+        _setAutoSampleRateMatchEnabled = null;
+        _getAutoSampleRateMatchEnabled = null;
+        _consumePendingRateChange = null;
+      }
     }
 
     try {
@@ -1558,8 +1567,8 @@ class AudioEngineFFI {
   late final _GetEngineDitherModeDart _getEngineDitherMode;
   late final _SetFxEnabledDart? _set64BitProcessingEnabled;
   late final _GetIntDart? _get64BitProcessingEnabled;
-  late final _SetFxEnabledDart? _setAutoBitPerfectEnabled;
-  late final _GetIntDart? _getAutoBitPerfectEnabled;
+  late final _SetFxEnabledDart? _setAutoSampleRateMatchEnabled;
+  late final _GetIntDart? _getAutoSampleRateMatchEnabled;
   _GetIntDart? _consumePendingRateChange;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
@@ -2459,17 +2468,23 @@ class AudioEngineFFI {
     return _get64BitProcessingEnabled!(_engine) != 0;
   }
 
-  /// Enable or disable Auto Bit-Perfect hardware sample-rate matching.
-  void setAutoBitPerfectEnabled(bool enabled) {
-    if (_engine == ffi.nullptr || _setAutoBitPerfectEnabled == null) return;
-    _setAutoBitPerfectEnabled!(_engine, enabled ? 1 : 0);
+  /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.
+  void setAutoSampleRateMatchEnabled(bool enabled) {
+    if (_engine == ffi.nullptr || _setAutoSampleRateMatchEnabled == null) return;
+    _setAutoSampleRateMatchEnabled!(_engine, enabled ? 1 : 0);
   }
 
-  /// Check whether Auto Bit-Perfect hardware sample-rate matching is enabled.
-  bool getAutoBitPerfectEnabled() {
-    if (_engine == ffi.nullptr || _getAutoBitPerfectEnabled == null) return false;
-    return _getAutoBitPerfectEnabled!(_engine) != 0;
+  /// Check whether Auto Sample-Rate Match hardware sample-rate matching is enabled.
+  bool getAutoSampleRateMatchEnabled() {
+    if (_engine == ffi.nullptr || _getAutoSampleRateMatchEnabled == null) return false;
+    return _getAutoSampleRateMatchEnabled!(_engine) != 0;
   }
+
+  /// Deprecated alias for [setAutoSampleRateMatchEnabled].
+  void setAutoBitPerfectEnabled(bool enabled) => setAutoSampleRateMatchEnabled(enabled);
+
+  /// Deprecated alias for [getAutoSampleRateMatchEnabled].
+  bool getAutoBitPerfectEnabled() => getAutoSampleRateMatchEnabled();
 
   /// Poll for a deferred Auto Bit-Perfect sample-rate change requested by the
   /// native worker thread. Returns the new sample rate (> 0) if a change is

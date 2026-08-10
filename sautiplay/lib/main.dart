@@ -379,7 +379,7 @@ class _PlayerShellState extends State<PlayerShell> {
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
 
     _player.set64BitProcessingEnabled(is64Bit);
-    _player.setAutoBitPerfectEnabled(autoBp);
+    _player.setAutoSampleRateMatchEnabled(autoBp);
     _player.setPhaseInversion(
       invertLeft: phaseSaved.invertLeft,
       invertRight: phaseSaved.invertRight,

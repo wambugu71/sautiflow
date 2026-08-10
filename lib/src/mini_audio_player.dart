@@ -261,12 +261,18 @@ class MiniAudioPlayer {
   /// Check if 64-bit floating point DSP processing mode is active.
   bool get is64BitProcessingEnabled => _engine.get64BitProcessingEnabled();
 
-  /// Enable or disable Auto Bit-Perfect hardware sample-rate matching.
-  void setAutoBitPerfectEnabled(bool enabled) =>
-      _engine.setAutoBitPerfectEnabled(enabled);
+  /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.
+  void setAutoSampleRateMatchEnabled(bool enabled) =>
+      _engine.setAutoSampleRateMatchEnabled(enabled);
 
-  /// Check if Auto Bit-Perfect hardware sample-rate matching is enabled.
-  bool get isAutoBitPerfectEnabled => _engine.getAutoBitPerfectEnabled();
+  /// Check if Auto Sample-Rate Match hardware sample-rate matching is enabled.
+  bool get isAutoSampleRateMatchEnabled => _engine.getAutoSampleRateMatchEnabled();
+
+  /// Deprecated alias for [setAutoSampleRateMatchEnabled].
+  void setAutoBitPerfectEnabled(bool enabled) => setAutoSampleRateMatchEnabled(enabled);
+
+  /// Deprecated alias for [isAutoSampleRateMatchEnabled].
+  bool get isAutoBitPerfectEnabled => isAutoSampleRateMatchEnabled;
 
   /// Poll for a deferred Auto Bit-Perfect sample-rate switch signalled by the
   /// native worker thread. Returns the new target sample rate (> 0) if one is

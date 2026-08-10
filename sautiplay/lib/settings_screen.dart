@@ -201,7 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
     widget.player.setViperOversampling(oversamplingSaved);
     widget.player.set64BitProcessingEnabled(is64Bit);
-    widget.player.setAutoBitPerfectEnabled(autoBp);
+    widget.player.setAutoSampleRateMatchEnabled(autoBp);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -1316,43 +1316,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Icon(Icons.graphic_eq,
                         color: Colors.white70, size: 20),
                   ),
-                  title: Row(
-                    children: [
-                      const Text('Auto Bit-Perfect',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withAlpha(40),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: Colors.amberAccent.withAlpha(140),
-                            width: 1,
-                          ),
-                        ),
-                        child: const Text(
-                          'EXPERIMENTAL',
-                          style: TextStyle(
-                            color: Colors.amberAccent,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Low latency mode',
+                  title: const Text('Auto Sample-Rate Match',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text('Automatically switch hardware DAC rate to match track native rate',
                       style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _autoBitPerfectEnabled,
                   activeThumbColor: _primary,
                   onChanged: (val) {
                     setState(() => _autoBitPerfectEnabled = val);
-                    widget.player.setAutoBitPerfectEnabled(val);
+                    widget.player.setAutoSampleRateMatchEnabled(val);
                     AppStateService.instance.saveAutoBitPerfectEnabled(val);
                     setSubState(() {});
                     if (!context.mounted) return;
@@ -1380,8 +1353,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: Text(
                                 val
-                                    ? 'Low Latency active, App DSP active)'
-                                    : 'Auto Bit-Perfect Disabled',
+                                    ? 'Auto Sample-Rate Match Active'
+                                    : 'Auto Sample-Rate Match Disabled',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 13),
                               ),
