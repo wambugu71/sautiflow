@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -2570,19 +2571,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _getResampleAlgorithmName(int index) {
     switch (index) {
       case 0:
-        return 'Miniaudio Linear (Fastest)';
+        return 'Linear Standard (Fast & Smooth)';
       case 1:
-        return 'SRC Sinc Best Quality';
+        return 'Sinc Master Ultra HD';
       case 2:
-        return 'SRC Sinc Medium Quality';
+        return 'Sinc High Quality';
       case 3:
-        return 'SRC Sinc Fastest';
+        return 'Sinc Good Quality';
       case 4:
-        return 'SRC Zero Order Hold';
+        return 'Step / Hold (Lo-Fi)';
       case 5:
-        return 'SRC Linear';
+        return 'Linear Extended';
       default:
-        return 'Miniaudio Linear (Fastest)';
+        return 'Linear Standard (Fast & Smooth)';
     }
   }
 
@@ -2655,32 +2656,207 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showResampleAlgorithmDialog({VoidCallback? onDone}) {
+    final isMobile = defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+
+    final options = [
+      {
+        'index': 0,
+        'name': 'Linear Standard (Fast & Smooth)',
+        'subtitle': 'Default. Ultra-low CPU, zero latency. Recommended for Mobile.',
+        'badge': 'Recommended',
+        'isHeavy': false,
+      },
+      {
+        'index': 5,
+        'name': 'Linear Extended',
+        'subtitle': 'Standard linear interpolation algorithm.',
+        'badge': null,
+        'isHeavy': false,
+      },
+      {
+        'index': 4,
+        'name': 'Step / Hold (Lo-Fi)',
+        'subtitle': 'Zero-order hold interpolation for vintage stepped sound.',
+        'badge': null,
+        'isHeavy': false,
+      },
+      {
+        'index': 3,
+        'name': 'Sinc Good Quality',
+        'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
+        'badge': null,
+        'isHeavy': false,
+      },
+      {
+        'index': 2,
+        'name': 'Sinc High Quality',
+        'subtitle': 'Band-limited sinc filter (121dB SNR). High CPU load.',
+        'badge': isMobile ? '⚠️ High CPU' : 'Studio',
+        'isHeavy': true,
+      },
+      {
+        'index': 1,
+        'name': 'Sinc Master Ultra HD',
+        'subtitle': '640-tap sinc filter (144dB SNR). Desktop High-End CPUs.',
+        'badge': isMobile ? '⚠️ Desktop Only' : 'Master HD',
+        'isHeavy': true,
+      },
+    ];
+
     showModalBottomSheet(
       context: context,
       backgroundColor: _cardDark,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('Resampling Algorithm',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
+      builder: (ctx) => SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                child: Column(
+                  children: [
+                    Text('Resampling Quality Tier',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text(
+                      'Select interpolation algorithm for rate conversion',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.white10),
+              for (final item in options)
+                RadioListTile<int>(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item['name'] as String,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14),
+                        ),
+                      ),
+                      if (item['badge'] != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: (item['isHeavy'] as bool && isMobile)
+                                ? Colors.amber.withAlpha(40)
+                                : _primary.withAlpha(30),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: (item['isHeavy'] as bool && isMobile)
+                                  ? Colors.amber.withAlpha(120)
+                                  : _primary.withAlpha(80),
+                            ),
+                          ),
+                          child: Text(
+                            item['badge'] as String,
+                            style: TextStyle(
+                              color: (item['isHeavy'] as bool && isMobile)
+                                  ? Colors.amberAccent
+                                  : _primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      item['subtitle'] as String,
+                      style: TextStyle(color: _textDark, fontSize: 12),
+                    ),
+                  ),
+                  value: item['index'] as int,
+                  groupValue: _resampleAlgorithm,
+                  activeColor: _primary,
+                  onChanged: (val) {
+                    if (val != null) {
+                      if (isMobile && (item['isHeavy'] as bool)) {
+                        Navigator.pop(ctx);
+                        _showMobileResamplerWarningDialog(val, onDone);
+                      } else {
+                        _applyResampleAlgorithm(val, onDone);
+                        Navigator.pop(ctx);
+                      }
+                    }
+                  },
+                ),
+              const SizedBox(height: 12),
+            ],
           ),
-          for (int i = 0; i <= 5; i++)
-            _buildRadioOption(_getResampleAlgorithmName(i),
-                _getResampleAlgorithmName(_resampleAlgorithm), (v) {
-              setState(() => _resampleAlgorithm = i);
-              widget.player.setEngineResampleAlgorithm(i);
-              _persistUiSettings();
-              onDone?.call();
-              Navigator.pop(ctx);
-            }),
-          const SizedBox(height: 20),
+        ),
+      ),
+    );
+  }
+
+  void _applyResampleAlgorithm(int index, VoidCallback? onDone) {
+    setState(() => _resampleAlgorithm = index);
+    widget.player.setEngineResampleAlgorithm(index);
+    _persistUiSettings();
+    onDone?.call();
+  }
+
+  void _showMobileResamplerWarningDialog(int requestedIndex, VoidCallback? onDone) {
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        backgroundColor: _cardDark,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.amber.withAlpha(80))),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 24),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'High CPU Resampler Warning',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '${_getResampleAlgorithmName(requestedIndex)} calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',
+          style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Use Linear (Recommended)', style: TextStyle(color: Colors.lightBlueAccent)),
+            onPressed: () {
+              _applyResampleAlgorithm(0, onDone);
+              Navigator.pop(dlgCtx);
+            },
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber.withAlpha(40),
+              side: const BorderSide(color: Colors.amberAccent),
+            ),
+            child: const Text('Enable Anyway', style: TextStyle(color: Colors.amberAccent)),
+            onPressed: () {
+              _applyResampleAlgorithm(requestedIndex, onDone);
+              Navigator.pop(dlgCtx);
+            },
+          ),
         ],
       ),
     );

@@ -647,14 +647,36 @@ namespace
         return MA_SUCCESS;
     }
 
+    static ma_uint64 get_src_latency_frames(int converterType)
+    {
+        switch (converterType)
+        {
+        case SRC_SINC_BEST_QUALITY:
+            return 322;
+        case SRC_SINC_MEDIUM_QUALITY:
+            return 82;
+        case SRC_SINC_FASTEST:
+            return 18;
+        default:
+            return 0;
+        }
+    }
+
     static ma_uint64 src_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
-        return 0;
+        const LibSampleRateBackend *backend = (const LibSampleRateBackend *)pBackend;
+        if (!backend)
+            return 0;
+        return get_src_latency_frames(backend->converterType);
     }
 
     static ma_uint64 src_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
-        return 0;
+        const LibSampleRateBackend *backend = (const LibSampleRateBackend *)pBackend;
+        if (!backend || backend->ratio <= 0.0f)
+            return 0;
+        ma_uint64 inLat = get_src_latency_frames(backend->converterType);
+        return (ma_uint64)std::ceil((double)inLat * (double)backend->ratio);
     }
 
     static ma_result src_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
@@ -668,7 +690,8 @@ namespace
         }
         else
         {
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio);
+            ma_uint64 inLat = get_src_latency_frames(backend->converterType);
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio) + inLat;
         }
         return MA_SUCCESS;
     }
@@ -684,7 +707,9 @@ namespace
         }
         else
         {
-            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * (double)backend->ratio);
+            ma_uint64 inLat = get_src_latency_frames(backend->converterType);
+            ma_uint64 avail = (inputFrameCount > inLat) ? (inputFrameCount - inLat) : 0;
+            *pOutputFrameCount = (ma_uint64)std::floor((double)avail * (double)backend->ratio);
         }
         return MA_SUCCESS;
     }
