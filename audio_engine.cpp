@@ -3175,6 +3175,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
 #endif
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
+                            e->seekBasePcmFrame.store(0, std::memory_order_release);
+                            e->playedPcmFrames.store(0, std::memory_order_release);
 
                             if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                             {
@@ -3355,6 +3357,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->currentLengthFrames = e->nextLengthFrames;
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
+                    e->seekBasePcmFrame.store(0, std::memory_order_release);
+                    e->playedPcmFrames.store(0, std::memory_order_release);
 
                     if (e->autoBitPerfectEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                     {
@@ -3380,6 +3384,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (e->loopMode == AE_LOOP_ONE && e->hasCurrent)
                 {
                     (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
+                    e->seekBasePcmFrame.store(0, std::memory_order_release);
+                    e->playedPcmFrames.store(0, std::memory_order_release);
                     continue;
                 }
 
