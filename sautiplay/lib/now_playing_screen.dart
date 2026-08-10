@@ -550,7 +550,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               content: Row(
                 children: [
                   Icon(Icons.lyrics_outlined,
-                      color: AppThemeService.instance.currentData.primary, size: 18),
+                      color: AppThemeService.instance.currentData.primary,
+                      size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -682,7 +683,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           'Display synchronized lyrics over album cover',
                           style:
                               TextStyle(color: Colors.white54, fontSize: 12)),
-                      activeThumbColor: AppThemeService.instance.currentData.primary,
+                      activeThumbColor:
+                          AppThemeService.instance.currentData.primary,
                       value: _showLyricsOverlayOnAlbumArt,
                       onChanged: (_lyricsRaw == null && !_isCustomLyricsLoaded)
                           ? null
@@ -736,7 +738,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
           color: Colors.black.withValues(alpha: 0.88),
           border: Border.all(
-            color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
+            color: AppThemeService.instance.currentData.primary
+                .withValues(alpha: 0.4),
             width: 1.5,
           ),
         ),
@@ -771,14 +774,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.3),
+                        color: AppThemeService.instance.currentData.primary
+                            .withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.lyrics,
-                              size: 12, color: AppThemeService.instance.currentData.primary),
+                              size: 12,
+                              color:
+                                  AppThemeService.instance.currentData.primary),
                           const SizedBox(width: 4),
                           Text(
                             _isCustomLyricsLoaded
@@ -921,7 +927,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           height: 160,
                           child: Center(
                             child: CircularProgressIndicator(
-                              color: AppThemeService.instance.currentData.primary,
+                              color:
+                                  AppThemeService.instance.currentData.primary,
                             ),
                           ),
                         )
@@ -1236,7 +1243,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isHiRes
-              ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.6)
+              ? AppThemeService.instance.currentData.primary
+                  .withValues(alpha: 0.6)
               : Colors.white.withValues(alpha: 0.08),
         ),
       ),
@@ -1247,7 +1255,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             children: [
               Icon(icon,
                   size: 14,
-                  color: isHiRes ? AppThemeService.instance.currentData.primary : Colors.white54),
+                  color: isHiRes
+                      ? AppThemeService.instance.currentData.primary
+                      : Colors.white54),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1255,7 +1265,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: isHiRes ? AppThemeService.instance.currentData.primary : Colors.white54,
+                    color: isHiRes
+                        ? AppThemeService.instance.currentData.primary
+                        : Colors.white54,
                     letterSpacing: 0.5,
                   ),
                   maxLines: 1,
@@ -1334,7 +1346,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final Color bgColor = AppThemeService.instance.currentData.bgDark;
         const Color surfaceColor = Color(0xFF18232E);
         const Color textLight = Colors.white;
-        final Color textDark = AppThemeService.instance.currentData.textDark; // slate-400
+        final Color textDark =
+            AppThemeService.instance.currentData.textDark; // slate-400
 
         return Theme(
           data: ThemeData.dark().copyWith(
@@ -1578,8 +1591,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                             return GestureDetector(
                                                               onTap: () async {
                                                                 if (trackId
-                                                                    .isEmpty)
+                                                                    .isEmpty) {
                                                                   return;
+                                                                }
                                                                 if (isCurrentlyLiked) {
                                                                   await LikedSongsService
                                                                       .instance
@@ -2183,8 +2197,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                               trackId);
                                                       return GestureDetector(
                                                         onTap: () async {
-                                                          if (trackId.isEmpty)
+                                                          if (trackId.isEmpty) {
                                                             return;
+                                                          }
                                                           if (isCurrentlyLiked) {
                                                             await LikedSongsService
                                                                 .instance
@@ -2751,7 +2766,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       content: Row(
                         children: [
                           Icon(Icons.repeat_on_rounded,
-                              color: AppThemeService.instance.currentData.primary, size: 18),
+                              color:
+                                  AppThemeService.instance.currentData.primary,
+                              size: 18),
                           const SizedBox(width: 8),
                           Text(
                             'A-B Loop Active: ${_fmt(Duration(milliseconds: a.toInt()))} ⇄ ${_fmt(Duration(milliseconds: b.toInt()))}',
@@ -2820,9 +2837,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.2),
+                color: AppThemeService.instance.currentData.primary
+                    .withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppThemeService.instance.currentData.primary, width: 1),
+                border: Border.all(
+                    color: AppThemeService.instance.currentData.primary,
+                    width: 1),
               ),
               child: Text(
                 'B ${_fmt(Duration(milliseconds: _abPointBMs!.toInt()))}',
@@ -2933,7 +2953,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     children: [
                       Text('Point B',
                           style: TextStyle(
-                              color: AppThemeService.instance.currentData.primary,
+                              color:
+                                  AppThemeService.instance.currentData.primary,
                               fontWeight: FontWeight.bold)),
                       const Spacer(),
                       IconButton(
@@ -3138,7 +3159,8 @@ class _AbHighlightCustomPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Highlight band
     final paint = Paint()
-      ..color = AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
+      ..color =
+          AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
       ..style = PaintingStyle.fill;
     canvas.drawRect(Rect.fromLTRB(left, 0, right, size.height), paint);
 
@@ -3188,7 +3210,8 @@ class _AbRepeatCustomIcon extends StatelessWidget {
         break;
       case 2:
         borderClr = AppThemeService.instance.currentData.primary;
-        bgClr = AppThemeService.instance.currentData.primary.withValues(alpha: 0.25);
+        bgClr = AppThemeService.instance.currentData.primary
+            .withValues(alpha: 0.25);
         textClr = const Color(0xFF38BDF8);
         label = 'A-B';
         iconData = Icons.repeat_on_rounded;

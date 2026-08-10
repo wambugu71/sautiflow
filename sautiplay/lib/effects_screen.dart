@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:showcaseview/showcaseview.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
@@ -239,7 +238,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
     );
 
     for (final style in GlslShaderStyle.values) {
-      if (_currentAnalyzerType == style.name || _currentAnalyzerType == style.displayName) {
+      if (_currentAnalyzerType == style.name ||
+          _currentAnalyzerType == style.displayName) {
         return GlslAudioVisualizerWidget(
           analyzerStream: widget.player.analyzerStream,
           isPlaying: _isPlaying,
@@ -250,19 +250,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
       }
     }
 
-    if (_currentAnalyzerType == 'oscilloscope') {
-      return _OscilloscopeVisualizerWidget(
-        visualData: visualData,
-        isPlaying: _isPlaying,
-        primaryColor: primaryColor,
-      );
-    } else if (_currentAnalyzerType == 'radial') {
-      return _RadialOrbitVisualizerWidget(
-        visualData: visualData,
-        isPlaying: _isPlaying,
-        primaryColor: primaryColor,
-      );
-    } else if (_currentAnalyzerType == 'area') {
+    if (_currentAnalyzerType == 'area') {
       final spots = <FlSpot>[];
       for (int i = 0; i < numBars; i++) {
         spots.add(FlSpot(i.toDouble(), visualData[i]));
@@ -372,13 +360,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
     String activeVisualizerLabel = 'Bar Spectrum';
     if (_currentAnalyzerType == 'area') {
       activeVisualizerLabel = 'Area Line';
-    } else if (_currentAnalyzerType == 'oscilloscope') {
-      activeVisualizerLabel = 'Oscilloscope CRT';
-    } else if (_currentAnalyzerType == 'radial') {
-      activeVisualizerLabel = 'Radial Orbit Ring';
     } else {
       final glslMatch = GlslShaderStyle.values.firstWhere(
-        (s) => s.name == _currentAnalyzerType || s.displayName == _currentAnalyzerType,
+        (s) =>
+            s.name == _currentAnalyzerType ||
+            s.displayName == _currentAnalyzerType,
         orElse: () => GlslShaderStyle.cyberTunnel,
       );
       if (_currentAnalyzerType != 'bar') {
@@ -422,12 +408,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         SizedBox(
                           height: titleBarHeight,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12.0),
                             child: Row(
                               children: [
                                 if (Navigator.canPop(context))
                                   const BackButton(color: Colors.white),
-                                Icon(Icons.tune_rounded, color: primaryColor, size: 22),
+                                Icon(Icons.tune_rounded,
+                                    color: primaryColor, size: 22),
                                 const SizedBox(width: 8),
                                 const Text(
                                   'Audio Effects & DSP',
@@ -465,7 +453,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         SizedBox(
                           height: controlBarHeight,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12.0, vertical: 2.0),
                             child: Row(
                               children: [
                                 // Visualizer Selector Pill Button
@@ -479,18 +468,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     },
                                     itemBuilder: (context) => [
                                       const PopupMenuItem(
-                                        enabled: false,
-                                        child: Text('CANVAS VISUALIZERS', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                      const PopupMenuItem(value: 'bar', child: Text('Bar Spectrum')),
-                                      const PopupMenuItem(value: 'area', child: Text('Area Line')),
-                                      const PopupMenuItem(value: 'oscilloscope', child: Text('Oscilloscope CRT')),
-                                      const PopupMenuItem(value: 'radial', child: Text('Radial Orbit Ring')),
-                                      const PopupMenuDivider(),
+                                          value: 'bar',
+                                          child: Text('Bar Spectrum')),
                                       const PopupMenuItem(
-                                        enabled: false,
-                                        child: Text('GLSL 3D SHADER STYLES', style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
+                                          value: 'area',
+                                          child: Text('Area Line')),
+                                      const PopupMenuDivider(),
                                       ...GlslShaderStyle.values.map(
                                         (s) => PopupMenuItem(
                                           value: s.name,
@@ -500,18 +483,22 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     ],
                                     child: Container(
                                       height: 34,
-                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
                                       decoration: BoxDecoration(
-                                        color: AppThemeService.instance.currentData.cardDark,
+                                        color: AppThemeService
+                                            .instance.currentData.cardDark,
                                         borderRadius: BorderRadius.circular(18),
                                         border: Border.all(
-                                          color: primaryColor.withValues(alpha: 0.35),
+                                          color: primaryColor.withValues(
+                                              alpha: 0.35),
                                           width: 1,
                                         ),
                                       ),
                                       child: Row(
                                         children: [
-                                          Icon(Icons.auto_awesome_mosaic, color: primaryColor, size: 14),
+                                          Icon(Icons.auto_awesome_mosaic,
+                                              color: primaryColor, size: 14),
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
@@ -524,7 +511,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                               ),
                                             ),
                                           ),
-                                          const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 16),
+                                          const Icon(Icons.arrow_drop_down,
+                                              color: Colors.white70, size: 16),
                                         ],
                                       ),
                                     ),
@@ -663,240 +651,3 @@ class _EffectsScreenState extends State<EffectsScreen> {
     );
   }
 }
-
-class _OscilloscopeVisualizerWidget extends StatelessWidget {
-  final List<double> visualData;
-  final bool isPlaying;
-  final Color primaryColor;
-
-  const _OscilloscopeVisualizerWidget({
-    required this.visualData,
-    required this.isPlaying,
-    required this.primaryColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF070C12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: _OscilloscopePainter(
-            visualData: visualData,
-            isPlaying: isPlaying,
-            primaryColor: primaryColor,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OscilloscopePainter extends CustomPainter {
-  final List<double> visualData;
-  final bool isPlaying;
-  final Color primaryColor;
-
-  _OscilloscopePainter({
-    required this.visualData,
-    required this.isPlaying,
-    required this.primaryColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Draw CRT graticule grid
-    final gridPaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.12)
-      ..strokeWidth = 1.0;
-
-    const cols = 8;
-    const rows = 4;
-    for (int i = 1; i < cols; i++) {
-      final x = size.width * (i / cols);
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (int j = 1; j < rows; j++) {
-      final y = size.height * (j / rows);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    if (visualData.isEmpty || !isPlaying) {
-      final centerLine = Paint()
-        ..color = primaryColor.withValues(alpha: 0.5)
-        ..strokeWidth = 1.5;
-      canvas.drawLine(
-        Offset(0, size.height / 2),
-        Offset(size.width, size.height / 2),
-        centerLine,
-      );
-      return;
-    }
-
-    final path = Path();
-    final centerY = size.height / 2;
-    final maxAmp = size.height * 0.4;
-
-    final n = visualData.length;
-    for (int i = 0; i < n; i++) {
-      final x = size.width * (i / (n - 1));
-      // Alternate sign for audio wave oscillation effect
-      final sign = (i % 2 == 0) ? 1.0 : -1.0;
-      final y = centerY - (visualData[i] * maxAmp * sign);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-
-    // Outer Glow Paint
-    final glowPaint = Paint()
-      ..color = primaryColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
-
-    // Core Trace Paint
-    final corePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawPath(path, glowPaint);
-    canvas.drawPath(path, corePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _OscilloscopePainter oldDelegate) => true;
-}
-
-class _RadialOrbitVisualizerWidget extends StatelessWidget {
-  final List<double> visualData;
-  final bool isPlaying;
-  final Color primaryColor;
-
-  const _RadialOrbitVisualizerWidget({
-    required this.visualData,
-    required this.isPlaying,
-    required this.primaryColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF070C12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: _RadialOrbitPainter(
-            visualData: visualData,
-            isPlaying: isPlaying,
-            primaryColor: primaryColor,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RadialOrbitPainter extends CustomPainter {
-  final List<double> visualData;
-  final bool isPlaying;
-  final Color primaryColor;
-
-  _RadialOrbitPainter({
-    required this.visualData,
-    required this.isPlaying,
-    required this.primaryColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final minDim = math.min(size.width, size.height);
-    final innerRadius = minDim * 0.18;
-    final maxBarLen = minDim * 0.28;
-
-    // Calculate energy
-    double totalEnergy = 0.0;
-    if (visualData.isNotEmpty) {
-      for (final v in visualData) {
-        totalEnergy += v;
-      }
-      totalEnergy /= visualData.length;
-    }
-
-    // Inner Pulsing Core Orb
-    final coreR = innerRadius * (0.85 + totalEnergy * 0.35);
-    final corePaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.white,
-          primaryColor,
-          primaryColor.withValues(alpha: 0.0),
-        ],
-        stops: const [0.0, 0.6, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: math.max(1.0, coreR * 1.5)));
-    canvas.drawCircle(center, coreR * 1.3, corePaint);
-
-    // Orbit Ring
-    final orbitPaint = Paint()
-      ..color = primaryColor.withValues(alpha: 0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawCircle(center, innerRadius, orbitPaint);
-
-    if (visualData.isEmpty || !isPlaying) return;
-
-    final n = visualData.length;
-    final barPaint = Paint()..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < n; i++) {
-      final angle = (i / n) * 2 * math.pi - math.pi / 2;
-      final val = visualData[i].clamp(0.0, 1.0);
-      final barLen = val * maxBarLen;
-
-      final startPos = Offset(
-        center.dx + innerRadius * math.cos(angle),
-        center.dy + innerRadius * math.sin(angle),
-      );
-      final endPos = Offset(
-        center.dx + (innerRadius + barLen) * math.cos(angle),
-        center.dy + (innerRadius + barLen) * math.sin(angle),
-      );
-
-      barPaint
-        ..color = Color.lerp(primaryColor, Colors.cyanAccent, val)!
-        ..strokeWidth = 2.5;
-
-      canvas.drawLine(startPos, endPos, barPaint);
-
-      // Peak Dot
-      if (val > 0.05) {
-        final peakPos = Offset(
-          center.dx + (innerRadius + barLen + 4) * math.cos(angle),
-          center.dy + (innerRadius + barLen + 4) * math.sin(angle),
-        );
-        final dotPaint = Paint()..color = Colors.white;
-        canvas.drawCircle(peakPos, 1.2, dotPaint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RadialOrbitPainter oldDelegate) => true;
-}
-

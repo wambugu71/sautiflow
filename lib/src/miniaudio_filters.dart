@@ -9,6 +9,10 @@ enum ResampleAlgorithm {
   srcZeroOrderHold,
   srcLinear,
   custom,
+  soxrVHQLinearPhase,
+  soxrVHQMinimumPhase,
+  soxrHQ,
+  soxrFast,
 }
 
 enum DitherMode {

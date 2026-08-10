@@ -26,7 +26,7 @@ class LocalMediaServer {
         _server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
         _port = _server!.port;
         debugPrint('[LocalMediaServer] Started on random port $_port');
-        
+
         _server!.listen((HttpRequest request) {
           _handleRequest(request);
         });
@@ -53,10 +53,10 @@ class LocalMediaServer {
     if (ext == '.ogg') contentType = 'audio/ogg';
 
     final fileSize = await file.length();
-    
+
     // DLNA often uses Range requests
     final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
-    
+
     if (rangeHeader != null) {
       final parts = rangeHeader.replaceFirst('bytes=', '').split('-');
       final start = int.tryParse(parts[0]) ?? 0;
@@ -66,7 +66,8 @@ class LocalMediaServer {
 
       if (start >= fileSize) {
         request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$fileSize');
+        request.response.headers
+            .set(HttpHeaders.contentRangeHeader, 'bytes */$fileSize');
         await request.response.close();
         return;
       }
@@ -74,24 +75,29 @@ class LocalMediaServer {
       final contentLength = end - start + 1;
       request.response.statusCode = HttpStatus.partialContent;
       request.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
-      request.response.headers.set(HttpHeaders.contentLengthHeader, contentLength.toString());
+      request.response.headers
+          .set(HttpHeaders.contentLengthHeader, contentLength.toString());
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-      request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$fileSize');
-      
+      request.response.headers
+          .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$fileSize');
+
       // Serve the requested range
       final stream = file.openRead(start, end + 1);
       await stream.pipe(request.response).catchError((e) {
-        debugPrint('[LocalMediaServer] Pipe error (client probably disconnected): $e');
+        debugPrint(
+            '[LocalMediaServer] Pipe error (client probably disconnected): $e');
       });
     } else {
       // Full file request
       request.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
-      request.response.headers.set(HttpHeaders.contentLengthHeader, fileSize.toString());
+      request.response.headers
+          .set(HttpHeaders.contentLengthHeader, fileSize.toString());
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-      
+
       final stream = file.openRead();
       await stream.pipe(request.response).catchError((e) {
-        debugPrint('[LocalMediaServer] Pipe error (client probably disconnected): $e');
+        debugPrint(
+            '[LocalMediaServer] Pipe error (client probably disconnected): $e');
       });
     }
   }
@@ -105,7 +111,7 @@ class LocalMediaServer {
     if (_server == null) return null;
 
     _currentFilePath = filePath;
-    
+
     // We need to find the local IP address
     String? localIp;
     try {
@@ -124,11 +130,8 @@ class LocalMediaServer {
     } catch (e) {
       debugPrint('[LocalMediaServer] Failed to get local IP: $e');
     }
-    
-    if (localIp == null) {
-      // Fallback, might not work if DLNA renderer is on another network segment
-      localIp = '127.0.0.1';
-    }
+
+    localIp ??= '127.0.0.1';
 
     final ext = p.extension(filePath);
     return 'http://$localIp:$_port/stream$ext';

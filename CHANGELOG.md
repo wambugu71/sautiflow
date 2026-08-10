@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.6.20
-- **[DSP Engine & Audio Architecture]** Upgraded Sautiflow engine & Sautiplay app with 64-bit float DSP pipeline, Auto Bit-Perfect hardware matching, Ambiophonics R.A.C.E. crossfeed, and psychoacoustic noise-shaping dither modes.
+- **[DSP Engine & Audio Architecture]** Upgraded Sautiflow engine & Sautiplay app with 64-bit float DSP pipeline, Auto Bit-Perfect hardware matching, Ambiophonics. crossfeed, and psychoacoustic noise-shaping dither modes.
 - **[Dynamic Cover Art & Theme Engine]** Added Material 3 Isolate-driven Dynamic Cover Art color extraction (`ArtworkThemeService`) that extracts harmonious palette schemes from album art on the fly without UI stuttering.
 - **[Interactive Waveform Seek Bar]** Added interactive waveform seek bar widget (`WaveformSeekBarWidget`) with background waveform extraction (`WaveformExtractorService`) and robust pending seek state reset handling across track changes.
 - **[GPU GLSL Visualizers]** Added 15 custom GPU GLSL audio-reactive visualizer presets with mobile-optimized pinned control bar and dynamic animation pause/resume on playback state changes.

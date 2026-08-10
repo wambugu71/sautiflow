@@ -11,7 +11,6 @@ import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/vdc_parser.dart';
 import 'package:sautiplay/services/autoeq_parser.dart';
 import 'package:sautiplay/services/dlna_service.dart';
-import 'package:sautiplay/services/local_media_server.dart';
 
 /// A wrapper that runs [MiniAudioPlayer] in a separate isolate.
 class IsolateAudioPlayer {
@@ -1162,8 +1161,13 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'setEngineResampleAlgorithm':
-          player.setEngineResampleAlgorithm(
-              ResampleAlgorithm.values[message['algorithm'] ?? 0]);
+          final algoIdx = (message['algorithm'] as int?) ?? 0;
+          if (algoIdx >= 0 && algoIdx < ResampleAlgorithm.values.length) {
+            player.setEngineResampleAlgorithm(
+                ResampleAlgorithm.values[algoIdx]);
+          } else {
+            player.setEngineResampleAlgorithm(ResampleAlgorithm.miniaudioLinear);
+          }
           break;
         case 'setEngineDitherMode':
           player.setEngineDitherMode(message['mode'] ?? 0);

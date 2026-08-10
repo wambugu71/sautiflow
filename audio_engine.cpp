@@ -19,6 +19,7 @@
 
 #include "audio_engine.h"
 #include <samplerate.h>
+#include <soxr.h>
 #include "mp4_aac_decoder.h"
 #include "ViPERDSP/viper/ViPER.h"
 
@@ -735,6 +736,184 @@ namespace
         src_onGetRequiredInputFrameCount,
         src_onGetExpectedOutputFrameCount,
         src_onReset
+    };
+
+    struct SoxrResamplerBackend
+    {
+        soxr_t handle;
+        double ratio;
+        int channels;
+        int algorithm;
+    };
+
+    static ma_result soxr_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
+    {
+        if (!pHeapSizeInBytes)
+            return MA_INVALID_ARGS;
+        *pHeapSizeInBytes = sizeof(SoxrResamplerBackend);
+        return MA_SUCCESS;
+    }
+
+    static ma_result soxr_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
+    {
+        if (!pConfig || !pAllocation || !ppBackend)
+            return MA_INVALID_ARGS;
+        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pAllocation;
+        backend->channels = pConfig->channels;
+
+        int algo = pUserData ? *(int *)pUserData : 7;
+        backend->algorithm = algo;
+
+        unsigned long q_recipe = SOXR_HQ;
+        unsigned long q_flags = 0;
+
+        if (algo == 7) { // soxrVHQLinearPhase
+            q_recipe = SOXR_VHQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        } else if (algo == 8) { // soxrVHQMinimumPhase
+            q_recipe = SOXR_VHQ;
+            q_flags = SOXR_MINIMUM_PHASE;
+        } else if (algo == 9) { // soxrHQ
+            q_recipe = SOXR_HQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        } else if (algo == 10) { // soxrFast
+            q_recipe = SOXR_LQ;
+            q_flags = SOXR_LINEAR_PHASE;
+        }
+
+        soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
+        soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+        backend->ratio = (pConfig->sampleRateIn > 0) ? ((double)pConfig->sampleRateOut / (double)pConfig->sampleRateIn) : 1.0;
+
+        soxr_error_t err = nullptr;
+        backend->handle = soxr_create((double)pConfig->sampleRateIn, (double)pConfig->sampleRateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
+        if (!backend->handle || err)
+        {
+            engine_log("soxr_onInit: soxr_create failed (err=%s) for algo=%d channels=%d",
+                       soxr_strerror(err), algo, backend->channels);
+            return MA_ERROR;
+        }
+
+        *ppBackend = (ma_resampling_backend *)backend;
+        return MA_SUCCESS;
+    }
+
+    static void soxr_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
+    {
+        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
+        if (backend && backend->handle)
+        {
+            soxr_delete(backend->handle);
+            backend->handle = nullptr;
+        }
+    }
+
+    static ma_result soxr_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
+    {
+        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
+        if (!backend || !backend->handle || !pFrameCountIn || !pFrameCountOut)
+            return MA_ERROR;
+
+        size_t idone = 0, odone = 0;
+        soxr_error_t err = soxr_process(backend->handle, pFramesIn, (size_t)*pFrameCountIn, &idone, pFramesOut, (size_t)*pFrameCountOut, &odone);
+        if (err) {
+            engine_log("soxr_onProcess error: %s", soxr_strerror(err));
+            return MA_ERROR;
+        }
+
+        *pFrameCountIn = (ma_uint64)idone;
+        *pFrameCountOut = (ma_uint64)odone;
+        return MA_SUCCESS;
+    }
+
+    static ma_result soxr_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+    {
+        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
+        if (!backend)
+            return MA_ERROR;
+        backend->ratio = (sampleRateIn > 0) ? ((double)sampleRateOut / (double)sampleRateIn) : 1.0;
+        if (backend->handle)
+        {
+            soxr_error_t err = soxr_set_io_ratio(backend->handle, 1.0 / backend->ratio, 0);
+            if (err) return MA_ERROR;
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_uint64 soxr_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
+        if (!backend || !backend->handle)
+            return 0;
+        double delay = soxr_delay(backend->handle);
+        return (ma_uint64)std::ceil(delay);
+    }
+
+    static ma_uint64 soxr_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
+    {
+        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
+        if (!backend || !backend->handle || backend->ratio <= 0.0)
+            return 0;
+        double delay = soxr_delay(backend->handle);
+        return (ma_uint64)std::ceil(delay * backend->ratio);
+    }
+
+    static ma_result soxr_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
+    {
+        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
+        if (!pInputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0)
+        {
+            *pInputFrameCount = outputFrameCount;
+        }
+        else
+        {
+            double delay = backend->handle ? soxr_delay(backend->handle) : 0.0;
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio + delay);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result soxr_onGetExpectedOutputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 inputFrameCount, ma_uint64 *pOutputFrameCount)
+    {
+        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
+        if (!pOutputFrameCount)
+            return MA_INVALID_ARGS;
+        if (!backend || backend->ratio <= 0.0)
+        {
+            *pOutputFrameCount = inputFrameCount;
+        }
+        else
+        {
+            double delay = backend->handle ? soxr_delay(backend->handle) : 0.0;
+            double avail = ((double)inputFrameCount > delay) ? ((double)inputFrameCount - delay) : 0.0;
+            *pOutputFrameCount = (ma_uint64)std::floor(avail * backend->ratio);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_result soxr_onReset(void *pUserData, ma_resampling_backend *pBackend)
+    {
+        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
+        if (backend && backend->handle)
+        {
+            soxr_clear(backend->handle);
+        }
+        return MA_SUCCESS;
+    }
+
+    static ma_resampling_backend_vtable g_soxrResamplerVTable = {
+        soxr_onGetHeapSize,
+        soxr_onInit,
+        soxr_onUninit,
+        soxr_onProcess,
+        soxr_onSetRate,
+        soxr_onGetInputLatency,
+        soxr_onGetOutputLatency,
+        soxr_onGetRequiredInputFrameCount,
+        soxr_onGetExpectedOutputFrameCount,
+        soxr_onReset
     };
 
     struct LimiterState
@@ -6978,7 +7157,14 @@ extern "C"
         ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(format), channels, sample_rate_in, sample_rate_out, algo);
         if (algo == ma_resample_algorithm_custom)
         {
-            config.pBackendVTable = &g_customResamplerVTable;
+            if (algorithm >= 7 && algorithm <= 10)
+            {
+                config.pBackendVTable = &g_soxrResamplerVTable;
+            }
+            else
+            {
+                config.pBackendVTable = &g_customResamplerVTable;
+            }
             config.pBackendUserData = &obj->algorithmChoice;
         }
 

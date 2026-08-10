@@ -2582,6 +2582,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'Step / Hold (Lo-Fi)';
       case 5:
         return 'Linear Extended';
+      case 7:
+        return 'SoX VHQ Linear Phase (Audiophile)';
+      case 8:
+        return 'SoX VHQ Minimum Phase (Zero Pre-Ring)';
+      case 9:
+        return 'SoX High Quality';
+      case 10:
+        return 'SoX Fast Quality';
       default:
         return 'Linear Standard (Fast & Smooth)';
     }
@@ -2682,22 +2690,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'isHeavy': false,
       },
       {
+        'index': 9,
+        'name': 'SoX High Quality',
+        'subtitle': 'High Quality SoX resampler (160dB SNR). Fast & pristine rate conversion.',
+        'badge': 'SoX HQ',
+        'isHeavy': false,
+      },
+      {
+        'index': 10,
+        'name': 'SoX Fast Quality',
+        'subtitle': 'Fast SoX resampler (120dB SNR). High efficiency resampling.',
+        'badge': 'SoX Fast',
+        'isHeavy': false,
+      },
+      {
+        'index': 7,
+        'name': 'SoX VHQ Linear Phase (Audiophile)',
+        'subtitle': 'Very High Quality linear phase filter (175dB SNR). Exceptional purity.',
+        'badge': isMobile ? '⚠️ High CPU' : 'SoX VHQ',
+        'isHeavy': true,
+      },
+      {
+        'index': 8,
+        'name': 'SoX VHQ Minimum Phase (Zero Pre-Ring)',
+        'subtitle': 'VHQ minimum phase filter. Eliminates pre-ringing on acoustic transients.',
+        'badge': isMobile ? '⚠️ High CPU' : 'SoX Min-Phase',
+        'isHeavy': true,
+      },
+      {
         'index': 3,
-        'name': 'Sinc Good Quality',
+        'name': 'Sinc Good Quality (libsamplerate)',
         'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
         'badge': null,
         'isHeavy': false,
       },
       {
         'index': 2,
-        'name': 'Sinc High Quality',
+        'name': 'Sinc High Quality (libsamplerate)',
         'subtitle': 'Band-limited sinc filter (121dB SNR). High CPU load.',
         'badge': isMobile ? '⚠️ High CPU' : 'Studio',
         'isHeavy': true,
       },
       {
         'index': 1,
-        'name': 'Sinc Master Ultra HD',
+        'name': 'Sinc Master Ultra HD (libsamplerate)',
         'subtitle': '640-tap sinc filter (144dB SNR). Desktop High-End CPUs.',
         'badge': isMobile ? '⚠️ Desktop Only' : 'Master HD',
         'isHeavy': true,

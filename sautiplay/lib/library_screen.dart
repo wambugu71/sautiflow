@@ -569,9 +569,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             hash = await _computeFastFileHash(file, stat.size);
           }
 
-          final dedupeKey = (hash != null && hash.isNotEmpty)
-              ? hash
-              : key;
+          final dedupeKey = hash.isNotEmpty ? hash : key;
 
           // Ensure each physical file content is added to updatedSongs ONLY ONCE by hash
           if (!seenSongHashes.add(dedupeKey)) {

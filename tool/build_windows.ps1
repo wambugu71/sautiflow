@@ -37,6 +37,8 @@ $includes = @(
     "-Ithird_party/faad2/include",
     "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
+    "-Ithird_party/libsoxr/include",
+    "-Ithird_party/libsoxr/src",
     "-IViPERDSP/include",
     "-IViPERDSP/viper",
     "-IViPERDSP/viper/effects",
@@ -55,11 +57,29 @@ $defines = @(
     '-DHAVE_STRING_H=1',
     '-DHAVE_STDBOOL_H=1',
     '-DHAVE_STRINGS_H=1',
-    '-DHAVE_SYS_TYPES_H=1'
+    '-DHAVE_SYS_TYPES_H=1',
+    '-DSOXR_LIB=1'
 )
 
 Write-Host "Compiling C sources with gcc..."
-$cFiles = Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c", "ViPERDSP/viper/utils/*.c" | Select-Object -ExpandProperty FullName
+$soxrSources = @(
+    "third_party/libsoxr/src/soxr.c",
+    "third_party/libsoxr/src/data-io.c",
+    "third_party/libsoxr/src/filter.c",
+    "third_party/libsoxr/src/cr.c",
+    "third_party/libsoxr/src/cr32.c",
+    "third_party/libsoxr/src/cr32s.c",
+    "third_party/libsoxr/src/cr64.c",
+    "third_party/libsoxr/src/vr32.c",
+    "third_party/libsoxr/src/pffft32s.c",
+    "third_party/libsoxr/src/pffft-wrap.c",
+    "third_party/libsoxr/src/fft4g32.c",
+    "third_party/libsoxr/src/fft4g64.c",
+    "third_party/libsoxr/src/dbesi0.c",
+    "third_party/libsoxr/src/vr-coefs.c",
+    "third_party/libsoxr/src/util32s.c"
+)
+$cFiles = (Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c", "ViPERDSP/viper/utils/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
 foreach ($f in $cFiles) {
     $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"
     $objPath = Join-Path $objDir $objName
