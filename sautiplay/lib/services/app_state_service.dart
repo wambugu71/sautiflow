@@ -246,20 +246,50 @@ class AppStateService {
   static const _kRaceAlpha = 'sp_race_alpha';
   static const _kRaceLpfHz = 'sp_race_lpf_hz';
 
+  static const _kCrossfeedAlgo = 'sp_crossfeed_algo';
+  static const _kCrossfeedMix = 'sp_crossfeed_mix';
+  static const _kCrossfeedDelay = 'sp_crossfeed_delay_ms';
+  static const _kCrossfeedCutoff = 'sp_crossfeed_cutoff_hz';
+  static const _kCrossfeedComp = 'sp_crossfeed_comp';
+
   Future<void> saveCrossfeed({
     required bool enabled,
     required int preset,
+    int algoIndex = 2,
+    double mix = 0.5,
+    double delayMs = 0.40,
+    double cutoffHz = 700.0,
+    bool outputCompensation = true,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kCrossfeedEnabled, enabled);
     await prefs.setInt(_kCrossfeedPreset, preset);
+    await prefs.setInt(_kCrossfeedAlgo, algoIndex);
+    await prefs.setDouble(_kCrossfeedMix, mix);
+    await prefs.setDouble(_kCrossfeedDelay, delayMs);
+    await prefs.setDouble(_kCrossfeedCutoff, cutoffHz);
+    await prefs.setBool(_kCrossfeedComp, outputCompensation);
   }
 
-  Future<({bool enabled, int preset})> loadCrossfeed() async {
+  Future<
+      ({
+        bool enabled,
+        int preset,
+        int algoIndex,
+        double mix,
+        double delayMs,
+        double cutoffHz,
+        bool outputCompensation
+      })> loadCrossfeed() async {
     final prefs = await SharedPreferences.getInstance();
     return (
       enabled: prefs.getBool(_kCrossfeedEnabled) ?? false,
-      preset: prefs.getInt(_kCrossfeedPreset) ?? 0,
+      preset: prefs.getInt(_kCrossfeedPreset) ?? 1,
+      algoIndex: prefs.getInt(_kCrossfeedAlgo) ?? 2,
+      mix: prefs.getDouble(_kCrossfeedMix) ?? 0.5,
+      delayMs: prefs.getDouble(_kCrossfeedDelay) ?? 0.40,
+      cutoffHz: prefs.getDouble(_kCrossfeedCutoff) ?? 700.0,
+      outputCompensation: prefs.getBool(_kCrossfeedComp) ?? true,
     );
   }
 

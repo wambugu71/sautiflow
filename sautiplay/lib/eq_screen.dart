@@ -185,6 +185,11 @@ class _EqScreenState extends State<EqScreen>
   // Audiophile Crossfeed
   bool _crossfeedEnabled = false;
   int _crossfeedPreset = 1;
+  int _crossfeedAlgorithmIndex = 2; // 1=Simple, 2=BS2B, 3=Meier, 4=Natural, 5=RACE
+  double _crossfeedMix = 0.5;
+  double _crossfeedDelayMs = 0.40;
+  double _crossfeedCutoffHz = 700.0;
+  bool _crossfeedCompensation = true;
   double _raceDelayMs = 0.166;
   double _raceAlpha = 0.55;
   double _raceLpfHz = 2500.0;
@@ -369,6 +374,11 @@ class _EqScreenState extends State<EqScreen>
       // Crossfeed
       _crossfeedEnabled = crossfeed.enabled;
       _crossfeedPreset = crossfeed.preset > 0 ? crossfeed.preset : 1;
+      _crossfeedAlgorithmIndex = crossfeed.algoIndex;
+      _crossfeedMix = crossfeed.mix;
+      _crossfeedDelayMs = crossfeed.delayMs;
+      _crossfeedCutoffHz = crossfeed.cutoffHz;
+      _crossfeedCompensation = crossfeed.outputCompensation;
       _raceDelayMs = raceParams.delayMs;
       _raceAlpha = raceParams.alpha;
       _raceLpfHz = raceParams.lpfHz;
@@ -503,6 +513,11 @@ class _EqScreenState extends State<EqScreen>
     AppStateService.instance.saveCrossfeed(
       enabled: _crossfeedEnabled,
       preset: _crossfeedPreset,
+      algoIndex: _crossfeedAlgorithmIndex,
+      mix: _crossfeedMix,
+      delayMs: _crossfeedDelayMs,
+      cutoffHz: _crossfeedCutoffHz,
+      outputCompensation: _crossfeedCompensation,
     );
     AppStateService.instance.saveRaceParams(
       delayMs: _raceDelayMs,
@@ -2080,22 +2095,18 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.headphones, color: primaryColor, size: 20),
       ),
       title: 'Crossfeed',
-      subtitle: 'Simulate speaker listening',
+      subtitle: 'Simulate natural speaker listening',
       isEnabled: _crossfeedEnabled,
       onToggle: (v) {
         setState(() => _crossfeedEnabled = v);
-        if (v) {
-          _updateCrossfeed();
-        } else {
-          widget.player.setCrossfeed(enabled: false, preset: _crossfeedPreset);
-        }
+        _updateCrossfeed();
         _saveEqState();
       },
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Algorithm Preset',
+            Text('Algorithm',
                 style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8), fontSize: 14)),
             Container(
@@ -2106,20 +2117,21 @@ class _EqScreenState extends State<EqScreen>
                 border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
               ),
               child: DropdownButton<int>(
-                value: _crossfeedPreset,
+                value: _crossfeedAlgorithmIndex,
                 dropdownColor: surfaceDarkerColor,
                 underline: const SizedBox(),
                 icon: Icon(Icons.arrow_drop_down, color: primaryColor),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 items: const [
-                  DropdownMenuItem(value: 1, child: Text('BS2B Weak')),
-                  DropdownMenuItem(value: 2, child: Text('BS2B Strong')),
-                  DropdownMenuItem(value: 3, child: Text('Joe0bloggs')),
-                  DropdownMenuItem(value: 4, child: Text('Ambiophonics')),
+                  DropdownMenuItem(value: 1, child: Text('Simple Reference')),
+                  DropdownMenuItem(value: 2, child: Text('Bauer BS2B')),
+                  DropdownMenuItem(value: 3, child: Text('Jan Meier')),
+                  DropdownMenuItem(value: 4, child: Text('Custom Natural')),
+                  DropdownMenuItem(value: 5, child: Text('Ambiophonics (RACE)')),
                 ],
                 onChanged: (val) {
                   if (val != null) {
-                    setState(() => _crossfeedPreset = val);
+                    setState(() => _crossfeedAlgorithmIndex = val);
                     _updateCrossfeed();
                     _saveEqState();
                   }
@@ -2128,8 +2140,106 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        if (_crossfeedPreset == 4) ...[
-          const SizedBox(height: 12),
+        const SizedBox(height: 16),
+        if (_crossfeedAlgorithmIndex >= 1 && _crossfeedAlgorithmIndex <= 4) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'CROSSFEED MIX',
+                value: _crossfeedMix,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.5,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _crossfeedMix = v);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ITD DELAY',
+                value: (_crossfeedDelayMs - 0.05) / 1.95,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (0.40 - 0.05) / 1.95,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                valueFormatter: (_) => '${(_crossfeedDelayMs * 1000).round()}µs',
+                onChanged: (v) {
+                  setState(() => _crossfeedDelayMs = 0.05 + v * 1.95);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'CUTOFF FREQ',
+                value: (_crossfeedCutoffHz - 200.0) / 2800.0,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (700.0 - 200.0) / 2800.0,
+                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                valueFormatter: (_) => '${_crossfeedCutoffHz.toInt()}Hz',
+                onChanged: (v) {
+                  setState(() => _crossfeedCutoffHz = 200.0 + v * 2800.0);
+                  if (_crossfeedEnabled) _updateCrossfeed();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          InkWell(
+            onTap: () {
+              setState(() => _crossfeedCompensation = !_crossfeedCompensation);
+              if (_crossfeedEnabled) _updateCrossfeed();
+              _saveEqState();
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceDarkColor.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _crossfeedCompensation
+                      ? primaryColor.withValues(alpha: 0.4)
+                      : Colors.white10,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.equalizer,
+                        size: 18,
+                        color: _crossfeedCompensation ? primaryColor : Colors.white54,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Output Loudness Compensation',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  Switch(
+                    value: _crossfeedCompensation,
+                    activeColor: primaryColor,
+                    onChanged: (v) {
+                      setState(() => _crossfeedCompensation = v);
+                      if (_crossfeedEnabled) _updateCrossfeed();
+                      _saveEqState();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ] else if (_crossfeedAlgorithmIndex == 5) ...[
           RaceSoundstageVisualizer(
             delayMs: _raceDelayMs,
             alpha: _raceAlpha,
@@ -2429,15 +2539,37 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateCrossfeed() {
-    widget.player.setCrossfeed(
-      enabled: _crossfeedEnabled,
-      preset: _crossfeedPreset,
-    );
-    if (_crossfeedPreset == 4) {
+    if (!_crossfeedEnabled) {
+      widget.player.setCrossfeed(enabled: false, preset: 0);
+      widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
+      return;
+    }
+
+    if (_crossfeedAlgorithmIndex == 5) {
+      // Legacy RACE / Ambiophonics path
+      widget.player.setCrossfeed(enabled: true, preset: 4);
       widget.player.setRaceParams(
         delayMs: _raceDelayMs,
         alpha: _raceAlpha,
         lpfHz: _raceLpfHz,
+      );
+    } else {
+      CrossfeedAlgorithm algo = CrossfeedAlgorithm.off;
+      if (_crossfeedAlgorithmIndex == 1) {
+        algo = CrossfeedAlgorithm.simple;
+      } else if (_crossfeedAlgorithmIndex == 2) {
+        algo = CrossfeedAlgorithm.bs2b;
+      } else if (_crossfeedAlgorithmIndex == 3) {
+        algo = CrossfeedAlgorithm.meier;
+      } else if (_crossfeedAlgorithmIndex == 4) {
+        algo = CrossfeedAlgorithm.natural;
+      }
+      widget.player.setCrossfeedAlgorithm(algo);
+      widget.player.setCrossfeedParams(
+        mix: _crossfeedMix,
+        delayMs: _crossfeedDelayMs,
+        cutoffHz: _crossfeedCutoffHz,
+        outputCompensation: _crossfeedCompensation,
       );
     }
   }

@@ -18,6 +18,7 @@
 #include "miniaudio.h"
 
 #include "audio_engine.h"
+#include "crossfeed_node.h"
 #include <samplerate.h>
 #include <soxr.h>
 #include "mp4_aac_decoder.h"
@@ -2287,7 +2288,8 @@ struct AudioEngineHandle
     // Crossfeed (Headphone Virtualization)
     bool crossfeedEnabled = false;
     int crossfeedPreset = 1;
-    CrossfeedState crossfeed;
+    CrossfeedState crossfeed;       // Legacy path (preset-4 RACE; kept for RACE API)
+    CrossfeedNode crossfeedNode;    // New modular crossfeed DSP node
 
     // Dynamic Bass
     bool dynamicBassEnabled = false;
@@ -3918,7 +3920,15 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             if (e->crossfeedEnabled)
             {
-                e->crossfeed.process(processBuffer, produced, e->channels);
+                // Preset 4 = RACE (legacy CrossfeedState), all other algorithms use CrossfeedNode
+                if (e->crossfeedPreset == 4)
+                {
+                    e->crossfeed.process(processBuffer, produced, e->channels);
+                }
+                else
+                {
+                    e->crossfeedNode.process(processBuffer, produced, e->channels);
+                }
             }
 
             // Stereo Widen
@@ -5570,7 +5580,29 @@ extern "C"
         engine->crossfeedEnabled = (enabled != 0);
         if (engine->crossfeedEnabled)
         {
-            engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
+            // Legacy preset path: presets 1-3 use CrossfeedNode BS2B algorithm,
+            // preset 4 stays as legacy RACE via CrossfeedState
+            if (engine->crossfeedPreset != 4)
+            {
+                CrossfeedAlgorithm algo = CrossfeedAlgorithm::BS2B;
+                if (engine->crossfeedPreset == 0)
+                    algo = CrossfeedAlgorithm::Off;
+                engine->crossfeedNode.setAlgorithm(algo);
+                engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+
+                // Map preset to mix / cutoff defaults
+                if (engine->crossfeedPreset == 1) { engine->crossfeedNode.setMix(0.5f); engine->crossfeedNode.setCutoffHz(700.0f); }
+                else if (engine->crossfeedPreset == 2) { engine->crossfeedNode.setMix(0.65f); engine->crossfeedNode.setCutoffHz(700.0f); }
+                else if (engine->crossfeedPreset == 3) { engine->crossfeedNode.setMix(0.85f); engine->crossfeedNode.setCutoffHz(650.0f); }
+            }
+            else
+            {
+                engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
+            }
+        }
+        else
+        {
+            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
         }
     }
 
@@ -5580,7 +5612,73 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->crossfeedPreset = preset;
-        engine->crossfeed.reset(engine->sampleRate, preset);
+
+        if (preset == 4)
+        {
+            // RACE: keep using legacy CrossfeedState
+            engine->crossfeed.reset(engine->sampleRate, preset);
+            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
+        }
+        else
+        {
+            CrossfeedAlgorithm algo = CrossfeedAlgorithm::BS2B;
+            if (preset == 0)
+                algo = CrossfeedAlgorithm::Off;
+            engine->crossfeedNode.setAlgorithm(algo);
+            engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+            if (preset == 1) { engine->crossfeedNode.setMix(0.5f); engine->crossfeedNode.setCutoffHz(700.0f); }
+            else if (preset == 2) { engine->crossfeedNode.setMix(0.65f); engine->crossfeedNode.setCutoffHz(700.0f); }
+            else if (preset == 3) { engine->crossfeedNode.setMix(0.85f); engine->crossfeedNode.setCutoffHz(650.0f); }
+        }
+    }
+
+    AE_API void ae_set_crossfeed_algorithm(AudioEngineHandle *engine, int algorithm)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        CrossfeedAlgorithm algo = static_cast<CrossfeedAlgorithm>(algorithm);
+        engine->crossfeedNode.setAlgorithm(algo);
+        engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+        // Enable/disable the crossfeed path
+        if (algo == CrossfeedAlgorithm::Off)
+        {
+            engine->crossfeedEnabled = false;
+        }
+        else
+        {
+            engine->crossfeedEnabled = true;
+        }
+    }
+
+    AE_API void ae_set_crossfeed_params(AudioEngineHandle *engine, float mix, float delay_ms, float cutoff_hz, int output_compensation)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedNode.setMix(mix);
+        engine->crossfeedNode.setDelayMs(delay_ms);
+        engine->crossfeedNode.setCutoffHz(cutoff_hz);
+        engine->crossfeedNode.setOutputCompensation(output_compensation != 0);
+    }
+
+    AE_API void ae_get_crossfeed_params(AudioEngineHandle *engine, int *out_algorithm, float *out_mix, float *out_delay_ms, float *out_cutoff_hz, int *out_output_compensation)
+    {
+        if (!engine)
+        {
+            if (out_algorithm) *out_algorithm = 0;
+            if (out_mix) *out_mix = 0.5f;
+            if (out_delay_ms) *out_delay_ms = 0.4f;
+            if (out_cutoff_hz) *out_cutoff_hz = 700.0f;
+            if (out_output_compensation) *out_output_compensation = 1;
+            return;
+        }
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        if (out_algorithm) *out_algorithm = static_cast<int>(engine->crossfeedNode.getAlgorithm());
+        if (out_mix) *out_mix = engine->crossfeedNode.getMix();
+        if (out_delay_ms) *out_delay_ms = engine->crossfeedNode.getDelayMs();
+        if (out_cutoff_hz) *out_cutoff_hz = engine->crossfeedNode.getCutoffHz();
+        if (out_output_compensation) *out_output_compensation = engine->crossfeedNode.getOutputCompensation() ? 1 : 0;
     }
 
     AE_API void ae_set_race_params(AudioEngineHandle *engine, float delay_ms, float alpha, float lpf_hz)
@@ -5659,6 +5757,12 @@ extern "C"
             {
                 std::lock_guard<std::mutex> lock(e->viperMutex);
                 e->viper.SetSamplingRate(e->sampleRate);
+            }
+            {
+                // Notify CrossfeedNode of new processing sample rate
+                std::lock_guard<std::mutex> fx(e->fxMutex);
+                e->crossfeedNode.setSampleRate((double)newRate);
+                e->crossfeed.reset(newRate, e->crossfeedPreset);
             }
 
             ma_device_config cfg = ma_device_config_init(ma_device_type_playback);

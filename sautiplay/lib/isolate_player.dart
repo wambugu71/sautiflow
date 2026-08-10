@@ -398,6 +398,25 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setCrossfeed', 'enabled': enabled, 'preset': preset});
   }
 
+  void setCrossfeedAlgorithm(CrossfeedAlgorithm algorithm) {
+    _send({'cmd': 'setCrossfeedAlgorithm', 'algorithm': algorithm.index});
+  }
+
+  void setCrossfeedParams({
+    required double mix,
+    required double delayMs,
+    required double cutoffHz,
+    bool outputCompensation = true,
+  }) {
+    _send({
+      'cmd': 'setCrossfeedParams',
+      'mix': mix,
+      'delayMs': delayMs,
+      'cutoffHz': cutoffHz,
+      'outputCompensation': outputCompensation,
+    });
+  }
+
   void setRaceParams({
     double delayMs = 0.166,
     double alpha = 0.55,
@@ -1072,6 +1091,18 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setCrossfeed(
               enabled: message['enabled'] ?? false,
               preset: message['preset'] ?? 0);
+          break;
+        case 'setCrossfeedAlgorithm':
+          final algoIdx = (message['algorithm'] as int? ?? 0).clamp(0, CrossfeedAlgorithm.values.length - 1);
+          player.setCrossfeedAlgorithm(CrossfeedAlgorithm.values[algoIdx]);
+          break;
+        case 'setCrossfeedParams':
+          player.setCrossfeedParams(
+            mix: (message['mix'] as num?)?.toDouble() ?? 0.5,
+            delayMs: (message['delayMs'] as num?)?.toDouble() ?? 0.40,
+            cutoffHz: (message['cutoffHz'] as num?)?.toDouble() ?? 700.0,
+            outputCompensation: message['outputCompensation'] as bool? ?? true,
+          );
           break;
         case 'setRaceParams':
           player.setRaceParams(

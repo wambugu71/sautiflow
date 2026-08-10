@@ -483,6 +483,24 @@ class MiniAudioPlayer {
     _engine.setCrossfeedPreset(preset);
   }
 
+  void setCrossfeedAlgorithm(CrossfeedAlgorithm algorithm) =>
+      _engine.setCrossfeedAlgorithm(algorithm);
+
+  void setCrossfeedParams({
+    required double mix,
+    required double delayMs,
+    required double cutoffHz,
+    bool outputCompensation = true,
+  }) =>
+      _engine.setCrossfeedParams(
+        mix: mix,
+        delayMs: delayMs,
+        cutoffHz: cutoffHz,
+        outputCompensation: outputCompensation,
+      );
+
+  CrossfeedParams getCrossfeedParams() => _engine.getCrossfeedParams();
+
   void setRaceParams({
     double delayMs = 0.166,
     double alpha = 0.55,

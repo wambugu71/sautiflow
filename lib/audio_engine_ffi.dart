@@ -15,6 +15,39 @@ enum EqBandType { peak, bandpass, notch, lowshelf, highshelf, lowpass, highpass 
 
 enum AttenuationModel { none, inverse, linear, exponential }
 
+/// Mirrors CrossfeedAlgorithm in crossfeed_node.h — must stay in sync.
+enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural }
+
+/// Immutable value-class returned by [MiniaudioPlayer.getCrossfeedParams].
+class CrossfeedParams {
+  const CrossfeedParams({
+    required this.algorithm,
+    required this.mix,
+    required this.delayMs,
+    required this.cutoffHz,
+    required this.outputCompensation,
+  });
+
+  final CrossfeedAlgorithm algorithm;
+
+  /// Wet/dry mix [0.0 – 1.0].
+  final double mix;
+
+  /// Inter-aural delay in milliseconds.
+  final double delayMs;
+
+  /// Low-pass cut-off frequency in Hz.
+  final double cutoffHz;
+
+  /// Whether the node applies output-level compensation.
+  final bool outputCompensation;
+
+  @override
+  String toString() =>
+      'CrossfeedParams(algo: $algorithm, mix: $mix, delayMs: $delayMs, '
+      'cutoff: $cutoffHz Hz, compensation: $outputCompensation)';
+}
+
 class EqBandConfig {
   const EqBandConfig({
     required this.type,
@@ -589,6 +622,36 @@ typedef _SetRaceParamsNative = ffi.Void Function(
 typedef _SetRaceParamsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
+// ─── CrossfeedNode new API ────────────────────────────────────────────────────
+// ae_set_crossfeed_algorithm(AudioEngineHandle*, int)
+typedef _SetCrossfeedAlgorithmNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetCrossfeedAlgorithmDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+// ae_set_crossfeed_params(AudioEngineHandle*, float mix, float delay_ms, float cutoff_hz, int output_compensation)
+typedef _SetCrossfeedParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Int32);
+typedef _SetCrossfeedParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, int);
+
+// ae_get_crossfeed_params(AudioEngineHandle*, int* algo, float* mix, float* delay_ms, float* cutoff_hz, int* comp)
+typedef _GetCrossfeedParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>);
+typedef _GetCrossfeedParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>);
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Crystalizer typedefs
 typedef _SetCrystalizerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -1113,6 +1176,16 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetRaceParamsNative, _SetRaceParamsDart>(
       'ae_set_race_params',
     );
+    // CrossfeedNode extended API
+    _setCrossfeedAlgorithm = _lib.lookupFunction<
+        _SetCrossfeedAlgorithmNative,
+        _SetCrossfeedAlgorithmDart>('ae_set_crossfeed_algorithm');
+    _setCrossfeedParams = _lib.lookupFunction<
+        _SetCrossfeedParamsNative,
+        _SetCrossfeedParamsDart>('ae_set_crossfeed_params');
+    _getCrossfeedParams = _lib.lookupFunction<
+        _GetCrossfeedParamsNative,
+        _GetCrossfeedParamsDart>('ae_get_crossfeed_params');
     _setDynamicBassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_dynamic_bass_enabled',
@@ -1496,6 +1569,10 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setCrossfeedEnabled;
   late final _SetSingleIntDart _setCrossfeedPreset;
   late final _SetRaceParamsDart _setRaceParams;
+  // CrossfeedNode extended API
+  late final _SetCrossfeedAlgorithmDart _setCrossfeedAlgorithm;
+  late final _SetCrossfeedParamsDart _setCrossfeedParams;
+  late final _GetCrossfeedParamsDart _getCrossfeedParams;
   late final _SetFxEnabledDart _setDynamicBassEnabled;
   late final _SetDynamicBassParamsDart _setDynamicBassParams;
 
@@ -2111,6 +2188,61 @@ class AudioEngineFFI {
   void setCrossfeedPreset(int preset) {
     if (_engine == ffi.nullptr) return;
     _setCrossfeedPreset(_engine, preset);
+  }
+
+  void setCrossfeedAlgorithm(CrossfeedAlgorithm algorithm) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfeedAlgorithm(_engine, algorithm.index);
+  }
+
+  void setCrossfeedParams({
+    required double mix,
+    required double delayMs,
+    required double cutoffHz,
+    bool outputCompensation = true,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setCrossfeedParams(
+      _engine,
+      mix,
+      delayMs,
+      cutoffHz,
+      outputCompensation ? 1 : 0,
+    );
+  }
+
+  CrossfeedParams getCrossfeedParams() {
+    if (_engine == ffi.nullptr) {
+      return const CrossfeedParams(
+        algorithm: CrossfeedAlgorithm.off,
+        mix: 0.5,
+        delayMs: 0.4,
+        cutoffHz: 700.0,
+        outputCompensation: true,
+      );
+    }
+    final algoPtr = calloc<ffi.Int32>();
+    final mixPtr = calloc<ffi.Float>();
+    final delayPtr = calloc<ffi.Float>();
+    final cutoffPtr = calloc<ffi.Float>();
+    final compPtr = calloc<ffi.Int32>();
+    try {
+      _getCrossfeedParams(_engine, algoPtr, mixPtr, delayPtr, cutoffPtr, compPtr);
+      final algoIdx = algoPtr.value.clamp(0, CrossfeedAlgorithm.values.length - 1);
+      return CrossfeedParams(
+        algorithm: CrossfeedAlgorithm.values[algoIdx],
+        mix: mixPtr.value,
+        delayMs: delayPtr.value,
+        cutoffHz: cutoffPtr.value,
+        outputCompensation: compPtr.value != 0,
+      );
+    } finally {
+      calloc.free(algoPtr);
+      calloc.free(mixPtr);
+      calloc.free(delayPtr);
+      calloc.free(cutoffPtr);
+      calloc.free(compPtr);
+    }
   }
 
   void setRaceParams({

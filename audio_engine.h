@@ -174,9 +174,20 @@ extern "C"
     AE_API void ae_set_stereo_enhancement_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_stereo_enhancement_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_stereo_enhancement_mix(AudioEngineHandle *engine, float mix);
-    AE_API float ae_get_stereo_enhancement_mix(AudioEngineHandle *engine);
+    typedef enum AECrossfeedAlgorithm
+    {
+        AE_CROSSFEED_OFF = 0,
+        AE_CROSSFEED_SIMPLE = 1,
+        AE_CROSSFEED_BS2B = 2,
+        AE_CROSSFEED_MEIER = 3,
+        AE_CROSSFEED_NATURAL = 4
+    } AECrossfeedAlgorithm;
+
     AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_crossfeed_preset(AudioEngineHandle *engine, int preset);
+    AE_API void ae_set_crossfeed_algorithm(AudioEngineHandle *engine, int algorithm);
+    AE_API void ae_set_crossfeed_params(AudioEngineHandle *engine, float mix, float delay_ms, float cutoff_hz, int output_compensation);
+    AE_API void ae_get_crossfeed_params(AudioEngineHandle *engine, int *out_algorithm, float *out_mix, float *out_delay_ms, float *out_cutoff_hz, int *out_output_compensation);
     AE_API void ae_set_race_params(AudioEngineHandle *engine, float delay_ms, float alpha, float lpf_hz);
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain);
