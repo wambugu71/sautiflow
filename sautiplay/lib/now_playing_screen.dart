@@ -244,6 +244,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _pendingSeekMs = null;
       _isDragging = false;
       _seekTimeoutTimer?.cancel();
+      _abRepeatState = 0;
+      _abPointAMs = null;
+      _abPointBMs = null;
+      widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
       if (_useWaveformSeekBar) {
         _updateCurrentTrackWaveform();
       }
@@ -3062,12 +3066,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     return Stack(
       children: [
-        if (_abRepeatState == 2 && _abPointAMs != null && _abPointBMs != null)
+        if (_abRepeatState >= 1 && _abPointAMs != null)
           Positioned.fill(
             child: ClipRect(
               child: _AbRegionPainter(
+                abRepeatState: _abRepeatState,
                 pointAMs: _abPointAMs!,
-                pointBMs: _abPointBMs!,
+                pointBMs: _abPointBMs,
                 maxMs: maxMs,
                 totalWidth: totalWidth,
               ),
@@ -3120,14 +3125,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 // Custom painter that draws the A-B highlight region under the seekbar track
 // ─────────────────────────────────────────────────────────────────────────────
 class _AbRegionPainter extends StatelessWidget {
+  final int abRepeatState;
   final double pointAMs;
-  final double pointBMs;
+  final double? pointBMs;
   final double maxMs;
   final double totalWidth;
 
   const _AbRegionPainter({
+    required this.abRepeatState,
     required this.pointAMs,
-    required this.pointBMs,
+    this.pointBMs,
     required this.maxMs,
     required this.totalWidth,
   });
@@ -3141,28 +3148,47 @@ class _AbRegionPainter extends StatelessWidget {
     final double usable = totalWidth - horizontalPadding * 2 - thumbRadius * 2;
     final double left =
         horizontalPadding + thumbRadius + (pointAMs / maxMs) * usable;
-    final double right =
-        horizontalPadding + thumbRadius + (pointBMs / maxMs) * usable;
+    final double? right = (abRepeatState == 2 && pointBMs != null)
+        ? (horizontalPadding + thumbRadius + (pointBMs! / maxMs) * usable)
+        : null;
     return CustomPaint(
-      painter: _AbHighlightCustomPainter(left: left, right: right),
+      painter: _AbHighlightCustomPainter(
+        abRepeatState: abRepeatState,
+        left: left,
+        right: right,
+      ),
     );
   }
 }
 
 class _AbHighlightCustomPainter extends CustomPainter {
+  final int abRepeatState;
   final double left;
-  final double right;
+  final double? right;
 
-  const _AbHighlightCustomPainter({required this.left, required this.right});
+  const _AbHighlightCustomPainter({
+    required this.abRepeatState,
+    required this.left,
+    this.right,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Highlight band
-    final paint = Paint()
-      ..color =
-          AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTRB(left, 0, right, size.height), paint);
+    if (abRepeatState == 2 && right != null) {
+      // Highlight band
+      final paint = Paint()
+        ..color =
+            AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(Rect.fromLTRB(left, 0, right!, size.height), paint);
+
+      // Pin B
+      final pinBPaint = Paint()
+        ..color = AppThemeService.instance.currentData.primary
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(
+          Rect.fromLTRB(right! - 1.5, 0, right! + 1.5, size.height), pinBPaint);
+    }
 
     // Pin A
     final pinPaint = Paint()
@@ -3170,18 +3196,13 @@ class _AbHighlightCustomPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawRect(
         Rect.fromLTRB(left - 1.5, 0, left + 1.5, size.height), pinPaint);
-
-    // Pin B
-    final pinBPaint = Paint()
-      ..color = AppThemeService.instance.currentData.primary
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(
-        Rect.fromLTRB(right - 1.5, 0, right + 1.5, size.height), pinBPaint);
   }
 
   @override
   bool shouldRepaint(_AbHighlightCustomPainter old) =>
-      old.left != left || old.right != right;
+      old.abRepeatState != abRepeatState ||
+      old.left != left ||
+      old.right != right;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

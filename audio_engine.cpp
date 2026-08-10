@@ -3521,12 +3521,28 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     ma_uint64 cursor = 0;
                     if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &cursor) == MA_SUCCESS)
                     {
-                        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-                        const double currentSec = (double)cursor / (double)sr;
+                        int decSampleRate = (int)e->currentDecoder->outputSampleRate;
+                        if (decSampleRate <= 0) decSampleRate = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                        const double currentSec = (double)cursor / (double)decSampleRate;
                         if (currentSec >= endSec)
                         {
-                            const ma_uint64 targetFrame = (ma_uint64)(startSec * (double)sr);
-                            (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetFrame);
+                            const ma_uint64 targetFrameDec = (ma_uint64)(startSec * (double)decSampleRate);
+                            const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                            const ma_uint64 targetFrameEngine = (ma_uint64)(startSec * (double)engineSr);
+
+                            e->ringBufferFlushing.store(true, std::memory_order_release);
+                            if (ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetFrameDec) == MA_SUCCESS)
+                            {
+                                e->pcmRingBuffer.reset();
+                                e->seekBasePcmFrame.store(targetFrameEngine, std::memory_order_release);
+                                e->playedPcmFrames.store(0, std::memory_order_release);
+                                if (e->pitchResamplerInit)
+                                {
+                                    ma_resampler_reset(&e->pitchResampler);
+                                    e->pitchInputUnconsumed = 0;
+                                }
+                            }
+                            e->ringBufferFlushing.store(false, std::memory_order_release);
                         }
                     }
                 }
@@ -3556,6 +3572,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->hasCurrent = true;
                     e->seekBasePcmFrame.store(0, std::memory_order_release);
                     e->playedPcmFrames.store(0, std::memory_order_release);
+                    e->abRepeatEnabled.store(false, std::memory_order_release);
 
                     if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                     {
@@ -4763,6 +4780,7 @@ extern "C"
             e->currentIndex = jumpIndex;
             set_order_cursor_for_index_locked(e, jumpIndex);
         }
+        e->abRepeatEnabled.store(false, std::memory_order_release);
 
         if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
         {

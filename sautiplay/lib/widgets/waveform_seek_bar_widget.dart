@@ -182,18 +182,33 @@ class _WaveformSeekBarPainter extends CustomPainter {
     final height = size.height;
     final centerPy = height / 2;
 
-    // Draw A-B Highlighted region background
-    if (abRepeatState == 2 && abPointAMs != null && abPointBMs != null && maxMs > 0) {
+    // Draw A-B Highlighted region & markers
+    if (abRepeatState >= 1 && abPointAMs != null && maxMs > 0) {
       final xA = (abPointAMs! / maxMs * width).clamp(0.0, width);
-      final xB = (abPointBMs! / maxMs * width).clamp(0.0, width);
-      final left = math.min(xA, xB);
-      final right = math.max(xA, xB);
 
-      final abRect = Rect.fromLTRB(left, 2, right, height - 2);
-      final abPaint = Paint()
-        ..color = abHighlightColor
-        ..style = PaintingStyle.fill;
-      canvas.drawRRect(RRect.fromRectAndRadius(abRect, const Radius.circular(6)), abPaint);
+      if (abRepeatState == 2 && abPointBMs != null) {
+        final xB = (abPointBMs! / maxMs * width).clamp(0.0, width);
+        final left = math.min(xA, xB);
+        final right = math.max(xA, xB);
+
+        final abRect = Rect.fromLTRB(left, 2, right, height - 2);
+        final abPaint = Paint()
+          ..color = abHighlightColor
+          ..style = PaintingStyle.fill;
+        canvas.drawRRect(RRect.fromRectAndRadius(abRect, const Radius.circular(6)), abPaint);
+
+        // Pin B line
+        final pinBPaint = Paint()
+          ..color = activeColor
+          ..strokeWidth = 2.0;
+        canvas.drawLine(Offset(xB, 0), Offset(xB, height), pinBPaint);
+      }
+
+      // Pin A line
+      final pinAPaint = Paint()
+        ..color = const Color(0xFFFFA726)
+        ..strokeWidth = 2.0;
+      canvas.drawLine(Offset(xA, 0), Offset(xA, height), pinAPaint);
     }
 
     // Bar dimensions
