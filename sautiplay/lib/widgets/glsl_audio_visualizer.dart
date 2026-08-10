@@ -67,6 +67,34 @@ enum GlslShaderStyle {
   vaporwaveSun(
     displayName: 'Vaporwave Horizon',
     assetPath: 'shaders/audio_vaporwave_sun.frag',
+  ),
+  cyberCity(
+    displayName: 'Cyber Synthwave City',
+    assetPath: 'shaders/audio_cyber_city.frag',
+  ),
+  quantumAurora(
+    displayName: 'Quantum Aurora Borealis',
+    assetPath: 'shaders/audio_quantum_aurora.frag',
+  ),
+  blackHole(
+    displayName: 'Black Hole Event Horizon',
+    assetPath: 'shaders/audio_black_hole.frag',
+  ),
+  cymatics(
+    displayName: 'Cymatics Sound Resonance',
+    assetPath: 'shaders/audio_cymatics.frag',
+  ),
+  particleVortex(
+    displayName: 'Particle Warp Tunnel',
+    assetPath: 'shaders/audio_particle_vortex.frag',
+  ),
+  dnaHelix(
+    displayName: 'Bio-Reactor DNA Helix',
+    assetPath: 'shaders/audio_dna_helix.frag',
+  ),
+  supernova(
+    displayName: 'Supernova Pulsar Core',
+    assetPath: 'shaders/audio_supernova.frag',
   );
 
   final String displayName;

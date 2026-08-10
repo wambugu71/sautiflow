@@ -82,6 +82,13 @@ flutter:
     - shaders/audio_starburst.frag
     - shaders/audio_matrix_rain.frag
     - shaders/audio_vaporwave_sun.frag
+    - shaders/audio_cyber_city.frag
+    - shaders/audio_quantum_aurora.frag
+    - shaders/audio_black_hole.frag
+    - shaders/audio_cymatics.frag
+    - shaders/audio_particle_vortex.frag
+    - shaders/audio_dna_helix.frag
+    - shaders/audio_supernova.frag
 
 flutter_launcher_icons:
   android: "launcher_icon"
