@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -150,10 +151,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Active theme ID (used to show badge & highlight swatch)
   AppThemeId _activeThemeId = AppThemeService.instance.current;
 
+  StreamSubscription<void>? _audioSettingsSub;
+
   @override
   void initState() {
     super.initState();
     _loadUiSettings();
+    _audioSettingsSub = AppStateService.instance.audioProcessingSettingsChanged.stream
+        .listen((_) {
+      if (mounted) {
+        _loadUiSettings();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _audioSettingsSub?.cancel();
+    super.dispose();
+  }
+
+  String _getAudioProcessingBadgeText() {
+    if (widget.exclusiveMode) {
+      return 'Bit-Perfect';
+    }
+    if (_autoBitPerfectEnabled) {
+      return 'Auto-Rate • ${_formatAudioDepth(widget.outputFormat)}';
+    }
+    final depth = _formatAudioDepth(widget.outputFormat);
+    final resamplerShort = _resampleAlgorithm == 7 || _resampleAlgorithm == 8
+        ? 'SoX VHQ'
+        : _resampleAlgorithm == 9
+            ? 'SoX HQ'
+            : _resampleAlgorithm == 1
+                ? 'Master HD'
+                : 'Linear';
+    return '$depth • $resamplerShort';
   }
 
   Future<void> _loadUiSettings() async {
@@ -247,6 +280,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       mode: _replayGainMode,
       preamp: _replayGainPreamp,
     );
+    setState(() {});
   }
 
   void _persistUiSettings() {
@@ -328,9 +362,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               'Resampling, Bit depth, Safeguards & ReplayGain',
                           icon: Icons.graphic_eq_rounded,
                           accentColor: _primary,
-                          badgeText: widget.exclusiveMode
-                              ? 'Bit-Perfect'
-                              : _formatAudioDepth(widget.outputFormat),
+                          badgeText: _getAudioProcessingBadgeText(),
                           onTap: () => _navigateToSubScreen(
                               _buildAudioProcessingSubScreen()),
                         ),
@@ -2632,39 +2664,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('DSP Anti-Aliasing Oversampling',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          for (final item in options)
-            RadioListTile<int>(
-              title: Text(item['name'] as String,
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w500)),
-              subtitle: Text(item['subtitle'] as String,
-                  style: TextStyle(color: _textDark, fontSize: 12)),
-              value: item['factor'] as int,
-              groupValue: _dspOversampling,
-              activeColor: _primary,
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() => _dspOversampling = val);
-                  widget.player.setViperOversampling(val);
-                  AppStateService.instance.saveDspOversampling(val);
-                  onDone?.call();
-                  Navigator.pop(ctx);
-                }
-              },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('DSP Anti-Aliasing Oversampling',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
             ),
-          const SizedBox(height: 20),
-        ],
+            for (final item in options)
+              RadioListTile<int>(
+                title: Text(item['name'] as String,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w500)),
+                subtitle: Text(item['subtitle'] as String,
+                    style: TextStyle(color: _textDark, fontSize: 12)),
+                value: item['factor'] as int,
+                groupValue: _dspOversampling,
+                activeColor: _primary,
+                onChanged: (val) {
+                  if (val != null) {
+                    setDlgState(() {});
+                    setState(() => _dspOversampling = val);
+                    widget.player.setViperOversampling(val);
+                    AppStateService.instance.saveDspOversampling(val);
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  }
+                },
+              ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -2752,97 +2787,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                child: Column(
-                  children: [
-                    Text('Resampling Quality Tier',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold)),
-                    SizedBox(height: 4),
-                    Text(
-                      'Select interpolation algorithm for rate conversion',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(color: Colors.white10),
-              for (final item in options)
-                RadioListTile<int>(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  title: Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: Text(
-                          item['name'] as String,
-                          style: const TextStyle(
+                      Text('Resampling Quality Tier',
+                          style: TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14),
-                        ),
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text(
+                        'Select interpolation algorithm for rate conversion',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
                       ),
-                      if (item['badge'] != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: (item['isHeavy'] as bool && isMobile)
-                                ? Colors.amber.withAlpha(40)
-                                : _primary.withAlpha(30),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: (item['isHeavy'] as bool && isMobile)
-                                  ? Colors.amber.withAlpha(120)
-                                  : _primary.withAlpha(80),
-                            ),
-                          ),
-                          child: Text(
-                            item['badge'] as String,
-                            style: TextStyle(
-                              color: (item['isHeavy'] as bool && isMobile)
-                                  ? Colors.amberAccent
-                                  : _primary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 2.0),
-                    child: Text(
-                      item['subtitle'] as String,
-                      style: TextStyle(color: _textDark, fontSize: 12),
-                    ),
-                  ),
-                  value: item['index'] as int,
-                  groupValue: _resampleAlgorithm,
-                  activeColor: _primary,
-                  onChanged: (val) {
-                    if (val != null) {
-                      if (isMobile && (item['isHeavy'] as bool)) {
-                        Navigator.pop(ctx);
-                        _showMobileResamplerWarningDialog(val, onDone);
-                      } else {
-                        _applyResampleAlgorithm(val, onDone);
-                        Navigator.pop(ctx);
-                      }
-                    }
-                  },
                 ),
-              const SizedBox(height: 12),
-            ],
+                const Divider(color: Colors.white10),
+                for (final item in options)
+                  RadioListTile<int>(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item['name'] as String,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14),
+                          ),
+                        ),
+                        if (item['badge'] != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: (item['isHeavy'] as bool && isMobile)
+                                  ? Colors.amber.withAlpha(40)
+                                  : _primary.withAlpha(30),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: (item['isHeavy'] as bool && isMobile)
+                                    ? Colors.amber.withAlpha(120)
+                                    : _primary.withAlpha(80),
+                              ),
+                            ),
+                            child: Text(
+                              item['badge'] as String,
+                              style: TextStyle(
+                                color: (item['isHeavy'] as bool && isMobile)
+                                    ? Colors.amberAccent
+                                    : _primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: Text(
+                        item['subtitle'] as String,
+                        style: TextStyle(color: _textDark, fontSize: 12),
+                      ),
+                    ),
+                    value: item['index'] as int,
+                    groupValue: _resampleAlgorithm,
+                    activeColor: _primary,
+                    onChanged: (val) {
+                      if (val != null) {
+                        setDlgState(() {});
+                        if (isMobile && (item['isHeavy'] as bool)) {
+                          Navigator.pop(ctx);
+                          _showMobileResamplerWarningDialog(val, onDone);
+                        } else {
+                          _applyResampleAlgorithm(val, onDone);
+                          Navigator.pop(ctx);
+                        }
+                      }
+                    },
+                  ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         ),
       ),
@@ -3063,53 +3101,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.75,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Text('Dither Mode',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: modes.length,
-                itemBuilder: (context, i) {
-                  final item = modes[i];
-                  final id = item['id'] as int;
-                  final name = item['name'] as String;
-                  final subtitle = item['subtitle'] as String;
-                  return RadioListTile<int>(
-                    title: Text(name,
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text(subtitle,
-                        style: TextStyle(color: _textDark, fontSize: 12)),
-                    value: id,
-                    groupValue: _ditherMode,
-                    activeColor: _primary,
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _ditherMode = val);
-                        widget.player.setEngineDitherMode(val);
-                        _persistUiSettings();
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      }
-                    },
-                  );
-                },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text('Dither Mode',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
+              Expanded(
+                child: ListView.builder(
+                  itemCount: modes.length,
+                  itemBuilder: (context, i) {
+                    final item = modes[i];
+                    final id = item['id'] as int;
+                    final name = item['name'] as String;
+                    final subtitle = item['subtitle'] as String;
+                    return RadioListTile<int>(
+                      title: Text(name,
+                          style: const TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w500)),
+                      subtitle: Text(subtitle,
+                          style: TextStyle(color: _textDark, fontSize: 12)),
+                      value: id,
+                      groupValue: _ditherMode,
+                      activeColor: _primary,
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDlgState(() {});
+                          setState(() => _ditherMode = val);
+                          widget.player.setEngineDitherMode(val);
+                          _persistUiSettings();
+                          onDone?.call();
+                          Navigator.pop(ctx);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -3121,34 +3162,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('Engine Output Format',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          for (final fmt in [
-            AudioFormat.f32,
-            AudioFormat.s32,
-            AudioFormat.s24,
-            AudioFormat.s16,
-            AudioFormat.u8
-          ])
-            _buildRadioOption(
-                _formatAudioDepth(fmt), _formatAudioDepth(widget.outputFormat),
-                (v) {
-              widget.onOutputFormatChanged(fmt);
-              widget.player.setOutputFormat(fmt);
-              onDone?.call();
-              Navigator.pop(ctx);
-            }),
-          const SizedBox(height: 20),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('Engine Output Format',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ),
+            for (final fmt in [
+              AudioFormat.f32,
+              AudioFormat.s32,
+              AudioFormat.s24,
+              AudioFormat.s16,
+              AudioFormat.u8
+            ])
+              _buildRadioOption(
+                  _formatAudioDepth(fmt), _formatAudioDepth(widget.outputFormat),
+                  (v) {
+                setDlgState(() {});
+                widget.onOutputFormatChanged(fmt);
+                widget.player.setOutputFormat(fmt);
+                setState(() {});
+                onDone?.call();
+                Navigator.pop(ctx);
+              }),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -3160,31 +3205,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('Engine Sample Rate',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          ...rates.map((r) => _buildRadioOption(
-                  r == 0 ? 'Native' : '$r Hz',
-                  widget.outputSampleRate == 0
-                      ? 'Native'
-                      : '${widget.outputSampleRate} Hz', (v) {
-                final val =
-                    v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
-                widget.onOutputSampleRateChanged(val);
-                widget.player.setOutputSampleRate(val);
-                onDone?.call();
-                Navigator.pop(ctx);
-              })),
-          const SizedBox(height: 20),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('Engine Sample Rate',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ),
+            ...rates.map((r) => _buildRadioOption(
+                    r == 0 ? 'Native' : '$r Hz',
+                    widget.outputSampleRate == 0
+                        ? 'Native'
+                        : '${widget.outputSampleRate} Hz', (v) {
+                  final val =
+                      v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
+                  setDlgState(() {});
+                  widget.onOutputSampleRateChanged(val);
+                  widget.player.setOutputSampleRate(val);
+                  setState(() {});
+                  onDone?.call();
+                  Navigator.pop(ctx);
+                })),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -3258,52 +3307,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: _cardDark,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.75,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Text('Engine Output Channels',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: options.length,
-                itemBuilder: (context, i) {
-                  final item = options[i];
-                  final ch = item['ch'] as int;
-                  final name = item['name'] as String;
-                  final subtitle = item['subtitle'] as String;
-                  return RadioListTile<int>(
-                    title: Text(name,
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text(subtitle,
-                        style: TextStyle(color: _textDark, fontSize: 12)),
-                    value: ch,
-                    groupValue: widget.outputChannels,
-                    activeColor: _primary,
-                    onChanged: (val) {
-                      if (val != null) {
-                        widget.onOutputChannelsChanged(val);
-                        widget.player.setOutputChannels(val);
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      }
-                    },
-                  );
-                },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text('Engine Output Channels',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
+              Expanded(
+                child: ListView.builder(
+                  itemCount: options.length,
+                  itemBuilder: (context, i) {
+                    final item = options[i];
+                    final ch = item['ch'] as int;
+                    final name = item['name'] as String;
+                    final subtitle = item['subtitle'] as String;
+                    return RadioListTile<int>(
+                      title: Text(name,
+                          style: const TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w500)),
+                      subtitle: Text(subtitle,
+                          style: TextStyle(color: _textDark, fontSize: 12)),
+                      value: ch,
+                      groupValue: widget.outputChannels,
+                      activeColor: _primary,
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDlgState(() {});
+                          widget.onOutputChannelsChanged(val);
+                          widget.player.setOutputChannels(val);
+                          setState(() {});
+                          onDone?.call();
+                          Navigator.pop(ctx);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );

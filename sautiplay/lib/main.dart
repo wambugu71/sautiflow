@@ -475,6 +475,8 @@ class _PlayerShellState extends State<PlayerShell> {
     _statusSubscription?.cancel();
     _logSubscription?.cancel();
     _replayGainSubscription?.cancel();
+    _metadata.removeListener(_applyReplayGain);
+    _metadata.removeListener(_extractArtworkTheme);
     _status.dispose();
     _player.dispose();
     super.dispose();

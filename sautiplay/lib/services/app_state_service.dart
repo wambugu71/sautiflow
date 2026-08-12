@@ -23,6 +23,10 @@ class AppStateService {
   final StreamController<void> replayGainChanged =
       StreamController<void>.broadcast();
 
+  // Stream to notify listeners of Audio & Processing engine setting changes
+  final StreamController<void> audioProcessingSettingsChanged =
+      StreamController<void>.broadcast();
+
   // Stream to notify listeners of Waveform Seek Bar setting changes
   final StreamController<bool> useWaveformSeekBarChanged =
       StreamController<bool>.broadcast();
@@ -634,6 +638,7 @@ class AppStateService {
     await prefs.setBool(_kAnalyzerShowGrids, analyzerShowGrids);
     await prefs.setBool(_kAnalyzerLogScale, analyzerLogScale);
     await prefs.setString(_kSpectrumStyle, spectrumStyle);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<
@@ -695,6 +700,7 @@ class AppStateService {
     await prefs.setBool(_kStreamOverWifi, streamOverWifi);
     await prefs.setInt(_kResampleAlgorithm, resampleAlgorithm);
     await prefs.setInt(_kDitherMode, ditherMode);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<
@@ -756,6 +762,7 @@ class AppStateService {
   Future<void> saveDspOversampling(int factor) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kDspOversampling, factor);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<int> loadDspOversampling() async {
@@ -818,6 +825,7 @@ class AppStateService {
     await prefs.setDouble(_kUltrasonicCutoff, ultrasonicCutoffHz);
     await prefs.setDouble(_kSpeakerLimiterThreshold, limiterThreshold);
     await prefs.setDouble(_kSafetyAttenuation, safetyAttenuationDb);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<({
@@ -848,6 +856,7 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPhaseInvertLeft, invertLeft);
     await prefs.setBool(_kPhaseInvertRight, invertRight);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<({bool invertLeft, bool invertRight})> loadPhaseInversion() async {
@@ -865,6 +874,7 @@ class AppStateService {
   Future<void> save64BitProcessingEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_k64BitProcessingEnabled, enabled);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<bool> load64BitProcessingEnabled() async {
@@ -875,6 +885,7 @@ class AppStateService {
   Future<void> saveAutoBitPerfectEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kAutoBitPerfectEnabled, enabled);
+    audioProcessingSettingsChanged.add(null);
   }
 
   Future<bool> loadAutoBitPerfectEnabled() async {
