@@ -725,6 +725,20 @@ class IsolateAudioPlayer {
     return response as Map<String, dynamic>?;
   }
 
+  Future<Map<String, dynamic>> getEngineTelemetry() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getEngineTelemetry',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return (response as Map).cast<String, dynamic>();
+  }
+
   void pushStream(String url) => _send({'cmd': 'pushStream', 'url': url});
 
   bool isNetworkStreamingSupported() => _networkStreamingSupported;
@@ -873,6 +887,8 @@ void _isolateEntry(_IsolateInitData initData) {
     initData.sendPort.send(samples);
   });
 
+  List<AudioSource> isolateSources = [];
+
   receivePort.listen((message) {
     if (message is Map) {
       final cmd = message['cmd'];
@@ -889,6 +905,7 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'load':
           try {
             final source = message['source'] as AudioSource;
+            isolateSources = [source];
             if (!player.isNetworkStreamingSupported() && source.isNetwork) {
               final url = source.uri.toString();
               initData.sendPort.send(
@@ -907,6 +924,7 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setAudioSources':
           try {
             final sources = (message['sources'] as List).cast<AudioSource>();
+            isolateSources = List<AudioSource>.from(sources);
             if (!player.isNetworkStreamingSupported()) {
               final hasNetworkSource = sources.any((s) => s.isNetwork);
               if (hasNetworkSource) {
@@ -941,7 +959,9 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'addAudioSource':
           try {
-            player.addAudioSource(message['source'] as AudioSource);
+            final src = message['source'] as AudioSource;
+            isolateSources.add(src);
+            player.addAudioSource(src);
           } catch (e) {
             initData.sendPort.send('[log]Error adding source: $e');
           }
@@ -1369,6 +1389,73 @@ void _isolateEntry(_IsolateInitData initData) {
               'channels': player.getOutputChannels(),
               'format': player.getOutputFormat().name,
               'sampleRate': player.getOutputSampleRate(),
+            });
+          } catch (e) {
+            replyTo.send({'error': e.toString()});
+          }
+          break;
+        case 'getEngineTelemetry':
+          final SendPort replyTo = message['replyTo'];
+          try {
+            final hw = player.hardwareInfo;
+            final ps = player.pipelineState;
+            final samples = player.engineLatencySamples;
+            final ms = player.engineLatencyMs;
+            final devMs = player.deviceLatencyMs;
+            final clipped = player.getClippedSamplesCount();
+            final resampleAlgo = player.getEngineResampleAlgorithm().name;
+            final crossfeedParams = player.getCrossfeedParams();
+            final viperOn = player.viperEnabled;
+            int inputRate = ps.inputSampleRate;
+            int inputChannels = ps.inputChannels;
+            int inputBitDepth = 16;
+            final status = player.status;
+            if (status.currentIndex >= 0 && status.currentIndex < isolateSources.length) {
+              final src = isolateSources[status.currentIndex];
+              if (!src.isNetwork) {
+                final path = src.uri.toFilePath();
+                final info = player.inspectFile(path);
+                if (info != null && info.sampleRate > 0) {
+                  inputRate = info.sampleRate;
+                  if (info.channels > 0) inputChannels = info.channels;
+                  if (info.bitDepth > 0) inputBitDepth = info.bitDepth;
+                }
+              }
+            }
+
+            replyTo.send({
+              'hardware': hw.toJson(),
+              'inputFormat': ps.inputFormat,
+              'inputSampleRate': inputRate,
+              'inputChannels': inputChannels,
+              'inputBitDepth': inputBitDepth,
+              'processingFormat': ps.processingFormat,
+              'processingSampleRate': ps.processingSampleRate,
+              'processingChannels': ps.processingChannels,
+              'outputFormat': ps.outputFormat,
+              'outputSampleRate': ps.outputSampleRate,
+              'outputChannels': ps.outputChannels,
+              'eqEnabled': ps.eqEnabled,
+              'reverbEnabled': ps.reverbEnabled,
+              'limiterEnabled': ps.limiterEnabled,
+              'stereoWidenEnabled': ps.stereoWidenEnabled,
+              'stereoEnhancementEnabled': ps.stereoEnhancementEnabled,
+              'spatializationEnabled': ps.spatializationEnabled,
+              'delayEnabled': ps.delayEnabled,
+              'gain': ps.gain,
+              'pan': ps.pan,
+              'pitch': ps.pitch,
+              'engineLatencySamples': samples,
+              'engineLatencyMs': ms,
+              'deviceLatencyMs': devMs,
+              'clippedCount': clipped,
+              'resampleAlgorithm': resampleAlgo,
+              'crossfeedAlgo': crossfeedParams.algorithm.name,
+              'crossfeedMix': crossfeedParams.mix,
+              'crossfeedDelayMs': crossfeedParams.delayMs,
+              'crossfeedCutoffHz': crossfeedParams.cutoffHz,
+              'crossfeedComp': crossfeedParams.outputCompensation,
+              'viperEnabled': viperOn,
             });
           } catch (e) {
             replyTo.send({'error': e.toString()});

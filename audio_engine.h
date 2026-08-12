@@ -287,6 +287,10 @@ extern "C"
     AE_API uint64_t ae_get_clipped_samples_count(AudioEngineHandle *engine);
     AE_API void ae_reset_clipped_samples_count(AudioEngineHandle *engine);
 
+    // Latency Compensation (Plugin Delay Compensation - PDC)
+    AE_API double ae_get_engine_latency_samples(AudioEngineHandle *engine);
+    AE_API double ae_get_engine_latency_ms(AudioEngineHandle *engine);
+
     // Custom Real-Time Filter Parameters
     AE_API void ae_set_custom_lpf1_params(AudioEngineHandle *engine, int enabled, double cutoff_hz);
     AE_API void ae_set_custom_hpf1_params(AudioEngineHandle *engine, int enabled, double cutoff_hz);

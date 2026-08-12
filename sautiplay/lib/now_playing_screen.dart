@@ -23,6 +23,7 @@ import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
 import 'services/waveform_extractor_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
+import 'widgets/audio_engine_diagnostic_panel.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/synced_lyrics_widget.dart';
@@ -1945,43 +1946,44 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   // Audio Info Badge
                                                   GestureDetector(
                                                     onTap: () =>
-                                                        _showHardwareSpecsModal(
-                                                            context),
+                                                        showAudioEngineDiagnosticPanel(
+                                                            context,
+                                                            widget.player),
                                                     child: Container(
                                                       padding: const EdgeInsets
                                                           .symmetric(
-                                                          horizontal: 16,
-                                                          vertical: 6),
+                                                          horizontal: 14,
+                                                          vertical: 5),
                                                       decoration: BoxDecoration(
-                                                        color: Colors.white
+                                                        color: primaryColor
                                                             .withValues(
-                                                                alpha: 0.1),
+                                                                alpha: 0.15),
                                                         borderRadius:
                                                             BorderRadius
-                                                                .circular(16),
+                                                                .circular(20),
+                                                        border: Border.all(
+                                                          color: primaryColor
+                                                              .withValues(
+                                                                  alpha: 0.35),
+                                                          width: 1,
+                                                        ),
                                                       ),
                                                       child: Row(
                                                         mainAxisSize:
                                                             MainAxisSize.min,
                                                         children: [
-                                                          const Icon(
-                                                              Icons
-                                                                  .info_outline,
-                                                              size: 12,
-                                                              color: Colors
-                                                                  .white70),
+                                                          Icon(
+                                                            Icons
+                                                                .equalizer_rounded,
+                                                            size: 13,
+                                                            color: primaryColor,
+                                                          ),
                                                           const SizedBox(
-                                                              width: 4),
+                                                              width: 6),
                                                           Text(
                                                             _buildAudioInfoBadgeText(
                                                                 trackPosition),
                                                             style: const TextStyle(
-                                                                fontSize: 12,
-                                                                color: Colors
-                                                                    .white70,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
                                                                 letterSpacing:
                                                                     0.5),
                                                           ),
@@ -2414,18 +2416,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               horizontal: 6.0),
                                           child: GestureDetector(
                                             onTap: () =>
-                                                _showHardwareSpecsModal(
-                                                    context),
+                                                showAudioEngineDiagnosticPanel(
+                                                    context, widget.player),
                                             child: Container(
                                               padding:
                                                   const EdgeInsets.symmetric(
                                                       horizontal: 10,
                                                       vertical: 4),
                                               decoration: BoxDecoration(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.1),
+                                                color: primaryColor
+                                                    .withValues(alpha: 0.15),
                                                 borderRadius:
-                                                    BorderRadius.circular(12),
+                                                    BorderRadius.circular(16),
+                                                border: Border.all(
+                                                  color: primaryColor
+                                                      .withValues(alpha: 0.35),
+                                                  width: 1,
+                                                ),
                                               ),
                                               child: FittedBox(
                                                 fit: BoxFit.scaleDown,
@@ -2433,19 +2440,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   mainAxisSize:
                                                       MainAxisSize.min,
                                                   children: [
-                                                    const Icon(
-                                                        Icons.info_outline,
-                                                        size: 10,
-                                                        color: Colors.white70),
+                                                    Icon(
+                                                        Icons.equalizer_rounded,
+                                                        size: 11,
+                                                        color: primaryColor),
                                                     const SizedBox(width: 4),
                                                     Text(
                                                       _buildAudioInfoBadgeText(
                                                           trackPosition),
                                                       style: const TextStyle(
                                                           fontSize: 10,
-                                                          color: Colors.white70,
+                                                          color: Colors.white,
                                                           fontWeight:
-                                                              FontWeight.bold,
+                                                              FontWeight.w600,
                                                           letterSpacing: 0.5),
                                                     ),
                                                   ],

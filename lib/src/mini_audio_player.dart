@@ -176,11 +176,17 @@ class MiniAudioPlayer {
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();
+  double get engineLatencySamples => _engine.getEngineLatencySamples();
+  double get engineLatencyMs => _engine.getEngineLatencyMs();
   PipelineAudioState get pipelineState => _engine.getPipelineState();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
   TrackNativeInfo? inspectFile(String path) => _engine.inspectFile(path);
   AEHardwareInfo getHardwareInfo() => _engine.getHardwareInfo();
+  AEHardwareInfo get hardwareInfo => getHardwareInfo();
+  ResampleAlgorithm getEngineResampleAlgorithm() =>
+      ResampleAlgorithm.values[_engine.getEngineResampleAlgorithm().clamp(0, ResampleAlgorithm.values.length - 1)];
+  bool get viperEnabled => _viper.isEnabled;
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
   int getPushStreamBufferedBytes() => _engine.getPushStreamBufferedBytes();
   int getAnalyzerFrameSize() => _engine.getAnalyzerFrameSize();

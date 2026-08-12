@@ -954,6 +954,11 @@ namespace
         float releaseCoeff = 0.0f;
         float gainEnvelope = 1.0f;
 
+        double getLatencySamples(int sampleRate) const
+        {
+            return (sampleRate > 0) ? ((double)attackMs * 0.001 * (double)sampleRate) : 0.0;
+        }
+
         void updateCoefficients(int sampleRate)
         {
             // Simple 1-pole exponential moving average coefficients
@@ -1065,6 +1070,16 @@ namespace
 
         int currentPreset = 1;
         int cachedSampleRate = 44100;
+
+        double getLatencySamples(int sampleRate) const
+        {
+            if (currentPreset == 4)
+            {
+                int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
+                return (double)(raceDelayMs * 0.001f) * (double)sr;
+            }
+            return 0.0;
+        }
 
         void updateRaceParams(int sampleRate, float delayMs, float alpha, float lpfHz)
         {
@@ -1221,6 +1236,13 @@ namespace
         float width = 1.0f;
         float delayMs = 15.0f;
         int cachedSampleRate = 44100;
+
+        double getLatencySamples(int sampleRate) const
+        {
+            if (delayBuffer.empty()) return 0.0;
+            int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
+            return (double)(delayMs * 0.001f) * (double)sr;
+        }
 
         // Crossovers for Left and Right channels to split Bass from Mids/Highs
         struct WidenCrossover
@@ -1454,6 +1476,13 @@ namespace
         WarpedPFB subband1;
         int cachedSampleRate = 44100;
         bool initialized = false;
+
+        double getLatencySamples(int sampleRate) const
+        {
+            if (!initialized) return 0.0;
+            int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
+            return 0.0012 * (double)sr;
+        }
 
         void refresh(int sampleRate)
         {
@@ -5078,6 +5107,10 @@ extern "C"
             uninit_fading_out_slot_locked(e);
 
             e->currentDecoder = newCurrent;
+            if (newCurrent != nullptr && newCurrent->outputSampleRate > 0)
+            {
+                e->sourceSampleRate = (int)newCurrent->outputSampleRate;
+            }
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
             e->currentStream = newCurrentStream;
 #endif
@@ -5429,6 +5462,61 @@ extern "C"
         return (float)frames / (float)e->device.sampleRate * 1000.0f;
     }
 
+    static double calculate_total_pipeline_latency_samples(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0;
+
+        double totalLatency = 0.0;
+        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+
+        if (e->limiterEnabled)
+        {
+            totalLatency += e->limiter.getLatencySamples(sr);
+        }
+        if (e->stereoWidenEnabled)
+        {
+            totalLatency += e->stereoWiden.getLatencySamples(sr);
+        }
+        if (e->stereoEnhancementEnabled)
+        {
+            totalLatency += e->stereoEnhancement.getLatencySamples(sr);
+        }
+        if (e->crossfeedEnabled)
+        {
+            if (e->crossfeedPreset == 4)
+            {
+                totalLatency += e->crossfeed.getLatencySamples(sr);
+            }
+            else
+            {
+                totalLatency += e->crossfeedNode.getLatencySamples();
+            }
+        }
+        if (e->deviceResamplerInit)
+        {
+            totalLatency += (double)ma_resampler_get_input_latency(&e->deviceResampler);
+        }
+
+        return totalLatency;
+    }
+
+    AE_API double ae_get_engine_latency_samples(AudioEngineHandle *e)
+    {
+        return calculate_total_pipeline_latency_samples(e);
+    }
+
+    AE_API double ae_get_engine_latency_ms(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0;
+        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        double samples = ae_get_engine_latency_samples(e);
+        return (samples / (double)sr) * 1000.0;
+    }
+
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *e)
     {
         PlayerStatus s{};
@@ -5459,7 +5547,9 @@ extern "C"
                     currentFrame = len;
 
                 const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-                s.position_seconds = (double)currentFrame / (double)sr;
+                const double latencySamples = calculate_total_pipeline_latency_samples(e);
+                const double effectiveFrame = ((double)currentFrame > latencySamples) ? ((double)currentFrame - latencySamples) : 0.0;
+                s.position_seconds = effectiveFrame / (double)sr;
                 s.duration_seconds = (double)len / (double)sr;
             }
         }
@@ -5476,7 +5566,7 @@ extern "C"
             return ps;
 
         ps.input_format = (int)AE_FORMAT_F32;
-        ps.input_sample_rate = e->sampleRate;
+        ps.input_sample_rate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : e->sampleRate;
         ps.input_channels = e->channels;
 
         ps.processing_format = (int)AE_FORMAT_F32;

@@ -320,9 +320,13 @@ class ViperDsp {
     }
   }
 
+  bool _enabled = false;
+  bool get isEnabled => _enabled;
+
   /// Enable or disable the entire ViPER DSP chain.
   void setEnabled(bool enabled) {
     if (_enginePtr == ffi.nullptr) return;
+    _enabled = enabled;
     _setEnabled(_enginePtr, enabled ? 1 : 0);
   }
 

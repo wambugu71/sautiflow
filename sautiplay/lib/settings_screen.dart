@@ -11,6 +11,7 @@ import 'main.dart' show AppThemeProvider;
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'widgets/audio_engine_diagnostic_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -834,6 +835,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio & Processing',
           children: [
+            _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.cyanAccent.withAlpha(35),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.monitor_heart_rounded,
+                        color: Colors.cyanAccent, size: 20),
+                  ),
+                  title: const Text('Audio Engine Diagnostic Panel',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
+                    style: TextStyle(color: _textDark, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded,
+                      color: Colors.cyanAccent, size: 22),
+                  onTap: () {
+                    showAudioEngineDiagnosticPanel(context, widget.player);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
             _buildCardContainer(

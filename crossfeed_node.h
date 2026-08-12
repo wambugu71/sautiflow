@@ -72,6 +72,15 @@ public:
     float getCutoffHz() const { return targetCutoffHz; }
     bool getOutputCompensation() const { return outputCompensationEnabled; }
 
+    double getLatencySamples() const
+    {
+        if (targetAlgorithm == CrossfeedAlgorithm::Off || targetMix < 0.0001f)
+        {
+            return 0.0;
+        }
+        return (double)(targetDelayMs * 0.001f) * sampleRate;
+    }
+
     void reset()
     {
         std::fill(delayRingBufferL, delayRingBufferL + MAX_DELAY_SAMPLES, 0.0f);
