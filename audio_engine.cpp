@@ -2087,6 +2087,50 @@ namespace
 
 } // namespace
 
+struct AudioRatePlan
+{
+    uint32_t sourceRate = 48000;
+    uint32_t engineRate = 48000;
+    uint32_t deviceRate = 48000;
+
+    bool decoderSRC = false;
+    bool deviceSRC = false;
+};
+
+static AudioRatePlan calculateRatePlan(
+    uint32_t sourceRate,
+    uint32_t deviceRate,
+    uint32_t userOutputRate,
+    bool autoSampleRateMatch,
+    bool exclusiveMode)
+{
+    AudioRatePlan plan{};
+    plan.sourceRate = (sourceRate > 0) ? sourceRate : 48000;
+    plan.deviceRate = (deviceRate > 0) ? deviceRate : 48000;
+
+    if (autoSampleRateMatch)
+    {
+        // Auto sample rate match sets hardware device rate to source rate.
+        // The engine DSP operates at the negotiated device rate.
+        plan.engineRate = plan.deviceRate;
+    }
+    else if (userOutputRate > 0)
+    {
+        // Explicit user override for application processing rate
+        plan.engineRate = userOutputRate;
+    }
+    else
+    {
+        // Standard shared mode: engine DSP operates at actual hardware device rate
+        plan.engineRate = plan.deviceRate;
+    }
+
+    plan.decoderSRC = (plan.sourceRate != plan.engineRate);
+    plan.deviceSRC = (plan.engineRate != plan.deviceRate);
+
+    return plan;
+}
+
 struct AudioEngineHandle;
 
 struct AudioEngineHandle
@@ -2119,6 +2163,7 @@ struct AudioEngineHandle
     int engineSampleRate = 48000; // Internal mixer & DSP processing rate (e.g. 48000 Hz)
     int deviceSampleRate = 48000; // Negotiated hardware DAC rate (e.g. 48000 Hz)
     int sampleRate = 48000;       // Master alias for engineSampleRate
+    AudioRatePlan ratePlan{};
 
     ma_resampler deviceResampler{};
     bool deviceResamplerInit = false;
@@ -2687,6 +2732,124 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->crystalizer.init((int)sampleRate);
 }
 
+static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
+{
+    if (e == nullptr)
+        return;
+
+    const int oldSource = e->sourceSampleRate;
+    const int oldEngine = e->engineSampleRate;
+
+    e->sourceSampleRate = (int)plan.sourceRate;
+    e->engineSampleRate = (int)plan.engineRate;
+    e->deviceSampleRate = (int)plan.deviceRate;
+    e->sampleRate       = (int)plan.engineRate;
+    e->ratePlan         = plan;
+
+    const int sr = e->engineSampleRate;
+    const int ch = (e->channels > 0) ? e->channels : 2;
+
+    // Synchronize device resampler lifecycle on control thread (Requirements 8 & 9)
+    if (plan.deviceSRC)
+    {
+        if (!e->deviceResamplerInit || e->deviceResamplerInRate != (int)plan.engineRate || e->deviceResamplerOutRate != (int)plan.deviceRate || e->deviceResamplerCh != ch)
+        {
+            if (e->deviceResamplerInit)
+            {
+                ma_resampler_uninit(&e->deviceResampler, nullptr);
+                e->deviceResamplerInit = false;
+            }
+            ma_resampler_config rcfg = ma_resampler_config_init(
+                ma_format_f32,
+                (ma_uint32)ch,
+                (ma_uint32)plan.engineRate,
+                (ma_uint32)plan.deviceRate,
+                ma_resample_algorithm_linear
+            );
+            if (e->resampleAlgorithm > 0)
+            {
+                rcfg.algorithm = ma_resample_algorithm_custom;
+                rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
+                                      ? &g_soxrResamplerVTable
+                                      : &g_customResamplerVTable;
+                rcfg.pBackendUserData = &e->resampleAlgorithm;
+            }
+            if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
+            {
+                e->deviceResamplerInit = true;
+                e->deviceResamplerInRate = (int)plan.engineRate;
+                e->deviceResamplerOutRate = (int)plan.deviceRate;
+                e->deviceResamplerCh = ch;
+            }
+        }
+    }
+    else
+    {
+        if (e->deviceResamplerInit)
+        {
+            ma_resampler_uninit(&e->deviceResampler, nullptr);
+            e->deviceResamplerInit = false;
+            e->deviceResamplerInRate = 0;
+            e->deviceResamplerOutRate = 0;
+            e->deviceResamplerCh = 0;
+        }
+    }
+
+    e->update_eq_filters();
+    e->update_multiband_fx_filters();
+
+    {
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        reinit_advanced_fx_filters(e);
+        e->eq.updateCoefficients(sr);
+        e->reverb.updateParams(sr, e->reverb.mix, e->reverb.feedback, e->reverb.delayMs);
+        e->delay.updateParams(sr, ch, e->delay.mix, e->delay.feedback, e->delay.delayMs);
+        e->stereoWiden.reset(sr);
+        e->stereoEnhancement.refresh(sr);
+        if (e->crossfeedPreset == 4)
+        {
+            e->crossfeed.reset(sr, e->crossfeedPreset);
+        }
+        else
+        {
+            e->crossfeedNode.setSampleRate((double)sr);
+        }
+        e->dynamicBass.resetIfRateChanged(sr);
+        e->crystalizer.init(sr);
+    }
+
+    if (e->viperEnabled)
+    {
+        std::lock_guard<std::mutex> lock(e->viperMutex);
+        e->viper.SetSamplingRate(sr);
+    }
+
+    ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
+
+    engine_log("AUTO-SR TRANSITION\n  old source = %d Hz\n  new source = %u Hz\n  requested device = %d Hz\n  actual device = %u Hz\n  old engine = %d Hz\n  new engine = %u Hz\n  decoder output = %u Hz\n  decoder SRC = %s\n  device SRC = %s\n  mode = %s",
+               oldSource, plan.sourceRate,
+               e->outputSampleRate, plan.deviceRate,
+               oldEngine, plan.engineRate,
+               decOutRate,
+               plan.decoderSRC ? "ON" : "OFF",
+               plan.deviceSRC ? "ON" : "OFF",
+               e->exclusiveModeEnabled.load(std::memory_order_relaxed) ? "EXCLUSIVE" : "SHARED");
+}
+
+static void setEngineSampleRate(AudioEngineHandle *e, uint32_t newRate)
+{
+    if (e == nullptr || newRate == 0)
+        return;
+    AudioRatePlan plan = calculateRatePlan(
+        (uint32_t)e->sourceSampleRate,
+        (uint32_t)e->deviceSampleRate,
+        newRate,
+        e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+        e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+    );
+    applyRatePlan(e, plan);
+}
+
 static void set_last_error(AudioEngineHandle *e, const std::string &message)
 {
     if (e == nullptr)
@@ -2780,10 +2943,7 @@ static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
     }
 }
 
-extern "C"
-{
-    static void restart_device_rate_only(AudioEngineHandle *e, int newRate);
-}
+
 
 static bool load_decoder_for_path(
     AudioEngineHandle *e,
@@ -2794,6 +2954,8 @@ static bool load_decoder_for_path(
     ,
     NetworkStreamState **outStream
 #endif
+    ,
+    bool isPreload = false
 )
 {
     if (e == nullptr || outDecoder == nullptr || outLength == nullptr)
@@ -2840,7 +3002,7 @@ static bool load_decoder_for_path(
         }
 
         ma_decoder *tmp = new ma_decoder{};
-        engine_log("decoder_init(stream callback): %s", path.c_str());
+        engine_log("decoder_init(stream callback): %s (isPreload=%s)", path.c_str(), isPreload ? "true" : "false");
         ma_result r = ma_decoder_init(stream_on_read, stream_on_seek, st, &cfg, tmp);
         if (r != MA_SUCCESS)
         {
@@ -2858,6 +3020,28 @@ static bool load_decoder_for_path(
         *outLength = len;
         if (outStream != nullptr)
             *outStream = st;
+
+        ma_format nativeFmt = ma_format_unknown;
+        ma_uint32 nativeCh = 0;
+        ma_uint32 nativeRate = 0;
+        (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+
+        uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
+        if (!isPreload)
+        {
+            AudioRatePlan plan = calculateRatePlan(
+                srcRate,
+                (uint32_t)e->deviceSampleRate,
+                (uint32_t)e->userOutputSampleRate,
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
+        }
+        else
+        {
+            engine_log("PRELOAD DECODER READY: path=%s | Native Rate=%u Hz | Assigned Engine Target Rate=%u Hz (Active Rate Plan Unchanged)", path.c_str(), srcRate, targetRate);
+        }
         clear_last_error(e);
         engine_log("decoder_init(stream) success: %s", path.c_str());
         return true;
@@ -2871,7 +3055,7 @@ static bool load_decoder_for_path(
 #endif
 
     ma_decoder *tmp = new ma_decoder{};
-    engine_log("decoder_init_file: %s", path.c_str());
+    engine_log("decoder_init_file: %s (isPreload=%s)", path.c_str(), isPreload ? "true" : "false");
 #if defined(_WIN32) || defined(_WIN64)
     // Use the wide-character API so that Unicode paths (fullwidth chars, CJK,
     // emoji, etc.) are opened correctly by the Windows filesystem.
@@ -2897,9 +3081,28 @@ static bool load_decoder_for_path(
     if (outStream != nullptr)
         *outStream = nullptr;
 #endif
-    e->sourceSampleRate = (int)tmp->outputSampleRate;
-    engine_log("AUDIO PIPELINE: Source Native Rate: %d Hz -> Engine Processing Rate: %u Hz -> Hardware DAC Rate: %d Hz | Channels: %d | Resample Algo: %d",
-               e->sourceSampleRate, cfg.sampleRate, e->deviceSampleRate, e->channels, e->resampleAlgorithm);
+
+    ma_format nativeFmt = ma_format_unknown;
+    ma_uint32 nativeCh = 0;
+    ma_uint32 nativeRate = 0;
+    (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+
+    uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
+    if (!isPreload)
+    {
+        AudioRatePlan plan = calculateRatePlan(
+            srcRate,
+            (uint32_t)e->deviceSampleRate,
+            (uint32_t)e->userOutputSampleRate,
+            e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+            e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+        );
+        applyRatePlan(e, plan);
+    }
+    else
+    {
+        engine_log("PRELOAD DECODER READY: path=%s | Native Rate=%u Hz | Assigned Engine Target Rate=%u Hz (Active Rate Plan Unchanged)", path.c_str(), srcRate, targetRate);
+    }
     clear_last_error(e);
     return true;
 }
@@ -3114,8 +3317,25 @@ static void worker_loop(AudioEngineHandle *e)
                     const int nativeRate = (int)newCurrent->outputSampleRate;
                     if (nativeRate > 0 && nativeRate != e->outputSampleRate)
                     {
-                        engine_log("Auto Sample-Rate Match: Track native rate is %d Hz (current DAC rate: %d Hz). Adapting hardware rate...", nativeRate, e->outputSampleRate);
-                        restart_device_rate_only(e, nativeRate);
+                        engine_log("Auto Sample-Rate Match: Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
+                        uninit_decoder_slot(
+                            newCurrent
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                            , newCurrentStream
+#endif
+                        );
+                        newCurrent = nullptr;
+                        e->outputSampleRate = nativeRate;
+                        restart_and_apply_config(e);
+                        (void)load_decoder_for_path(
+                            e,
+                            path,
+                            &newCurrent,
+                            &newCurrentLen
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                            , &newCurrentStream
+#endif
+                        );
                     }
                 }
 
@@ -3210,6 +3430,8 @@ static void worker_loop(AudioEngineHandle *e)
                     ,
                     &decodedStream
 #endif
+                    ,
+                    true // isPreload = true
                     ))
             {
                 engine_log("worker preload failed -> nextIndex=%d", nextIdx);
@@ -3631,6 +3853,19 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     if (e == nullptr)
         return;
 
+#ifndef NDEBUG
+    assert(e->engineSampleRate > 0);
+    assert(e->deviceSampleRate > 0);
+    assert(e->currentDecoder == nullptr || e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
+    assert(e->fadingOutDecoder == nullptr || e->fadingOutDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
+    assert((int)pDevice->sampleRate == e->deviceSampleRate);
+    if (e->engineSampleRate != e->deviceSampleRate)
+    {
+        assert(e->deviceResamplerInRate == e->engineSampleRate);
+        assert(e->deviceResamplerOutRate == e->deviceSampleRate);
+    }
+#endif
+
     try
     {
         float *processBuffer = nullptr;
@@ -3642,9 +3877,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
     else
     {
-        if (e->conversionBuffer.size() < totalSamples)
+        size_t avail = e->conversionBuffer.size();
+        if (avail < totalSamples)
         {
-            e->conversionBuffer.resize(totalSamples);
+            totalSamples = (ma_uint32)avail;
         }
         processBuffer = e->conversionBuffer.data();
     }
@@ -3712,7 +3948,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             size_t engineSamplesNeeded = (size_t)inNeeded * (size_t)e->channels;
             if (e->engineProcessBuffer.size() < engineSamplesNeeded)
             {
-                e->engineProcessBuffer.resize(engineSamplesNeeded);
+                engineSamplesNeeded = e->engineProcessBuffer.size();
             }
 
             size_t samplesRead = e->pcmRingBuffer.read(e->engineProcessBuffer.data(), engineSamplesNeeded);
@@ -3741,10 +3977,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             std::lock_guard<std::mutex> d(e->decoderMutex);
             
             // Read from the old track using pre-allocated mix buffer
-            const size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
+            size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
             if (e->crossfadeMixBuffer.size() < neededMixSamples)
             {
-                e->crossfadeMixBuffer.resize(neededMixSamples);
+                neededMixSamples = e->crossfadeMixBuffer.size();
             }
             std::fill(e->crossfadeMixBuffer.begin(), e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
             float *mixBuf = e->crossfadeMixBuffer.data();
@@ -4002,10 +4238,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (e->viperEnabled)
             {
                 std::lock_guard<std::mutex> lock(e->viperMutex);
-                const size_t neededStereoSamples = (size_t)produced * 2;
+                size_t neededStereoSamples = (size_t)produced * 2;
                 if (e->viperScratchBuffer.size() < neededStereoSamples)
                 {
-                    e->viperScratchBuffer.resize(neededStereoSamples);
+                    neededStereoSamples = e->viperScratchBuffer.size();
                 }
                 float *vBuf = e->viperScratchBuffer.data();
 
@@ -4098,29 +4334,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (needsDeviceSRC)
     {
-        if (!e->deviceResamplerInit || e->deviceResamplerInRate != e->engineSampleRate || e->deviceResamplerOutRate != e->deviceSampleRate || e->deviceResamplerCh != e->channels)
-        {
-            if (e->deviceResamplerInit)
-            {
-                ma_resampler_uninit(&e->deviceResampler, nullptr);
-                e->deviceResamplerInit = false;
-            }
-            ma_resampler_config rcfg = ma_resampler_config_init(ma_format_f32, (ma_uint32)e->channels, (ma_uint32)e->engineSampleRate, (ma_uint32)e->deviceSampleRate, ma_resample_algorithm_linear);
-            if (e->resampleAlgorithm > 0)
-            {
-                rcfg.algorithm = ma_resample_algorithm_custom;
-                rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10) ? &g_soxrResamplerVTable : &g_customResamplerVTable;
-                rcfg.pBackendUserData = &e->resampleAlgorithm;
-            }
-            if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
-            {
-                e->deviceResamplerInit = true;
-                e->deviceResamplerInRate = e->engineSampleRate;
-                e->deviceResamplerOutRate = e->deviceSampleRate;
-                e->deviceResamplerCh = e->channels;
-            }
-        }
-
         if (e->deviceResamplerInit)
         {
             ma_uint64 inFrames = (ma_uint64)produced;
@@ -4218,10 +4431,11 @@ extern "C"
         e->analyzerAccumulatorCount = 0;
 
         // Pre-allocate real-time scratch buffers to eliminate heap allocations inside data_callback
-        const size_t preallocSamples = 32768; // 32K floats (~128KB)
+        const size_t preallocSamples = 262144; // 256K floats (~1MB)
         e->conversionBuffer.resize(preallocSamples);
         e->viperScratchBuffer.resize(preallocSamples);
         e->crossfadeMixBuffer.resize(preallocSamples);
+        e->engineProcessBuffer.resize(preallocSamples);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -4256,29 +4470,35 @@ extern "C"
             return nullptr;
         }
 
+        // Sync actual device-negotiated values back into the engine struct.
+        // ma_device_init may adjust channels/rate to what the hardware supports.
+        {
+            const int actualRate = (int)e->device.sampleRate;
+            const int actualCh   = (int)e->device.playback.channels;
+            if (actualCh > 0)
+            {
+                e->channels = actualCh;
+                if (e->outputChannels <= 0) e->outputChannels = actualCh;
+            }
+
+            uint32_t devRate = (actualRate > 0) ? (uint32_t)actualRate : (uint32_t)sample_rate;
+            uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : devRate;
+            AudioRatePlan plan = calculateRatePlan(
+                srcRate,
+                devRate,
+                (uint32_t)e->userOutputSampleRate,
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
+        }
+
         if (ma_device_start(&e->device) != MA_SUCCESS)
         {
             set_last_error(e, "Failed to start playback device.");
             ma_device_uninit(&e->device);
             delete e;
             return nullptr;
-        }
-
-        // Sync actual device-negotiated values back into the engine struct.
-        // ma_device_init may adjust channels/rate to what the hardware supports.
-        {
-            const int actualRate = (int)e->device.sampleRate;
-            const int actualCh   = (int)e->device.playback.channels;
-            e->deviceSampleRate = (actualRate > 0) ? actualRate : sample_rate;
-            e->engineSampleRate = (sample_rate > 0) ? sample_rate : e->deviceSampleRate;
-            e->sampleRate = e->engineSampleRate;
-            if (actualCh > 0)
-            {
-                e->channels = actualCh;
-                // outputChannels tracks user preference; if the user set 0 (native),
-                // keep it as the resolved count so decoders always get a valid value.
-                if (e->outputChannels <= 0) e->outputChannels = actualCh;
-            }
         }
 
         engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
@@ -4797,8 +5017,25 @@ extern "C"
             const int nativeRate = (int)newCurrent->outputSampleRate;
             if (nativeRate > 0 && nativeRate != e->outputSampleRate)
             {
-                engine_log("Auto Sample-Rate Match (execute_jump_direct): Track native rate is %d Hz (current DAC rate: %d Hz). Adapting hardware rate...", nativeRate, e->outputSampleRate);
-                restart_device_rate_only(e, nativeRate);
+                engine_log("Auto Sample-Rate Match (execute_jump_direct): Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
+                uninit_decoder_slot(
+                    newCurrent
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    , newCurrentStream
+#endif
+                );
+                newCurrent = nullptr;
+                e->outputSampleRate = nativeRate;
+                restart_and_apply_config(e);
+                (void)load_decoder_for_path(
+                    e,
+                    path,
+                    &newCurrent,
+                    &newCurrentLen
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    , &newCurrentStream
+#endif
+                );
             }
         }
 
@@ -5725,136 +5962,7 @@ extern "C"
         }
     }
 
-    // Lightweight hardware DAC rate adaptation without decoder destruction
-    static void reinit_hardware_device_only(AudioEngineHandle *e, int newRate)
-    {
-        if (!e || newRate <= 0)
-            return;
 
-        try
-        {
-            std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            bool wasPlaying = e->isPlaying.load(std::memory_order_relaxed);
-
-            if (ma_device_get_state(&e->device) == ma_device_state_started)
-            {
-                ma_device_stop(&e->device);
-            }
-            ma_device_uninit(&e->device);
-
-            e->outputSampleRate = newRate;
-            e->sampleRate = newRate;
-            const int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
-            e->channels = newCh;
-
-            e->update_eq_filters();
-            e->update_multiband_fx_filters();
-            {
-                std::lock_guard<std::mutex> fx(e->fxMutex);
-                reinit_advanced_fx_filters(e);
-            }
-            if (e->viperEnabled)
-            {
-                std::lock_guard<std::mutex> lock(e->viperMutex);
-                e->viper.SetSamplingRate(e->sampleRate);
-            }
-            {
-                // Notify CrossfeedNode of new processing sample rate
-                std::lock_guard<std::mutex> fx(e->fxMutex);
-                e->crossfeedNode.setSampleRate((double)newRate);
-                e->crossfeed.reset(newRate, e->crossfeedPreset);
-            }
-
-            ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-            cfg.playback.format = ma_format_f32;
-            cfg.playback.channels = (ma_uint32)newCh;
-            cfg.sampleRate = (ma_uint32)newRate;
-            cfg.dataCallback = data_callback;
-            cfg.notificationCallback = device_notification_callback;
-            cfg.pUserData = e;
-            cfg.resampling.algorithm = ma_resample_algorithm_linear;
-
-            const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                       e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
-
-            bool initOk = false;
-            if (wantExclusive)
-            {
-                cfg.playback.shareMode = ma_share_mode_exclusive;
-                cfg.performanceProfile = ma_performance_profile_low_latency;
-                cfg.periodSizeInMilliseconds = 25;
-                cfg.periods = 4;
-                cfg.wasapi.noAutoConvertSRC = 1;
-                cfg.wasapi.noDefaultQualitySRC = 1;
-
-                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
-                {
-                    initOk = true;
-                    engine_log("Auto Sample-Rate Match hardware rate switched to %u Hz (Exclusive).", cfg.sampleRate);
-                }
-                else
-                {
-                    engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
-                }
-            }
-
-            if (!initOk)
-            {
-                cfg.playback.shareMode = ma_share_mode_shared;
-                cfg.performanceProfile = ma_performance_profile_conservative;
-                cfg.sampleRate = 0;
-                cfg.wasapi.noAutoConvertSRC = 0;
-                cfg.wasapi.noDefaultQualitySRC = 0;
-
-                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
-                {
-                    initOk = true;
-                    engine_log("Auto Sample-Rate Match fallback to Shared Mode at %u Hz.", e->device.sampleRate);
-                }
-            }
-
-            if (initOk)
-            {
-                const int actualRate = (int)e->device.sampleRate;
-                e->deviceSampleRate = (actualRate > 0) ? actualRate : newRate;
-                e->engineSampleRate = (actualRate > 0 && actualRate != newRate) ? actualRate : newRate;
-                e->sampleRate = e->engineSampleRate;
-
-                e->update_eq_filters();
-                e->update_multiband_fx_filters();
-                {
-                    std::lock_guard<std::mutex> fx(e->fxMutex);
-                    reinit_advanced_fx_filters(e);
-                }
-                if (e->viperEnabled)
-                {
-                    std::lock_guard<std::mutex> lock(e->viperMutex);
-                    e->viper.SetSamplingRate(e->engineSampleRate);
-                }
-
-                if (wasPlaying)
-                {
-                    ma_device_start(&e->device);
-                }
-            }
-        }
-        catch (...)
-        {
-            engine_log("reinit_hardware_device_only exception caught cleanly");
-        }
-    }
-
-    // Fast helper to switch DAC sample rate without pitch shift or ring buffer corruption
-    static void restart_device_rate_only(AudioEngineHandle *e, int newRate)
-    {
-        if (!e || newRate <= 0)
-            return;
-        if (e->outputSampleRate == newRate && e->sampleRate == newRate)
-            return;
-
-        engine_log("Auto Bit-Perfect: Switching hardware DAC sample rate to %d Hz...", newRate);
-        reinit_hardware_device_only(e, newRate);
-    }
 
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
@@ -5994,19 +6102,16 @@ extern "C"
         }
 
         {
-            const int actualRate = (int)e->device.sampleRate;
-            e->deviceSampleRate = (actualRate > 0) ? actualRate : 48000;
-            e->engineSampleRate = (e->userOutputSampleRate > 0) ? e->userOutputSampleRate : e->deviceSampleRate;
-            e->sampleRate = e->engineSampleRate;
-            e->update_eq_filters();
-            e->update_multiband_fx_filters();
-            std::lock_guard<std::mutex> fx(e->fxMutex);
-            reinit_advanced_fx_filters(e);
-        }
-        if (e->viperEnabled)
-        {
-            std::lock_guard<std::mutex> lock(e->viperMutex);
-            e->viper.SetSamplingRate(e->engineSampleRate);
+            const uint32_t actualRate = e->device.sampleRate;
+            uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
+            AudioRatePlan plan = calculateRatePlan(
+                srcRate,
+                actualRate,
+                (uint32_t)e->userOutputSampleRate,
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
         }
 
         // Cleanly reset pitch resampler state and buffers for new sample rate
@@ -6387,7 +6492,13 @@ extern "C"
 
     AE_API int ae_get_output_sample_rate(AudioEngineHandle *engine)
     {
-        return engine ? engine->outputSampleRate : 0;
+        if (!engine)
+            return 0;
+        if (engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
+        {
+            return engine->outputSampleRate;
+        }
+        return engine->userOutputSampleRate;
     }
 
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels)
@@ -6515,13 +6626,19 @@ extern "C"
     {
         if (!engine)
             return 0;
+        // Do not consume/apply hardware rate switch mid-crossfade (Requirement 7)
+        if (engine->isCrossfading.load(std::memory_order_acquire))
+        {
+            return 0;
+        }
         // Atomically read and clear the pending rate
         int pending = engine->pendingAutoSampleRateMatchRate.exchange(0, std::memory_order_acq_rel);
-        if (pending > 0)
+        if (pending > 0 && pending != engine->outputSampleRate)
         {
             engine_log("ae_consume_pending_rate_change: Applying deferred Auto Sample-Rate Match rate = %d Hz", pending);
+            return pending;
         }
-        return pending;
+        return 0;
     }
 
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right)
