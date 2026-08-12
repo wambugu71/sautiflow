@@ -58,7 +58,10 @@ $defines = @(
     '-DHAVE_STDBOOL_H=1',
     '-DHAVE_STRINGS_H=1',
     '-DHAVE_SYS_TYPES_H=1',
-    '-DSOXR_LIB=1'
+    '-DSOXR_LIB=1',
+    '-DENABLE_SINC_BEST_CONVERTER=1',
+    '-DENABLE_SINC_MEDIUM_CONVERTER=1',
+    '-DENABLE_SINC_FAST_CONVERTER=1'
 )
 
 Write-Host "Compiling C sources with gcc..."

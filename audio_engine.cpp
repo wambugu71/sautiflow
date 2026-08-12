@@ -619,6 +619,9 @@ namespace
         if (!backend || !backend->state || !pFrameCountIn || !pFrameCountOut)
             return MA_ERROR;
 
+        ma_uint64 inAvail = *pFrameCountIn;
+        ma_uint64 outReq = *pFrameCountOut;
+
         SRC_DATA srcData;
         srcData.data_in = (const float *)pFramesIn;
         srcData.input_frames = (long)std::min<ma_uint64>(*pFrameCountIn, 0x7FFFFFFF);
@@ -629,10 +632,24 @@ namespace
 
         int err = src_process(backend->state, &srcData);
         if (err)
+        {
+            engine_log("src_onProcess error: %d (%s)", err, src_strerror(err));
             return MA_ERROR;
+        }
 
         *pFrameCountIn = (ma_uint64)srcData.input_frames_used;
         *pFrameCountOut = (ma_uint64)srcData.output_frames_gen;
+
+        static std::atomic<uint64_t> s_srcProcessCounter{0};
+        uint64_t count = s_srcProcessCounter.fetch_add(1);
+        if (count < 5 || count % 500 == 0)
+        {
+            engine_log("src_onProcess [#%llu]: conv=%d channels=%d ratio=%.4f inAvail=%llu inConsumed=%llu outReq=%llu outGen=%llu",
+                       (unsigned long long)count, backend->converterType, backend->channels, backend->ratio,
+                       (unsigned long long)inAvail, (unsigned long long)srcData.input_frames_used,
+                       (unsigned long long)outReq, (unsigned long long)srcData.output_frames_gen);
+        }
+
         return MA_SUCCESS;
     }
 
@@ -642,6 +659,7 @@ namespace
         if (!backend)
             return MA_ERROR;
         backend->ratio = (sampleRateIn > 0) ? ((float)sampleRateOut / (float)sampleRateIn) : 1.0f;
+        engine_log("src_onSetRate: sampleRateIn=%u sampleRateOut=%u -> new ratio=%.4f", sampleRateIn, sampleRateOut, backend->ratio);
         if (backend->state)
         {
             src_set_ratio(backend->state, backend->ratio);
@@ -692,8 +710,7 @@ namespace
         }
         else
         {
-            ma_uint64 inLat = get_src_latency_frames(backend->converterType);
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio) + inLat;
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio);
         }
         return MA_SUCCESS;
     }
@@ -709,9 +726,7 @@ namespace
         }
         else
         {
-            ma_uint64 inLat = get_src_latency_frames(backend->converterType);
-            ma_uint64 avail = (inputFrameCount > inLat) ? (inputFrameCount - inLat) : 0;
-            *pOutputFrameCount = (ma_uint64)std::floor((double)avail * (double)backend->ratio);
+            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * (double)backend->ratio);
         }
         return MA_SUCCESS;
     }
@@ -815,6 +830,9 @@ namespace
         if (!backend || !backend->handle || !pFrameCountIn || !pFrameCountOut)
             return MA_ERROR;
 
+        ma_uint64 inAvail = *pFrameCountIn;
+        ma_uint64 outReq = *pFrameCountOut;
+
         size_t idone = 0, odone = 0;
         soxr_error_t err = soxr_process(backend->handle, pFramesIn, (size_t)*pFrameCountIn, &idone, pFramesOut, (size_t)*pFrameCountOut, &odone);
         if (err) {
@@ -824,6 +842,17 @@ namespace
 
         *pFrameCountIn = (ma_uint64)idone;
         *pFrameCountOut = (ma_uint64)odone;
+
+        static std::atomic<uint64_t> s_soxrProcessCounter{0};
+        uint64_t count = s_soxrProcessCounter.fetch_add(1);
+        if (count < 5 || count % 500 == 0)
+        {
+            engine_log("soxr_onProcess [#%llu]: algo=%d channels=%d ratio=%.4f inAvail=%llu inConsumed=%llu outReq=%llu outGen=%llu",
+                       (unsigned long long)count, backend->algorithm, backend->channels, backend->ratio,
+                       (unsigned long long)inAvail, (unsigned long long)idone,
+                       (unsigned long long)outReq, (unsigned long long)odone);
+        }
+
         return MA_SUCCESS;
     }
 
@@ -833,6 +862,7 @@ namespace
         if (!backend)
             return MA_ERROR;
         backend->ratio = (sampleRateIn > 0) ? ((double)sampleRateOut / (double)sampleRateIn) : 1.0;
+        engine_log("soxr_onSetRate: sampleRateIn=%u sampleRateOut=%u -> new ratio=%.4f", sampleRateIn, sampleRateOut, backend->ratio);
         if (backend->handle)
         {
             soxr_error_t err = soxr_set_io_ratio(backend->handle, 1.0 / backend->ratio, 0);
@@ -870,8 +900,7 @@ namespace
         }
         else
         {
-            double delay = backend->handle ? soxr_delay(backend->handle) : 0.0;
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio + delay);
+            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio);
         }
         return MA_SUCCESS;
     }
@@ -887,9 +916,7 @@ namespace
         }
         else
         {
-            double delay = backend->handle ? soxr_delay(backend->handle) : 0.0;
-            double avail = ((double)inputFrameCount > delay) ? ((double)inputFrameCount - delay) : 0.0;
-            *pOutputFrameCount = (ma_uint64)std::floor(avail * backend->ratio);
+            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * backend->ratio);
         }
         return MA_SUCCESS;
     }
