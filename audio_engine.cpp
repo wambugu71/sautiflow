@@ -2140,6 +2140,7 @@ struct AudioEngineHandle
     std::atomic<bool> exclusiveModeEnabled{false};
     std::atomic<bool> use64BitProcessing{false};
     std::atomic<bool> autoSampleRateMatchEnabled{false};
+    std::atomic<bool> rateTransitionInProgress{false};
     // When worker_loop detects a native rate change, it sets this to the new
     // sample rate. The Dart control thread polls via ae_consume_pending_rate_change()
     // and triggers restart_and_apply_config from a safe context.
@@ -3229,11 +3230,16 @@ static void worker_loop(AudioEngineHandle *e)
         {
             std::unique_lock<std::mutex> lk(e->workerMutex);
             e->workerCv.wait(lk, [&]()
-                             { return e->workerExit || e->requestedIndex >= 0 || e->preloadRequested; });
+                             { return e->workerExit || (!e->rateTransitionInProgress.load(std::memory_order_acquire) && (e->requestedIndex >= 0 || e->preloadRequested)); });
 
             if (e->workerExit)
             {
                 return;
+            }
+
+            if (e->rateTransitionInProgress.load(std::memory_order_acquire))
+            {
+                continue;
             }
 
             jumpIndex = e->requestedIndex;
@@ -3481,7 +3487,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         try
         {
-            if (!e->isPlaying.load(std::memory_order_relaxed) || e->ringBufferFlushing.load(std::memory_order_relaxed))
+            if (!e->isPlaying.load(std::memory_order_relaxed) ||
+                e->ringBufferFlushing.load(std::memory_order_relaxed) ||
+                e->rateTransitionInProgress.load(std::memory_order_acquire))
         {
             std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
             e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
@@ -3503,7 +3511,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
 
-            if (!e->hasCurrent || e->currentDecoder == nullptr || e->ringBufferFlushing.load(std::memory_order_relaxed))
+            if (!e->hasCurrent || e->currentDecoder == nullptr ||
+                e->ringBufferFlushing.load(std::memory_order_relaxed) ||
+                e->rateTransitionInProgress.load(std::memory_order_acquire))
             {
                 std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
                 e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
@@ -5971,266 +5981,339 @@ extern "C"
             return;
         try
         {
+            e->rateTransitionInProgress.store(true, std::memory_order_release);
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
             bool wasPlaying = e->isPlaying.load();
 
-        if (ma_device_get_state(&e->device) == ma_device_state_started)
-        {
-            ma_device_stop(&e->device);
-        }
-        ma_device_uninit(&e->device);
+            engine_log("AUTO DISABLE BEGIN\n  old:\n    auto=%s\n    outputRate=%d\n    engineRate=%d\n    deviceRate=%d\n    sourceRate=%d\n    currentIndex=%d\n    hasCurrent=%s\n    isPlaying=%s\n    isCrossfading=%s",
+                       e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) ? "true" : "false",
+                       e->outputSampleRate,
+                       e->engineSampleRate,
+                       e->deviceSampleRate,
+                       e->sourceSampleRate,
+                       e->currentIndex,
+                       e->hasCurrent ? "true" : "false",
+                       wasPlaying ? "true" : "false",
+                       e->isCrossfading.load(std::memory_order_relaxed) ? "true" : "false");
 
-        int oldRate = e->sampleRate > 0 ? e->sampleRate : 48000;
-        int targetOutputRate = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
-                               ? e->outputSampleRate
-                               : e->userOutputSampleRate;
-        int newRate = targetOutputRate > 0 ? targetOutputRate : 0;
-        int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
-
-        const int srForFilterInit = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
-        e->sampleRate = srForFilterInit;
-        e->channels = newCh;
-
-        e->update_eq_filters();
-        e->update_multiband_fx_filters();
-        {
-            std::lock_guard<std::mutex> fx(e->fxMutex);
-            reinit_advanced_fx_filters(e);
-        }
-
-        ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-        switch (e->outputFormat)
-        {
-        case AE_FORMAT_S16:
-            cfg.playback.format = ma_format_s16;
-            break;
-        case AE_FORMAT_U8:
-            cfg.playback.format = ma_format_u8;
-            break;
-        case AE_FORMAT_S24:
-            cfg.playback.format = ma_format_s32; // WASAPI 24-bit PCM container
-            break;
-        case AE_FORMAT_S32:
-            cfg.playback.format = ma_format_s32;
-            break;
-        default:
-            cfg.playback.format = ma_format_f32;
-            break;
-        }
-        cfg.playback.channels = (ma_uint32)newCh;
-        cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate.
-        cfg.dataCallback = data_callback;
-        cfg.notificationCallback = device_notification_callback;
-        cfg.pUserData = e;
-
-        // For the device output, we explicitly use linear resampling to avoid double-processing
-        // heavy algorithms like SRC_SINC_BEST_QUALITY, which would crush the CPU on the real-time thread.
-        cfg.resampling.algorithm = ma_resample_algorithm_linear;
-
-        // If the decoder uses a heavy resampling algorithm, we MUST increase the hardware buffer 
-        // size to prevent stuttering/underruns, especially at high sample rates (>= 48kHz).
-        if (e->resampleAlgorithm == 1 /* Sinc Best Quality */ || e->resampleAlgorithm == 2 /* Sinc Medium Quality */)
-        {
-            cfg.periodSizeInMilliseconds = 50;
-            cfg.periods = 3; // 150ms total buffer headroom
-        }
-
-        const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                   e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
-
-        bool initOk = false;
-        if (wantExclusive)
-        {
-            cfg.playback.shareMode = ma_share_mode_exclusive;
-            cfg.performanceProfile = ma_performance_profile_low_latency;
-            cfg.periodSizeInMilliseconds = 25; // 25ms period for WASAPI Exclusive stability
-            cfg.periods = 4;                  // 100ms buffer headroom to prevent underruns
-            cfg.wasapi.noAutoConvertSRC = 1;
-            cfg.wasapi.noDefaultQualitySRC = 1;
-            cfg.alsa.noMMap = 0;
-            cfg.noPreSilencedOutputBuffer = 0;
-
-            if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+            engine_log("DEVICE STOP BEGIN");
+            if (ma_device_get_state(&e->device) == ma_device_state_started)
             {
-                initOk = true;
-                engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
+                ma_device_stop(&e->device);
             }
-            else
+            engine_log("DEVICE STOP END");
+
+            engine_log("DEVICE UNINIT BEGIN");
+            ma_device_uninit(&e->device);
+            engine_log("DEVICE UNINIT END");
+
+            // Cleanly finalize any active crossfade before destroying decoder slots
             {
-                engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
+                std::lock_guard<std::mutex> d(e->decoderMutex);
+                if (e->isCrossfading.load(std::memory_order_acquire) || e->fadingOutDecoder != nullptr)
+                {
+                    engine_log("restart_and_apply_config: Terminating active crossfade before rate transition");
+                    uninit_fading_out_slot_locked(e);
+                    e->crossfadeFramesRemaining.store(0, std::memory_order_release);
+                    e->crossfadeFramesTotal.store(0, std::memory_order_release);
+                    e->isCrossfading.store(false, std::memory_order_release);
+                }
             }
-        }
 
-        if (!initOk)
-        {
-            // Reset config for safe shared mode (0 = native system device rate)
-            cfg.playback.shareMode = ma_share_mode_shared;
-            cfg.performanceProfile = ma_performance_profile_conservative;
-            cfg.sampleRate = 0;
-            cfg.wasapi.noAutoConvertSRC = 0;
-            cfg.wasapi.noDefaultQualitySRC = 0;
-            cfg.noPreSilencedOutputBuffer = 0;
+            int oldRate = e->sampleRate > 0 ? e->sampleRate : 48000;
+            int targetOutputRate = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
+                                   ? e->outputSampleRate
+                                   : e->userOutputSampleRate;
+            int newRate = targetOutputRate > 0 ? targetOutputRate : 0;
+            int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
 
-            if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+            const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                       e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+
+            // Exclusive mode requires an explicit sample rate (never 0)
+            if (wantExclusive && newRate == 0)
             {
-                initOk = true;
-                engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
+                newRate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
             }
-            else
-            {
-                engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
-                ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
-                safeCfg.playback.format = ma_format_f32;
-                safeCfg.playback.channels = 2;
-                safeCfg.sampleRate = 0;
-                safeCfg.dataCallback = data_callback;
-                safeCfg.notificationCallback = device_notification_callback;
-                safeCfg.pUserData = e;
 
-                if (ma_device_init(nullptr, &safeCfg, &e->device) == MA_SUCCESS)
+            const int srForFilterInit = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+            e->sampleRate = srForFilterInit;
+            e->channels = newCh;
+
+            e->update_eq_filters();
+            e->update_multiband_fx_filters();
+            {
+                std::lock_guard<std::mutex> fx(e->fxMutex);
+                reinit_advanced_fx_filters(e);
+            }
+
+            ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+            switch (e->outputFormat)
+            {
+            case AE_FORMAT_S16:
+                cfg.playback.format = ma_format_s16;
+                break;
+            case AE_FORMAT_U8:
+                cfg.playback.format = ma_format_u8;
+                break;
+            case AE_FORMAT_S24:
+                cfg.playback.format = ma_format_s32; // WASAPI 24-bit PCM container
+                break;
+            case AE_FORMAT_S32:
+                cfg.playback.format = ma_format_s32;
+                break;
+            default:
+                cfg.playback.format = ma_format_f32;
+                break;
+            }
+            cfg.playback.channels = (ma_uint32)newCh;
+            cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate for shared mode.
+            cfg.dataCallback = data_callback;
+            cfg.notificationCallback = device_notification_callback;
+            cfg.pUserData = e;
+
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+
+            if (e->resampleAlgorithm == 1 /* Sinc Best Quality */ || e->resampleAlgorithm == 2 /* Sinc Medium Quality */)
+            {
+                cfg.periodSizeInMilliseconds = 50;
+                cfg.periods = 3;
+            }
+
+            engine_log("DEVICE INIT REQUESTED:\n  requestedRate=%u\n  shareMode=%s\n  exclusive=%s",
+                       cfg.sampleRate,
+                       wantExclusive ? "exclusive" : "shared",
+                       wantExclusive ? "true" : "false");
+
+            bool initOk = false;
+            if (wantExclusive)
+            {
+                cfg.playback.shareMode = ma_share_mode_exclusive;
+                cfg.performanceProfile = ma_performance_profile_low_latency;
+                cfg.periodSizeInMilliseconds = 25;
+                cfg.periods = 4;
+                cfg.wasapi.noAutoConvertSRC = 1;
+                cfg.wasapi.noDefaultQualitySRC = 1;
+                cfg.alsa.noMMap = 0;
+                cfg.noPreSilencedOutputBuffer = 0;
+
+                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
                 {
                     initOk = true;
-                    engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                    engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
                 }
-            }
-        }
-
-        if (!initOk)
-        {
-            set_last_error(e, "Failed to re-initialize audio output device.");
-            return;
-        }
-
-        {
-            const uint32_t actualRate = e->device.sampleRate;
-            uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
-            AudioRatePlan plan = calculateRatePlan(
-                srcRate,
-                actualRate,
-                (uint32_t)e->userOutputSampleRate,
-                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
-            );
-            applyRatePlan(e, plan);
-        }
-
-        // Cleanly reset pitch resampler state and buffers for new sample rate
-        {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
-            if (e->pitchResamplerInit)
-            {
-                ma_resampler_uninit(&e->pitchResampler, nullptr);
-                e->pitchResamplerInit = false;
-            }
-            e->pitchInputBuffer.clear();
-            e->pitchInputUnconsumed = 0;
-        }
-
-        // Scale absolute time counter to the new sample rate
-        {
-            const ma_uint64 oldAbsTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
-            const double absSec = (oldRate > 0) ? ((double)oldAbsTime / (double)oldRate) : 0.0;
-            e->engineAbsoluteTime.store((ma_uint64)(absSec * (double)e->sampleRate), std::memory_order_relaxed);
-        }
-
-        // Re-initialize active decoders to match new outCh so miniaudio downmixes properly
-        ma_uint64 resumeFrame = 0;
-        int resumeIndex = -1;
-        bool hadDecoder = false;
-        {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
-            if (e->hasCurrent && e->currentDecoder)
-            {
-                hadDecoder = true;
-                resumeIndex = e->currentIndex;
-                (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &resumeFrame);
-                uninit_decoder_slot(
-                    e->currentDecoder
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    ,
-                    e->currentStream
-#endif
-                );
-                e->currentDecoder = nullptr;
-                e->hasCurrent = false;
-            }
-            if (e->hasNext && e->nextDecoder)
-            {
-                uninit_decoder_slot(
-                    e->nextDecoder
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    ,
-                    e->nextStream
-#endif
-                );
-                e->nextDecoder = nullptr;
-                e->hasNext = false;
-            }
-            uninit_fading_out_slot_locked(e);
-        }
-
-        if (hadDecoder && resumeIndex >= 0)
-        {
-            std::string path;
-            {
-                std::lock_guard<std::mutex> pl(e->playlistMutex);
-                if (resumeIndex < (int)e->playlist.size())
+                else
                 {
-                    path = e->playlist[(size_t)resumeIndex];
+                    engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
                 }
             }
-            if (!path.empty())
+
+            if (!initOk)
             {
-                ma_decoder *newDec = nullptr;
-                ma_uint64 newLen = 0;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                NetworkStreamState *newSt = nullptr;
-                if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt))
-#else
-                if (load_decoder_for_path(e, path, &newDec, &newLen))
-#endif
-                {
-                    if (resumeFrame > 0 && oldRate > 0)
-                    {
-                        const double posSec = (double)resumeFrame / (double)oldRate;
-                        const ma_uint64 decRate = (newDec->outputSampleRate > 0) ? (ma_uint64)newDec->outputSampleRate : (ma_uint64)e->sampleRate;
-                        const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)decRate);
-                        (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
-                        e->seekBasePcmFrame.store(targetFrame, std::memory_order_release);
-                    }
-                    else
-                    {
-                        e->seekBasePcmFrame.store(0, std::memory_order_release);
-                    }
-                    e->playedPcmFrames.store(0, std::memory_order_release);
+                cfg.playback.shareMode = ma_share_mode_shared;
+                cfg.performanceProfile = ma_performance_profile_conservative;
+                cfg.sampleRate = 0;
+                cfg.wasapi.noAutoConvertSRC = 0;
+                cfg.wasapi.noDefaultQualitySRC = 0;
+                cfg.noPreSilencedOutputBuffer = 0;
 
-                    std::lock_guard<std::mutex> d(e->decoderMutex);
-                    e->currentDecoder = newDec;
-                    e->currentLengthFrames = newLen;
-                    e->currentIndex = resumeIndex;
-                    e->hasCurrent = true;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    e->currentStream = newSt;
-#endif
+                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+                {
+                    initOk = true;
+                    engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
+                }
+                else
+                {
+                    engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
+                    ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
+                    safeCfg.playback.format = ma_format_f32;
+                    safeCfg.playback.channels = 2;
+                    safeCfg.sampleRate = 0;
+                    safeCfg.dataCallback = data_callback;
+                    safeCfg.notificationCallback = device_notification_callback;
+                    safeCfg.pUserData = e;
+
+                    if (ma_device_init(nullptr, &safeCfg, &e->device) == MA_SUCCESS)
+                    {
+                        initOk = true;
+                        engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                    }
                 }
             }
-        }
 
-        // WIPE ALL OLD-RATE PCM SAMPLES FROM RING BUFFER TO ELIMINATE PITCH/TEMPO SHIFTS
-        e->ringBufferFlushing.store(true, std::memory_order_release);
-        e->pcmRingBuffer.reset();
-        e->ringBufferFlushing.store(false, std::memory_order_release);
-        e->decodeProducerCv.notify_one();
+            if (!initOk)
+            {
+                set_last_error(e, "Failed to re-initialize audio output device.");
+                e->rateTransitionInProgress.store(false, std::memory_order_release);
+                return;
+            }
 
-        if (wasPlaying)
-        {
-            ma_device_start(&e->device);
-        }
+            engine_log("DEVICE INIT RESULT:\n  actualRate=%u", e->device.sampleRate);
 
-        request_preload(e);
+            {
+                const uint32_t actualRate = e->device.sampleRate;
+                uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
+                AudioRatePlan plan = calculateRatePlan(
+                    srcRate,
+                    actualRate,
+                    (uint32_t)e->userOutputSampleRate,
+                    e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                    e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                );
+                engine_log("APPLY RATE PLAN:\n  source=%u\n  engine=%u\n  device=%u\n  decoderSRC=%s\n  deviceSRC=%s",
+                           plan.sourceRate, plan.engineRate, plan.deviceRate,
+                           plan.decoderSRC ? "true" : "false", plan.deviceSRC ? "true" : "false");
+                applyRatePlan(e, plan);
+            }
+
+            // Cleanly reset pitch resampler state and buffers for new sample rate
+            {
+                std::lock_guard<std::mutex> d(e->decoderMutex);
+                if (e->pitchResamplerInit)
+                {
+                    ma_resampler_uninit(&e->pitchResampler, nullptr);
+                    e->pitchResamplerInit = false;
+                }
+                e->pitchInputBuffer.clear();
+                e->pitchInputUnconsumed = 0;
+            }
+
+            // Scale absolute time counter to the new sample rate
+            {
+                const ma_uint64 oldAbsTime = e->engineAbsoluteTime.load(std::memory_order_relaxed);
+                const double absSec = (oldRate > 0) ? ((double)oldAbsTime / (double)oldRate) : 0.0;
+                e->engineAbsoluteTime.store((ma_uint64)(absSec * (double)e->sampleRate), std::memory_order_relaxed);
+            }
+
+            // Re-initialize active decoders to match new outCh so miniaudio downmixes properly
+            ma_uint64 resumeFrame = 0;
+            int resumeIndex = -1;
+            bool hadDecoder = false;
+            {
+                std::lock_guard<std::mutex> d(e->decoderMutex);
+                if (e->hasCurrent && e->currentDecoder)
+                {
+                    hadDecoder = true;
+                    resumeIndex = e->currentIndex;
+                    (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &resumeFrame);
+                    engine_log("OLD DECODER DESTROY");
+                    uninit_decoder_slot(
+                        e->currentDecoder
+    #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        ,
+                        e->currentStream
+    #endif
+                    );
+                    e->currentDecoder = nullptr;
+                    e->hasCurrent = false;
+                }
+                if (e->hasNext && e->nextDecoder)
+                {
+                    uninit_decoder_slot(
+                        e->nextDecoder
+    #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        ,
+                        e->nextStream
+    #endif
+                    );
+                    e->nextDecoder = nullptr;
+                    e->hasNext = false;
+                }
+                uninit_fading_out_slot_locked(e);
+            }
+
+            if (hadDecoder && resumeIndex >= 0)
+            {
+                std::string path;
+                {
+                    std::lock_guard<std::mutex> pl(e->playlistMutex);
+                    if (resumeIndex < (int)e->playlist.size())
+                    {
+                        path = e->playlist[(size_t)resumeIndex];
+                    }
+                }
+                if (!path.empty())
+                {
+                    ma_decoder *newDec = nullptr;
+                    ma_uint64 newLen = 0;
+    #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    NetworkStreamState *newSt = nullptr;
+                    if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt))
+    #else
+                    if (load_decoder_for_path(e, path, &newDec, &newLen))
+    #endif
+                    {
+                        engine_log("NEW DECODER CREATED:\n  outputRate=%u", newDec->outputSampleRate);
+                        if (resumeFrame > 0 && oldRate > 0)
+                        {
+                            const double posSec = (double)resumeFrame / (double)oldRate;
+                            const ma_uint64 decRate = (newDec->outputSampleRate > 0) ? (ma_uint64)newDec->outputSampleRate : (ma_uint64)e->sampleRate;
+                            const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)decRate);
+                            (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
+                            e->seekBasePcmFrame.store(targetFrame, std::memory_order_release);
+                        }
+                        else
+                        {
+                            e->seekBasePcmFrame.store(0, std::memory_order_release);
+                        }
+                        e->playedPcmFrames.store(0, std::memory_order_release);
+
+                        std::lock_guard<std::mutex> d(e->decoderMutex);
+                        e->currentDecoder = newDec;
+                        e->currentLengthFrames = newLen;
+                        e->currentIndex = resumeIndex;
+                        e->hasCurrent = true;
+    #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        e->currentStream = newSt;
+    #endif
+                    }
+                }
+            }
+
+            // WIPE ALL OLD-RATE PCM SAMPLES FROM RING BUFFER TO ELIMINATE PITCH/TEMPO SHIFTS
+            e->ringBufferFlushing.store(true, std::memory_order_release);
+            e->pcmRingBuffer.reset();
+            e->ringBufferFlushing.store(false, std::memory_order_release);
+            engine_log("RING BUFFER RESET");
+            e->decodeProducerCv.notify_one();
+
+            #ifndef NDEBUG
+            if (wasPlaying && hadDecoder && e->currentDecoder != nullptr)
+            {
+                engine_log("FINAL ASSERTION CHECK before device start:\n  currentDecoder=%p\n  currentDecoder->outputSampleRate=%u\n  engineSampleRate=%d\n  device.sampleRate=%u\n  deviceSampleRate=%d\n  deviceSRC=%s (in=%d, out=%d)",
+                           (void*)e->currentDecoder,
+                           e->currentDecoder->outputSampleRate,
+                           e->engineSampleRate,
+                           e->device.sampleRate,
+                           e->deviceSampleRate,
+                           e->ratePlan.deviceSRC ? "YES" : "NO",
+                           e->deviceResamplerInRate,
+                           e->deviceResamplerOutRate);
+
+                assert(e->currentDecoder != nullptr);
+                assert(e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
+                assert((int)e->device.sampleRate == e->deviceSampleRate);
+                if (e->ratePlan.deviceSRC)
+                {
+                    assert(e->deviceResamplerInRate == e->engineSampleRate);
+                    assert(e->deviceResamplerOutRate == e->deviceSampleRate);
+                }
+            }
+            #endif
+
+            if (wasPlaying)
+            {
+                engine_log("DEVICE START");
+                ma_device_start(&e->device);
+            }
+
+            request_preload(e);
+            e->rateTransitionInProgress.store(false, std::memory_order_release);
+            engine_log("AUTO DISABLE END");
         }
         catch (...)
         {
+            e->rateTransitionInProgress.store(false, std::memory_order_release);
             engine_log("restart_and_apply_config exception caught cleanly");
         }
     }
@@ -6576,26 +6659,7 @@ extern "C"
                 engine->outputSampleRate = engine->userOutputSampleRate;
                 restart_and_apply_config(engine);
             }
-
-            if (engine->currentIndex >= 0)
-            {
-                // Save current playback position if decoder is active
-                if (engine->currentDecoder != nullptr)
-                {
-                    ma_uint64 cursor = 0;
-                    if (ma_decoder_get_cursor_in_pcm_frames(engine->currentDecoder, &cursor) == MA_SUCCESS)
-                    {
-                        engine->pendingSeekFrame.store(cursor, std::memory_order_release);
-                        engine->pendingSeekIndex.store(engine->currentIndex, std::memory_order_release);
-                        engine->pendingSeekValid.store(true, std::memory_order_release);
-                    }
-                }
-
-                // Re-jump to current index so worker_loop reloads current track and preloaded next track
-                // with the updated targetRate config.
-                request_jump(engine, engine->currentIndex);
-            }
-            else if (next)
+            else
             {
                 restart_and_apply_config(engine);
             }
