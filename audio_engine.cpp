@@ -3512,6 +3512,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     while (!e->decodeProducerExit.load(std::memory_order_relaxed))
     {
+        e->garbageQueue.drain();
         try
         {
             if (!e->isPlaying.load(std::memory_order_relaxed) ||
@@ -3538,32 +3539,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
 
-            if (!e->hasCurrent || e->currentDecoder == nullptr ||
-                e->ringBufferFlushing.load(std::memory_order_relaxed) ||
-                e->rateTransitionInProgress.load(std::memory_order_acquire))
-            {
-                std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
-                e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
-                continue;
-            }
-
             // Lazy-init push stream decoder if needed
             if (e->isPushStreamMode && e->currentDecoder == nullptr && e->pushStreamForCurrent.initialized)
             {
-                if (ma_rb_available_read(&e->pushStreamForCurrent.rb) >= 4096)
+                if (ma_rb_available_read(&e->pushStreamForCurrent.rb) >= 4096 || e->pushStreamForCurrent.isDone)
                 {
-                    ma_format configFormat = ma_format_f32;
-                    if (e->outputFormat == AE_FORMAT_S16)
-                        configFormat = ma_format_s16;
-                    else if (e->outputFormat == AE_FORMAT_U8)
-                        configFormat = ma_format_u8;
-                    else if (e->outputFormat == AE_FORMAT_S24)
-                        configFormat = ma_format_s24;
-                    else if (e->outputFormat == AE_FORMAT_S32)
-                        configFormat = ma_format_s32;
-
                     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
-                    ma_decoder_config config = ma_decoder_config_init(configFormat, outCh, (ma_uint32)e->sampleRate);
+                    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, outCh, (ma_uint32)e->sampleRate);
                     if (e->resampleAlgorithm > 0)
                     {
                         config.resampling.algorithm = ma_resample_algorithm_custom;
@@ -3589,6 +3571,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     else
                     {
                         delete newDecoder;
+                        std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+                        e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                         continue;
                     }
                 }
@@ -3598,6 +3582,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                     continue;
                 }
+            }
+
+            if (!e->hasCurrent || e->currentDecoder == nullptr ||
+                e->ringBufferFlushing.load(std::memory_order_relaxed) ||
+                e->rateTransitionInProgress.load(std::memory_order_acquire))
+            {
+                std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+                e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
+                continue;
             }
 
             // Early Crossfade Trigger
@@ -3927,18 +3920,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (!e->isPlaying.load(std::memory_order_relaxed))
     {
-        if (e->outputFormat != AE_FORMAT_F32)
-        {
-            size_t bytesPerSample = 1;
-            if (e->outputFormat == AE_FORMAT_S16)
-                bytesPerSample = 2;
-            else if (e->outputFormat == AE_FORMAT_S24)
-                bytesPerSample = 3;
-            else if (e->outputFormat == AE_FORMAT_S32)
-                bytesPerSample = 4;
-
-            std::memset(pOutput, 0, totalSamples * bytesPerSample);
-        }
+        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+        std::memset(pOutput, 0, outBytes);
         return;
     }
 
@@ -3946,18 +3929,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     const ma_uint64 startTime = e->scheduledStartTime.load(std::memory_order_relaxed);
     if (startTime != -1ULL && absTime < startTime)
     {
-        if (e->outputFormat != AE_FORMAT_F32)
-        {
-            size_t bytesPerSample = 1;
-            if (e->outputFormat == AE_FORMAT_S16)
-                bytesPerSample = 2;
-            else if (e->outputFormat == AE_FORMAT_S24)
-                bytesPerSample = 3;
-            else if (e->outputFormat == AE_FORMAT_S32)
-                bytesPerSample = 4;
-
-            std::memset(pOutput, 0, totalSamples * bytesPerSample);
-        }
+        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+        std::memset(pOutput, 0, outBytes);
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         return;
     }
@@ -4394,21 +4367,25 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         e->ditherProcessor.process(ditherVal, e->outputFormat, finalDstBuffer, totalSamples, e->channels);
     }
 
-    if (e->outputFormat == AE_FORMAT_S16)
+    if (pDevice->playback.format == ma_format_s16)
     {
         ma_pcm_f32_to_s16(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
     }
-    else if (e->outputFormat == AE_FORMAT_U8)
+    else if (pDevice->playback.format == ma_format_u8)
     {
         ma_pcm_f32_to_u8(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
     }
-    else if (e->outputFormat == AE_FORMAT_S24)
+    else if (pDevice->playback.format == ma_format_s24)
     {
         ma_pcm_f32_to_s24(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
     }
-    else if (e->outputFormat == AE_FORMAT_S32)
+    else if (pDevice->playback.format == ma_format_s32)
     {
         ma_pcm_f32_to_s32(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
+    }
+    else if (pDevice->playback.format == ma_format_f32)
+    {
+        std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
     }
     // else F32 -> already in pOutput via finalDstBuffer!
     }
@@ -4625,12 +4602,14 @@ extern "C"
                 ma_spatializer_listener_uninit(&e->spatialListener, nullptr);
                 e->spatializerInitialized = false;
             }
+            e->garbageQueue.drain();
         }
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
             ma_device_uninit(&e->device);
         }
+        e->garbageQueue.drain();
         engine_log("destroy_engine end");
         delete e;
     }
@@ -7063,6 +7042,9 @@ extern "C"
             // If buffer full, wait a bit
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
+
+        std::lock_guard<std::mutex> lk(engine->decodeProducerMutex);
+        engine->decodeProducerCv.notify_all();
     }
 
     AE_API void ae_end_push_stream(AudioEngineHandle *engine)
@@ -7070,6 +7052,9 @@ extern "C"
         if (!engine || !engine->pushStreamForCurrent.initialized)
             return;
         engine->pushStreamForCurrent.isDone = true;
+
+        std::lock_guard<std::mutex> lk(engine->decodeProducerMutex);
+        engine->decodeProducerCv.notify_all();
     }
 
     AE_API int ae_get_push_stream_buffered_bytes(AudioEngineHandle *engine)
