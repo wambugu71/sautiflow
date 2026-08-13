@@ -2643,6 +2643,7 @@ struct AudioEngineHandle
     AudioRatePlan ratePlan{};
 
     ma_resampler deviceResampler{};
+    mutable std::mutex deviceResamplerMutex;
     bool deviceResamplerInit = false;
     int deviceResamplerInRate = 0;
     int deviceResamplerOutRate = 0;
@@ -2664,6 +2665,7 @@ struct AudioEngineHandle
 
     SPSCBuffer<float> pcmRingBuffer;
     GarbageQueue garbageQueue;
+    std::atomic<uint64_t> preloadGeneration{0};
 
     std::mutex decodeProducerMutex;
     std::condition_variable decodeProducerCv;
@@ -3249,48 +3251,51 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     const int ch = (e->channels > 0) ? e->channels : 2;
 
     // Synchronize device resampler lifecycle on control thread (Requirements 8 & 9)
-    if (plan.deviceSRC)
     {
-        if (!e->deviceResamplerInit || e->deviceResamplerInRate != (int)plan.engineRate || e->deviceResamplerOutRate != (int)plan.deviceRate || e->deviceResamplerCh != ch)
+        std::lock_guard<std::mutex> rLock(e->deviceResamplerMutex);
+        if (plan.deviceSRC)
+        {
+            if (!e->deviceResamplerInit || e->deviceResamplerInRate != (int)plan.engineRate || e->deviceResamplerOutRate != (int)plan.deviceRate || e->deviceResamplerCh != ch)
+            {
+                if (e->deviceResamplerInit)
+                {
+                    ma_resampler_uninit(&e->deviceResampler, nullptr);
+                    e->deviceResamplerInit = false;
+                }
+                ma_resampler_config rcfg = ma_resampler_config_init(
+                    ma_format_f32,
+                    (ma_uint32)ch,
+                    (ma_uint32)plan.engineRate,
+                    (ma_uint32)plan.deviceRate,
+                    ma_resample_algorithm_linear
+                );
+                if (e->resampleAlgorithm > 0)
+                {
+                    rcfg.algorithm = ma_resample_algorithm_custom;
+                    rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
+                                          ? &g_soxrResamplerVTable
+                                          : &g_customResamplerVTable;
+                    rcfg.pBackendUserData = &e->resampleAlgorithm;
+                }
+                if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
+                {
+                    e->deviceResamplerInit = true;
+                    e->deviceResamplerInRate = (int)plan.engineRate;
+                    e->deviceResamplerOutRate = (int)plan.deviceRate;
+                    e->deviceResamplerCh = ch;
+                }
+            }
+        }
+        else
         {
             if (e->deviceResamplerInit)
             {
                 ma_resampler_uninit(&e->deviceResampler, nullptr);
                 e->deviceResamplerInit = false;
+                e->deviceResamplerInRate = 0;
+                e->deviceResamplerOutRate = 0;
+                e->deviceResamplerCh = 0;
             }
-            ma_resampler_config rcfg = ma_resampler_config_init(
-                ma_format_f32,
-                (ma_uint32)ch,
-                (ma_uint32)plan.engineRate,
-                (ma_uint32)plan.deviceRate,
-                ma_resample_algorithm_linear
-            );
-            if (e->resampleAlgorithm > 0)
-            {
-                rcfg.algorithm = ma_resample_algorithm_custom;
-                rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                      ? &g_soxrResamplerVTable
-                                      : &g_customResamplerVTable;
-                rcfg.pBackendUserData = &e->resampleAlgorithm;
-            }
-            if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
-            {
-                e->deviceResamplerInit = true;
-                e->deviceResamplerInRate = (int)plan.engineRate;
-                e->deviceResamplerOutRate = (int)plan.deviceRate;
-                e->deviceResamplerCh = ch;
-            }
-        }
-    }
-    else
-    {
-        if (e->deviceResamplerInit)
-        {
-            ma_resampler_uninit(&e->deviceResampler, nullptr);
-            e->deviceResamplerInit = false;
-            e->deviceResamplerInRate = 0;
-            e->deviceResamplerOutRate = 0;
-            e->deviceResamplerCh = 0;
         }
     }
 
@@ -3374,21 +3379,6 @@ static void uninit_decoder_ptr(ma_decoder *&pDecoder)
         delete pDecoder;
         pDecoder = nullptr;
     }
-}
-
-static void uninit_decoder_slot(
-    ma_decoder *&pDecoder
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-    ,
-    NetworkStreamState *&pStream
-#endif
-)
-{
-    uninit_decoder_ptr(pDecoder);
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-    destroy_network_stream(pStream);
-    pStream = nullptr;
-#endif
 }
 
 static void uninit_decoder_slot(
@@ -3712,6 +3702,7 @@ static void request_preload(AudioEngineHandle *e)
 static void request_jump(AudioEngineHandle *e, int idx)
 {
     std::lock_guard<std::mutex> lk(e->workerMutex);
+    e->preloadGeneration.fetch_add(1, std::memory_order_relaxed);
     e->requestedIndex = idx;
     e->workerCv.notify_one();
 }
@@ -3795,6 +3786,7 @@ static void worker_loop(AudioEngineHandle *e)
                 if (e->hasCurrent)
                 {
                     uninit_decoder_slot(
+                        e,
                         e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         ,
@@ -3806,6 +3798,7 @@ static void worker_loop(AudioEngineHandle *e)
                 if (e->hasNext)
                 {
                     uninit_decoder_slot(
+                        e,
                         e->nextDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         ,
@@ -3823,6 +3816,7 @@ static void worker_loop(AudioEngineHandle *e)
                     {
                         engine_log("Auto Sample-Rate Match: Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
                         uninit_decoder_slot(
+                            e,
                             newCurrent
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                             , newCurrentStream
@@ -3893,6 +3887,7 @@ static void worker_loop(AudioEngineHandle *e)
 
         if (doPreload)
         {
+            uint64_t startGen = e->preloadGeneration.load(std::memory_order_relaxed);
             int localCurrentIndex = -1;
             {
                 std::lock_guard<std::mutex> d(e->decoderMutex);
@@ -3942,9 +3937,24 @@ static void worker_loop(AudioEngineHandle *e)
                 continue;
             }
 
+            if (e->preloadGeneration.load(std::memory_order_relaxed) != startGen)
+            {
+                engine_log("worker preload discarded (stale generation) -> nextIndex=%d", nextIdx);
+                uninit_decoder_slot(
+                    e,
+                    decoded
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    ,
+                    decodedStream
+#endif
+                );
+                continue;
+            }
+
             {
                 std::lock_guard<std::mutex> d(e->decoderMutex);
-                if (!e->hasNext)
+                if (e->preloadGeneration.load(std::memory_order_relaxed) == startGen &&
+                    !e->hasNext && e->currentIndex == localCurrentIndex)
                 {
                     e->nextDecoder = decoded;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -3953,10 +3963,13 @@ static void worker_loop(AudioEngineHandle *e)
                     e->nextLengthFrames = len;
                     e->nextIndex = nextIdx;
                     e->hasNext = true;
+                    engine_log("worker preload complete -> nextIndex=%d", nextIdx);
                 }
                 else
                 {
+                    engine_log("worker preload discarded -> nextIndex=%d", nextIdx);
                     uninit_decoder_slot(
+                        e,
                         decoded
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         ,
@@ -3965,8 +3978,6 @@ static void worker_loop(AudioEngineHandle *e)
                     );
                 }
             }
-
-            engine_log("worker preload complete -> nextIndex=%d", nextIdx);
         }
         }
         catch (...)
@@ -4286,6 +4297,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (e->hasNext)
                 {
                     uninit_decoder_slot(
+                        e,
                         e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         , e->currentStream
@@ -4499,6 +4511,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (fadeRemaining == 0 || oldFramesRead == 0 || mixResult == MA_AT_END) {
                 // Crossfade complete
                 uninit_decoder_slot(
+                    e,
                     e->fadingOutDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     , e->fadingOutStream
@@ -4865,6 +4878,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (needsDeviceSRC)
     {
+        std::lock_guard<std::mutex> rLock(e->deviceResamplerMutex);
         if (e->deviceResamplerInit)
         {
             ma_uint64 inFrames = (ma_uint64)produced;
@@ -5078,6 +5092,7 @@ extern "C"
             if (e->hasCurrent)
             {
                 uninit_decoder_slot(
+                    e,
                     e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     ,
@@ -5089,6 +5104,7 @@ extern "C"
             if (e->hasNext)
             {
                 uninit_decoder_slot(
+                    e,
                     e->nextDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     ,
@@ -5171,6 +5187,7 @@ extern "C"
             if (e->hasCurrent)
             {
                 uninit_decoder_slot(
+                    e,
                     e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     ,
@@ -5182,6 +5199,7 @@ extern "C"
             if (e->hasNext)
             {
                 uninit_decoder_slot(
+                    e,
                     e->nextDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     ,
@@ -5357,12 +5375,14 @@ extern "C"
             e->currentIndex = -1;
             e->playOrder.clear();
             e->orderCursor = -1;
+            e->preloadGeneration.fetch_add(1, std::memory_order_relaxed);
         }
 
         std::lock_guard<std::mutex> d(e->decoderMutex);
         if (e->hasCurrent)
         {
             uninit_decoder_slot(
+                e,
                 e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                 ,
@@ -5374,6 +5394,7 @@ extern "C"
         if (e->hasNext)
         {
             uninit_decoder_slot(
+                e,
                 e->nextDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                 ,
@@ -5519,6 +5540,7 @@ extern "C"
     static bool execute_jump_direct(AudioEngineHandle *e, int jumpIndex)
     {
         if (e == nullptr || jumpIndex < 0) return false;
+        e->preloadGeneration.fetch_add(1, std::memory_order_relaxed);
 
         std::string path;
         {
@@ -5556,6 +5578,7 @@ extern "C"
             {
                 engine_log("Auto Sample-Rate Match (execute_jump_direct): Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
                 uninit_decoder_slot(
+                    e,
                     newCurrent
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     , newCurrentStream
@@ -5580,7 +5603,9 @@ extern "C"
             std::lock_guard<std::mutex> d(e->decoderMutex);
             if (e->hasCurrent)
             {
-                uninit_decoder_slot(e->currentDecoder
+                uninit_decoder_slot(
+                    e,
+                    e->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     , e->currentStream
 #endif
@@ -5589,7 +5614,9 @@ extern "C"
             }
             if (e->hasNext)
             {
-                uninit_decoder_slot(e->nextDecoder
+                uninit_decoder_slot(
+                    e,
+                    e->nextDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     , e->nextStream
 #endif
@@ -6827,6 +6854,7 @@ extern "C"
                     (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &resumeFrame);
                     engine_log("OLD DECODER DESTROY");
                     uninit_decoder_slot(
+                        e,
                         e->currentDecoder
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         ,
@@ -6839,6 +6867,7 @@ extern "C"
                 if (e->hasNext && e->nextDecoder)
                 {
                     uninit_decoder_slot(
+                        e,
                         e->nextDecoder
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                         ,
@@ -7624,6 +7653,7 @@ extern "C"
             if (engine->currentDecoder)
             {
                 uninit_decoder_slot(
+                    engine,
                     engine->currentDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     ,
