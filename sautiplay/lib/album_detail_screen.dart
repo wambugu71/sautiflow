@@ -1,7 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 
 import 'models/liked_song.dart';
 import 'services/app_theme_service.dart';
@@ -83,7 +84,6 @@ class TrackInfo {
       durationSeconds: video.duration,
     );
   }
-
 }
 
 class AlbumDetailScreen extends StatefulWidget {
@@ -181,7 +181,9 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           final playlistVideos = await _ytMusic.getPlaylistVideos(pid);
           if (mounted) {
             setState(() {
-              _tracks = playlistVideos.map((v) => TrackInfo.fromVideoDetailed(v)).toList();
+              _tracks = playlistVideos
+                  .map((v) => TrackInfo.fromVideoDetailed(v))
+                  .toList();
               _loading = false;
               _error = null;
             });
@@ -261,9 +263,9 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                     backgroundColor: _bgDark.withValues(alpha: 0.9),
                     elevation: 0,
                     pinned: true,
-                    leading: IconButton(
-                      icon: const Icon(Icons.arrow_back_outlined,
-                          color: Colors.white70),
+                    leading: M3EIconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                      variant: M3EIconButtonVariant.tonal,
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                     centerTitle: true,
@@ -273,12 +275,6 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                             fontSize: isDesktop ? 16 : 13,
                             fontWeight: FontWeight.w500,
                             letterSpacing: 1.5)),
-                    /*  actions: [
-                      IconButton(
-                        icon: const Icon(Icons.more_vert, color: Colors.white70),
-                        onPressed: () {},
-                      ),
-                    ],*/
                   ),
 
                   // ── Hero Section ──
@@ -292,10 +288,14 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                   if (_loading)
                     SliverFillRemaining(
                       hasScrollBody: false,
-                      child: Center(
-                          child: LoadingIndicatorM3E(
-                              color: _primary,
-                              containerColor: _primary.withAlpha(50))),
+                      child: RepaintBoundary(
+                        child: Center(
+                          child: M3ELoadingIndicator(
+                            color: _primary,
+                            containerColor: _primary.withValues(alpha: 0.15),
+                          ),
+                        ),
+                      ),
                     )
                   else if (_error != null)
                     SliverFillRemaining(
@@ -351,71 +351,46 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Widget _buildHeroArt({bool isDesktop = false}) {
     return Center(
       child: SizedBox(
-        width: isDesktop ? 320 : 240,
-        height: isDesktop ? 320 : 240,
-        child: Stack(
-          children: [
-            // Glow behind
-            Positioned.fill(
-              child: Container(
-                margin: EdgeInsets.all(isDesktop ? 24 : 16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _primary.withValues(alpha: 0.35),
-                      blurRadius: isDesktop ? 80 : 50,
-                      spreadRadius: isDesktop ? 10 : 5,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // Art
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: _thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(
-                          color: _surfaceDark,
-                          child: Center(
-                              child: Icon(Icons.album,
-                                  color: Colors.white24,
-                                  size: isDesktop ? 64 : 48)),
-                        ),
-                        errorWidget: (_, __, ___) => Container(
-                          color: _surfaceDark,
-                          child: Center(
-                              child: Icon(Icons.album,
-                                  color: Colors.white24,
-                                  size: isDesktop ? 64 : 48)),
-                        ),
-                      )
-                    : Container(
-                        color: _surfaceDark,
-                        child: Center(
-                            child: Icon(Icons.album,
-                                color: Colors.white24,
-                                size: isDesktop ? 64 : 48)),
-                      ),
-              ),
+        width: isDesktop ? 300 : 220,
+        height: isDesktop ? 300 : 220,
+        child: M3EContainer(
+          Shapes.slanted,
+          color: _surfaceDark,
+          border: BorderSide(
+            color: _primary.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _primary.withValues(alpha: 0.25),
+              blurRadius: isDesktop ? 40 : 24,
+              offset: const Offset(0, 8),
             ),
           ],
+          clipBehavior: Clip.antiAlias,
+          child: _thumbnailUrl != null
+              ? CachedNetworkImage(
+                  imageUrl: _thumbnailUrl!,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => Container(
+                    color: _surfaceDark,
+                    child: Center(
+                        child: Icon(Icons.album_rounded,
+                            color: Colors.white24, size: isDesktop ? 64 : 48)),
+                  ),
+                  errorWidget: (_, __, ___) => Container(
+                    color: _surfaceDark,
+                    child: Center(
+                        child: Icon(Icons.album_rounded,
+                            color: Colors.white24, size: isDesktop ? 64 : 48)),
+                  ),
+                )
+              : Container(
+                  color: _surfaceDark,
+                  child: Center(
+                      child: Icon(Icons.album_rounded,
+                          color: Colors.white24, size: isDesktop ? 64 : 48)),
+                ),
         ),
       ),
     );
@@ -497,13 +472,14 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                   isDesktop: isDesktop,
                   onTap: () async {
                     if (_tracks.isEmpty) return;
+                    final messenger = ScaffoldMessenger.of(context);
                     if (isSaved) {
                       for (final track in _tracks) {
                         await LikedSongsService.instance
                             .removeLikedSong(track.videoId);
                       }
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(
                               content: Text('Removed all from Liked Songs')),
                         );
@@ -520,7 +496,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                         ));
                       }
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(
                               content: Text('Saved all to Liked Songs')),
                         );
@@ -635,109 +611,107 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Widget _buildTrackRow(int index, TrackInfo track, {bool isDesktop = false}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-            Navigator.of(context).pop(); // Go back to main shell
-            widget.onPlayTracks!(_tracks, initialIndex: index);
-          }
-        },
-        child: Container(
-          padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 64 : 16, vertical: isDesktop ? 16 : 12),
-          decoration: const BoxDecoration(
-            border: Border(
-              left: BorderSide(
-                color: Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              // Track number
-              SizedBox(
-                width: isDesktop ? 40 : 28,
-                child: Text(
-                  '${index + 1}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontWeight: FontWeight.w500,
-                      fontSize: isDesktop ? 16 : 14),
-                ),
-              ),
-              SizedBox(width: isDesktop ? 20 : 12),
+    const Shapes itemShape = Shapes.slanted;
 
-              // Thumbnail (small)
-              if (track.thumbnailUrl != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: CachedNetworkImage(
-                    imageUrl: track.thumbnailUrl!,
-                    width: isDesktop ? 48 : 40,
-                    height: isDesktop ? 48 : 40,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(
-                      width: isDesktop ? 48 : 40,
-                      height: isDesktop ? 48 : 40,
-                      color: _surfaceDark,
-                    ),
-                    errorWidget: (_, __, ___) => Container(
-                      width: isDesktop ? 48 : 40,
-                      height: isDesktop ? 48 : 40,
-                      color: _surfaceDark,
-                      child: Icon(Icons.music_note,
-                          color: Colors.white24, size: isDesktop ? 24 : 18),
-                    ),
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
+              Navigator.of(context).pop();
+              widget.onPlayTracks!(_tracks, initialIndex: index);
+            }
+          },
+          child: Container(
+            padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 64 : 16, vertical: isDesktop ? 14 : 10),
+            child: Row(
+              children: [
+                // Track number
+                SizedBox(
+                  width: isDesktop ? 36 : 26,
+                  child: Text(
+                    '${index + 1}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.4),
+                        fontWeight: FontWeight.w600,
+                        fontSize: isDesktop ? 15 : 13),
                   ),
                 ),
-                SizedBox(width: isDesktop ? 20 : 12),
-              ],
+                SizedBox(width: isDesktop ? 16 : 10),
 
-              // Song info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(track.title,
+                // Artwork thumbnail with Expressive Shape
+                if (track.thumbnailUrl != null) ...[
+                  SizedBox(
+                    width: isDesktop ? 48 : 40,
+                    height: isDesktop ? 48 : 40,
+                    child: M3EContainer(
+                      itemShape,
+                      color: _surfaceDark,
+                      border: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        width: 1,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: CachedNetworkImage(
+                        imageUrl: track.thumbnailUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          color: _surfaceDark,
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          color: _surfaceDark,
+                          child: Icon(Icons.music_note_rounded,
+                              color: Colors.white24, size: isDesktop ? 22 : 18),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: isDesktop ? 16 : 10),
+                ],
+
+                // Song info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                            fontSize: isDesktop ? 16 : 14)),
-                    SizedBox(height: isDesktop ? 4 : 2),
-                    Text(track.artist,
+                            fontWeight: FontWeight.w600,
+                            fontSize: isDesktop ? 16 : 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        track.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            fontSize: isDesktop ? 14 : 12)),
-                  ],
+                            color: Colors.white.withValues(alpha: 0.45),
+                            fontSize: isDesktop ? 13 : 12),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
 
-              // Duration
-              Padding(
-                padding: EdgeInsets.only(left: isDesktop ? 24 : 12),
-                child: Text(
-                  _formatDuration(track.durationSeconds),
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontWeight: FontWeight.w500,
-                      fontSize: isDesktop ? 15 : 13),
+                // Duration
+                Padding(
+                  padding: EdgeInsets.only(left: isDesktop ? 20 : 10),
+                  child: Text(
+                    _formatDuration(track.durationSeconds),
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.4),
+                        fontWeight: FontWeight.w500,
+                        fontSize: isDesktop ? 14 : 12),
+                  ),
                 ),
-              ),
-
-              // More button
-              SizedBox(width: isDesktop ? 12 : 4),
-              Icon(Icons.more_vert,
-                  size: isDesktop ? 24 : 20,
-                  color: Colors.white.withValues(alpha: 0.3)),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -745,69 +719,101 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Widget _buildError({bool isDesktop = false}) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline,
-                size: isDesktop ? 64 : 48,
-                color: Colors.white.withValues(alpha: 0.3)),
-            SizedBox(height: isDesktop ? 24 : 16),
-            Text('Failed to load tracks',
+    return RepaintBoundary(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              M3EContainer(
+                Shapes.c4SidedCookie,
+                width: isDesktop ? 88 : 72,
+                height: isDesktop ? 88 : 72,
+                color: Colors.red.withValues(alpha: 0.15),
+                border: BorderSide(
+                  color: Colors.red.withValues(alpha: 0.3),
+                  width: 1.2,
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.error_outline_rounded,
+                    size: isDesktop ? 44 : 36,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ),
+              SizedBox(height: isDesktop ? 20 : 16),
+              Text(
+                'Failed to load tracks',
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
-                    fontSize: isDesktop ? 20 : 16,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(_error ?? '',
+                  color: Colors.white,
+                  fontSize: isDesktop ? 20 : 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _error ?? 'Unknown network error.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    fontSize: isDesktop ? 14 : 12)),
-            SizedBox(height: isDesktop ? 32 : 20),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _loading = true;
-                  _error = null;
-                });
-                _loadSongs();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primary,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 32 : 24,
-                    vertical: isDesktop ? 16 : 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: isDesktop ? 14 : 12,
+                ),
               ),
-              child: Text('Retry',
-                  style: TextStyle(fontSize: isDesktop ? 16 : 14)),
-            ),
-          ],
+              SizedBox(height: isDesktop ? 24 : 18),
+              M3EButton.icon(
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry'),
+                onPressed: () {
+                  setState(() {
+                    _loading = true;
+                    _error = null;
+                  });
+                  _loadSongs();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildEmpty({bool isDesktop = false}) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.queue_music,
-              size: isDesktop ? 64 : 48,
-              color: Colors.white.withValues(alpha: 0.2)),
-          SizedBox(height: isDesktop ? 24 : 16),
-          Text('No tracks available',
+    return RepaintBoundary(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            M3EContainer(
+              Shapes.c4SidedCookie,
+              width: isDesktop ? 88 : 72,
+              height: isDesktop ? 88 : 72,
+              color: _primary.withValues(alpha: 0.12),
+              border: BorderSide(
+                color: _primary.withValues(alpha: 0.25),
+                width: 1.2,
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.queue_music_rounded,
+                  size: isDesktop ? 44 : 36,
+                  color: _primary.withValues(alpha: 0.8),
+                ),
+              ),
+            ),
+            SizedBox(height: isDesktop ? 20 : 16),
+            Text(
+              'No tracks available',
               style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: isDesktop ? 18 : 15,
-                  fontWeight: FontWeight.w500)),
-        ],
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: isDesktop ? 18 : 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

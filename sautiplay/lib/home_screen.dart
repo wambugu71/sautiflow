@@ -1,7 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
@@ -109,10 +110,12 @@ class _HomeScreenState extends State<HomeScreen>
         return Scaffold(
           backgroundColor: _bgDark,
           body: _loading
-              ? Center(
-                  child: LoadingIndicatorM3E(
-                    color: _primary,
-                    containerColor: _primary.withValues(alpha: 0.15),
+              ? RepaintBoundary(
+                  child: Center(
+                    child: M3ELoadingIndicator(
+                      color: _primary,
+                      containerColor: _primary.withValues(alpha: 0.15),
+                    ),
                   ),
                 )
               : _error != null
@@ -256,7 +259,9 @@ class _HomeScreenState extends State<HomeScreen>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
+              M3EIconButton(
+                icon: const Icon(Icons.search_rounded, size: 20),
+                variant: M3EIconButtonVariant.tonal,
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -266,23 +271,11 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   );
                 },
-                tooltip: 'Search Music',
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _surfaceDark,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _surfaceBorder),
-                  ),
-                  child: const Icon(
-                    Icons.search_rounded,
-                    color: Colors.white70,
-                    size: 20,
-                  ),
-                ),
               ),
               const SizedBox(width: 8),
-              IconButton(
+              M3EIconButton(
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                variant: M3EIconButtonVariant.tonal,
                 onPressed: () {
                   setState(() {
                     _loading = true;
@@ -290,20 +283,6 @@ class _HomeScreenState extends State<HomeScreen>
                   });
                   _loadHome();
                 },
-                tooltip: 'Refresh',
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _surfaceDark,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _surfaceBorder),
-                  ),
-                  child: const Icon(
-                    Icons.refresh_rounded,
-                    color: Colors.white70,
-                    size: 20,
-                  ),
-                ),
               ),
             ],
           ),
@@ -317,126 +296,152 @@ class _HomeScreenState extends State<HomeScreen>
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
 
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => AlbumDetailScreen(
-              item: item,
-              onPlayTracks: widget.onPlayTracks,
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => AlbumDetailScreen(
+                  item: item,
+                  onPlayTracks: widget.onPlayTracks,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: EdgeInsets.all(isDesktop ? 20 : 14),
+            decoration: BoxDecoration(
+              color: _surfaceDark,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _surfaceBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Spotlight Artwork with Expressive Shape
+                RepaintBoundary(
+                  child: SizedBox(
+                    width: isDesktop ? 96 : 76,
+                    height: isDesktop ? 96 : 76,
+                    child: M3EContainer(
+                      Shapes.slanted,
+                      color: _surfaceDark,
+                      border: BorderSide(
+                        color: _primary.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: thumb != null
+                          ? CachedNetworkImage(
+                              imageUrl: thumb,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => Container(
+                                color: _surfaceBorder,
+                                child: const Icon(Icons.music_note_rounded,
+                                    color: Colors.white24, size: 28),
+                              ),
+                              errorWidget: (_, __, ___) => Container(
+                                color: _surfaceBorder,
+                                child: const Icon(Icons.music_note_rounded,
+                                    color: Colors.white24, size: 28),
+                              ),
+                            )
+                          : Container(
+                              color: _surfaceBorder,
+                              child: const Icon(Icons.music_note_rounded,
+                                  color: Colors.white24, size: 28),
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Text Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _primary.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'FEATURED',
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: isDesktop ? 18 : 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _textSecondary,
+                          fontSize: isDesktop ? 14 : 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Action Button with M3E Shape & Gradient
+                M3EContainer.circle(
+                  width: 44,
+                  height: 44,
+                  gradient: LinearGradient(
+                    colors: [
+                      _primary,
+                      _primary.withValues(alpha: 0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primary.withValues(alpha: 0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                  child: const Center(
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: EdgeInsets.all(isDesktop ? 20 : 14),
-        decoration: BoxDecoration(
-          color: _surfaceDark,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _surfaceBorder),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            // Spotlight Artwork
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: isDesktop ? 90 : 72,
-                height: isDesktop ? 90 : 72,
-                child: thumb != null
-                    ? CachedNetworkImage(
-                        imageUrl: thumb,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(
-                          color: _surfaceBorder,
-                          child: const Icon(Icons.music_note_rounded,
-                              color: Colors.white24, size: 28),
-                        ),
-                        errorWidget: (_, __, ___) => Container(
-                          color: _surfaceBorder,
-                          child: const Icon(Icons.music_note_rounded,
-                              color: Colors.white24, size: 28),
-                        ),
-                      )
-                    : Container(
-                        color: _surfaceBorder,
-                        child: const Icon(Icons.music_note_rounded,
-                            color: Colors.white24, size: 28),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            // Text Details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: _primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'FEATURED',
-                      style: TextStyle(
-                        color: _primary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isDesktop ? 18 : 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: isDesktop ? 14 : 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Action Button
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: _primary,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.play_arrow_rounded,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -447,21 +452,28 @@ class _HomeScreenState extends State<HomeScreen>
     return Padding(
       padding: EdgeInsets.fromLTRB(
         isDesktop ? 28 : 16,
-        isDesktop ? 24 : 18,
+        isDesktop ? 24 : 20,
         isDesktop ? 28 : 16,
         isDesktop ? 14 : 10,
       ),
       child: Row(
         children: [
           Container(
-            width: 3,
-            height: isDesktop ? 20 : 16,
+            width: 4,
+            height: isDesktop ? 22 : 18,
             decoration: BoxDecoration(
-              color: _primary,
-              borderRadius: BorderRadius.circular(2),
+              gradient: LinearGradient(
+                colors: [
+                  _primary,
+                  _primary.withValues(alpha: 0.6),
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.circular(4),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               title,
@@ -471,7 +483,7 @@ class _HomeScreenState extends State<HomeScreen>
                 color: Colors.white,
                 fontSize: isDesktop ? 22 : 18,
                 fontWeight: FontWeight.bold,
-                letterSpacing: -0.3,
+                letterSpacing: -0.4,
               ),
             ),
           ),
@@ -482,7 +494,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildSectionContent(HomeSection section) {
     return SizedBox(
-      height: 215,
+      height: 220,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -512,203 +524,226 @@ class _HomeScreenState extends State<HomeScreen>
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
     final cardWidth = isDesktop ? 180.0 : 144.0;
+    const Shapes itemShape = Shapes.slanted;
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => AlbumDetailScreen(
-              item: item,
-              onPlayTracks: widget.onPlayTracks,
+    return RepaintBoundary(
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => AlbumDetailScreen(
+                item: item,
+                onPlayTracks: widget.onPlayTracks,
+              ),
             ),
-          ),
-        );
-      },
-      child: SizedBox(
-        width: cardWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Thumbnail Card
-            Stack(
-              children: [
-                AspectRatio(
-                  aspectRatio: 1,
-                  child: Container(
-                    decoration: BoxDecoration(
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: cardWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Expressive Artwork Card
+              Stack(
+                children: [
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: M3EContainer(
+                      itemShape,
                       color: _surfaceDark,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.06)),
+                      border: BorderSide(
+                        color: _primary.withValues(alpha: 0.2),
+                        width: 1.2,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 10,
+                          blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
                       ],
+                      clipBehavior: Clip.antiAlias,
+                      child: thumb != null
+                          ? CachedNetworkImage(
+                              imageUrl: thumb,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => Container(
+                                color: _surfaceDark,
+                                child: const Center(
+                                  child: Icon(Icons.music_note_rounded,
+                                      color: Colors.white24, size: 30),
+                                ),
+                              ),
+                              errorWidget: (_, __, ___) => Container(
+                                color: _surfaceDark,
+                                child: const Center(
+                                  child: Icon(Icons.music_note_rounded,
+                                      color: Colors.white24, size: 30),
+                                ),
+                              ),
+                            )
+                          : const Center(
+                              child: Icon(Icons.music_note_rounded,
+                                  color: Colors.white24, size: 30),
+                            ),
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: thumb != null
-                        ? CachedNetworkImage(
-                            imageUrl: thumb,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => Container(
-                              color: _surfaceDark,
-                              child: const Center(
-                                child: Icon(Icons.music_note_rounded,
-                                    color: Colors.white24, size: 30),
-                              ),
-                            ),
-                            errorWidget: (_, __, ___) => Container(
-                              color: _surfaceDark,
-                              child: const Center(
-                                child: Icon(Icons.music_note_rounded,
-                                    color: Colors.white24, size: 30),
-                              ),
-                            ),
-                          )
-                        : const Center(
-                            child: Icon(Icons.music_note_rounded,
-                                color: Colors.white24, size: 30),
-                          ),
                   ),
-                ),
-                // Play overlay badge
-                Positioned(
-                  right: 8,
-                  bottom: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: _bgDark.withValues(alpha: 0.75),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.15),
+                  // Floating Play Badge
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            _primary,
+                            _primary.withValues(alpha: 0.85),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 16,
-                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Title
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isDesktop ? 14 : 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.2,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Title
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isDesktop ? 14 : 13,
-                fontWeight: FontWeight.w600,
               ),
-            ),
-            const SizedBox(height: 2),
-            // Subtitle
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
+              const SizedBox(height: 2),
+              // Subtitle
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: _surfaceDark,
-                shape: BoxShape.circle,
-                border: Border.all(color: _surfaceBorder),
-              ),
-              child: Icon(
-                Icons.wifi_off_rounded,
-                size: 44,
-                color: _textSecondary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Could not load home feed',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Check your network connection and try again.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _textSecondary,
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _loading = true;
-                      _error = null;
-                    });
-                    _loadHome();
-                  },
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
+    return RepaintBoundary(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Expressive Icon Shape Badge
+              M3EContainer(
+                Shapes.c4SidedCookie,
+                width: 96,
+                height: 96,
+                gradient: LinearGradient(
+                  colors: [
+                    _primary,
+                    _primary.withValues(alpha: 0.7),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                if (widget.onGoToDownloads != null) ...[
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: widget.onGoToDownloads,
-                    icon: const Icon(Icons.library_music_rounded, size: 18),
-                    label: const Text('Go to Library Tracks'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: BorderSide(color: _surfaceBorder),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                    ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primary.withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 6),
                   ),
                 ],
-              ],
-            ),
-          ],
+                child: const Center(
+                  child: Icon(
+                    Icons.wifi_off_rounded,
+                    size: 46,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'No Internet Connection',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Could not load online home feed. Check your connection or enjoy your offline library tracks.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  M3EButton.icon(
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Retry'),
+                    onPressed: () {
+                      setState(() {
+                        _loading = true;
+                        _error = null;
+                      });
+                      _loadHome();
+                    },
+                  ),
+                  if (widget.onGoToDownloads != null) ...[
+                    const SizedBox(width: 12),
+                    M3EButton.icon(
+                      icon: const Icon(Icons.library_music_rounded, size: 18),
+                      label: const Text('Go to Library Tracks'),
+                      onPressed: widget.onGoToDownloads,
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,7 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 
 import 'album_detail_screen.dart';
 import 'services/app_theme_service.dart';
@@ -152,10 +153,13 @@ class _SearchScreenState extends State<SearchScreen> {
                     _buildFilterChips(isDesktop: isDesktop),
                     Expanded(
                       child: _isSearching
-                          ? Center(
-                              child: LoadingIndicatorM3E(
+                          ? RepaintBoundary(
+                              child: Center(
+                                child: M3ELoadingIndicator(
                                   color: _primary,
-                                  containerColor: _primary.withAlpha(50)),
+                                  containerColor: _primary.withValues(alpha: 0.15),
+                                ),
+                              ),
                             )
                           : _error != null
                               ? _buildError()
@@ -188,23 +192,10 @@ class _SearchScreenState extends State<SearchScreen> {
               if (canPop)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
-                  child: IconButton(
+                  child: M3EIconButton(
+                    icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                    variant: M3EIconButtonVariant.tonal,
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _surfaceDark,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.arrow_back_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
                   ),
                 ),
               Text(
@@ -213,6 +204,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   color: Colors.white,
                   fontSize: isDesktop ? 34 : 26,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
                 ),
               ),
             ],
@@ -222,7 +214,7 @@ class _SearchScreenState extends State<SearchScreen> {
             height: isDesktop ? 56 : 48,
             decoration: BoxDecoration(
               color: _surfaceDark,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.1),
                 width: 1,
@@ -232,8 +224,8 @@ class _SearchScreenState extends State<SearchScreen> {
               children: [
                 Padding(
                   padding: EdgeInsets.only(left: 16, right: isDesktop ? 16 : 8),
-                  child: Icon(Icons.search,
-                      color: Colors.white54, size: isDesktop ? 28 : 24),
+                  child: Icon(Icons.search_rounded,
+                      color: Colors.white54, size: isDesktop ? 26 : 22),
                 ),
                 Expanded(
                   child: TextField(
@@ -255,7 +247,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 if (_searchController.text.isNotEmpty)
                   IconButton(
-                    icon: Icon(Icons.close,
+                    icon: Icon(Icons.close_rounded,
                         color: Colors.white54, size: isDesktop ? 24 : 20),
                     onPressed: () {
                       _searchController.clear();
@@ -277,37 +269,17 @@ class _SearchScreenState extends State<SearchScreen> {
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(
-          horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 20 : 12),
+          horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 10),
       child: Row(
         children: _filters.map((filter) {
           final isSelected = _selectedFilter == filter;
           return Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: InkWell(
-              onTap: () => setState(() => _selectedFilter = filter),
-              borderRadius: BorderRadius.circular(24),
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 20 : 16,
-                    vertical: isDesktop ? 12 : 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? _primary : _surfaceDark,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: isSelected
-                        ? _primary
-                        : Colors.white.withValues(alpha: 0.1),
-                  ),
-                ),
-                child: Text(
-                  filter,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.white70,
-                    fontWeight: FontWeight.w500,
-                    fontSize: isDesktop ? 15 : 14,
-                  ),
-                ),
-              ),
+            padding: const EdgeInsets.only(right: 8),
+            child: M3EChip(
+              label: filter,
+              type: M3EChipType.filter,
+              selected: isSelected,
+              onPressed: () => setState(() => _selectedFilter = filter),
             ),
           );
         }).toList(),
@@ -316,50 +288,91 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmptyState({bool isDesktop = false}) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search,
-              size: isDesktop ? 96 : 64,
-              color: Colors.white.withValues(alpha: 0.2)),
-          SizedBox(height: isDesktop ? 24 : 16),
-          Text(
-            'Find your favorite music',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: isDesktop ? 20 : 16,
+    return RepaintBoundary(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            M3EContainer(
+              Shapes.c4SidedCookie,
+              width: isDesktop ? 88 : 72,
+              height: isDesktop ? 88 : 72,
+              color: _primary.withValues(alpha: 0.12),
+              border: BorderSide(
+                color: _primary.withValues(alpha: 0.25),
+                width: 1.2,
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.search_rounded,
+                  size: isDesktop ? 44 : 36,
+                  color: _primary.withValues(alpha: 0.8),
+                ),
+              ),
             ),
-          ),
-        ],
+            SizedBox(height: isDesktop ? 20 : 16),
+            Text(
+              'Find your favorite music',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: isDesktop ? 18 : 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline,
-                size: 48, color: Colors.red.withValues(alpha: 0.8)),
-            const SizedBox(height: 16),
-            const Text(
-              'Search failed',
-              style: TextStyle(
+    return RepaintBoundary(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              M3EContainer(
+                Shapes.c4SidedCookie,
+                width: 76,
+                height: 76,
+                color: Colors.red.withValues(alpha: 0.15),
+                border: BorderSide(
+                  color: Colors.red.withValues(alpha: 0.3),
+                  width: 1.2,
+                ),
+                child: const Center(
+                  child: Icon(
+                    Icons.error_outline_rounded,
+                    size: 38,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Search failed',
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _error ?? 'Unknown error',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-            ),
-          ],
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _error ?? 'Unknown error occurred.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              M3EButton.icon(
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry Search'),
+                onPressed: () => _performSearch(_searchController.text),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -423,104 +436,121 @@ class _SearchScreenState extends State<SearchScreen> {
     final thumb = _itemThumbnail(item);
     final isExplicit =
         item is SongDetailed && item.name.toLowerCase().contains('explicit');
+    const Shapes itemShape = Shapes.slanted;
 
-    return InkWell(
-      onTap: () => _handleItemTap(item),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 12),
-        child: Row(
-          children: [
-            Container(
-              width: isDesktop ? 120 : 80,
-              height: isDesktop ? 120 : 80,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: _surfaceDark,
-                image: thumb != null
-                    ? DecorationImage(
-                        image: CachedNetworkImageProvider(thumb),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+    return RepaintBoundary(
+      child: InkWell(
+        onTap: () => _handleItemTap(item),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 12),
+          child: Row(
+            children: [
+              SizedBox(
+                width: isDesktop ? 110 : 80,
+                height: isDesktop ? 110 : 80,
+                child: M3EContainer(
+                  item is ArtistDetailed ? Shapes.circle : itemShape,
+                  color: _surfaceDark,
+                  border: BorderSide(
+                    color: _primary.withValues(alpha: 0.25),
+                    width: 1.2,
                   ),
-                ],
-              ),
-              child: thumb == null
-                  ? const Center(
-                      child: Icon(Icons.music_note,
-                          color: Colors.white24, size: 32))
-                  : null,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isDesktop ? 22 : 18,
-                      fontWeight: FontWeight.bold,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: isDesktop ? 10 : 6),
-                  Row(
-                    children: [
-                      if (isExplicit) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(4),
+                  ],
+                  clipBehavior: Clip.antiAlias,
+                  child: thumb != null
+                      ? CachedNetworkImage(
+                          imageUrl: thumb,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                            color: _surfaceDark,
+                            child: const Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 30),
                           ),
-                          child: Text(
-                            'E',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isDesktop ? 12 : 10,
-                                fontWeight: FontWeight.bold),
+                          errorWidget: (_, __, ___) => Container(
+                            color: _surfaceDark,
+                            child: const Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 30),
                           ),
+                        )
+                      : const Center(
+                          child: Icon(Icons.music_note_rounded,
+                              color: Colors.white24, size: 30),
                         ),
-                        const SizedBox(width: 8),
-                      ],
-                      Expanded(
-                        child: Text(
-                          subtitle,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: isDesktop ? 16 : 14,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if (_getTrailingText(item) != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: Text(
-                  _getTrailingText(item)!,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: isDesktop ? 14 : 12,
-                  ),
                 ),
               ),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isDesktop ? 20 : 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: isDesktop ? 8 : 4),
+                    Row(
+                      children: [
+                        if (isExplicit) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'E',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: isDesktop ? 12 : 10,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: Text(
+                            subtitle,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: isDesktop ? 15 : 13,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (_getTrailingText(item) != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: Text(
+                    _getTrailingText(item)!,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: isDesktop ? 14 : 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -530,80 +560,98 @@ class _SearchScreenState extends State<SearchScreen> {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
+    final isArtist = item is ArtistDetailed;
 
-    return InkWell(
-      onTap: () => _handleItemTap(item),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 16 : 12),
-        child: Row(
-          children: [
-            Container(
-              width: isDesktop ? 64 : 56,
-              height: isDesktop ? 64 : 56,
-              decoration: BoxDecoration(
-                borderRadius: item is ArtistDetailed
-                    ? BorderRadius.circular(isDesktop ? 32 : 28)
-                    : BorderRadius.circular(8),
-                color: _surfaceDark,
-                image: thumb != null
-                    ? DecorationImage(
-                        image: CachedNetworkImageProvider(thumb),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-              ),
-              child: thumb == null
-                  ? Center(
-                      child: Icon(
-                        item is ArtistDetailed
-                            ? Icons.person
-                            : Icons.music_note,
-                        color: Colors.white24,
-                      ),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isDesktop ? 18 : 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+    return RepaintBoundary(
+      child: InkWell(
+        onTap: () => _handleItemTap(item),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16, vertical: isDesktop ? 14 : 10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: isDesktop ? 60 : 52,
+                height: isDesktop ? 60 : 52,
+                child: M3EContainer(
+                  isArtist ? Shapes.circle : Shapes.slanted,
+                  color: _surfaceDark,
+                  border: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    width: 1,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
-                      fontSize: isDesktop ? 15 : 14,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            if (_getTrailingText(item) != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: Text(
-                  _getTrailingText(item)!,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: isDesktop ? 14 : 12,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: thumb != null
+                      ? CachedNetworkImage(
+                          imageUrl: thumb,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                            color: _surfaceDark,
+                            child: Icon(
+                              isArtist ? Icons.person_rounded : Icons.music_note_rounded,
+                              color: Colors.white24,
+                              size: 22,
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => Container(
+                            color: _surfaceDark,
+                            child: Icon(
+                              isArtist ? Icons.person_rounded : Icons.music_note_rounded,
+                              color: Colors.white24,
+                              size: 22,
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Icon(
+                            isArtist ? Icons.person_rounded : Icons.music_note_rounded,
+                            color: Colors.white24,
+                            size: 22,
+                          ),
+                        ),
                 ),
               ),
-          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isDesktop ? 17 : 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: isDesktop ? 14 : 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              if (_getTrailingText(item) != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: Text(
+                    _getTrailingText(item)!,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: isDesktop ? 14 : 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
