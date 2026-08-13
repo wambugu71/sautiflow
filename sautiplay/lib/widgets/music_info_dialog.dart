@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import '../services/app_theme_service.dart';
 
 class MusicInfoDialog extends StatefulWidget {
@@ -46,6 +47,70 @@ class MusicInfoDialog extends StatefulWidget {
     required this.duration,
     this.onSaveTags,
   });
+
+  static Future<void> show(
+    BuildContext context, {
+    required String title,
+    required String artist,
+    String album = 'Unknown Album',
+    String genre = 'Unknown Genre',
+    String year = '',
+    String trackNumber = '',
+    Uint8List? albumArt,
+    required String sourceType,
+    String? videoId,
+    String codec = 'MP3',
+    String sampleRate = '44.1 kHz',
+    String channels = 'STEREO',
+    String bitDepth = '16 bit',
+    int fileSizeBytes = 0,
+    required Duration duration,
+    void Function({
+      required String title,
+      required String artist,
+      required String album,
+      required String genre,
+      required String year,
+      required String trackNumber,
+    })? onSaveTags,
+  }) async {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final dialogWidget = MusicInfoDialog(
+      title: title,
+      artist: artist,
+      album: album,
+      genre: genre,
+      year: year,
+      trackNumber: trackNumber,
+      albumArt: albumArt,
+      sourceType: sourceType,
+      videoId: videoId,
+      codec: codec,
+      sampleRate: sampleRate,
+      channels: channels,
+      bitDepth: bitDepth,
+      fileSizeBytes: fileSizeBytes,
+      duration: duration,
+      onSaveTags: onSaveTags,
+    );
+
+    if (isMobile) {
+      await M3EBottomSheet.show<void>(
+        context,
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: dialogWidget,
+          ),
+        ),
+      );
+    } else {
+      await M3EDialog.show<void>(
+        context,
+        dialog: dialogWidget,
+      );
+    }
+  }
 
   @override
   State<MusicInfoDialog> createState() => _MusicInfoDialogState();
@@ -137,227 +202,171 @@ Path/ID: ${widget.videoId ?? 'N/A'}
   Widget build(BuildContext context) {
     final primaryColor = AppThemeService.instance.currentData.primary;
     final surfaceColor = AppThemeService.instance.currentData.cardDark;
-    final cardBgColor = AppThemeService.instance.currentData.bgDark;
     final textDark = AppThemeService.instance.currentData.textDark;
 
     final isLocal = widget.sourceType.toLowerCase() == 'local';
 
-    return Dialog(
-      backgroundColor: cardBgColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24.0),
-        side: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 1),
-      ),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ── Header Card ──────────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.05),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    // Album Art
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: primaryColor.withValues(alpha: 0.2),
-                        image: widget.albumArt != null && widget.albumArt!.isNotEmpty
-                            ? DecorationImage(
-                                image: MemoryImage(widget.albumArt!),
-                                fit: BoxFit.cover,
-                              )
-                            : const DecorationImage(
-                                image: AssetImage('assets/icon/splash.png'),
-                                fit: BoxFit.cover,
-                              ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    // Title & Artist & Source Badge
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _titleController.text.isNotEmpty
-                                ? _titleController.text
-                                : widget.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _artistController.text.isNotEmpty
-                                ? _artistController.text
-                                : widget.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: textDark,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isLocal
-                                  ? const Color(0xFF0EA5E9).withValues(alpha: 0.2)
-                                  : const Color(0xFF8B5CF6).withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: isLocal
-                                    ? const Color(0xFF0EA5E9).withValues(alpha: 0.5)
-                                    : const Color(0xFF8B5CF6).withValues(alpha: 0.5),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Text(
-                              isLocal ? 'LOCAL FILE' : 'ONLINE STREAM',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                                color: isLocal
-                                    ? const Color(0xFF38BDF8)
-                                    : const Color(0xFFA78BFA),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+    final screenHeight = MediaQuery.of(context).size.height;
+    final maxContentHeight = (screenHeight * 0.55).clamp(280.0, 480.0);
+
+    return M3EDialog(
+      title: 'Track Info & Tags',
+      topDivider: true,
+      bottomDivider: true,
+      content: SizedBox(
+        width: 520,
+        height: maxContentHeight,
+        child: Column(
+          children: [
+            // ── Header Card ──────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.05),
                 ),
               ),
-              const SizedBox(height: 16),
-
-              // ── Tab Switcher ──────────────────────────────────────────────
-              Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _selectedTab = 0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _selectedTab == 0 ? primaryColor : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Track Info',
-                              style: TextStyle(
-                                color: _selectedTab == 0 ? Colors.white : textDark,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _selectedTab = 1),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _selectedTab == 1 ? primaryColor : Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Edit Tags',
-                              style: TextStyle(
-                                color: _selectedTab == 1 ? Colors.white : textDark,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Content Area ──────────────────────────────────────────────
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: _selectedTab == 0 ? _buildTrackInfoTab() : _buildEditTagsTab(),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ── Action Footer ─────────────────────────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Row(
                 children: [
-                  if (_selectedTab == 0)
-                    TextButton.icon(
-                      onPressed: () => _copyToClipboard(context),
-                      icon: Icon(Icons.copy, size: 16, color: primaryColor),
-                      label: Text('Copy Metadata', style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w600)),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text('Close', style: TextStyle(color: textDark)),
-                      ),
-                      if (_selectedTab == 1) ...[
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _handleSaveTags,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  // Album Art
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: primaryColor.withValues(alpha: 0.2),
+                      image:
+                          widget.albumArt != null && widget.albumArt!.isNotEmpty
+                              ? DecorationImage(
+                                  image: MemoryImage(widget.albumArt!),
+                                  fit: BoxFit.cover,
+                                )
+                              : const DecorationImage(
+                                  image: AssetImage('assets/icon/splash.png'),
+                                  fit: BoxFit.cover,
+                                ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Title & Artist & Source Badge
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _titleController.text.isNotEmpty
+                              ? _titleController.text
+                              : widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
-                          child: const Text('Save Tags', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _artistController.text.isNotEmpty
+                              ? _artistController.text
+                              : widget.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: textDark,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isLocal
+                                ? const Color(0xFF0EA5E9).withValues(alpha: 0.2)
+                                : const Color(0xFF8B5CF6)
+                                    .withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isLocal
+                                  ? const Color(0xFF0EA5E9)
+                                      .withValues(alpha: 0.5)
+                                  : const Color(0xFF8B5CF6)
+                                      .withValues(alpha: 0.5),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Text(
+                            isLocal ? 'LOCAL FILE' : 'ONLINE STREAM',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                              color: isLocal
+                                  ? const Color(0xFF38BDF8)
+                                  : const Color(0xFFA78BFA),
+                            ),
+                          ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Tab Switcher ──────────────────────────────────────────────
+            M3ESegmentedButton<int>(
+              segments: const [
+                M3ESegment(value: 0, label: 'Track Info'),
+                M3ESegment(value: 1, label: 'Edit Tags'),
+              ],
+              selected: {_selectedTab},
+              onSelectionChanged: (val) {
+                if (val.isNotEmpty) {
+                  setState(() => _selectedTab = val.first);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // ── Content Area ──────────────────────────────────────────────
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: _selectedTab == 0
+                    ? _buildTrackInfoTab()
+                    : _buildEditTagsTab(),
+              ),
+            ),
+          ],
         ),
       ),
+      actions: [
+        if (_selectedTab == 0)
+          M3EButton(
+            onPressed: () => _copyToClipboard(context),
+            child: Row(
+              children: [
+                const Icon(Icons.copy),
+                const SizedBox(width: 4),
+                const Text('Copy Metadata')
+              ],
+            ),
+          ),
+        M3EButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        if (_selectedTab == 1)
+          M3EButton(
+            onPressed: _handleSaveTags,
+            child: const Text('Save Tags'),
+          ),
+      ],
     );
   }
 
@@ -412,7 +421,8 @@ Path/ID: ${widget.videoId ?? 'N/A'}
         if (widget.videoId != null && widget.videoId!.isNotEmpty)
           _buildInfoTile(
             icon: Icons.link,
-            label: widget.sourceType == 'local' ? 'File Path' : 'Stream URL / ID',
+            label:
+                widget.sourceType == 'local' ? 'File Path' : 'Stream URL / ID',
             value: widget.videoId!,
             isCopyable: true,
           ),
@@ -448,12 +458,18 @@ Path/ID: ${widget.videoId ?? 'N/A'}
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: 11, color: textDark, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: textDark,
+                      fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 2),
                 SelectableText(
                   value,
-                  style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600),
                   maxLines: 2,
                 ),
               ],
@@ -465,7 +481,9 @@ Path/ID: ${widget.videoId ?? 'N/A'}
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: value));
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Copied $label'), duration: const Duration(seconds: 1)),
+                  SnackBar(
+                      content: Text('Copied $label'),
+                      duration: const Duration(seconds: 1)),
                 );
               },
             ),
@@ -536,28 +554,33 @@ Path/ID: ${widget.videoId ?? 'N/A'}
     final surfaceColor = AppThemeService.instance.currentData.cardDark;
     final primaryColor = AppThemeService.instance.currentData.primary;
 
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      style: const TextStyle(color: Colors.white, fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
-        prefixIcon: Icon(icon, color: primaryColor, size: 20),
-        filled: true,
-        fillColor: surfaceColor,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: primaryColor, width: 1.5),
+    return Material(
+      color: Colors.transparent,
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle:
+              TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13),
+          prefixIcon: Icon(icon, color: primaryColor, size: 20),
+          filled: true,
+          fillColor: surfaceColor,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 1.5),
+          ),
         ),
       ),
     );

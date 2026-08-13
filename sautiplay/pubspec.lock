@@ -414,6 +414,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  flutter_m3shapes_extended:
+    dependency: "direct main"
+    description:
+      name: flutter_m3shapes_extended
+      sha256: "35d650d68f9f6c5997f237bd55b64e77de5346ade25835210381e94fddfc3e0c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.0"
   flutter_native_splash:
     dependency: "direct main"
     description:
@@ -640,6 +648,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.12.19"
+  material_3_expressive:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: main
+      resolved-ref: d48133fee357522a51cdd478f3ec7f4789190efe
+      url: "https://github.com/wambugu71/material_3_expressive.git"
+    source: git
+    version: "1.0.5"
   material_color_utilities:
     dependency: "direct main"
     description:
@@ -688,6 +705,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.4"
+  motor:
+    dependency: transitive
+    description:
+      name: motor
+      sha256: cbd49f21b00e568c2b1a55f134ed803614a107782f4fea7769693bca32940c58
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
   msix:
     dependency: "direct dev"
     description:
@@ -744,6 +769,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  path_drawing:
+    dependency: transitive
+    description:
+      name: path_drawing
+      sha256: bbb1934c0cbb03091af082a6389ca2080345291ef07a5fa6d6e078ba8682f977
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
+  path_parsing:
+    dependency: transitive
+    description:
+      name: path_parsing
+      sha256: "883402936929eac138ee0a45da5b0f2c80f89913e6dc3bf77eb65b84b409c6ca"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
   path_provider:
     dependency: "direct main"
     description:
@@ -1269,5 +1310,5 @@ packages:
     source: hosted
     version: "0.1.1"
 sdks:
-  dart: ">=3.11.0 <4.0.0"
+  dart: ">=3.11.1 <4.0.0"
   flutter: ">=3.38.4"

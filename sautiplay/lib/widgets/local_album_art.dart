@@ -2,6 +2,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/components/loading_indicator/m3e_loading_indicator.dart';
+import '../main.dart';
 
 // Global cache to prevent re-reading files on scroll
 final Map<String, Uint8List?> _albumArtCache = {};
@@ -13,7 +16,7 @@ Future<Uint8List?> _extractArtTask(String path) async {
     if (metadata.pictures.isNotEmpty) {
       return metadata.pictures.first.bytes;
     }
-    
+
     // Fallback to directory
     final dir = File(path).parent;
     if (dir.existsSync()) {
@@ -21,8 +24,10 @@ Future<Uint8List?> _extractArtTask(String path) async {
       for (final f in files) {
         if (f is File) {
           final lowerPath = f.path.toLowerCase();
-          if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || 
-              lowerPath.endsWith('.png') || lowerPath.endsWith('.webp')) {
+          if (lowerPath.endsWith('.jpg') ||
+              lowerPath.endsWith('.jpeg') ||
+              lowerPath.endsWith('.png') ||
+              lowerPath.endsWith('.webp')) {
             return f.readAsBytesSync();
           }
         }
@@ -39,6 +44,8 @@ class LocalAlbumArt extends StatefulWidget {
   final double size;
   final double borderRadius;
   final IconData fallbackIcon;
+  final Shapes shape;
+  final bool useM3Shape;
 
   const LocalAlbumArt({
     super.key,
@@ -46,6 +53,8 @@ class LocalAlbumArt extends StatefulWidget {
     this.size = 64.0,
     this.borderRadius = 12.0,
     this.fallbackIcon = Icons.music_note,
+    this.shape = Shapes.pill,
+    this.useM3Shape = true,
   });
 
   @override
@@ -91,7 +100,7 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
 
     try {
       final bytes = await compute(_extractArtTask, widget.path);
-      
+
       _albumArtAttempted[widget.path] = true;
       _albumArtCache[widget.path] = bytes;
 
@@ -115,71 +124,101 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
 
   @override
   Widget build(BuildContext context) {
+    final themeData = AppThemeProvider.of(context);
+    final cardColor = themeData.cardDark;
     final double? containerWidth = widget.size.isFinite ? widget.size : null;
     final double? containerHeight = widget.size.isFinite ? widget.size : null;
 
-    return Container(
-      width: containerWidth,
-      height: containerHeight,
-      decoration: BoxDecoration(
-        color: const Color(0xFF18232E),
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(51),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          double side = 48.0;
-          if (constraints.maxWidth.isFinite && constraints.maxWidth > 0) {
-            side = constraints.maxWidth;
-          } else if (widget.size.isFinite && widget.size > 0) {
-            side = widget.size;
-          }
-          final double iconSize = (side * 0.5).clamp(12.0, 120.0);
-          final double progressSize = (side * 0.4).clamp(12.0, 48.0);
+    final Widget innerContent = LayoutBuilder(
+      builder: (context, constraints) {
+        double side = 48.0;
+        if (constraints.maxWidth.isFinite && constraints.maxWidth > 0) {
+          side = constraints.maxWidth;
+        } else if (widget.size.isFinite && widget.size > 0) {
+          side = widget.size;
+        }
+        final double iconSize = (side * 0.5).clamp(12.0, 120.0);
+        final double progressSize = (side * 0.4).clamp(12.0, 48.0);
 
-          if (_isLoading) {
-            return Center(
-              child: SizedBox(
+        if (_isLoading) {
+          return Center(
+            child: SizedBox(
                 width: progressSize,
                 height: progressSize,
-                child: const CircularProgressIndicator(
-                  strokeWidth: 2.0,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
+                child: M3ELoadingIndicator(
+                  color: themeData.primary.withAlpha(180),
+                  containerColor: themeData.primary.withAlpha(100),
+                  variant: M3ELoadingIndicatorVariant.contained,
+                ) // CircularProgressIndicator(
+                //strokeWidth: 2.0,
+                //valueColor: AlwaysStoppedAnimation<Color>(themeData.primary.withAlpha(180)),
+                //),
                 ),
-              ),
-            );
-          }
+          );
+        }
 
-          if (_imageData != null && !_hasError) {
-            return Image.memory(
-              _imageData!,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                debugPrint(
-                    '[LocalAlbumArt] Image.memory decode error for ${widget.path}: $error');
-                return _buildFallback(iconSize);
-              },
-            );
-          }
+        if (_imageData != null && !_hasError) {
+          return Image.memory(
+            _imageData!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint(
+                  '[LocalAlbumArt] Image.memory decode error for ${widget.path}: $error');
+              return _buildFallback(iconSize, themeData.textDark);
+            },
+          );
+        }
 
-          return _buildFallback(iconSize);
-        },
+        return _buildFallback(iconSize, themeData.textDark);
+      },
+    );
+
+    if (widget.useM3Shape) {
+      return RepaintBoundary(
+        child: M3EContainer(
+          widget.shape,
+          width: containerWidth,
+          height: containerHeight,
+          color: cardColor,
+          clipBehavior: Clip.antiAlias,
+          /*boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(51),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],*/
+          child: innerContent,
+        ),
+      );
+    }
+
+    return RepaintBoundary(
+      child: Container(
+        width: containerWidth,
+        height: containerHeight,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(widget.borderRadius),
+          /*boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(51),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],*/
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: innerContent,
       ),
     );
   }
 
-  Widget _buildFallback(double iconSize) {
+  Widget _buildFallback(double iconSize, Color iconColor) {
     return Center(
       child: Icon(
         widget.fallbackIcon,
-        color: Colors.white.withAlpha(128),
+        color: iconColor,
         size: iconSize.isFinite ? iconSize : 24.0,
       ),
     );

@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
@@ -38,8 +40,10 @@ class LibraryScreen extends StatefulWidget {
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
   final IsolateAudioPlayer? player;
-  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
-  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
+  final void Function(String filePath, String title, String artist)?
+      onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
+      onPlayFtpFolder;
   final bool isNested;
   final int initialTabIndex;
 
@@ -163,7 +167,8 @@ class _LibraryScreenState extends State<LibraryScreen>
           label: 'M3U Playlists',
           extensions: <String>['m3u', 'm3u8'],
         );
-        final XFile? file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
+        final XFile? file =
+            await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
         path = file?.path;
       } else {
         final result = await FilePicker.pickFiles(
@@ -188,7 +193,10 @@ class _LibraryScreenState extends State<LibraryScreen>
       final tracks = sources.map((s) {
         return LocalSongItem(
           path: s.uri.scheme == 'file' ? s.uri.toFilePath() : s.uri.toString(),
-          title: s.title ?? (s.uri.scheme == 'file' ? p.basenameWithoutExtension(s.uri.toFilePath()) : s.uri.toString()),
+          title: s.title ??
+              (s.uri.scheme == 'file'
+                  ? p.basenameWithoutExtension(s.uri.toFilePath())
+                  : s.uri.toString()),
           artist: s.artist ?? 'Unknown Artist',
           album: playlistName,
           sizeBytes: 0,
@@ -210,7 +218,9 @@ class _LibraryScreenState extends State<LibraryScreen>
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Imported M3U playlist "$playlistName" (${tracks.length} tracks)')),
+          SnackBar(
+              content: Text(
+                  'Imported M3U playlist "$playlistName" (${tracks.length} tracks)')),
         );
       }
     } catch (e) {
@@ -227,55 +237,122 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<void> _importM3uUrlDialog() async {
     final urlController = TextEditingController();
     final nameController = TextEditingController();
+    final textDark = AppThemeService.instance.currentData.textDark;
+    final cardDark = AppThemeService.instance.currentData.cardDark;
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF18232E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Import M3U / M3U8 Stream URL', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Playlist Name (Optional)',
-                labelStyle: TextStyle(color: AppThemeService.instance.currentData.textDark),
-                hintText: 'e.g. Live Radio Stations',
-                hintStyle: TextStyle(color: Color(0xFF64748B)),
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    final dialogContent = Material(
+      color: Colors.transparent,
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: nameController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Playlist Name (Optional)',
+              labelStyle: TextStyle(color: textDark),
+              hintText: 'e.g. Live Radio Stations',
+              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              filled: true,
+              fillColor: cardDark,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
               ),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: urlController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'M3U / M3U8 URL',
-                labelStyle: TextStyle(color: AppThemeService.instance.currentData.textDark),
-                hintText: 'https://example.com/playlist.m3u8',
-                hintStyle: TextStyle(color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: urlController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'M3U / M3U8 URL',
+              labelStyle: TextStyle(color: textDark),
+              hintText: 'https://example.com/playlist.m3u8',
+              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              filled: true,
+              fillColor: cardDark,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
               ),
             ),
+          ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel', style: TextStyle(color: AppThemeService.instance.currentData.textDark)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppThemeService.instance.currentData.primary,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Import'),
-          ),
-        ],
       ),
     );
+
+    final confirm = isMobile
+        ? await M3EBottomSheet.show<bool>(
+            context,
+            builder: (ctx) => Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Import Stream URL',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  dialogContent,
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      M3EButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 10),
+                      M3EButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Import Stream'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          )
+        : await M3EDialog.show<bool>(
+            context,
+            dialog: M3EDialog(
+              title: 'Import Stream URL',
+              topDivider: true,
+              bottomDivider: true,
+              content: SizedBox(
+                width: 480,
+                child: dialogContent,
+              ),
+              actions: [
+                M3EButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                M3EButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Import Stream'),
+                ),
+              ],
+            ),
+          );
 
     if (confirm != true || urlController.text.trim().isEmpty) return;
 
@@ -286,11 +363,15 @@ class _LibraryScreenState extends State<LibraryScreen>
 
     try {
       final sources = await AudioSource.fromM3u(url);
-      final playlistName = customName.isNotEmpty ? customName : 'M3U Web Stream';
+      final playlistName =
+          customName.isNotEmpty ? customName : 'M3U Web Stream';
       final tracks = sources.map((s) {
         return LocalSongItem(
           path: s.uri.scheme == 'file' ? s.uri.toFilePath() : s.uri.toString(),
-          title: s.title ?? (s.uri.scheme == 'file' ? p.basenameWithoutExtension(s.uri.toFilePath()) : s.uri.toString()),
+          title: s.title ??
+              (s.uri.scheme == 'file'
+                  ? p.basenameWithoutExtension(s.uri.toFilePath())
+                  : s.uri.toString()),
           artist: s.artist ?? 'Radio Stream',
           album: playlistName,
           sizeBytes: 0,
@@ -312,7 +393,9 @@ class _LibraryScreenState extends State<LibraryScreen>
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Imported M3U stream "$playlistName" (${tracks.length} tracks)')),
+          SnackBar(
+              content: Text(
+                  'Imported M3U stream "$playlistName" (${tracks.length} tracks)')),
         );
       }
     } catch (e) {
@@ -338,51 +421,64 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _showM3uPlaylistOptions(SavedM3uPlaylist playlist) async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF18232E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: Icon(Icons.play_arrow, color: AppThemeService.instance.currentData.primary),
-            title: Text('Play "${playlist.name}"', style: const TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              _playM3uPlaylist(playlist);
-            },
+    await M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              M3EListItem(
+                headline: 'Play "${playlist.name}"',
+                leading: Icon(
+                  Icons.play_arrow_rounded,
+                  color: AppThemeService.instance.currentData.primary,
+                ),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _playM3uPlaylist(playlist);
+                },
+              ),
+              M3EListItem(
+                headline: 'Export Playlist as .m3u8',
+                leading: const Icon(
+                  Icons.file_upload_outlined,
+                  color: Colors.amberAccent,
+                ),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _exportPlaylistToM3u8(playlist.name, playlist.tracks);
+                },
+              ),
+              M3EListItem(
+                headline: 'Delete Playlist',
+                leading: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.redAccent,
+                ),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await M3uPlaylistService.instance.deletePlaylist(playlist.id);
+                  await _loadSavedM3uPlaylists();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Deleted playlist "${playlist.name}"'),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.file_upload, color: Colors.amberAccent),
-            title: const Text('Export Playlist as .m3u8', style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.of(ctx).pop();
-              _exportPlaylistToM3u8(playlist.name, playlist.tracks);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete, color: Colors.redAccent),
-            title: const Text('Delete Playlist', style: TextStyle(color: Colors.redAccent)),
-            onTap: () async {
-              Navigator.of(ctx).pop();
-              await M3uPlaylistService.instance.deletePlaylist(playlist.id);
-              await _loadSavedM3uPlaylists();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Deleted playlist "${playlist.name}"')),
-                );
-              }
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Future<void> _exportPlaylistToM3u8(String name, List<LocalSongItem> tracks) async {
+  Future<void> _exportPlaylistToM3u8(
+      String name, List<LocalSongItem> tracks) async {
     if (tracks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No tracks available to export.')),
@@ -434,7 +530,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (targetPath != null && targetPath.isNotEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported playlist to ${p.basename(targetPath)}')),
+          SnackBar(
+              content: Text('Exported playlist to ${p.basename(targetPath)}')),
         );
       }
     }
@@ -466,7 +563,8 @@ class _LibraryScreenState extends State<LibraryScreen>
       });
 
       // Run non-blocking delta scan in the background
-      await _smartScanFolders(showFullLoading: loadedSongs.isEmpty && loadedFolders.isNotEmpty);
+      await _smartScanFolders(
+          showFullLoading: loadedSongs.isEmpty && loadedFolders.isNotEmpty);
     } catch (e) {
       debugPrint('Error loading folders: $e');
       setState(() => _isLoading = false);
@@ -538,7 +636,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
 
     final existingSongsMap = <String, LocalSongItem>{
-      for (final song in _allSongs) p.canonicalize(song.path).toLowerCase(): song
+      for (final song in _allSongs)
+        p.canonicalize(song.path).toLowerCase(): song
     };
 
     final updatedSongs = <LocalSongItem>[];
@@ -579,7 +678,8 @@ class _LibraryScreenState extends State<LibraryScreen>
           // Re-use cached metadata if file size and modified timestamp match
           if (existing != null &&
               existing.sizeBytes == stat.size &&
-              existing.lastModified.millisecondsSinceEpoch == stat.modified.millisecondsSinceEpoch) {
+              existing.lastModified.millisecondsSinceEpoch ==
+                  stat.modified.millisecondsSinceEpoch) {
             updatedSongs.add(existing.fileHash == hash
                 ? existing
                 : LocalSongItem.fallback(
@@ -607,9 +707,15 @@ class _LibraryScreenState extends State<LibraryScreen>
             String? metaGenre;
             try {
               final meta = amr.readMetadata(file, getImage: false);
-              if (meta.title != null && meta.title!.isNotEmpty) metaTitle = meta.title;
-              if (meta.artist != null && meta.artist!.isNotEmpty) metaArtist = meta.artist;
-              if (meta.album != null && meta.album!.isNotEmpty) metaAlbum = meta.album;
+              if (meta.title != null && meta.title!.isNotEmpty) {
+                metaTitle = meta.title;
+              }
+              if (meta.artist != null && meta.artist!.isNotEmpty) {
+                metaArtist = meta.artist;
+              }
+              if (meta.album != null && meta.album!.isNotEmpty) {
+                metaAlbum = meta.album;
+              }
               if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
                 metaGenre = meta.genres.first;
               }
@@ -627,7 +733,8 @@ class _LibraryScreenState extends State<LibraryScreen>
             ));
           }
         } catch (_) {
-          updatedSongs.add(LocalSongItem.fallback(canonicalPath, 0, DateTime.now()));
+          updatedSongs
+              .add(LocalSongItem.fallback(canonicalPath, 0, DateTime.now()));
         }
       }
     }
@@ -844,6 +951,33 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _removeFolder(int index) async {
+    final folderName = _folders[index]['name'] as String;
+    final confirm = await M3EDialog.show<bool>(
+      context,
+      dialog: M3EDialog(
+        title: 'Remove Folder?',
+        topDivider: true,
+        bottomDivider: true,
+        content: Text(
+          'Remove "$folderName" from your library? Audio files on disk will not be deleted.',
+          style: TextStyle(
+              color: AppThemeService.instance.currentData.textDark,
+              fontSize: 14),
+        ),
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove Folder'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
     setState(() {
       _folders.removeAt(index);
     });
@@ -1012,7 +1146,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (file.existsSync()) {
         final meta = amr.readMetadata(file, getImage: true);
         if (meta.title != null && meta.title!.isNotEmpty) title = meta.title!;
-        if (meta.artist != null && meta.artist!.isNotEmpty) artist = meta.artist!;
+        if (meta.artist != null && meta.artist!.isNotEmpty) {
+          artist = meta.artist!;
+        }
         if (meta.album != null && meta.album!.isNotEmpty) album = meta.album!;
         if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
           genre = meta.genres.first;
@@ -1026,25 +1162,56 @@ class _LibraryScreenState extends State<LibraryScreen>
 
     if (!mounted) return;
 
-    showDialog(
-      context: context,
-      builder: (_) => MusicInfoDialog(
-        title: title,
-        artist: artist,
-        album: album,
-        genre: genre,
-        year: year,
-        trackNumber: trackNumber,
-        albumArt: albumArt,
-        sourceType: 'local',
-        videoId: song.path,
-        codec: fileInfo.codec,
-        sampleRate: fileInfo.formattedSampleRate,
-        channels: fileInfo.formattedChannels,
-        bitDepth: fileInfo.formattedBitDepth,
-        fileSizeBytes: song.sizeBytes,
-        duration: duration,
-      ),
+    await MusicInfoDialog.show(
+      context,
+      title: title,
+      artist: artist,
+      album: album,
+      genre: genre,
+      year: year,
+      trackNumber: trackNumber,
+      albumArt: albumArt,
+      sourceType: 'local',
+      videoId: song.path,
+      codec: fileInfo.codec,
+      sampleRate: fileInfo.formattedSampleRate,
+      channels: fileInfo.formattedChannels,
+      bitDepth: fileInfo.formattedBitDepth,
+      fileSizeBytes: song.sizeBytes,
+      duration: duration,
+      onSaveTags: ({
+        required String title,
+        required String artist,
+        required String album,
+        required String genre,
+        required String year,
+        required String trackNumber,
+      }) async {
+        setState(() {
+          final targetIndex = _allSongs.indexWhere((s) => s.path == song.path);
+          if (targetIndex != -1) {
+            _allSongs[targetIndex] = LocalSongItem.fallback(
+              song.path,
+              song.sizeBytes,
+              song.lastModified,
+              title: title.isNotEmpty ? title : song.title,
+              artist: artist.isNotEmpty ? artist : song.artist,
+              album: album.isNotEmpty ? album : song.album,
+              genre: genre.isNotEmpty ? genre : song.genre,
+              fileHash: song.fileHash,
+            );
+          }
+          _applySearchAndSort();
+        });
+        await _saveCachedSongs();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text(
+                    'Saved tags for "${title.isNotEmpty ? title : song.title}"')),
+          );
+        }
+      },
     );
   }
 
@@ -1068,34 +1235,26 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _confirmAndDeleteSong(LocalSongItem song) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF18232E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Delete Song Permanently?',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+    final confirm = await M3EDialog.show<bool>(
+      context,
+      dialog: M3EDialog(
+        title: 'Delete Song File',
+        topDivider: true,
+        bottomDivider: true,
         content: Text(
           'Are you sure you want to delete "${song.title}"? The file will be permanently removed from your storage.',
-          style: TextStyle(color: AppThemeService.instance.currentData.textDark),
+          style: TextStyle(
+              color: AppThemeService.instance.currentData.textDark,
+              fontSize: 14),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel', style: TextStyle(color: AppThemeService.instance.currentData.textDark)),
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete', style: TextStyle(fontWeight: FontWeight.bold)),
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete Permanently'),
           ),
         ],
       ),
@@ -1134,52 +1293,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildTab(int index, String title, IconData icon, {bool isDesktop = false}) {
-    final isSelected = _tabIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _tabIndex = index),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        padding: EdgeInsets.symmetric(
-            vertical: isDesktop ? 9 : 7, horizontal: isDesktop ? 14 : 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.22)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
-          border: isSelected
-              ? Border.all(
-                  color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
-                  width: 1,
-                )
-              : Border.all(color: Colors.transparent, width: 1),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: isDesktop ? 18 : 15,
-              color: isSelected ? AppThemeService.instance.currentData.primary : AppThemeService.instance.currentData.textDark,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: isDesktop ? 15 : 13,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? Colors.white : AppThemeService.instance.currentData.textDark,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -1188,7 +1301,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     final Color bgDark = AppThemeService.instance.currentData.bgDark;
     final Color surfaceColor = Color(0xFF18232E);
     final Color textLight = Colors.white;
-    final Color textDark = AppThemeService.instance.currentData.textDark; // slate-400
+    final Color textDark =
+        AppThemeService.instance.currentData.textDark; // slate-400
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1209,7 +1323,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                         // Header Region
                         Container(
                           padding: EdgeInsets.only(
-                              top: widget.isNested ? 8.0 : (isDesktop ? 32.0 : 16.0),
+                              top: widget.isNested
+                                  ? 8.0
+                                  : (isDesktop ? 32.0 : 16.0),
                               left: isDesktop ? 32.0 : 16.0,
                               right: isDesktop ? 32.0 : 16.0,
                               bottom: isDesktop ? 12.0 : 8.0),
@@ -1236,111 +1352,81 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         ),
                                     ],
                                   ),
-                                  PopupMenuButton<String>(
-                                    icon: Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        color: surfaceColor,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                            color: Colors.white.withValues(alpha: 0.08)),
+                                  M3EMenu(
+                                    anchorBuilder: (context, open) => InkWell(
+                                      onTap: open,
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: surfaceColor,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.08)),
+                                        ),
+                                        child: Icon(Icons.add_rounded,
+                                            color: textLight,
+                                            size: isDesktop ? 22 : 20),
                                       ),
-                                      child: Icon(Icons.add_rounded,
-                                          color: textLight,
-                                          size: isDesktop ? 22 : 20),
                                     ),
-                                    tooltip: 'Add Music or Playlist',
-                                    color: surfaceColor,
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14)),
-                                    onSelected: (value) {
-                                      if (value == 'folder') {
-                                        _addDirectory();
-                                      } else if (value == 'm3u_file') {
-                                        _importM3uFile();
-                                      } else if (value == 'm3u_url') {
-                                        _importM3uUrlDialog();
-                                      } else if (value == 'network_sources') {
-                                        _navigateToNetworkSources();
-                                      } else if (value == 'clean_duplicates') {
-                                        _removeDuplicateSongs();
-                                      } else if (value == 'export_m3u') {
-                                        _exportPlaylistToM3u8(
-                                            'SautiPlay_Library', _allSongs);
-                                      }
-                                    },
-                                    itemBuilder: (ctx) => [
-                                      const PopupMenuItem(
-                                        value: 'folder',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.create_new_folder_rounded,
-                                                color: Colors.blueAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Add Local Folder',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'm3u_file',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.playlist_add_rounded,
-                                                color: Colors.cyanAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Import M3U / M3U8 File',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'm3u_url',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.podcasts_rounded,
-                                                color: Colors.tealAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Import M3U Stream URL',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'network_sources',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.lan_rounded,
-                                                color: Colors.lightBlueAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Network Stream (FTP & DLNA)',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'clean_duplicates',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.cleaning_services_rounded,
-                                                color: Colors.orangeAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Clean Up Duplicates',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'export_m3u',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.file_upload_rounded,
-                                                color: Colors.amberAccent, size: 20),
-                                            SizedBox(width: 10),
-                                            Text('Export Library to M3U8',
-                                                style: TextStyle(color: Colors.white)),
-                                          ],
-                                        ),
+                                    children: [
+                                      M3EMenuGroup.entries(
+                                        entries: [
+                                          M3EMenuEntry(
+                                            label: 'Add Local Folder',
+                                            leading: const Icon(
+                                                Icons.create_new_folder_rounded,
+                                                color: Colors.blueAccent,
+                                                size: 20),
+                                            onPressed: _addDirectory,
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Import M3U / M3U8 File',
+                                            leading: const Icon(
+                                                Icons.playlist_add_rounded,
+                                                color: Colors.cyanAccent,
+                                                size: 20),
+                                            onPressed: _importM3uFile,
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Import M3U Stream URL',
+                                            leading: const Icon(
+                                                Icons.podcasts_rounded,
+                                                color: Colors.tealAccent,
+                                                size: 20),
+                                            onPressed: _importM3uUrlDialog,
+                                          ),
+                                          M3EMenuEntry(
+                                            label:
+                                                'Network Stream (FTP & DLNA)',
+                                            leading: const Icon(
+                                                Icons.lan_rounded,
+                                                color: Colors.lightBlueAccent,
+                                                size: 20),
+                                            onPressed:
+                                                _navigateToNetworkSources,
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Clean Up Duplicates',
+                                            leading: const Icon(
+                                                Icons.cleaning_services_rounded,
+                                                color: Colors.orangeAccent,
+                                                size: 20),
+                                            onPressed: _removeDuplicateSongs,
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Export Library to M3U8',
+                                            leading: const Icon(
+                                                Icons.file_upload_rounded,
+                                                color: Colors.amberAccent,
+                                                size: 20),
+                                            onPressed: () =>
+                                                _exportPlaylistToM3u8(
+                                                    'SautiPlay_Library',
+                                                    _allSongs),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
@@ -1348,36 +1434,38 @@ class _LibraryScreenState extends State<LibraryScreen>
                               ),
                               SizedBox(height: isDesktop ? 16 : 12),
                               // Segmented Control
-                              Container(
-                                width: double.infinity,
-                                padding: EdgeInsets.all(isDesktop ? 5 : 4),
-                                decoration: BoxDecoration(
-                                  color: surfaceColor,
-                                  borderRadius:
-                                      BorderRadius.circular(isDesktop ? 14 : 12),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                  ),
-                                ),
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  physics: const BouncingScrollPhysics(),
-                                  child: Row(
-                                    children: [
-                                      _buildTab(0, 'Playlists', Icons.queue_music_rounded,
-                                          isDesktop: isDesktop),
-                                      const SizedBox(width: 4),
-                                      _buildTab(1, 'Tracks', Icons.audiotrack_rounded,
-                                          isDesktop: isDesktop),
-                                      const SizedBox(width: 4),
-                                      _buildTab(2, 'Artists', Icons.person_outline_rounded,
-                                          isDesktop: isDesktop),
-                                      const SizedBox(width: 4),
-                                      _buildTab(3, 'Albums', Icons.album_outlined,
-                                          isDesktop: isDesktop),
-                                      const SizedBox(width: 4),
-                                      _buildTab(4, 'Genres', Icons.style_outlined,
-                                          isDesktop: isDesktop),
+                              RepaintBoundary(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                      isDesktop ? 18 : 14),
+                                  child: M3ETabs(
+                                    variant: M3ETabsVariant.secondary,
+                                    selectedIndex: _tabIndex,
+                                    onTabSelected: (i) {
+                                      Future.microtask(() {
+                                        if (mounted) {
+                                          setState(() => _tabIndex = i);
+                                        }
+                                      });
+                                    },
+                                    tabs: const [
+                                      M3ETab(
+                                          label: 'Playlists',
+                                          icon:
+                                              Icon(Icons.queue_music_rounded)),
+                                      M3ETab(
+                                          label: 'Tracks',
+                                          icon: Icon(Icons.audiotrack_rounded)),
+                                      M3ETab(
+                                          label: 'Artists',
+                                          icon: Icon(
+                                              Icons.person_outline_rounded)),
+                                      M3ETab(
+                                          label: 'Albums',
+                                          icon: Icon(Icons.album_outlined)),
+                                      M3ETab(
+                                          label: 'Genres',
+                                          icon: Icon(Icons.style_outlined)),
                                     ],
                                   ),
                                 ),
@@ -1391,7 +1479,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                                     color: surfaceColor,
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
-                                        color: primaryColor.withValues(alpha: 0.3)),
+                                        color: primaryColor.withValues(
+                                            alpha: 0.3)),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1603,58 +1692,70 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
         ),
         const SizedBox(height: 6),
-        _buildLibraryItem(
-          title: 'Network Stream (FTP & DLNA)',
-          subtitle: 'FTP Remote Explorer & DLNA Media Casting',
-          iconData: Icons.lan_rounded,
-          iconGradient: const LinearGradient(
-            colors: [Color(0xFF00897B), Color(0xFF004D40)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          onTap: _navigateToNetworkSources,
-          context: context,
-          isDesktop: isDesktop,
-        ),
-        ..._m3uPlaylists.map((pl) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: isDesktop ? 8 : 4),
-            child: _buildLibraryItem(
-              title: pl.name,
-              subtitle:
-                  '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
-              iconData: pl.isNetwork ? Icons.podcasts_rounded : Icons.queue_music_rounded,
-              iconGradient: pl.isNetwork
-                  ? const LinearGradient(
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32.0 : 16.0),
+          child: RepaintBoundary(
+            child: M3ECardList.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 1 + _m3uPlaylists.length + _folders.length,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _buildLibraryItem(
+                    title: 'Network Stream (FTP & DLNA)',
+                    subtitle: 'FTP Remote Explorer & DLNA Media Casting',
+                    iconData: Icons.lan_rounded,
+                    iconGradient: const LinearGradient(
                       colors: [Color(0xFF00897B), Color(0xFF004D40)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                    )
-                  : const LinearGradient(
-                      colors: [Color(0xFF0288D1), Color(0xFF01579B)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
                     ),
-              onTap: () => _playM3uPlaylist(pl),
-              onLongPress: () => _showM3uPlaylistOptions(pl),
-              context: context,
-              isDesktop: isDesktop,
+                    onTap: _navigateToNetworkSources,
+                    context: context,
+                    isDesktop: isDesktop,
+                  );
+                } else if (index <= _m3uPlaylists.length) {
+                  final pl = _m3uPlaylists[index - 1];
+                  return _buildLibraryItem(
+                    title: pl.name,
+                    subtitle:
+                        '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
+                    iconData: pl.isNetwork
+                        ? Icons.podcasts_rounded
+                        : Icons.queue_music_rounded,
+                    iconGradient: pl.isNetwork
+                        ? const LinearGradient(
+                            colors: [Color(0xFF00897B), Color(0xFF004D40)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : const LinearGradient(
+                            colors: [Color(0xFF0288D1), Color(0xFF01579B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                    onTap: () => _playM3uPlaylist(pl),
+                    onLongPress: () => _showM3uPlaylistOptions(pl),
+                    context: context,
+                    isDesktop: isDesktop,
+                  );
+                } else {
+                  final folderIdx = index - 1 - _m3uPlaylists.length;
+                  final f = _folders[folderIdx];
+                  return _buildLibraryItem(
+                    title: f['name'] as String,
+                    subtitle: '${f['count']} Songs • Local Folder',
+                    iconData: Icons.folder_rounded,
+                    onTap: () => _playFolder(f['path'] as String),
+                    onLongPress: () => _removeFolder(folderIdx),
+                    context: context,
+                    isDesktop: isDesktop,
+                  );
+                }
+              },
             ),
-          );
-        }),
-        ..._folders.asMap().entries.map((entry) {
-          final index = entry.key;
-          final f = entry.value;
-          return _buildLibraryItem(
-            title: f['name'] as String,
-            subtitle: '${f['count']} Songs • Local Folder',
-            iconData: Icons.folder_rounded,
-            onTap: () => _playFolder(f['path'] as String),
-            onLongPress: () => _removeFolder(index),
-            context: context,
-            isDesktop: isDesktop,
-          );
-        }),
+          ),
+        ),
       ],
     );
   }
@@ -1694,160 +1795,139 @@ class _LibraryScreenState extends State<LibraryScreen>
               ),
               const SizedBox(width: 8),
               // Sort Button
-              PopupMenuButton<String>(
-                icon: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF18232E),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                  ),
-                  child: Icon(Icons.sort_rounded, color: textDark, size: 20),
-                ),
-                tooltip: 'Sort Tracks',
-                color: const Color(0xFF18232E),
-                shape: RoundedRectangleBorder(
+              M3EMenu(
+                anchorBuilder: (context, open) => InkWell(
+                  onTap: open,
                   borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF18232E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.05)),
+                    ),
+                    child: Icon(Icons.sort_rounded, color: textDark, size: 20),
+                  ),
                 ),
-                onSelected: (String result) {
-                  setState(() {
-                    _currentSort = result;
-                    _applySearchAndSort();
-                  });
-                },
-                itemBuilder: (BuildContext context) => _sortOptions
-                    .map((String choice) => PopupMenuItem<String>(
-                          value: choice,
-                          child: Text(
-                            choice,
-                            style: TextStyle(
-                                fontSize: isDesktop ? 15 : 13,
-                                color: _currentSort == choice
-                                    ? primaryColor
-                                    : Colors.white),
-                          ),
-                        ))
-                    .toList(),
+                children: [
+                  M3EMenuGroup.entries(
+                    label: 'Sort Tracks',
+                    entries: _sortOptions.map((choice) {
+                      final isSelected = _currentSort == choice;
+                      return M3EMenuEntry(
+                        label: choice,
+                        leading: isSelected
+                            ? Icon(Icons.check_rounded,
+                                color: primaryColor, size: 18)
+                            : const SizedBox(width: 18),
+                        onPressed: () {
+                          setState(() {
+                            _currentSort = choice;
+                            _applySearchAndSort();
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
               ),
               const SizedBox(width: 6),
               // Layout Switcher Button
-              PopupMenuButton<TrackViewMode>(
-                icon: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF18232E),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                  ),
-                  child: Icon(_trackViewMode.icon, color: primaryColor, size: 20),
-                ),
-                tooltip: 'Layout Mode',
-                color: const Color(0xFF18232E),
-                shape: RoundedRectangleBorder(
+              M3EMenu(
+                anchorBuilder: (context, open) => InkWell(
+                  onTap: open,
                   borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF18232E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.05)),
+                    ),
+                    child: Icon(_trackViewMode.icon,
+                        color: primaryColor, size: 20),
+                  ),
                 ),
-                onSelected: (TrackViewMode mode) {
-                  setState(() {
-                    _trackViewMode = mode;
-                  });
-                },
-                itemBuilder: (BuildContext context) => TrackViewMode.values
-                    .map((TrackViewMode mode) => PopupMenuItem<TrackViewMode>(
-                          value: mode,
-                          child: Row(
-                            children: [
-                              Icon(
-                                mode.icon,
-                                size: 18,
-                                color: _trackViewMode == mode
-                                    ? primaryColor
-                                    : AppThemeService.instance.currentData.textDark,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                mode.label,
-                                style: TextStyle(
-                                  fontSize: isDesktop ? 15 : 13,
-                                  fontWeight: _trackViewMode == mode
-                                      ? FontWeight.w600
-                                      : FontWeight.w400,
-                                  color: _trackViewMode == mode
-                                      ? primaryColor
-                                      : Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ))
-                    .toList(),
+                children: [
+                  M3EMenuGroup.entries(
+                    label: 'Layout Mode',
+                    entries: TrackViewMode.values.map((mode) {
+                      final isSelected = _trackViewMode == mode;
+                      return M3EMenuEntry(
+                        label: mode.label,
+                        leading: Icon(
+                          mode.icon,
+                          size: 18,
+                          color: isSelected ? primaryColor : textDark,
+                        ),
+                        trailingText: isSelected ? '✓' : null,
+                        onPressed: () {
+                          setState(() {
+                            _trackViewMode = mode;
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
               ),
               const SizedBox(width: 6),
               // Group By Button
-              PopupMenuButton<String>(
-                icon: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF18232E),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _groupByOption != 'None'
-                          ? primaryColor.withValues(alpha: 0.5)
-                          : Colors.white.withValues(alpha: 0.05),
+              M3EMenu(
+                anchorBuilder: (context, open) => InkWell(
+                  onTap: open,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF18232E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _groupByOption != 'None'
+                            ? primaryColor.withValues(alpha: 0.5)
+                            : Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.account_tree_rounded,
+                      color: _groupByOption != 'None' ? primaryColor : textDark,
+                      size: 20,
                     ),
                   ),
-                  child: Icon(
-                    Icons.account_tree_rounded,
-                    color: _groupByOption != 'None' ? primaryColor : textDark,
-                    size: 20,
+                ),
+                children: [
+                  M3EMenuGroup.entries(
+                    label: 'Group Tracks By',
+                    entries: _groupByOptions.map((choice) {
+                      final isSelected = _groupByOption == choice;
+                      final iconData = choice == 'None'
+                          ? Icons.list_rounded
+                          : (choice == 'Album'
+                              ? Icons.album_outlined
+                              : (choice == 'Artist'
+                                  ? Icons.person_outline_rounded
+                                  : (choice == 'Genre'
+                                      ? Icons.style_outlined
+                                      : Icons.folder_outlined)));
+                      return M3EMenuEntry(
+                        label: choice == 'None' ? 'No Grouping' : 'By $choice',
+                        leading: Icon(
+                          iconData,
+                          size: 18,
+                          color: isSelected ? primaryColor : textDark,
+                        ),
+                        trailingText: isSelected ? '✓' : null,
+                        onPressed: () {
+                          setState(() {
+                            _groupByOption = choice;
+                          });
+                        },
+                      );
+                    }).toList(),
                   ),
-                ),
-                tooltip: 'Group By',
-                color: const Color(0xFF18232E),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                onSelected: (String choice) {
-                  setState(() {
-                    _groupByOption = choice;
-                  });
-                },
-                itemBuilder: (BuildContext context) => _groupByOptions
-                    .map((String choice) => PopupMenuItem<String>(
-                          value: choice,
-                          child: Row(
-                            children: [
-                              Icon(
-                                choice == 'None'
-                                    ? Icons.list_rounded
-                                    : (choice == 'Album'
-                                        ? Icons.album_outlined
-                                        : (choice == 'Artist'
-                                            ? Icons.person_outline_rounded
-                                            : (choice == 'Genre'
-                                                ? Icons.style_outlined
-                                                : Icons.folder_outlined))),
-                                size: 18,
-                                color: _groupByOption == choice
-                                    ? primaryColor
-                                    : AppThemeService.instance.currentData.textDark,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                choice == 'None' ? 'No Grouping' : 'By $choice',
-                                style: TextStyle(
-                                  fontSize: isDesktop ? 15 : 13,
-                                  fontWeight: _groupByOption == choice
-                                      ? FontWeight.w600
-                                      : FontWeight.w400,
-                                  color: _groupByOption == choice
-                                      ? primaryColor
-                                      : Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ))
-                    .toList(),
+                ],
               ),
             ],
           ),
@@ -1872,11 +1952,17 @@ class _LibraryScreenState extends State<LibraryScreen>
       for (final song in _filteredSongs) {
         String key = 'Unknown';
         if (_groupByOption == 'Album') {
-          key = song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
+          key = song.album.trim().isNotEmpty
+              ? song.album.trim()
+              : 'Unknown Album';
         } else if (_groupByOption == 'Artist') {
-          key = song.artist.trim().isNotEmpty ? song.artist.trim() : 'Unknown Artist';
+          key = song.artist.trim().isNotEmpty
+              ? song.artist.trim()
+              : 'Unknown Artist';
         } else if (_groupByOption == 'Genre') {
-          key = song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
+          key = song.genre.trim().isNotEmpty
+              ? song.genre.trim()
+              : 'Unknown Genre';
         } else if (_groupByOption == 'Folder') {
           key = p.basename(p.dirname(song.path));
         }
@@ -1921,11 +2007,13 @@ class _LibraryScreenState extends State<LibraryScreen>
                     horizontal: isDesktop ? 32.0 : 16.0,
                     vertical: 8.0,
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xFF18232E),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.06)),
                   ),
                   child: Row(
                     children: [
@@ -1954,7 +2042,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                               '${songs.length} Track${songs.length == 1 ? '' : 's'} • $_groupByOption',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: AppThemeService.instance.currentData.textDark,
+                                color: AppThemeService
+                                    .instance.currentData.textDark,
                               ),
                             ),
                           ],
@@ -1962,7 +2051,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                       ),
                       IconButton(
                         icon: Icon(Icons.play_circle_fill_rounded,
-                            color: AppThemeService.instance.currentData.primary, size: 28),
+                            color: AppThemeService.instance.currentData.primary,
+                            size: 28),
                         onPressed: () {
                           final paths = songs.map((s) => s.path).toList();
                           widget.onPlayFolder(paths, initialIndex: 0);
@@ -1983,7 +2073,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   customIcon: LocalAlbumArt(
                       path: song.path,
                       size: isDesktop ? 80 : 56,
-                      borderRadius: 10),
+                      shape: Shapes.pill),
                   onTap: () {
                     final paths = songs.map((e) => e.path).toList();
                     final songIdx = songs.indexOf(song);
@@ -2002,14 +2092,27 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
 
     if (_trackViewMode == TrackViewMode.compact) {
-      return ListView.builder(
+      return SingleChildScrollView(
         primary: false,
-        padding: const EdgeInsets.only(bottom: 140),
-        itemCount: _filteredSongs.length,
-        itemBuilder: (context, index) {
-          final song = _filteredSongs[index];
-          return _buildCompactSongItem(song, index, isDesktop: isDesktop);
-        },
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32 : 16,
+          vertical: 8,
+        ).copyWith(bottom: 140),
+        child: RepaintBoundary(
+          child: M3ECardList.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _filteredSongs.length,
+            onTap: (index) {
+              final paths = _filteredSongs.map((e) => e.path).toList();
+              widget.onPlayFolder(paths, initialIndex: index);
+            },
+            itemBuilder: (context, index) {
+              final song = _filteredSongs[index];
+              return _buildCompactSongItem(song, index, isDesktop: isDesktop);
+            },
+          ),
+        ),
       );
     } else if (_trackViewMode == TrackViewMode.grid) {
       return GridView.builder(
@@ -2022,7 +2125,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: isDesktop ? 4 : 2,
-          childAspectRatio: 0.82,
+          childAspectRatio: 0.78,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
         ),
@@ -2033,165 +2136,221 @@ class _LibraryScreenState extends State<LibraryScreen>
         },
       );
     } else {
-      // Standard List
-      return ListView.builder(
+      // Material 3 Expressive Card List
+      return SingleChildScrollView(
         primary: false,
-        padding: const EdgeInsets.only(bottom: 140),
-        itemCount: _filteredSongs.length,
-        itemBuilder: (context, index) {
-          final song = _filteredSongs[index];
-          return _buildLibraryItem(
-            title: song.title,
-            subtitle:
-                '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
-            customIcon: LocalAlbumArt(
-                path: song.path,
-                size: isDesktop ? 80 : 56,
-                borderRadius: 10),
-            onTap: () {
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32 : 16,
+          vertical: 8,
+        ).copyWith(bottom: 140),
+        child: RepaintBoundary(
+          child: M3ECardList.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _filteredSongs.length,
+            onTap: (index) {
               final paths = _filteredSongs.map((e) => e.path).toList();
               widget.onPlayFolder(paths, initialIndex: index);
             },
-            onOptionSelected: (option) =>
-                _handleSongOption(song, option),
-            context: context,
-            isDesktop: isDesktop,
-          );
-        },
+            itemBuilder: (context, index) {
+              final song = _filteredSongs[index];
+              return _buildLibraryItem(
+                title: song.title,
+                subtitle:
+                    '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                customIcon: LocalAlbumArt(
+                    path: song.path,
+                    size: isDesktop ? 64 : 48,
+                    shape: Shapes.pill),
+                onTap: () {
+                  final paths = _filteredSongs.map((e) => e.path).toList();
+                  widget.onPlayFolder(paths, initialIndex: index);
+                },
+                onOptionSelected: (option) => _handleSongOption(song, option),
+                context: context,
+                isDesktop: isDesktop,
+              );
+            },
+          ),
+        ),
       );
     }
   }
 
-  Widget _buildCompactSongItem(LocalSongItem song, int index, {bool isDesktop = false}) {
-    final artistName = song.artist != 'Unknown Artist' ? song.artist : 'Local File';
-    return InkWell(
+  Widget _buildCompactSongItem(LocalSongItem song, int index,
+      {bool isDesktop = false}) {
+    final artistName =
+        song.artist != 'Unknown Artist' ? song.artist : 'Local File';
+    return M3EListItem(
+      headline: song.title,
+      supportingText: artistName,
+      leading: LocalAlbumArt(
+        path: song.path,
+        size: isDesktop ? 44 : 36,
+        shape: Shapes.pill,
+      ),
+      trailing: SongOptionsMenuButton(
+        iconSize: isDesktop ? 20 : 18,
+        onOptionSelected: (option) => _handleSongOption(song, option),
+      ),
       onTap: () {
         final paths = _filteredSongs.map((e) => e.path).toList();
         widget.onPlayFolder(paths, initialIndex: index);
       },
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: isDesktop ? 32.0 : 16.0,
-          vertical: isDesktop ? 6.0 : 4.0,
-        ),
-        child: Row(
-          children: [
-            LocalAlbumArt(
-              path: song.path,
-              size: isDesktop ? 44 : 36,
-              borderRadius: 6,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isDesktop ? 14 : 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    artistName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppThemeService.instance.currentData.textDark,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SongOptionsMenuButton(
-              iconSize: isDesktop ? 20 : 18,
-              onOptionSelected: (option) => _handleSongOption(song, option),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
-  Widget _buildGridSongItem(LocalSongItem song, int index, {bool isDesktop = false}) {
-    final artistName = song.artist != 'Unknown Artist' ? song.artist : 'Local File';
-    return GestureDetector(
-      onTap: () {
-        final paths = _filteredSongs.map((e) => e.path).toList();
-        widget.onPlayFolder(paths, initialIndex: index);
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF18232E),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+  Widget _buildGridSongItem(LocalSongItem song, int index,
+      {bool isDesktop = false}) {
+    final artistName =
+        song.artist != 'Unknown Artist' ? song.artist : 'Local File';
+    final primaryColor = AppThemeService.instance.currentData.primary;
+    final cardColor = AppThemeService.instance.currentData.cardDark;
+
+    const Shapes itemShape = Shapes.slanted;
+
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            final paths = _filteredSongs.map((e) => e.path).toList();
+            widget.onPlayFolder(paths, initialIndex: index);
+          },
+          child: M3EContainer(
+            Shapes.bun,
+            width: double.infinity,
+            height: double.infinity,
+            color: cardColor.withAlpha(240),
+            border: BorderSide(
+              color: primaryColor.withValues(alpha: 0.18),
+              width: 1.2,
             ),
-          ],
-        ),
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: LocalAlbumArt(
-                      path: song.path,
-                      borderRadius: 10,
-                    ),
-                  ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            padding: const EdgeInsets.all(10),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: M3EContainer(
+                          itemShape,
+                          color: cardColor,
+                          clipBehavior: Clip.antiAlias,
+                          border: BorderSide(
+                            color: primaryColor.withValues(alpha: 0.3),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: primaryColor.withValues(alpha: 0.15),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          child: LocalAlbumArt(
+                            path: song.path,
+                            shape: itemShape,
+                            useM3Shape: true,
+                          ),
+                        ),
                       ),
-                      child: SongOptionsMenuButton(
-                        iconSize: 18,
-                        onOptionSelected: (option) =>
-                            _handleSongOption(song, option),
+                      // Top-Right Options Badge
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: M3EContainer.circle(
+                          width: 32,
+                          height: 32,
+                          color: Colors.black.withValues(alpha: 0.65),
+                          child: SongOptionsMenuButton(
+                            iconSize: 18,
+                            onOptionSelected: (option) =>
+                                _handleSongOption(song, option),
+                          ),
+                        ),
+                      ),
+                      // Bottom-Right Play Badge
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: M3EContainer.circle(
+                          width: 32,
+                          height: 32,
+                          gradient: LinearGradient(
+                            colors: [
+                              primaryColor,
+                              primaryColor.withValues(alpha: 0.8),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          child: const Center(
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              size: 20,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isDesktop ? 14 : 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        artistName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppThemeService.instance.currentData.textDark,
+                          fontSize: 11,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 4),
+                    M3EShape(
+                      itemShape,
+                      width: 12,
+                      height: 12,
+                      color: primaryColor.withValues(alpha: 0.8),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isDesktop ? 14 : 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              artistName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppThemeService.instance.currentData.textDark,
-                fontSize: 11,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -2223,16 +2382,16 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           child: TextField(
             controller: _artistSearchController,
-            style: TextStyle(
-                color: Colors.white, fontSize: isDesktop ? 16 : 14),
+            style:
+                TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
             decoration: InputDecoration(
               hintText: 'Search artists...',
-              hintStyle: TextStyle(
-                  color: textDark, fontSize: isDesktop ? 16 : 14),
+              hintStyle:
+                  TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
               prefixIcon: Icon(Icons.search_rounded,
                   color: textDark, size: isDesktop ? 24 : 20),
               filled: true,
-              fillColor: const Color(0xFF18232E),
+              fillColor: AppThemeService.instance.currentData.cardDark,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                 borderSide: BorderSide.none,
@@ -2253,29 +2412,20 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view artists here.',
                   isDesktop: isDesktop,
                 )
-              : ListView.builder(
+              : SingleChildScrollView(
                   primary: false,
-                  padding: const EdgeInsets.only(bottom: 140),
-                  itemCount: artistKeys.length,
-                  itemBuilder: (context, index) {
-                    final artistName = artistKeys[index];
-                    final songs = artistMap[artistName] ?? [];
-                    final sampleSongPath =
-                        songs.isNotEmpty ? songs.first.path : null;
-
-                    return _buildLibraryItem(
-                      title: artistName,
-                      subtitle:
-                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
-                      iconData: Icons.person_rounded,
-                      isArtist: true,
-                      customIcon: sampleSongPath != null
-                          ? LocalAlbumArt(
-                              path: sampleSongPath,
-                              size: isDesktop ? 80 : 56,
-                              borderRadius: 40) // Circular avatar
-                          : null,
-                      onTap: () {
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32 : 16,
+                    vertical: 8,
+                  ).copyWith(bottom: 140),
+                  child: RepaintBoundary(
+                    child: M3ECardList.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: artistKeys.length,
+                      onTap: (index) {
+                        final artistName = artistKeys[index];
+                        final songs = artistMap[artistName] ?? [];
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2293,17 +2443,39 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      context: context,
-                      isDesktop: isDesktop,
-                    );
-                  },
+                      itemBuilder: (context, index) {
+                        final artistName = artistKeys[index];
+                        final songs = artistMap[artistName] ?? [];
+                        final sampleSongPath =
+                            songs.isNotEmpty ? songs.first.path : null;
+
+                        return _buildLibraryItem(
+                          title: artistName,
+                          subtitle:
+                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
+                          iconData: Icons.person_rounded,
+                          isArtist: true,
+                          customIcon: sampleSongPath != null
+                              ? LocalAlbumArt(
+                                  path: sampleSongPath,
+                                  size: isDesktop ? 80 : 56,
+                                  shape: Shapes.circle,
+                                )
+                              : null,
+                          context: context,
+                          isDesktop: isDesktop,
+                        );
+                      },
+                    ),
+                  ),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildSelectedTabBody(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+  Widget _buildSelectedTabBody(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
     switch (_tabIndex) {
       case 0:
         return _buildPlaylistsTab(primaryColor, textDark, isDesktop: isDesktop);
@@ -2320,10 +2492,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildAlbumsTab(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+  Widget _buildAlbumsTab(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
     final Map<String, List<LocalSongItem>> albumMap = {};
     for (final song in _allSongs) {
-      final album = song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
+      final album =
+          song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
       albumMap.putIfAbsent(album, () => []).add(song);
     }
 
@@ -2343,13 +2517,16 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           child: TextField(
             controller: _albumSearchController,
-            style: TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
+            style:
+                TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
             decoration: InputDecoration(
               hintText: 'Search albums...',
-              hintStyle: TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
-              prefixIcon: Icon(Icons.search_rounded, color: textDark, size: isDesktop ? 24 : 20),
+              hintStyle:
+                  TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
+              prefixIcon: Icon(Icons.search_rounded,
+                  color: textDark, size: isDesktop ? 24 : 20),
               filled: true,
-              fillColor: const Color(0xFF18232E),
+              fillColor: AppThemeService.instance.currentData.cardDark,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                 borderSide: BorderSide.none,
@@ -2369,28 +2546,20 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view albums here.',
                   isDesktop: isDesktop,
                 )
-              : ListView.builder(
+              : SingleChildScrollView(
                   primary: false,
-                  padding: const EdgeInsets.only(bottom: 140),
-                  itemCount: albumKeys.length,
-                  itemBuilder: (context, index) {
-                    final albumName = albumKeys[index];
-                    final songs = albumMap[albumName] ?? [];
-                    final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
-                    final artistName = songs.isNotEmpty ? songs.first.artist : 'Unknown Artist';
-
-                    return _buildLibraryItem(
-                      title: albumName,
-                      subtitle: '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
-                      iconData: Icons.album_rounded,
-                      customIcon: sampleSongPath != null
-                          ? LocalAlbumArt(
-                              path: sampleSongPath,
-                              size: isDesktop ? 80 : 56,
-                              borderRadius: 10,
-                            )
-                          : null,
-                      onTap: () {
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32 : 16,
+                    vertical: 8,
+                  ).copyWith(bottom: 140),
+                  child: RepaintBoundary(
+                    child: M3ECardList.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: albumKeys.length,
+                      onTap: (index) {
+                        final albumName = albumKeys[index];
+                        final songs = albumMap[albumName] ?? [];
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2408,20 +2577,45 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      context: context,
-                      isDesktop: isDesktop,
-                    );
-                  },
+                      itemBuilder: (context, index) {
+                        final albumName = albumKeys[index];
+                        final songs = albumMap[albumName] ?? [];
+                        final sampleSongPath =
+                            songs.isNotEmpty ? songs.first.path : null;
+                        final artistName = songs.isNotEmpty
+                            ? songs.first.artist
+                            : 'Unknown Artist';
+
+                        return _buildLibraryItem(
+                          title: albumName,
+                          subtitle:
+                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
+                          iconData: Icons.album_rounded,
+                          customIcon: sampleSongPath != null
+                              ? LocalAlbumArt(
+                                  path: sampleSongPath,
+                                  size: isDesktop ? 80 : 56,
+                                  shape: Shapes.pill,
+                                )
+                              : null,
+                          context: context,
+                          isDesktop: isDesktop,
+                        );
+                      },
+                    ),
+                  ),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildGenresTab(Color primaryColor, Color textDark, {bool isDesktop = false}) {
+  Widget _buildGenresTab(Color primaryColor, Color textDark,
+      {bool isDesktop = false}) {
     final Map<String, List<LocalSongItem>> genreMap = {};
     for (final song in _allSongs) {
-      final genre = song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
+      final genre =
+          song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
       genreMap.putIfAbsent(genre, () => []).add(song);
     }
 
@@ -2441,13 +2635,16 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           child: TextField(
             controller: _genreSearchController,
-            style: TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
+            style:
+                TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
             decoration: InputDecoration(
               hintText: 'Search genres...',
-              hintStyle: TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
-              prefixIcon: Icon(Icons.search_rounded, color: textDark, size: isDesktop ? 24 : 20),
+              hintStyle:
+                  TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
+              prefixIcon: Icon(Icons.search_rounded,
+                  color: textDark, size: isDesktop ? 24 : 20),
               filled: true,
-              fillColor: const Color(0xFF18232E),
+              fillColor: AppThemeService.instance.currentData.cardDark,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                 borderSide: BorderSide.none,
@@ -2467,27 +2664,20 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view genres here.',
                   isDesktop: isDesktop,
                 )
-              : ListView.builder(
+              : SingleChildScrollView(
                   primary: false,
-                  padding: const EdgeInsets.only(bottom: 140),
-                  itemCount: genreKeys.length,
-                  itemBuilder: (context, index) {
-                    final genreName = genreKeys[index];
-                    final songs = genreMap[genreName] ?? [];
-                    final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
-
-                    return _buildLibraryItem(
-                      title: genreName,
-                      subtitle: '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
-                      iconData: Icons.style_rounded,
-                      customIcon: sampleSongPath != null
-                          ? LocalAlbumArt(
-                              path: sampleSongPath,
-                              size: isDesktop ? 80 : 56,
-                              borderRadius: 10,
-                            )
-                          : null,
-                      onTap: () {
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32 : 16,
+                    vertical: 8,
+                  ).copyWith(bottom: 140),
+                  child: RepaintBoundary(
+                    child: M3ECardList.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: genreKeys.length,
+                      onTap: (index) {
+                        final genreName = genreKeys[index];
+                        final songs = genreMap[genreName] ?? [];
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2505,10 +2695,30 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      context: context,
-                      isDesktop: isDesktop,
-                    );
-                  },
+                      itemBuilder: (context, index) {
+                        final genreName = genreKeys[index];
+                        final songs = genreMap[genreName] ?? [];
+                        final sampleSongPath =
+                            songs.isNotEmpty ? songs.first.path : null;
+
+                        return _buildLibraryItem(
+                          title: genreName,
+                          subtitle:
+                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
+                          iconData: Icons.style_rounded,
+                          customIcon: sampleSongPath != null
+                              ? LocalAlbumArt(
+                                  path: sampleSongPath,
+                                  size: isDesktop ? 80 : 56,
+                                  shape: Shapes.pill,
+                                )
+                              : null,
+                          context: context,
+                          isDesktop: isDesktop,
+                        );
+                      },
+                    ),
+                  ),
                 ),
         ),
       ],
@@ -2524,7 +2734,8 @@ class _LibraryScreenState extends State<LibraryScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.library_music_outlined,
-              size: isDesktop ? 80 : 56, color: textDark.withValues(alpha: 0.4)),
+              size: isDesktop ? 80 : 56,
+              color: textDark.withValues(alpha: 0.4)),
           SizedBox(height: isDesktop ? 20 : 14),
           Text(
             message,
@@ -2539,9 +2750,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             child: Text(
               subMessage,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: isDesktop ? 15 : 13,
-                  color: textDark),
+              style: TextStyle(fontSize: isDesktop ? 15 : 13, color: textDark),
             ),
           ),
         ],
@@ -2565,89 +2774,39 @@ class _LibraryScreenState extends State<LibraryScreen>
   }) {
     final thumbSize = isDesktop ? 68.0 : 52.0;
 
-    return InkWell(
+    final leadingWidget = customIcon ??
+        (imageAsset == null && iconData != null
+            ? Center(
+                child: Icon(iconData,
+                    color: Colors.white.withValues(alpha: 0.6),
+                    size: isDesktop ? 32 : 24))
+            : null);
+
+    final item = M3EListItem(
+      headline: title,
+      supportingText: subtitle,
+      leading: leadingWidget,
+      trailing: onOptionSelected != null
+          ? SongOptionsMenuButton(
+              iconSize: isDesktop ? 24 : 20,
+              onOptionSelected: onOptionSelected,
+            )
+          : Icon(
+              Icons.chevron_right_rounded,
+              color: const Color(0xFF64748B),
+              size: isDesktop ? 22 : 18,
+            ),
       onTap: onTap,
-      onLongPress: onLongPress,
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 32.0 : 16.0,
-            vertical: isDesktop ? 10.0 : 6.0),
-        child: Row(
-          children: [
-            Container(
-              width: thumbSize,
-              height: thumbSize,
-              decoration: BoxDecoration(
-                borderRadius: isArtist
-                    ? BorderRadius.circular(thumbSize / 2)
-                    : BorderRadius.circular(10),
-                color: const Color(0xFF18232E),
-                image: imageAsset != null
-                    ? DecorationImage(
-                        image: NetworkImage(imageAsset),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-                gradient: iconGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: customIcon ??
-                  (imageAsset == null && iconData != null
-                      ? Center(
-                          child: Icon(iconData,
-                              color: Colors.white.withValues(alpha: 0.6),
-                              size: isDesktop ? 32 : 24))
-                      : null),
-            ),
-            SizedBox(width: isDesktop ? 20 : 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: isDesktop ? 16 : 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppThemeService.instance.currentData.textDark,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            if (onOptionSelected != null)
-              SongOptionsMenuButton(
-                iconSize: isDesktop ? 24 : 20,
-                onOptionSelected: onOptionSelected,
-              )
-            else
-              Icon(
-                Icons.chevron_right_rounded,
-                color: const Color(0xFF64748B),
-                size: isDesktop ? 22 : 18,
-              ),
-          ],
-        ),
-      ),
     );
+
+    if (onLongPress != null) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: onLongPress,
+        child: item,
+      );
+    }
+    return item;
   }
 }
 
@@ -2674,8 +2833,7 @@ class LocalGroupDetailScreen extends StatefulWidget {
   });
 
   @override
-  State<LocalGroupDetailScreen> createState() =>
-      _LocalGroupDetailScreenState();
+  State<LocalGroupDetailScreen> createState() => _LocalGroupDetailScreenState();
 }
 
 class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
@@ -2690,7 +2848,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final bgDark = AppThemeService.instance.currentData.bgDark;
-    const surfaceColor = Color(0xFF18232E);
+    final surfaceColor = AppThemeService.instance.currentData.cardDark;
     final primaryColor = AppThemeService.instance.currentData.primary;
 
     return Scaffold(
@@ -2748,7 +2906,10 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         ? LocalAlbumArt(
                             path: _groupSongs.first.path,
                             size: 64,
-                            borderRadius: widget.groupType == 'Artist' ? 32 : 12)
+                            shape: widget.groupType == 'Artist'
+                                ? Shapes.circle
+                                : Shapes.pill,
+                          )
                         : Icon(
                             widget.groupType == 'Artist'
                                 ? Icons.person
@@ -2777,7 +2938,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         Text(
                           '${_groupSongs.length} Track${_groupSongs.length == 1 ? '' : 's'} • ${widget.groupType}',
                           style: TextStyle(
-                              color: AppThemeService.instance.currentData.textDark, fontSize: 13),
+                              color:
+                                  AppThemeService.instance.currentData.textDark,
+                              fontSize: 13),
                         ),
                       ],
                     ),
@@ -2809,43 +2972,44 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                   ? Center(
                       child: Text(
                         'No songs left in this group.',
-                        style: TextStyle(color: AppThemeService.instance.currentData.textDark),
+                        style: TextStyle(
+                            color:
+                                AppThemeService.instance.currentData.textDark),
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 120),
-                      itemCount: _groupSongs.length,
-                      itemBuilder: (context, index) {
-                        final song = _groupSongs[index];
-                        return ListTile(
-                          leading: LocalAlbumArt(
-                              path: song.path, size: 48, borderRadius: 8),
-                          title: Text(
-                            song.title,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${song.artist} • ${song.album}',
-                            style: TextStyle(
-                                color: AppThemeService.instance.currentData.textDark, fontSize: 12),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
+                  : SingleChildScrollView(
+                      primary: false,
+                      padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8)
+                          .copyWith(bottom: 120),
+                      child: RepaintBoundary(
+                        child: M3ECardList.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _groupSongs.length,
+                          onTap: (index) {
                             final paths =
                                 _groupSongs.map((e) => e.path).toList();
                             widget.onPlayFolder(paths, initialIndex: index);
                           },
-                          trailing: SongOptionsMenuButton(
-                            onOptionSelected: (option) =>
-                                _handleDetailSongOption(song, option),
-                          ),
-                        );
-                      },
+                          itemBuilder: (context, index) {
+                            final song = _groupSongs[index];
+                            return M3EListItem(
+                              headline: song.title,
+                              supportingText: '${song.artist} • ${song.album}',
+                              leading: LocalAlbumArt(
+                                  path: song.path,
+                                  size: 48,
+                                  shape: Shapes.pill),
+                              trailing: SongOptionsMenuButton(
+                                iconSize: 20,
+                                onOptionSelected: (option) =>
+                                    _handleDetailSongOption(song, option),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
             ),
           ],
@@ -2879,24 +3043,52 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           if (meta.duration != null) d = meta.duration!;
           if (meta.pictures.isNotEmpty) art = meta.pictures.first.bytes;
         } catch (_) {}
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          builder: (_) => MusicInfoDialog(
-            title: song.title,
-            artist: song.artist,
-            album: song.album,
-            genre: song.genre,
-            albumArt: art,
-            sourceType: 'local',
-            videoId: song.path,
-            codec: fileInfo.codec,
-            sampleRate: fileInfo.formattedSampleRate,
-            channels: fileInfo.formattedChannels,
-            bitDepth: fileInfo.formattedBitDepth,
-            fileSizeBytes: song.sizeBytes,
-            duration: d,
-          ),
+        await MusicInfoDialog.show(
+          context,
+          title: song.title,
+          artist: song.artist,
+          album: song.album,
+          genre: song.genre,
+          albumArt: art,
+          sourceType: 'local',
+          videoId: song.path,
+          codec: fileInfo.codec,
+          sampleRate: fileInfo.formattedSampleRate,
+          channels: fileInfo.formattedChannels,
+          bitDepth: fileInfo.formattedBitDepth,
+          fileSizeBytes: song.sizeBytes,
+          duration: d,
+          onSaveTags: ({
+            required String title,
+            required String artist,
+            required String album,
+            required String genre,
+            required String year,
+            required String trackNumber,
+          }) async {
+            setState(() {
+              final idx = _groupSongs.indexWhere((s) => s.path == song.path);
+              if (idx != -1) {
+                _groupSongs[idx] = LocalSongItem.fallback(
+                  song.path,
+                  song.sizeBytes,
+                  song.lastModified,
+                  title: title.isNotEmpty ? title : song.title,
+                  artist: artist.isNotEmpty ? artist : song.artist,
+                  album: album.isNotEmpty ? album : song.album,
+                  genre: genre.isNotEmpty ? genre : song.genre,
+                  fileHash: song.fileHash,
+                );
+              }
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                    content: Text(
+                        'Saved tags for "${title.isNotEmpty ? title : song.title}"')),
+              );
+            }
+          },
         );
         break;
       case SongOption.share:
@@ -2914,28 +3106,63 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: const Color(0xFF18232E),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
-            title: const Text('Delete Song Permanently?',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.delete_forever_rounded,
+                      color: Colors.redAccent, size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Delete Song?',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
             content: Text(
               'Are you sure you want to delete "${song.title}"? This action cannot be undone.',
-              style: TextStyle(color: AppThemeService.instance.currentData.textDark),
+              style: TextStyle(
+                  color: AppThemeService.instance.currentData.textDark,
+                  fontSize: 14),
             ),
+            actionsPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: Text('Cancel',
-                      style: TextStyle(color: AppThemeService.instance.currentData.textDark))),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      AppThemeService.instance.currentData.textDark,
+                  side: BorderSide(
+                      color: AppThemeService.instance.currentData.textDark
+                          .withValues(alpha: 0.3)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   foregroundColor: Colors.white,
+                  elevation: 2,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
+                      borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
+                child: const Text('Delete Permanently',
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],

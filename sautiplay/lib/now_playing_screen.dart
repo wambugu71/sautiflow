@@ -850,48 +850,46 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final duration = Duration(milliseconds: (baseDurationSecs * 1000).round());
     final rawTitle = widget.getTitle(status.currentIndex);
 
-    showDialog(
-      context: context,
-      builder: (context) => MusicInfoDialog(
-        title: _customTitle ?? rawTitle,
-        artist: _customArtist ?? widget.artist,
-        album: _customAlbum,
-        genre: _customGenre,
-        year: _customYear,
-        trackNumber: _customTrackNum,
-        albumArt: widget.albumArt,
-        sourceType: widget.sourceType,
-        videoId: widget.videoId,
-        codec: _detectedCodec ?? widget.codec,
-        sampleRate: _sampleRate,
-        channels: _channels,
-        bitDepth: _originalBitDepth,
-        fileSizeBytes: _fileSizeBytes,
-        duration: duration,
-        onSaveTags: ({
-          required String title,
-          required String artist,
-          required String album,
-          required String genre,
-          required String year,
-          required String trackNumber,
-        }) {
-          setState(() {
-            _customTitle = title.isNotEmpty ? title : null;
-            _customArtist = artist.isNotEmpty ? artist : null;
-            _customAlbum = album;
-            _customGenre = genre;
-            _customYear = year;
-            _customTrackNum = trackNumber;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Song tags updated successfully'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        },
-      ),
+    MusicInfoDialog.show(
+      context,
+      title: _customTitle ?? rawTitle,
+      artist: _customArtist ?? widget.artist,
+      album: _customAlbum,
+      genre: _customGenre,
+      year: _customYear,
+      trackNumber: _customTrackNum,
+      albumArt: widget.albumArt,
+      sourceType: widget.sourceType,
+      videoId: widget.videoId,
+      codec: _detectedCodec ?? widget.codec,
+      sampleRate: _sampleRate,
+      channels: _channels,
+      bitDepth: _originalBitDepth,
+      fileSizeBytes: _fileSizeBytes,
+      duration: duration,
+      onSaveTags: ({
+        required String title,
+        required String artist,
+        required String album,
+        required String genre,
+        required String year,
+        required String trackNumber,
+      }) {
+        setState(() {
+          _customTitle = title.isNotEmpty ? title : null;
+          _customArtist = artist.isNotEmpty ? artist : null;
+          _customAlbum = album;
+          _customGenre = genre;
+          _customYear = year;
+          _customTrackNum = trackNumber;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Song tags updated successfully'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      },
     );
   }
 

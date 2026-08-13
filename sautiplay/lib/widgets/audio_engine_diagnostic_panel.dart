@@ -204,7 +204,8 @@ class _AudioEngineDiagnosticPanelState
     final hw = t['hardware'] as Map<String, dynamic>? ?? {};
 
     final int srcRate = t['inputSampleRate'] as int? ?? 48000;
-    final int srcDepth = t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
+    final int srcDepth =
+        t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
     final int dspRate = t['processingSampleRate'] as int? ?? 48000;
     final int dspChannels = t['processingChannels'] as int? ?? 2;
     final int dacRate =
@@ -349,13 +350,20 @@ class _AudioEngineDiagnosticPanelState
               _buildTelemetryRow('Resampler', resamplerAlgo),
               _buildTelemetryRow('True-Peak',
                   '${((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} dBTP',
-                  isValueActive: ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) > -90.0,
-                  isWarning: ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) > -0.5),
+                  isValueActive:
+                      ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) >
+                          -90.0,
+                  isWarning:
+                      ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) >
+                          -0.5),
               _buildTelemetryRow('Loudness (LUFS)',
                   'Mom: ${((t['momentaryLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} / Int: ${((t['integratedLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)}'),
               _buildTelemetryRow('Limiter GR',
                   '${((t['limiterGainReductionDB'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(1)} dB',
-                  isValueActive: ((t['limiterGainReductionDB'] as num?)?.toDouble() ?? 0.0) < -0.1),
+                  isValueActive:
+                      ((t['limiterGainReductionDB'] as num?)?.toDouble() ??
+                              0.0) <
+                          -0.1),
               _buildTelemetryRow('EQ', eqOn ? 'ON' : 'OFF',
                   isValueActive: eqOn),
               _buildTelemetryRow('Crossfeed', crossfeedAlgo,

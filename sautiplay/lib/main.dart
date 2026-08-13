@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
@@ -121,10 +122,19 @@ class _DemoAppState extends State<DemoApp> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = _themeData.bgDark.computeLuminance() < 0.15;
+    final m3eThemeData = isDark
+        ? M3EThemeData.dark(seedColor: _themeData.primary)
+        : M3EThemeData.light(seedColor: _themeData.primary);
+
     return AppThemeProvider(
       themeData: _themeData,
-      child: MaterialApp(
+      child: M3EMaterialApp(
         title: 'SautiPlay',
+        data: m3eThemeData,
+        autoTheming: false,
+        dynamicColoring: false,
+        drawUnderSystemBars: true,
         theme: _themeData.toThemeData(),
         home: const PlayerShell(),
       ),

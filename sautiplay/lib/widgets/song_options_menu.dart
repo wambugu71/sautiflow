@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import '../services/app_theme_service.dart';
 
 enum SongOption {
@@ -22,91 +23,51 @@ class SongOptionsMenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surfaceColor = AppThemeService.instance.currentData.cardDark;
     final primary = AppThemeService.instance.currentData.primary;
-    final effectiveIconColor = iconColor ?? AppThemeService.instance.currentData.textDark;
+    final effectiveIconColor =
+        iconColor ?? AppThemeService.instance.currentData.textDark;
 
-    return PopupMenuButton<SongOption>(
-      icon: Icon(Icons.more_vert, color: effectiveIconColor, size: iconSize),
-      color: surfaceColor,
-      elevation: 8,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: Colors.white.withValues(alpha: 0.1),
-          width: 1,
+    return M3EMenu(
+      anchorBuilder: (context, open) => InkWell(
+        onTap: open,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(4.0),
+          child: Icon(Icons.more_vert_rounded,
+              color: effectiveIconColor, size: iconSize),
         ),
       ),
-      onSelected: onOptionSelected,
-      itemBuilder: (BuildContext context) => [
-        PopupMenuItem<SongOption>(
-          value: SongOption.queue,
-          child: Row(
-            children: [
-              Icon(Icons.queue_music, color: primary, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Play Next',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+      children: [
+        M3EMenuGroup.entries(
+          entries: [
+            M3EMenuEntry(
+              label: 'Play Next',
+              leading: Icon(Icons.queue_music_rounded, color: primary, size: 20),
+              onPressed: () => onOptionSelected(SongOption.queue),
+            ),
+            M3EMenuEntry(
+              label: 'Song Info',
+              leading:
+                  const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 20),
+              onPressed: () => onOptionSelected(SongOption.info),
+            ),
+            M3EMenuEntry(
+              label: 'Share',
+              leading:
+                  const Icon(Icons.share_rounded, color: Colors.white70, size: 20),
+              onPressed: () => onOptionSelected(SongOption.share),
+            ),
+          ],
         ),
-        const PopupMenuItem<SongOption>(
-          value: SongOption.info,
-          child: Row(
-            children: [
-              Icon(Icons.info_outline, color: Colors.white70, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Song Info',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const PopupMenuItem<SongOption>(
-          value: SongOption.share,
-          child: Row(
-            children: [
-              Icon(Icons.share_rounded, color: Colors.white70, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Share',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(height: 1),
-        const PopupMenuItem<SongOption>(
-          value: SongOption.delete,
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-              SizedBox(width: 12),
-              Text(
-                'Delete',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+        M3EMenuGroup.entries(
+          entries: [
+            M3EMenuEntry(
+              label: 'Delete',
+              leading:
+                  const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+              onPressed: () => onOptionSelected(SongOption.delete),
+            ),
+          ],
         ),
       ],
     );
