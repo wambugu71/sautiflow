@@ -287,6 +287,15 @@ extern "C"
     AE_API void ae_set_phase_inversion(AudioEngineHandle *engine, int invert_left, int invert_right);
     AE_API void ae_get_phase_inversion(AudioEngineHandle *engine, int *out_invert_left, int *out_invert_right);
 
+    // L/R Channel Swap (mirrors left and right output channels)
+    AE_API void ae_set_lr_swap(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_lr_swap(AudioEngineHandle *engine);
+
+    // Per-Channel Gain (independent L and R trim)
+    // gain_left, gain_right: linear multipliers [0.0, 4.0] (1.0 = unity, ~+12 dB max)
+    AE_API void ae_set_channel_gains(AudioEngineHandle *engine, float gain_left, float gain_right);
+    AE_API void ae_get_channel_gains(AudioEngineHandle *engine, float *out_gain_left, float *out_gain_right);
+
     // Audio Limiter & Clipping Detection
     AE_API void ae_set_limiter_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms);

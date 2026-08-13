@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -742,6 +743,22 @@ typedef _GetPhaseInversionNative = ffi.Void Function(
 typedef _GetPhaseInversionDart = void Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
 
+// L/R Swap
+typedef _SetLrSwapNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetLrSwapDart = void Function(ffi.Pointer<ffi.Void>, int);
+typedef _GetLrSwapNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetLrSwapDart = int Function(ffi.Pointer<ffi.Void>);
+
+// Per-Channel Gain
+typedef _SetChannelGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _SetChannelGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
+typedef _GetChannelGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+typedef _GetChannelGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
 // Limiter & Clipping Detection
 typedef _SetLimiterEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -1440,6 +1457,22 @@ class AudioEngineFFI {
       _getPhaseInversion = null;
     }
 
+    try {
+      _setLrSwap = _lib.lookupFunction<_SetLrSwapNative,
+          _SetLrSwapDart>('ae_set_lr_swap');
+      _getLrSwap = _lib.lookupFunction<_GetLrSwapNative,
+          _GetLrSwapDart>('ae_get_lr_swap');
+      _setChannelGains = _lib.lookupFunction<_SetChannelGainsNative,
+          _SetChannelGainsDart>('ae_set_channel_gains');
+      _getChannelGains = _lib.lookupFunction<_GetChannelGainsNative,
+          _GetChannelGainsDart>('ae_get_channel_gains');
+    } catch (_) {
+      _setLrSwap = null;
+      _getLrSwap = null;
+      _setChannelGains = null;
+      _getChannelGains = null;
+    }
+
     // Limiter & Clipping Detection
     _setLimiterEnabled =
         _lib.lookupFunction<_SetLimiterEnabledNative, _SetLimiterEnabledDart>(
@@ -1690,6 +1723,10 @@ class AudioEngineFFI {
   _GetIntDart? _consumePendingRateChange;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
+  late final _SetLrSwapDart? _setLrSwap;
+  late final _GetLrSwapDart? _getLrSwap;
+  late final _SetChannelGainsDart? _setChannelGains;
+  late final _GetChannelGainsDart? _getChannelGains;
 
   // Limiter & Clipping Detection
   late final _SetLimiterEnabledDart _setLimiterEnabled;
@@ -2642,6 +2679,72 @@ class AudioEngineFFI {
       _freePtr(pL.cast<ffi.Void>());
       _freePtr(pR.cast<ffi.Void>());
     }
+  }
+
+  // ── L/R Swap ────────────────────────────────────────────────────────────────
+
+  /// Swaps left and right output channels. Applied after polarity inversion.
+  void setLrSwap(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setLrSwap?.call(_engine, enabled ? 1 : 0);
+  }
+
+  bool getLrSwap() {
+    if (_engine == ffi.nullptr || _getLrSwap == null) return false;
+    return _getLrSwap(_engine) != 0;
+  }
+
+  // ── Per-Channel Gain ─────────────────────────────────────────────────────────
+
+  /// Sets independent gain for left and right channels.
+  /// [leftLinear] and [rightLinear] are linear multipliers [0.0, 4.0].
+  /// Use [dbToLinear] to convert from dB if needed.
+  void setChannelGains({required double leftLinear, required double rightLinear}) {
+    if (_engine == ffi.nullptr) return;
+    _setChannelGains?.call(_engine, leftLinear, rightLinear);
+  }
+
+  /// Sets per-channel gain using dB values. Convenience wrapper.
+  /// [leftDb] and [rightDb] are in dB; 0.0 = unity, +12.0 = max.
+  void setChannelGainsDb({required double leftDb, required double rightDb}) {
+    setChannelGains(
+      leftLinear: _dbToLinear(leftDb),
+      rightLinear: _dbToLinear(rightDb),
+    );
+  }
+
+  /// Returns the current per-channel gains as linear multipliers {left, right}.
+  ({double left, double right}) getChannelGains() {
+    if (_engine == ffi.nullptr || _getChannelGains == null) {
+      return (left: 1.0, right: 1.0);
+    }
+    final pL = _malloc(ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    final pR = _malloc(ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      _getChannelGains(_engine, pL, pR);
+      return (left: pL.value.toDouble(), right: pR.value.toDouble());
+    } finally {
+      _freePtr(pL.cast<ffi.Void>());
+      _freePtr(pR.cast<ffi.Void>());
+    }
+  }
+
+  /// Returns the current per-channel gains in dB {left, right}.
+  ({double left, double right}) getChannelGainsDb() {
+    final g = getChannelGains();
+    return (left: _linearToDb(g.left), right: _linearToDb(g.right));
+  }
+
+  // Converts dB to linear gain. 0 dB => 1.0, -80 dB => ~0.0.
+  static double _dbToLinear(double db) {
+    if (db <= -80.0) return 0.0;
+    return math.pow(10.0, db / 20.0).toDouble();
+  }
+
+  // Converts linear gain to dB. 1.0 => 0 dB, 0.0 => -80 dB floor.
+  static double _linearToDb(double linear) {
+    if (linear <= 0.0) return -80.0;
+    return 20.0 * (math.log(linear) / math.ln10);
   }
 
   void setEngineResampleAlgorithm(int algorithm) {

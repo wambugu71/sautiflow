@@ -159,6 +159,19 @@ int main()
     std::cout << "\nRunning Rate Transition Safety Tests:\n";
     test_sample_rate_transitions();
 
+    std::cout << "\nRunning PDC Latency Reporting Tests:\n";
+    CrossfeedNode pdcNode;
+    assert(pdcNode.getLatencySamples() == 0.0);
+    pdcNode.setAlgorithm(CrossfeedAlgorithm::Simple);
+    pdcNode.setMix(0.5f);
+    pdcNode.setDelayMs(0.5f);
+    pdcNode.setSampleRate(48000.0);
+    double expectedPdc = 0.5 * 0.001 * 48000.0;
+    assert(std::abs(pdcNode.getLatencySamples() - expectedPdc) < 1e-4);
+    pdcNode.setAlgorithm(CrossfeedAlgorithm::Off);
+    assert(pdcNode.getLatencySamples() == 0.0);
+    std::cout << "  [PASS] Node getLatencySamples() verified (0.5ms @ 48kHz = " << expectedPdc << " samples)\n";
+
     std::cout << "\nAll Crossfeed DSP Node tests passed successfully!\n";
     return 0;
 }

@@ -4,6 +4,339 @@
     <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\audio_engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\mp4_aac_decoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\ViPER.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\AdaptiveLoudness.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\AnalogX.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\ColorfulMusic.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\Convolver.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\Cure.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\DiffSurround.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\DynamicEQ.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\DynamicSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\FETCompressor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\IIRFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\LUFSTargeting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\MultibandCompressor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\PlaybackGain.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\PsychoacousticBass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\Reverberation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\SoftwareLimiter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\SpeakerCorrection.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\SpectrumExtend.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\StereoImager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\TubeSimulator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\VHE.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\ViPERBass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\ViPERBassMono.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\ViPERClarity.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\effects\ViPERDDC.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\AdaptiveBuffer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Biquad.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\CAllPassFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\CCombFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\CRevModel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Crossfeed.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\DepthSurround.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\DynamicBass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\FIR.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Harmonic.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\HiFi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\HighShelf.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\IIR_1st.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\IIR_NOrder_BW_BP.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\IIR_NOrder_BW_LH.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\MinPhaseIIRCoeffs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\MultiBiquad.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\NoiseSharpening.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\PConvSingle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\PassFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\PolesFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Polyphase.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Stereo3DSurround.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\Subwoofer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\TimeConstDelay.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\WaveBuffer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\ViPERDSP\viper\utils\pffft.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\bits.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\cfft.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\common.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\decoder.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\drc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\drm_dec.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\error.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\filtbank.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\hcr.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\huffman.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ic_predict.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\is.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\lt_predict.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\mdct.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\mp4.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ms.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\output.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\pns.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ps_dec.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ps_syntax.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\pulse.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\rvlc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_dct.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_dec.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_e_nf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_fbt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_hfadj.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_hfgen.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_huff.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_qmf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_syntax.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\sbr_tf_grid.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\specrec.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ssr.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ssr_fb.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\ssr_ipqf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\syntax.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\faad2\libfaad\tns.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsamplerate\src\samplerate.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsamplerate\src\src_linear.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsamplerate\src\src_sinc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsamplerate\src\src_zoh.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\soxr.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\data-io.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\filter.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\cr.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\cr32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\cr32s.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\cr64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\vr32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\pffft32s.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\pffft-wrap.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\fft4g32.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\fft4g64.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\dbesi0.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\vr-coefs.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\wambugukinyua\miniaudiodart\third_party\libsoxr\src\util32s.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\wambugukinyua\miniaudiodart\windows\CMakeLists.txt" />

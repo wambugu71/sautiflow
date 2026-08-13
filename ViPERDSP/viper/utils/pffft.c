@@ -177,17 +177,28 @@ typedef float32x4_t v4sf;
 #  define VMADD(a,b,c) vmlaq_f32(c,a,b)
 #  define VSUB(a,b) vsubq_f32(a,b)
 #  define LD_PS1(p) vld1q_dup_f32(&(p))
-#  define INTERLEAVE2(in1, in2, out1, out2) { float32x4x2_t tmp__ = vzipq_f32(in1,in2); out1=tmp__.val[0]; out2=tmp__.val[1]; }
-#  define UNINTERLEAVE2(in1, in2, out1, out2) { float32x4x2_t tmp__ = vuzpq_f32(in1,in2); out1=tmp__.val[0]; out2=tmp__.val[1]; }
-#  define VTRANSPOSE4(x0,x1,x2,x3) {                                    \
-    float32x4x2_t t0_ = vzipq_f32(x0, x2);                              \
-    float32x4x2_t t1_ = vzipq_f32(x1, x3);                              \
-    float32x4x2_t u0_ = vzipq_f32(t0_.val[0], t1_.val[0]);              \
-    float32x4x2_t u1_ = vzipq_f32(t0_.val[1], t1_.val[1]);              \
-    x0 = u0_.val[0]; x1 = u0_.val[1]; x2 = u1_.val[0]; x3 = u1_.val[1]; \
-  }
-// marginally faster version
-//#  define VTRANSPOSE4(x0,x1,x2,x3) { asm("vtrn.32 %q0, %q1;\n vtrn.32 %q2,%q3\n vswp %f0,%e2\n vswp %f1,%e3" : "+w"(x0), "+w"(x1), "+w"(x2), "+w"(x3)::); }
+#  if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm64)
+#    define INTERLEAVE2(in1, in2, out1, out2) { float32x4_t tmp1__ = vzip1q_f32(in1,in2); float32x4_t tmp2__ = vzip2q_f32(in1,in2); out1=tmp1__; out2=tmp2__; }
+#    define UNINTERLEAVE2(in1, in2, out1, out2) { float32x4_t tmp1__ = vuzp1q_f32(in1,in2); float32x4_t tmp2__ = vuzp2q_f32(in1,in2); out1=tmp1__; out2=tmp2__; }
+#    define VTRANSPOSE4(x0,x1,x2,x3) {                                    \
+      float32x4_t t0_0 = vzip1q_f32(x0, x2);                              \
+      float32x4_t t0_1 = vzip2q_f32(x0, x2);                              \
+      float32x4_t t1_0 = vzip1q_f32(x1, x3);                              \
+      float32x4_t t1_1 = vzip2q_f32(x1, x3);                              \
+      x0 = vzip1q_f32(t0_0, t1_0); x1 = vzip2q_f32(t0_0, t1_0);           \
+      x2 = vzip1q_f32(t0_1, t1_1); x3 = vzip2q_f32(t0_1, t1_1);           \
+    }
+#  else
+#    define INTERLEAVE2(in1, in2, out1, out2) { float32x4x2_t tmp__ = vzipq_f32(in1,in2); out1=tmp__.val[0]; out2=tmp__.val[1]; }
+#    define UNINTERLEAVE2(in1, in2, out1, out2) { float32x4x2_t tmp__ = vuzpq_f32(in1,in2); out1=tmp__.val[0]; out2=tmp__.val[1]; }
+#    define VTRANSPOSE4(x0,x1,x2,x3) {                                    \
+      float32x4x2_t t0_ = vzipq_f32(x0, x2);                              \
+      float32x4x2_t t1_ = vzipq_f32(x1, x3);                              \
+      float32x4x2_t u0_ = vzipq_f32(t0_.val[0], t1_.val[0]);              \
+      float32x4x2_t u1_ = vzipq_f32(t0_.val[1], t1_.val[1]);              \
+      x0 = u0_.val[0]; x1 = u0_.val[1]; x2 = u1_.val[0]; x3 = u1_.val[1]; \
+    }
+#  endif
 #  define VSWAPHL(a,b) vcombine_f32(vget_low_f32(b), vget_high_f32(a))
 #  define VALIGNED(ptr) ((((size_t)(ptr)) & 0x3) == 0)
 #else
@@ -207,6 +218,10 @@ typedef float v4sf;
 #  define VMADD(a,b,c) ((a)*(b)+(c))
 #  define VSUB(a,b) ((a)-(b))
 #  define LD_PS1(p) (p)
+#  define INTERLEAVE2(in1, in2, out1, out2) { float tmp__ = (in1); out1 = tmp__; out2 = (in2); }
+#  define UNINTERLEAVE2(in1, in2, out1, out2) { float tmp__ = (in1); out1 = tmp__; out2 = (in2); }
+#  define VTRANSPOSE4(x0,x1,x2,x3) do {} while(0)
+#  define VSWAPHL(a,b) (a)
 #  define VALIGNED(ptr) ((((size_t)(ptr)) & 0x3) == 0)
 #endif
 

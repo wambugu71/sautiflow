@@ -15,6 +15,54 @@ AE_EXTRA_LDFLAGS="${AE_EXTRA_LDFLAGS:-}"
 
 mkdir -p build/android
 
+INCLUDES=(
+  "-I."
+  "-Ithird_party"
+  "-Ithird_party/faad2/include"
+  "-Ithird_party/faad2/libfaad"
+  "-Ithird_party/libsamplerate/include"
+  "-Ithird_party/libsoxr/include"
+  "-Ithird_party/libsoxr/src"
+  "-IViPERDSP/include"
+  "-IViPERDSP/viper"
+  "-IViPERDSP/viper/effects"
+  "-IViPERDSP/viper/utils"
+)
+
+DEFINES=(
+  "-DPACKAGE_VERSION=\"2.11.1\""
+  "-DPACKAGE=\"libsamplerate\""
+  "-DVERSION=\"0.2.2\""
+  "-DHAVE_INTTYPES_H=1"
+  "-DHAVE_MEMCPY=1"
+  "-DHAVE_STRING_H=1"
+  "-DHAVE_STDBOOL_H=1"
+  "-DHAVE_STRINGS_H=1"
+  "-DHAVE_SYS_TYPES_H=1"
+  "-DENABLE_SINC_BEST_CONVERTER=1"
+  "-DENABLE_SINC_MEDIUM_CONVERTER=1"
+  "-DENABLE_SINC_FAST_CONVERTER=1"
+  "-DSOXR_LIB=1"
+)
+
+SOXR_SRCS=(
+  third_party/libsoxr/src/soxr.c
+  third_party/libsoxr/src/data-io.c
+  third_party/libsoxr/src/filter.c
+  third_party/libsoxr/src/cr.c
+  third_party/libsoxr/src/cr32.c
+  third_party/libsoxr/src/cr32s.c
+  third_party/libsoxr/src/cr64.c
+  third_party/libsoxr/src/vr32.c
+  third_party/libsoxr/src/pffft32s.c
+  third_party/libsoxr/src/pffft-wrap.c
+  third_party/libsoxr/src/fft4g32.c
+  third_party/libsoxr/src/fft4g64.c
+  third_party/libsoxr/src/dbesi0.c
+  third_party/libsoxr/src/vr-coefs.c
+  third_party/libsoxr/src/util32s.c
+)
+
 for ABI in "${ABIS[@]}"; do
   case "$ABI" in
     arm64-v8a)
@@ -38,9 +86,9 @@ for ABI in "${ABIS[@]}"; do
 
   "$CLANG" \
     -std=c++17 -O2 -fPIC -shared \
-    audio_engine.cpp \
+    audio_engine.cpp mp4_aac_decoder.cpp third_party/faad2/libfaad/*.c third_party/libsamplerate/src/*.c ViPERDSP/viper/ViPER.cpp ViPERDSP/viper/effects/*.cpp ViPERDSP/viper/utils/*.cpp ViPERDSP/viper/utils/*.c "${SOXR_SRCS[@]}" \
     -o "$OUT_DIR/libaudio_engine.so" \
-    -D__ANDROID_API__=$API \
+    -D__ANDROID_API__=$API "${INCLUDES[@]}" "${DEFINES[@]}" \
     $AE_EXTRA_CXXFLAGS \
     $AE_EXTRA_LDFLAGS
 

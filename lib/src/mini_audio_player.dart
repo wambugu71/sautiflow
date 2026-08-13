@@ -324,6 +324,26 @@ class MiniAudioPlayer {
   /// Get current Phase Inversion status.
   ({bool left, bool right}) getPhaseInversion() => _engine.getPhaseInversion();
 
+  /// Enable or disable Left/Right output channel swapping.
+  void setLrSwap(bool enabled) => _engine.setLrSwap(enabled);
+
+  /// Check if Left/Right channel swap is active.
+  bool getLrSwap() => _engine.getLrSwap();
+
+  /// Set linear channel gains for Left and Right channels.
+  void setChannelGains({required double leftLinear, required double rightLinear}) =>
+      _engine.setChannelGains(leftLinear: leftLinear, rightLinear: rightLinear);
+
+  /// Set per-channel gains in dB for Left and Right channels (-12 dB to +12 dB).
+  void setChannelGainsDb({required double leftDb, required double rightDb}) =>
+      _engine.setChannelGainsDb(leftDb: leftDb, rightDb: rightDb);
+
+  /// Get current per-channel gains as linear multipliers.
+  ({double left, double right}) getChannelGains() => _engine.getChannelGains();
+
+  /// Get current per-channel gains in dB.
+  ({double left, double right}) getChannelGainsDb() => _engine.getChannelGainsDb();
+
   /// Initialize the multiband equalizer.
   /// provide a list of center frequencies (Hz) for the bands.
   /// Optional [qFactors] lists the Q factor for each band (defaults to 1.0).

@@ -880,6 +880,40 @@ class AppStateService {
     );
   }
 
+  // ─── L/R Swap & Per-Channel Gain ──────────────────────────────────────────
+  static const _kLrSwapEnabled = 'sp_lr_swap_enabled';
+  static const _kChannelGainLeftDb = 'sp_channel_gain_left_db';
+  static const _kChannelGainRightDb = 'sp_channel_gain_right_db';
+
+  Future<void> saveLrSwap(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLrSwapEnabled, enabled);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<bool> loadLrSwap() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kLrSwapEnabled) ?? false;
+  }
+
+  Future<void> saveChannelGains({
+    required double leftDb,
+    required double rightDb,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kChannelGainLeftDb, leftDb);
+    await prefs.setDouble(_kChannelGainRightDb, rightDb);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<({double leftDb, double rightDb})> loadChannelGains() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      leftDb: prefs.getDouble(_kChannelGainLeftDb) ?? 0.0,
+      rightDb: prefs.getDouble(_kChannelGainRightDb) ?? 0.0,
+    );
+  }
+
   // ─── Neutron HiFi Audio Engine Settings ────────────────────────────────────
   static const _k64BitProcessingEnabled = 'sp_64bit_processing_enabled';
   static const _kAutoBitPerfectEnabled = 'sp_auto_bit_perfect_enabled';

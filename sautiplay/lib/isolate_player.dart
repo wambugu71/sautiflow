@@ -637,6 +637,23 @@ class IsolateAudioPlayer {
         'invertRight': invertRight,
       });
 
+  void setLrSwap(bool enabled) =>
+      _send({'cmd': 'setLrSwap', 'enabled': enabled});
+
+  void setChannelGains({required double leftLinear, required double rightLinear}) =>
+      _send({
+        'cmd': 'setChannelGains',
+        'leftLinear': leftLinear,
+        'rightLinear': rightLinear,
+      });
+
+  void setChannelGainsDb({required double leftDb, required double rightDb}) =>
+      _send({
+        'cmd': 'setChannelGainsDb',
+        'leftDb': leftDb,
+        'rightDb': rightDb,
+      });
+
   void setExclusiveMode(bool enabled) =>
       _send({'cmd': 'setExclusiveMode', 'enabled': enabled});
 
@@ -1350,6 +1367,30 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           initData.sendPort.send(
             '[log]Phase Inversion updated: L=${message['invertLeft']}, R=${message['invertRight']}',
+          );
+          break;
+        case 'setLrSwap':
+          player.setLrSwap(message['enabled'] == true);
+          initData.sendPort.send(
+            '[log]L/R Swap updated: ${message['enabled']}',
+          );
+          break;
+        case 'setChannelGains':
+          player.setChannelGains(
+            leftLinear: (message['leftLinear'] as num).toDouble(),
+            rightLinear: (message['rightLinear'] as num).toDouble(),
+          );
+          initData.sendPort.send(
+            '[log]Channel Gains updated: L=${message['leftLinear']}, R=${message['rightLinear']}',
+          );
+          break;
+        case 'setChannelGainsDb':
+          player.setChannelGainsDb(
+            leftDb: (message['leftDb'] as num).toDouble(),
+            rightDb: (message['rightDb'] as num).toDouble(),
+          );
+          initData.sendPort.send(
+            '[log]Channel Gains dB updated: L=${message['leftDb']}dB, R=${message['rightDb']}dB',
           );
           break;
         case 'setExclusiveMode':

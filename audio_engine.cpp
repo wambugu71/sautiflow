@@ -2420,6 +2420,9 @@ struct AudioEngineHandle
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
+    std::atomic<bool> lrSwapEnabled{false};
+    std::atomic<float> channelGainLeft{1.0f};
+    std::atomic<float> channelGainRight{1.0f};
     DitherProcessorState ditherProcessor;
 
     std::vector<float> eqFrequencies;
@@ -4124,6 +4127,20 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
+            // Per-Channel Gain (L/R independent trim)
+            {
+                const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
+                const float rg = e->channelGainRight.load(std::memory_order_relaxed);
+                if (e->channels >= 2 && (lg != 1.0f || rg != 1.0f))
+                {
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        processBuffer[i * (size_t)e->channels + 0] *= lg;
+                        processBuffer[i * (size_t)e->channels + 1] *= rg;
+                    }
+                }
+            }
+
             // Custom Fading (Wait Fade)
             if (e->customFadeArmed.load(std::memory_order_acquire))
             {
@@ -4367,19 +4384,30 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         }
     }
 
-    // Phase Inversion (Polarity Flip - applied to output frames)
+    // Phase Inversion (Polarity Flip) + L/R Swap - applied to output frames
     {
-        const bool invL = e->phaseInvertLeft.load(std::memory_order_relaxed);
-        const bool invR = e->phaseInvertRight.load(std::memory_order_relaxed);
+        const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
+        const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
+        const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
+        const int ch = (e->channels > 0) ? e->channels : 2;
         if (invL || invR)
         {
-            const int ch = (e->channels > 0) ? e->channels : 2;
             for (ma_uint32 i = 0; i < produced; ++i)
             {
                 if (invL)
                     processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
                 if (ch > 1 && invR)
                     processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
+            }
+        }
+        // L/R Swap: exchange left and right channels (applied after polarity so they compose correctly)
+        if (doSwap && ch >= 2)
+        {
+            for (ma_uint32 i = 0; i < produced; ++i)
+            {
+                float tmp = processBuffer[i * (size_t)ch + 0];
+                processBuffer[i * (size_t)ch + 0] = processBuffer[i * (size_t)ch + 1];
+                processBuffer[i * (size_t)ch + 1] = tmp;
             }
         }
     }
@@ -6875,6 +6903,45 @@ extern "C"
             *out_invert_left = engine->phaseInvertLeft.load(std::memory_order_relaxed) ? 1 : 0;
         if (out_invert_right)
             *out_invert_right = engine->phaseInvertRight.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    // L/R Swap
+    AE_API void ae_set_lr_swap(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->lrSwapEnabled.store(enabled != 0, std::memory_order_relaxed);
+        engine_log("L/R Swap: %s", enabled ? "ON" : "OFF");
+    }
+
+    AE_API int ae_get_lr_swap(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->lrSwapEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    // Per-Channel Gain (L/R independent trim)
+    // gain_left, gain_right: linear multipliers, clamped to [0.0, 4.0] (1.0 = unity, ~+12 dB max)
+    AE_API void ae_set_channel_gains(AudioEngineHandle *engine, float gain_left, float gain_right)
+    {
+        if (!engine)
+            return;
+        engine->channelGainLeft.store(clampf(gain_left, 0.0f, 4.0f), std::memory_order_relaxed);
+        engine->channelGainRight.store(clampf(gain_right, 0.0f, 4.0f), std::memory_order_relaxed);
+        engine_log("Channel Gains updated: L=%.3f R=%.3f", gain_left, gain_right);
+    }
+
+    AE_API void ae_get_channel_gains(AudioEngineHandle *engine, float *out_gain_left, float *out_gain_right)
+    {
+        if (!engine)
+        {
+            if (out_gain_left)  *out_gain_left  = 1.0f;
+            if (out_gain_right) *out_gain_right = 1.0f;
+            return;
+        }
+        if (out_gain_left)  *out_gain_left  = engine->channelGainLeft.load(std::memory_order_relaxed);
+        if (out_gain_right) *out_gain_right = engine->channelGainRight.load(std::memory_order_relaxed);
     }
 
     // Audio Limiter & Clipping Detection

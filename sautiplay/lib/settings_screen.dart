@@ -138,6 +138,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _phaseInvertLeft = false;
   bool _phaseInvertRight = false;
 
+  // L/R Swap & Per-Channel Gain
+  bool _lrSwapEnabled = false;
+  double _channelGainLeftDb = 0.0;
+  double _channelGainRightDb = 0.0;
+
   // Neutron HiFi Engine Settings
   bool _use64BitProcessingEnabled = false;
   bool _autoBitPerfectEnabled = false;
@@ -200,6 +205,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
+    final lrSwap = await AppStateService.instance.loadLrSwap();
+    final channelGains = await AppStateService.instance.loadChannelGains();
     final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
@@ -233,6 +240,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _safetyAttenuationDb = spSaved.safetyAttenuationDb;
       _phaseInvertLeft = phaseSaved.invertLeft;
       _phaseInvertRight = phaseSaved.invertRight;
+      _lrSwapEnabled = lrSwap;
+      _channelGainLeftDb = channelGains.leftDb;
+      _channelGainRightDb = channelGains.rightDb;
       _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
       _loudnessCrossfadeEnabled = loudnessCf;
@@ -247,6 +257,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
     );
+    widget.player.setLrSwap(_lrSwapEnabled);
+    widget.player.setChannelGainsDb(
+      leftDb: _channelGainLeftDb,
+      rightDb: _channelGainRightDb,
+    );
     _applySpeakerProtectionSettings();
   }
 
@@ -258,6 +273,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
+    );
+  }
+
+  void _persistChannelRoutingSettings() {
+    AppStateService.instance.saveLrSwap(_lrSwapEnabled);
+    AppStateService.instance.saveChannelGains(
+      leftDb: _channelGainLeftDb,
+      rightDb: _channelGainRightDb,
+    );
+    widget.player.setLrSwap(_lrSwapEnabled);
+    widget.player.setChannelGainsDb(
+      leftDb: _channelGainLeftDb,
+      rightDb: _channelGainRightDb,
     );
   }
 
@@ -1237,6 +1265,224 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                // ── L/R SWAP ──────────────────────────────────────────────
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _lrSwapEnabled
+                          ? _primary.withAlpha(35)
+                          : Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.swap_horiz_rounded,
+                        color: _lrSwapEnabled ? _primary : Colors.white70,
+                        size: 20),
+                  ),
+                  title: const Text('L/R Channel Swap',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    _lrSwapEnabled
+                        ? 'Left and right outputs are swapped'
+                        : 'Mirror left and right audio channels',
+                    style: TextStyle(
+                        color: _lrSwapEnabled
+                            ? _primary.withAlpha(200)
+                            : _textDark,
+                        fontSize: 12),
+                  ),
+                  value: _lrSwapEnabled,
+                  activeThumbColor: _primary,
+                  activeTrackColor: _primary.withAlpha(80),
+                  inactiveThumbColor: Colors.white70,
+                  inactiveTrackColor: Colors.white10,
+                  onChanged: (val) {
+                    setState(() => _lrSwapEnabled = val);
+                    _persistChannelRoutingSettings();
+                    setSubState(() {});
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                // ── PER-CHANNEL GAIN ──────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withAlpha(10),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.tune_rounded,
+                                color: Colors.white70, size: 20),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Per-Channel Gain',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)',
+                                  style: TextStyle(
+                                      color: Colors.white54, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Left channel slider
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            child: Text('L',
+                                style: TextStyle(
+                                    color: _primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13)),
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: _primary,
+                                inactiveTrackColor: Colors.white10,
+                                thumbColor: _primary,
+                                overlayColor: _primary.withAlpha(40),
+                                trackHeight: 3,
+                              ),
+                              child: Slider(
+                                min: -12,
+                                max: 12,
+                                divisions: 48,
+                                value: _channelGainLeftDb,
+                                onChanged: (val) {
+                                  setState(() => _channelGainLeftDb =
+                                      double.parse(val.toStringAsFixed(1)));
+                                },
+                                onChangeEnd: (_) {
+                                  _persistChannelRoutingSettings();
+                                  setSubState(() {});
+                                },
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 52,
+                            child: Text(
+                              _channelGainLeftDb == 0.0
+                                  ? '0\u202fdB'
+                                  : '${_channelGainLeftDb > 0 ? '+' : ''}${_channelGainLeftDb.toStringAsFixed(1)}\u202fdB',
+                              style: TextStyle(
+                                  color: _channelGainLeftDb == 0.0
+                                      ? _textDark
+                                      : _primary,
+                                  fontSize: 12,
+                                  fontWeight: _channelGainLeftDb == 0.0
+                                      ? FontWeight.normal
+                                      : FontWeight.bold),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Right channel slider
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            child: Text('R',
+                                style: TextStyle(
+                                    color: Colors.deepOrangeAccent,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13)),
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: Colors.deepOrangeAccent,
+                                inactiveTrackColor: Colors.white10,
+                                thumbColor: Colors.deepOrangeAccent,
+                                overlayColor:
+                                    Colors.deepOrangeAccent.withAlpha(40),
+                                trackHeight: 3,
+                              ),
+                              child: Slider(
+                                min: -12,
+                                max: 12,
+                                divisions: 48,
+                                value: _channelGainRightDb,
+                                onChanged: (val) {
+                                  setState(() => _channelGainRightDb =
+                                      double.parse(val.toStringAsFixed(1)));
+                                },
+                                onChangeEnd: (_) {
+                                  _persistChannelRoutingSettings();
+                                  setSubState(() {});
+                                },
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 52,
+                            child: Text(
+                              _channelGainRightDb == 0.0
+                                  ? '0\u202fdB'
+                                  : '${_channelGainRightDb > 0 ? '+' : ''}${_channelGainRightDb.toStringAsFixed(1)}\u202fdB',
+                              style: TextStyle(
+                                  color: _channelGainRightDb == 0.0
+                                      ? _textDark
+                                      : Colors.deepOrangeAccent,
+                                  fontSize: 12,
+                                  fontWeight: _channelGainRightDb == 0.0
+                                      ? FontWeight.normal
+                                      : FontWeight.bold),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Reset button
+                      if (_channelGainLeftDb != 0.0 ||
+                          _channelGainRightDb != 0.0)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _channelGainLeftDb = 0.0;
+                                _channelGainRightDb = 0.0;
+                              });
+                              _persistChannelRoutingSettings();
+                              setSubState(() {});
+                            },
+                            icon: Icon(Icons.restart_alt_rounded,
+                                color: _textDark, size: 16),
+                            label: Text('Reset to 0\u202fdB',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 12)),
+                          ),
+                        ),
                     ],
                   ),
                 ),
