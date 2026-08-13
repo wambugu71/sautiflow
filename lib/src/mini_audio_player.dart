@@ -173,6 +173,14 @@ class MiniAudioPlayer {
   void setCrossfadeDurationMs(int durationMs) =>
       _engine.setCrossfadeDurationMs(durationMs);
   int getCrossfadeDurationMs() => _engine.getCrossfadeDurationMs();
+  void setLoudnessCrossfadeEnabled(bool enabled) =>
+      _engine.setLoudnessCrossfadeEnabled(enabled);
+  bool getLoudnessCrossfadeEnabled() => _engine.getLoudnessCrossfadeEnabled();
+  void setNextReplayGain(double gainDb) => _engine.setNextReplayGain(gainDb);
+  void setCrossfadeSilenceThreshold(double thresholdDb) =>
+      _engine.setCrossfadeSilenceThreshold(thresholdDb);
+  double getCrossfadeSilenceThreshold() =>
+      _engine.getCrossfadeSilenceThreshold();
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();

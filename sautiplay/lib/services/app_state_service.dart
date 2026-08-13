@@ -597,6 +597,7 @@ class AppStateService {
   static const _kChannels = 'sp_channels';
   static const _kCrossfadeEnabled = 'sp_crossfade_enabled';
   static const _kCrossfadeMs = 'sp_crossfade_ms';
+  static const _kLoudnessCrossfadeEnabled = 'sp_loudness_crossfade_enabled';
   static const _kAnalyzerEnabled = 'sp_analyzer_enabled';
   static const _kAnalyzerType = 'sp_analyzer_type';
   static const _kAnalyzerSampleSize = 'sp_analyzer_sample_size';
@@ -613,6 +614,7 @@ class AppStateService {
     required int channels,
     required bool crossfadeEnabled,
     required int crossfadeMs,
+    bool loudnessCrossfadeEnabled = true,
     required bool analyzerEnabled,
     required String analyzerType,
     required int analyzerSampleSize,
@@ -629,6 +631,7 @@ class AppStateService {
     await prefs.setInt(_kChannels, channels);
     await prefs.setBool(_kCrossfadeEnabled, crossfadeEnabled);
     await prefs.setInt(_kCrossfadeMs, crossfadeMs);
+    await prefs.setBool(_kLoudnessCrossfadeEnabled, loudnessCrossfadeEnabled);
     await prefs.setBool(_kAnalyzerEnabled, analyzerEnabled);
     await prefs.setString(_kAnalyzerType, analyzerType);
     await prefs.setInt(_kAnalyzerSampleSize, analyzerSampleSize);
@@ -641,6 +644,14 @@ class AppStateService {
     audioProcessingSettingsChanged.add(null);
   }
 
+  /// Saves only the loudness-aware crossfade flag without touching other engine
+  /// settings. Used by the Settings UI toggle which doesn't own the full state.
+  Future<void> saveLoudnessCrossfadeEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLoudnessCrossfadeEnabled, enabled);
+    audioProcessingSettingsChanged.add(null);
+  }
+
   Future<
       ({
         int outputFormatIndex,
@@ -648,6 +659,7 @@ class AppStateService {
         int channels,
         bool crossfadeEnabled,
         int crossfadeMs,
+        bool loudnessCrossfadeEnabled,
         bool analyzerEnabled,
         String analyzerType,
         int analyzerSampleSize,
@@ -665,6 +677,7 @@ class AppStateService {
       channels: prefs.getInt(_kChannels) ?? 2,
       crossfadeEnabled: prefs.getBool(_kCrossfadeEnabled) ?? false,
       crossfadeMs: prefs.getInt(_kCrossfadeMs) ?? 250,
+      loudnessCrossfadeEnabled: prefs.getBool(_kLoudnessCrossfadeEnabled) ?? true,
       analyzerEnabled: prefs.getBool(_kAnalyzerEnabled) ?? true,
       analyzerType: prefs.getString(_kAnalyzerType) ?? 'area',
       analyzerSampleSize: prefs.getInt(_kAnalyzerSampleSize) ?? 1024,

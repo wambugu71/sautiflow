@@ -380,6 +380,7 @@ class _PlayerShellState extends State<PlayerShell> {
 
     _player.set64BitProcessingEnabled(is64Bit);
     _player.setAutoSampleRateMatchEnabled(autoBp);
+    _player.setLoudnessCrossfadeEnabled(engine.loudnessCrossfadeEnabled);
     _player.setPhaseInversion(
       invertLeft: phaseSaved.invertLeft,
       invertRight: phaseSaved.invertRight,
@@ -547,6 +548,10 @@ class _PlayerShellState extends State<PlayerShell> {
       }
 
       if (!isNewTrack) return; // art is loaded, skip notification re-publish
+
+      // Pre-fetch next track's ReplayGain for loudness-aware crossfade
+      _prefetchNextTrackReplayGain(idx);
+
       final artUri = await _resolveNowPlayingArtUri(
         source,
         _metadata.value.albumArt,
@@ -639,6 +644,77 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   AudioSource? _lastMetadataSource;
+
+  /// Pre-reads the ReplayGain value for the next track in the queue and
+  /// forwards it to the engine so loudness-aware crossfade can compensate
+  /// before the blend even starts.
+  Future<void> _prefetchNextTrackReplayGain(int currentIndex) async {
+    final nextIndex = currentIndex + 1;
+    if (nextIndex >= _playlist.length) return;
+    final nextSource = _playlist[nextIndex];
+
+    // Prefer online track metadata (no RG in that path, send 0)
+    if (_onlineTrackMetadata.containsKey(nextSource.uri)) {
+      _player.setNextReplayGain(0.0);
+      return;
+    }
+
+    String? filePath;
+    final uri = nextSource.uri;
+    if (uri.scheme == 'file') {
+      filePath = _safeFilePathFromUri(uri);
+    } else {
+      final str = Uri.decodeFull(uri.toString());
+      if (str.startsWith(RegExp(r'^[a-zA-Z]:[\\/]')) || str.startsWith('/')) {
+        filePath = str;
+      }
+    }
+
+    if (filePath == null) {
+      _player.setNextReplayGain(0.0);
+      return;
+    }
+
+    double rgDb = 0.0;
+    try {
+      final metadata = readMetadata(File(filePath), getImage: false);
+      final rgState = await AppStateService.instance.loadReplayGainSettings();
+      double? found;
+      try {
+        final dynamic m = metadata;
+        if (m.customMetadata != null) {
+          final Map<String, String> custom = m.customMetadata;
+          if (rgState.mode == ReplayGainMode.album &&
+              custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
+            found = double.tryParse(
+                custom['REPLAYGAIN_ALBUM_GAIN']!.replaceAll(RegExp(r'[^\d.-]'), ''));
+          }
+          found ??= double.tryParse(
+              (custom['REPLAYGAIN_TRACK_GAIN'] ?? '').replaceAll(RegExp(r'[^\d.-]'), ''));
+        }
+      } catch (_) {}
+      try {
+        final dynamic m = metadata;
+        if (found == null) {
+          if (rgState.mode == ReplayGainMode.album &&
+              m.replayGainAlbumGain != null &&
+              (m.replayGainAlbumGain as List).isNotEmpty) {
+            found = double.tryParse(
+                (m.replayGainAlbumGain as List).first.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+          }
+          if (found == null &&
+              m.replayGainTrackGain != null &&
+              (m.replayGainTrackGain as List).isNotEmpty) {
+            found = double.tryParse(
+                (m.replayGainTrackGain as List).first.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+          }
+        }
+      } catch (_) {}
+      rgDb = (found ?? 0.0) + rgState.preamp;
+    } catch (_) {}
+
+    _player.setNextReplayGain(rgDb);
+  }
 
   Future<void> _updateMetadata(AudioSource source) async {
     if (_lastMetadataSource == source) return;

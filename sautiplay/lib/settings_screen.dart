@@ -142,6 +142,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _use64BitProcessingEnabled = false;
   bool _autoBitPerfectEnabled = false;
 
+  // Loudness-Aware Crossfade
+  bool _loudnessCrossfadeEnabled = true;
+
   // Waveform Seek Bar UI Setting
   bool _useWaveformSeekBar = false;
 
@@ -201,6 +204,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
         await AppStateService.instance.loadUseWaveformSeekBar();
+    final engineSettings = await AppStateService.instance.loadEngineSettings();
+    final loudnessCf = engineSettings.loudnessCrossfadeEnabled;
 
     String versionStr = 'v0.6.20';
     try {
@@ -230,12 +235,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _phaseInvertRight = phaseSaved.invertRight;
       _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
+      _loudnessCrossfadeEnabled = loudnessCf;
       _useWaveformSeekBar = waveformSaved;
       _activeThemeId = AppThemeService.instance.current;
     });
     widget.player.setViperOversampling(oversamplingSaved);
     widget.player.set64BitProcessingEnabled(is64Bit);
     widget.player.setAutoSampleRateMatchEnabled(autoBp);
+    widget.player.setLoudnessCrossfadeEnabled(loudnessCf);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -2276,6 +2283,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(color: Colors.white10, height: 1),
+                // Loudness-Aware Crossfade – only meaningful when crossfade is on
+                if (widget.crossfadeEnabled) ...[
+                  SwitchListTile(
+                    contentPadding: const EdgeInsets.only(
+                        left: 32, right: 20, top: 4, bottom: 4),
+                    secondary: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (_loudnessCrossfadeEnabled
+                                ? _primary
+                                : Colors.white)
+                            .withAlpha(20),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.volume_up_rounded,
+                        color: _loudnessCrossfadeEnabled
+                            ? _primary
+                            : Colors.white54,
+                        size: 18,
+                      ),
+                    ),
+                    title: Text(
+                      'Loudness-Aware Crossfade',
+                      style: TextStyle(
+                        color: _loudnessCrossfadeEnabled
+                            ? Colors.white
+                            : Colors.white70,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _loudnessCrossfadeEnabled
+                          ? 'Per-track gain applied during blend — no volume jumps'
+                          : 'Disabled — raw PCM blending',
+                      style: TextStyle(
+                        color: _loudnessCrossfadeEnabled
+                            ? Colors.greenAccent.shade200
+                            : Colors.white38,
+                        fontSize: 11,
+                      ),
+                    ),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: _primary,
+                    inactiveThumbColor: Colors.white54,
+                    inactiveTrackColor: Colors.white10,
+                    value: _loudnessCrossfadeEnabled,
+                    onChanged: (val) {
+                      setState(() => _loudnessCrossfadeEnabled = val);
+                      setSubState(() {});
+                      widget.player.setLoudnessCrossfadeEnabled(val);
+                      AppStateService.instance.saveLoudnessCrossfadeEnabled(val);
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                ],
                 SwitchListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

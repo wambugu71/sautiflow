@@ -1099,6 +1099,30 @@ class AudioEngineFFI {
       'ae_get_crossfade_duration_ms',
     );
 
+    try {
+      _setLoudnessCrossfadeEnabled = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+        'ae_set_loudness_crossfade_enabled',
+      );
+      _getLoudnessCrossfadeEnabled = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+        'ae_get_loudness_crossfade_enabled',
+      );
+      _setNextReplayGain = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+        'ae_set_next_replay_gain',
+      );
+      _setCrossfadeSilenceThreshold = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+        'ae_set_crossfade_silence_threshold',
+      );
+      _getCrossfadeSilenceThreshold = _lib.lookupFunction<_GetDeviceLatencyMsNative, _GetDeviceLatencyMsDart>(
+        'ae_get_crossfade_silence_threshold',
+      );
+    } catch (_) {
+      _setLoudnessCrossfadeEnabled = null;
+      _getLoudnessCrossfadeEnabled = null;
+      _setNextReplayGain = null;
+      _setCrossfadeSilenceThreshold = null;
+      _getCrossfadeSilenceThreshold = null;
+    }
+
     _setReverbEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_reverb_enabled',
@@ -1559,6 +1583,11 @@ class AudioEngineFFI {
   late final _GetIntDart _getCrossfadeEnabled;
   late final _SetIntDart _setCrossfadeDurationMs;
   late final _GetIntDart _getCrossfadeDurationMs;
+  _SetIntDart? _setLoudnessCrossfadeEnabled;
+  _GetIntDart? _getLoudnessCrossfadeEnabled;
+  _SetSingleFloatDart? _setNextReplayGain;
+  _SetSingleFloatDart? _setCrossfadeSilenceThreshold;
+  _GetDeviceLatencyMsDart? _getCrossfadeSilenceThreshold;
   late final _SetFxEnabledDart _setReverbEnabled;
   late final _SetReverbParamsDart _setReverbParams;
   late final _SetFxEnabledDart _setEqEnabled;
@@ -1945,6 +1974,31 @@ class AudioEngineFFI {
   int getCrossfadeDurationMs() {
     if (_engine == ffi.nullptr) return 0;
     return _getCrossfadeDurationMs(_engine);
+  }
+
+  void setLoudnessCrossfadeEnabled(bool enabled) {
+    if (_engine == ffi.nullptr || _setLoudnessCrossfadeEnabled == null) return;
+    _setLoudnessCrossfadeEnabled!(_engine, enabled ? 1 : 0);
+  }
+
+  bool getLoudnessCrossfadeEnabled() {
+    if (_engine == ffi.nullptr || _getLoudnessCrossfadeEnabled == null) return false;
+    return _getLoudnessCrossfadeEnabled!(_engine) != 0;
+  }
+
+  void setNextReplayGain(double gainDb) {
+    if (_engine == ffi.nullptr || _setNextReplayGain == null) return;
+    _setNextReplayGain!(_engine, gainDb);
+  }
+
+  void setCrossfadeSilenceThreshold(double thresholdDb) {
+    if (_engine == ffi.nullptr || _setCrossfadeSilenceThreshold == null) return;
+    _setCrossfadeSilenceThreshold!(_engine, thresholdDb);
+  }
+
+  double getCrossfadeSilenceThreshold() {
+    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null) return -60.0;
+    return _getCrossfadeSilenceThreshold!(_engine);
   }
 
   TrackNativeInfo? inspectFile(String path) {

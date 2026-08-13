@@ -830,6 +830,10 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setCrossfadeEnabled', 'enabled': enabled});
   void setCrossfadeDurationMs(int durationMs) =>
       _send({'cmd': 'setCrossfadeDurationMs', 'durationMs': durationMs});
+  void setLoudnessCrossfadeEnabled(bool enabled) =>
+      _send({'cmd': 'setLoudnessCrossfadeEnabled', 'enabled': enabled});
+  void setNextReplayGain(double gainDb) =>
+      _send({'cmd': 'setNextReplayGain', 'gainDb': gainDb});
   void next() => _send({'cmd': 'next'});
   void previous() => _send({'cmd': 'previous'});
   void moveAudioSource(int oldIndex, int newIndex) =>
@@ -1485,6 +1489,12 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setCrossfadeDurationMs':
           player.setCrossfadeDurationMs((message['durationMs'] as int?) ?? 0);
+          break;
+        case 'setLoudnessCrossfadeEnabled':
+          player.setLoudnessCrossfadeEnabled(message['enabled'] == true);
+          break;
+        case 'setNextReplayGain':
+          player.setNextReplayGain((message['gainDb'] as num?)?.toDouble() ?? 0.0);
           break;
         case 'next':
           player.seekToNext();

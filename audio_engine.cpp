@@ -2269,6 +2269,11 @@ struct AudioEngineHandle
 
     // Crossfade State
     std::atomic<bool> isCrossfading{false};
+    std::atomic<bool> loudnessCrossfadeEnabled{true};
+    std::atomic<float> currentTrackReplayGain{1.0f};
+    std::atomic<float> fadingOutReplayGain{1.0f};
+    std::atomic<float> nextTrackReplayGain{1.0f};
+    std::atomic<float> crossfadeSilenceThresholdDb{-60.0f};
     std::atomic<ma_uint64> crossfadeFramesRemaining{0};
     std::atomic<ma_uint64> crossfadeFramesTotal{0};
     ma_decoder* fadingOutDecoder = nullptr;
@@ -3642,6 +3647,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->crossfadeFramesTotal.store(remain > 0 ? remain : fadeFrames, std::memory_order_relaxed);
                             e->crossfadeFramesRemaining.store(remain, std::memory_order_relaxed);
 
+                            e->fadingOutReplayGain.store(e->currentTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->currentTrackReplayGain.store(e->nextTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
                             e->fadingOutDecoder = e->currentDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                             e->fadingOutStream = e->currentStream;
@@ -3846,6 +3854,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         , e->currentStream
 #endif
                     );
+                    e->currentTrackReplayGain.store(e->nextTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
                     e->currentDecoder = e->nextDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     e->currentStream = e->nextStream;
@@ -4026,6 +4035,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             ma_uint64 oldFramesRead = 0;
             ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
             
+            const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
+            const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
+            const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
+
             const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
             constexpr float halfPi = 1.57079632679f;
             for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
@@ -4037,9 +4050,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 const size_t base = (size_t)i * (size_t)e->channels;
                 for (int c = 0; c < e->channels; ++c)
                 {
-                    // If we successfully read frames from the old track, add them
-                    float outSample = (i < oldFramesRead) ? mixBuf[base + (size_t)c] : 0.0f;
-                    processBuffer[base + (size_t)c] = (processBuffer[base + (size_t)c] * tIn) + (outSample * tOut);
+                    // If we successfully read frames from the old track, add them with loudness gain alignment
+                    float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                    float inSample  = processBuffer[base + (size_t)c] * inGain;
+                    processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * tOut);
                 }
                 fadeRemaining -= 1;
             }
@@ -4090,7 +4104,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             // Volume (main gain × replay gain)
             {
-                const float vol = e->gain.load(std::memory_order_relaxed) * e->replayGainLinear.load(std::memory_order_relaxed);
+                const float rg = (e->isCrossfading.load(std::memory_order_relaxed) && e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed))
+                                 ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
+                const float vol = e->gain.load(std::memory_order_relaxed) * rg;
                 if (vol != 1.0f)
                 {
                     if (use64)
@@ -5451,6 +5467,42 @@ extern "C"
         return clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
     }
 
+    AE_API void ae_set_loudness_crossfade_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        e->loudnessCrossfadeEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_loudness_crossfade_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        return e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    AE_API void ae_set_next_replay_gain(AudioEngineHandle *e, float gain_db)
+    {
+        if (e == nullptr)
+            return;
+        const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        e->nextTrackReplayGain.store(linear, std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_crossfade_silence_threshold(AudioEngineHandle *e, float threshold_db)
+    {
+        if (e == nullptr)
+            return;
+        e->crossfadeSilenceThresholdDb.store(threshold_db, std::memory_order_relaxed);
+    }
+
+    AE_API float ae_get_crossfade_silence_threshold(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return -60.0f;
+        return e->crossfadeSilenceThresholdDb.load(std::memory_order_relaxed);
+    }
+
     AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)
     {
         if (e == nullptr)
@@ -5656,6 +5708,7 @@ extern "C"
             return;
         const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
         e->replayGainLinear.store(linear, std::memory_order_relaxed);
+        e->currentTrackReplayGain.store(linear, std::memory_order_relaxed);
     }
 
     AE_API void ae_set_pan(AudioEngineHandle *e, float pan_minus1_to_plus1)

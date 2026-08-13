@@ -151,6 +151,13 @@ extern "C"
     AE_API void ae_set_crossfade_duration_ms(AudioEngineHandle *engine, int duration_ms);
     AE_API int ae_get_crossfade_duration_ms(AudioEngineHandle *engine);
 
+    // Loudness-Aware Crossfade controls
+    AE_API void ae_set_loudness_crossfade_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_get_loudness_crossfade_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_next_replay_gain(AudioEngineHandle *engine, float gain_db);
+    AE_API void ae_set_crossfade_silence_threshold(AudioEngineHandle *engine, float threshold_db);
+    AE_API float ae_get_crossfade_silence_threshold(AudioEngineHandle *engine);
+
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
     AE_API const char *ae_get_last_error(AudioEngineHandle *engine);
