@@ -365,6 +365,32 @@ class IsolateAudioPlayer {
     _send({'cmd': 'resetClippedSamplesCount'});
   }
 
+  // ── Release 1 Quality Foundation API ────────────────────────────────────────
+
+  void setLoudnessNormalizerEnabled(bool enabled) =>
+      _send({'cmd': 'setLoudnessNormalizerEnabled', 'enabled': enabled});
+
+  void setLoudnessNormalizerTarget(double targetLUFS) =>
+      _send({'cmd': 'setLoudnessNormalizerTarget', 'targetLUFS': targetLUFS});
+
+  void resetLoudnessMeter() =>
+      _send({'cmd': 'resetLoudnessMeter'});
+
+  void setLookaheadLimiterEnabled(bool enabled) =>
+      _send({'cmd': 'setLookaheadLimiterEnabled', 'enabled': enabled});
+
+  void setLookaheadLimiterParams({
+    double ceilingDBTP = -1.0,
+    double attackMs = 2.0,
+    double releaseMs = 50.0,
+  }) =>
+      _send({
+        'cmd': 'setLookaheadLimiterParams',
+        'ceilingDBTP': ceilingDBTP,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+      });
+
   void setDelay(
       {double? mix, double? feedback, double? delayMs, bool? enabled}) {
     _send({
@@ -1396,6 +1422,25 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setExclusiveMode':
           player.setExclusiveMode(message['enabled'] == true);
           break;
+        case 'setLoudnessNormalizerEnabled':
+          player.setLoudnessNormalizerEnabled(message['enabled'] == true);
+          break;
+        case 'setLoudnessNormalizerTarget':
+          player.setLoudnessNormalizerTarget((message['targetLUFS'] as num).toDouble());
+          break;
+        case 'resetLoudnessMeter':
+          player.resetLoudnessMeter();
+          break;
+        case 'setLookaheadLimiterEnabled':
+          player.setLookaheadLimiterEnabled(message['enabled'] == true);
+          break;
+        case 'setLookaheadLimiterParams':
+          player.setLookaheadLimiterParams(
+            ceilingDBTP: (message['ceilingDBTP'] as num?)?.toDouble() ?? -1.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 2.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 50.0,
+          );
+          break;
         case 'set64BitProcessingEnabled':
           player.set64BitProcessingEnabled(message['enabled'] == true);
           break;
@@ -1451,6 +1496,7 @@ void _isolateEntry(_IsolateInitData initData) {
             final resampleAlgo = player.getEngineResampleAlgorithm().name;
             final crossfeedParams = player.getCrossfeedParams();
             final viperOn = player.viperEnabled;
+            final qt = player.getQualityTelemetry();
             int inputRate = ps.inputSampleRate;
             int inputChannels = ps.inputChannels;
             int inputBitDepth = 16;
@@ -1501,6 +1547,13 @@ void _isolateEntry(_IsolateInitData initData) {
               'crossfeedCutoffHz': crossfeedParams.cutoffHz,
               'crossfeedComp': crossfeedParams.outputCompensation,
               'viperEnabled': viperOn,
+              'truePeakDBTP': qt.truePeakDBTP,
+              'momentaryLUFS': qt.momentaryLUFS,
+              'shortTermLUFS': qt.shortTermLUFS,
+              'integratedLUFS': qt.integratedLUFS,
+              'loudnessRangeLRA': qt.loudnessRangeLRA,
+              'limiterGainReductionDB': qt.limiterGainReductionDB,
+              'crestFactorDB': qt.crestFactorDB,
             });
           } catch (e) {
             replyTo.send({'error': e.toString()});

@@ -696,6 +696,48 @@ class MiniAudioPlayer {
   /// Reset the clipped-sample counter to zero.
   void resetClippedSamplesCount() => _engine.resetClippedSamplesCount();
 
+  // ── Release 1 Quality Foundation API ────────────────────────────────────────
+
+  /// Fetch live ITU-R BS.1770-4 / EBU R128 loudness metrics.
+  AELoudnessMetrics getLoudnessMetrics() => _engine.getLoudnessMetrics();
+
+  /// Reset accumulated loudness measurements.
+  void resetLoudnessMeter() => _engine.resetLoudnessMeter();
+
+  /// Enable or disable live ITU/EBU loudness normalizer.
+  void setLoudnessNormalizerEnabled(bool enabled) =>
+      _engine.setLoudnessNormalizerEnabled(enabled);
+
+  /// Set the loudness normalizer target in LUFS (e.g. -14.0 LUFS).
+  void setLoudnessNormalizerTarget(double targetLUFS) =>
+      _engine.setLoudnessNormalizerTarget(targetLUFS);
+
+  /// Fetch 4x oversampled True-Peak metrics in dBTP.
+  AETruePeakMetrics getTruePeak() => _engine.getTruePeak();
+
+  /// Enable or disable the Look-Ahead True-Peak Limiter.
+  void setLookaheadLimiterEnabled(bool enabled) =>
+      _engine.setLookaheadLimiterEnabled(enabled);
+
+  /// Configure Look-Ahead Limiter parameters.
+  void setLookaheadLimiterParams({
+    double ceilingDBTP = -1.0,
+    double attackMs = 2.0,
+    double releaseMs = 50.0,
+  }) =>
+      _engine.setLookaheadLimiterParams(
+        ceilingDBTP: ceilingDBTP,
+        attackMs: attackMs,
+        releaseMs: releaseMs,
+      );
+
+  /// Get current gain reduction in dB applied by the Look-Ahead Limiter.
+  double getLookaheadLimiterGainReductionDB() =>
+      _engine.getLookaheadLimiterGainReductionDB();
+
+  /// Fetch unified quality telemetry snapshot.
+  AEQualityTelemetry getQualityTelemetry() => _engine.getQualityTelemetry();
+
   Future<void> pushStream({required String url}) async {
     _engine.initPushStream();
 

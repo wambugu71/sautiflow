@@ -939,6 +939,48 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_kAutoBitPerfectEnabled) ?? false;
   }
+
+  // ── Release 1 Quality Foundation Settings ──────────────────────────────────
+  static const _kLoudnessNormalizerEnabled = 'sp_loudness_normalizer_enabled';
+  static const _kLoudnessNormalizerTarget = 'sp_loudness_normalizer_target';
+  static const _kLookaheadLimiterEnabled = 'sp_lookahead_limiter_enabled';
+  static const _kLookaheadLimiterCeiling = 'sp_lookahead_limiter_ceiling';
+
+  Future<void> saveLoudnessNormalizer({
+    required bool enabled,
+    required double targetLUFS,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLoudnessNormalizerEnabled, enabled);
+    await prefs.setDouble(_kLoudnessNormalizerTarget, targetLUFS);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<({bool enabled, double targetLUFS})> loadLoudnessNormalizer() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kLoudnessNormalizerEnabled) ?? false,
+      targetLUFS: prefs.getDouble(_kLoudnessNormalizerTarget) ?? -14.0,
+    );
+  }
+
+  Future<void> saveLookaheadLimiter({
+    required bool enabled,
+    required double ceilingDBTP,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLookaheadLimiterEnabled, enabled);
+    await prefs.setDouble(_kLookaheadLimiterCeiling, ceilingDBTP);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<({bool enabled, double ceilingDBTP})> loadLookaheadLimiter() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kLookaheadLimiterEnabled) ?? true,
+      ceilingDBTP: prefs.getDouble(_kLookaheadLimiterCeiling) ?? -1.0,
+    );
+  }
 }
 // Force Flutter compiler sync
 

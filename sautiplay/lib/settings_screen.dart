@@ -150,6 +150,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Loudness-Aware Crossfade
   bool _loudnessCrossfadeEnabled = true;
 
+  // Release 1 Quality Foundation
+  bool _loudnessNormalizerEnabled = false;
+  double _loudnessNormalizerTargetLUFS = -14.0;
+  bool _lookaheadLimiterEnabled = true;
+  double _lookaheadLimiterCeilingDBTP = -1.0;
+
   // Waveform Seek Bar UI Setting
   bool _useWaveformSeekBar = false;
 
@@ -249,10 +255,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _useWaveformSeekBar = waveformSaved;
       _activeThemeId = AppThemeService.instance.current;
     });
+
+    final loudnessNorm = await AppStateService.instance.loadLoudnessNormalizer();
+    final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
+
+    if (mounted) {
+      setState(() {
+        _loudnessNormalizerEnabled = loudnessNorm.enabled;
+        _loudnessNormalizerTargetLUFS = loudnessNorm.targetLUFS;
+        _lookaheadLimiterEnabled = lookaheadLim.enabled;
+        _lookaheadLimiterCeilingDBTP = lookaheadLim.ceilingDBTP;
+      });
+    }
+
     widget.player.setViperOversampling(oversamplingSaved);
     widget.player.set64BitProcessingEnabled(is64Bit);
     widget.player.setAutoSampleRateMatchEnabled(autoBp);
     widget.player.setLoudnessCrossfadeEnabled(loudnessCf);
+    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
+    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
+    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
+    widget.player.setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -263,6 +286,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       rightDb: _channelGainRightDb,
     );
     _applySpeakerProtectionSettings();
+  }
+
+  void _persistLoudnessNormalizerSettings() {
+    AppStateService.instance.saveLoudnessNormalizer(
+      enabled: _loudnessNormalizerEnabled,
+      targetLUFS: _loudnessNormalizerTargetLUFS,
+    );
+    widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
+    widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
+  }
+
+  void _persistLookaheadLimiterSettings() {
+    AppStateService.instance.saveLookaheadLimiter(
+      enabled: _lookaheadLimiterEnabled,
+      ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+    );
+    widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
+    widget.player.setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
   }
 
   void _persistPhaseInversionSettings() {
@@ -1903,6 +1944,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+                const Divider(color: Colors.white10, height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.speed_rounded,
+                        color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('Look-Ahead True-Peak Limiter',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                      '2ms look-ahead inter-sample peak protection (0 clipping guaranteed)',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: _lookaheadLimiterEnabled,
+                  activeThumbColor: _primary,
+                  onChanged: (val) {
+                    setState(() => _lookaheadLimiterEnabled = val);
+                    setSubState(() {});
+                    _persistLookaheadLimiterSettings();
+                  },
+                ),
+                if (_lookaheadLimiterEnabled) ...[
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('True-Peak Ceiling (dBTP)',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Max output peak ceiling (${_lookaheadLimiterCeilingDBTP.toStringAsFixed(1)} dBTP)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 90,
+                          child: ModernAudioKnob(
+                            label: 'CEILING',
+                            value: _lookaheadLimiterCeilingDBTP,
+                            min: -6.0,
+                            max: 0.0,
+                            activeColor: _primary,
+                            valueFormatter: (v) => '${v.toStringAsFixed(1)} dBTP',
+                            onChanged: (val) {
+                              setState(() => _lookaheadLimiterCeilingDBTP = val);
+                              setSubState(() {});
+                              _persistLookaheadLimiterSettings();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 20),
@@ -1910,6 +2022,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  secondary: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.multitrack_audio_rounded,
+                        color: Colors.white70, size: 20),
+                  ),
+                  title: const Text('ITU-R BS.1770-4 Loudness Normalizer',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                      'Real-time EBU R128 K-weighted loudness matching',
+                      style: TextStyle(color: _textDark, fontSize: 12)),
+                  value: _loudnessNormalizerEnabled,
+                  activeThumbColor: _primary,
+                  onChanged: (val) {
+                    setState(() => _loudnessNormalizerEnabled = val);
+                    setSubState(() {});
+                    _persistLoudnessNormalizerSettings();
+                  },
+                ),
+                if (_loudnessNormalizerEnabled) ...[
+                  const Divider(color: Colors.white10, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Target Loudness (LUFS)',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Target integrated loudness (${_loudnessNormalizerTargetLUFS.toStringAsFixed(1)} LUFS)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 90,
+                          child: ModernAudioKnob(
+                            label: 'TARGET',
+                            value: _loudnessNormalizerTargetLUFS,
+                            min: -24.0,
+                            max: -8.0,
+                            activeColor: _primary,
+                            valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+                            onChanged: (val) {
+                              setState(() => _loudnessNormalizerTargetLUFS = val);
+                              setSubState(() {});
+                              _persistLoudnessNormalizerSettings();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const Divider(color: Colors.white10, height: 1),
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

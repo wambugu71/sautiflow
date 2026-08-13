@@ -377,10 +377,16 @@ class _PlayerShellState extends State<PlayerShell> {
     final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
+    final loudnessSaved = await AppStateService.instance.loadLoudnessNormalizer();
+    final lookaheadSaved = await AppStateService.instance.loadLookaheadLimiter();
 
     _player.set64BitProcessingEnabled(is64Bit);
     _player.setAutoSampleRateMatchEnabled(autoBp);
     _player.setLoudnessCrossfadeEnabled(engine.loudnessCrossfadeEnabled);
+    _player.setLoudnessNormalizerEnabled(loudnessSaved.enabled);
+    _player.setLoudnessNormalizerTarget(loudnessSaved.targetLUFS);
+    _player.setLookaheadLimiterEnabled(lookaheadSaved.enabled);
+    _player.setLookaheadLimiterParams(ceilingDBTP: lookaheadSaved.ceilingDBTP);
     _player.setPhaseInversion(
       invertLeft: phaseSaved.invertLeft,
       invertRight: phaseSaved.invertRight,

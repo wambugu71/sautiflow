@@ -424,6 +424,143 @@ class AEHardwareInfo {
   };
 }
 
+final class AELoudnessMetricsNative extends ffi.Struct {
+  @ffi.Float()
+  external double momentary_lufs;
+  @ffi.Float()
+  external double short_term_lufs;
+  @ffi.Float()
+  external double integrated_lufs;
+  @ffi.Float()
+  external double loudness_range_lra;
+}
+
+class AELoudnessMetrics {
+  final double momentaryLUFS;
+  final double shortTermLUFS;
+  final double integratedLUFS;
+  final double loudnessRangeLRA;
+
+  const AELoudnessMetrics({
+    required this.momentaryLUFS,
+    required this.shortTermLUFS,
+    required this.integratedLUFS,
+    required this.loudnessRangeLRA,
+  });
+
+  factory AELoudnessMetrics.fromNative(AELoudnessMetricsNative native) {
+    return AELoudnessMetrics(
+      momentaryLUFS: native.momentary_lufs,
+      shortTermLUFS: native.short_term_lufs,
+      integratedLUFS: native.integrated_lufs,
+      loudnessRangeLRA: native.loudness_range_lra,
+    );
+  }
+}
+
+final class AETruePeakMetricsNative extends ffi.Struct {
+  @ffi.Float()
+  external double left_dbtp;
+  @ffi.Float()
+  external double right_dbtp;
+  @ffi.Float()
+  external double max_dbtp;
+}
+
+class AETruePeakMetrics {
+  final double leftDBTP;
+  final double rightDBTP;
+  final double maxDBTP;
+
+  const AETruePeakMetrics({
+    required this.leftDBTP,
+    required this.rightDBTP,
+    required this.maxDBTP,
+  });
+
+  factory AETruePeakMetrics.fromNative(AETruePeakMetricsNative native) {
+    return AETruePeakMetrics(
+      leftDBTP: native.left_dbtp,
+      rightDBTP: native.right_dbtp,
+      maxDBTP: native.max_dbtp,
+    );
+  }
+}
+
+final class AEQualityTelemetryNative extends ffi.Struct {
+  @ffi.Float()
+  external double sample_peak_db;
+  @ffi.Float()
+  external double true_peak_dbtp;
+  @ffi.Float()
+  external double momentary_lufs;
+  @ffi.Float()
+  external double short_term_lufs;
+  @ffi.Float()
+  external double integrated_lufs;
+  @ffi.Float()
+  external double loudness_range_lra;
+  @ffi.Float()
+  external double crest_factor_db;
+  @ffi.Float()
+  external double limiter_gain_reduction_db;
+  @ffi.Double()
+  external double resampler_latency_ms;
+  @ffi.Double()
+  external double total_engine_latency_ms;
+  @ffi.Uint64()
+  external int clipped_samples_count;
+  @ffi.Uint64()
+  external int underrun_count;
+}
+
+class AEQualityTelemetry {
+  final double samplePeakDB;
+  final double truePeakDBTP;
+  final double momentaryLUFS;
+  final double shortTermLUFS;
+  final double integratedLUFS;
+  final double loudnessRangeLRA;
+  final double crestFactorDB;
+  final double limiterGainReductionDB;
+  final double resamplerLatencyMs;
+  final double totalEngineLatencyMs;
+  final int clippedSamplesCount;
+  final int underrunCount;
+
+  const AEQualityTelemetry({
+    required this.samplePeakDB,
+    required this.truePeakDBTP,
+    required this.momentaryLUFS,
+    required this.shortTermLUFS,
+    required this.integratedLUFS,
+    required this.loudnessRangeLRA,
+    required this.crestFactorDB,
+    required this.limiterGainReductionDB,
+    required this.resamplerLatencyMs,
+    required this.totalEngineLatencyMs,
+    required this.clippedSamplesCount,
+    required this.underrunCount,
+  });
+
+  factory AEQualityTelemetry.fromNative(AEQualityTelemetryNative native) {
+    return AEQualityTelemetry(
+      samplePeakDB: native.sample_peak_db,
+      truePeakDBTP: native.true_peak_dbtp,
+      momentaryLUFS: native.momentary_lufs,
+      shortTermLUFS: native.short_term_lufs,
+      integratedLUFS: native.integrated_lufs,
+      loudnessRangeLRA: native.loudness_range_lra,
+      crestFactorDB: native.crest_factor_db,
+      limiterGainReductionDB: native.limiter_gain_reduction_db,
+      resamplerLatencyMs: native.resampler_latency_ms,
+      totalEngineLatencyMs: native.total_engine_latency_ms,
+      clippedSamplesCount: native.clipped_samples_count,
+      underrunCount: native.underrun_count,
+    );
+  }
+}
+
 typedef _CreateEngineNative = ffi.Pointer<ffi.Void> Function(
     ffi.Int32, ffi.Int32);
 typedef _CreateEngineDart = ffi.Pointer<ffi.Void> Function(int, int);
@@ -713,6 +850,52 @@ typedef _GetOutputRateDart = int Function(ffi.Pointer<ffi.Void>);
 typedef _SetOutputChannelsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetOutputChannelsDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+// Release 1 Quality Foundation Typedefs
+typedef _GetLoudnessMetricsNative = AELoudnessMetricsNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLoudnessMetricsDart = AELoudnessMetricsNative Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _ResetLoudnessMeterNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>);
+typedef _ResetLoudnessMeterDart = void Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetLoudnessNormalizerEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetLoudnessNormalizerEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _SetLoudnessNormalizerTargetNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float);
+typedef _SetLoudnessNormalizerTargetDart = void Function(
+    ffi.Pointer<ffi.Void>, double);
+
+typedef _GetTruePeakNative = AETruePeakMetricsNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetTruePeakDart = AETruePeakMetricsNative Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetLookaheadLimiterEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetLookaheadLimiterEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _SetLookaheadLimiterParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetLookaheadLimiterParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
+typedef _GetLookaheadLimiterGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLookaheadLimiterGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _GetQualityTelemetryNative = AEQualityTelemetryNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetQualityTelemetryDart = AEQualityTelemetryNative Function(
+    ffi.Pointer<ffi.Void>);
 
 typedef _GetOutputChannelsNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetOutputChannelsDart = int Function(ffi.Pointer<ffi.Void>);
@@ -1545,6 +1728,28 @@ class AudioEngineFFI {
         _lib.lookupFunction<_PollAnalyzerFrameNative, _PollAnalyzerFrameDart>(
       'ae_poll_analyzer_frame',
     );
+
+    try {
+      _getLoudnessMetrics = _lib.lookupFunction<_GetLoudnessMetricsNative, _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
+      _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative, _ResetLoudnessMeterDart>('ae_reset_loudness_meter');
+      _setLoudnessNormalizerEnabled = _lib.lookupFunction<_SetLoudnessNormalizerEnabledNative, _SetLoudnessNormalizerEnabledDart>('ae_set_loudness_normalizer_enabled');
+      _setLoudnessNormalizerTarget = _lib.lookupFunction<_SetLoudnessNormalizerTargetNative, _SetLoudnessNormalizerTargetDart>('ae_set_loudness_normalizer_target');
+      _getTruePeak = _lib.lookupFunction<_GetTruePeakNative, _GetTruePeakDart>('ae_get_true_peak');
+      _setLookaheadLimiterEnabled = _lib.lookupFunction<_SetLookaheadLimiterEnabledNative, _SetLookaheadLimiterEnabledDart>('ae_set_lookahead_limiter_enabled');
+      _setLookaheadLimiterParams = _lib.lookupFunction<_SetLookaheadLimiterParamsNative, _SetLookaheadLimiterParamsDart>('ae_set_lookahead_limiter_params');
+      _getLookaheadLimiterGainReductionDb = _lib.lookupFunction<_GetLookaheadLimiterGainReductionDbNative, _GetLookaheadLimiterGainReductionDbDart>('ae_get_lookahead_limiter_gain_reduction_db');
+      _getQualityTelemetry = _lib.lookupFunction<_GetQualityTelemetryNative, _GetQualityTelemetryDart>('ae_get_quality_telemetry');
+    } catch (_) {
+      _getLoudnessMetrics = null;
+      _resetLoudnessMeter = null;
+      _setLoudnessNormalizerEnabled = null;
+      _setLoudnessNormalizerTarget = null;
+      _getTruePeak = null;
+      _setLookaheadLimiterEnabled = null;
+      _setLookaheadLimiterParams = null;
+      _getLookaheadLimiterGainReductionDb = null;
+      _getQualityTelemetry = null;
+    }
     _getAnalyzerDroppedFrames = _lib.lookupFunction<
         _GetAnalyzerDroppedFramesNative,
         _GetAnalyzerDroppedFramesDart>('ae_get_analyzer_dropped_frames');
@@ -1760,6 +1965,17 @@ class AudioEngineFFI {
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
   _RegisterAndroidJvmDart? _registerAndroidJvm;
+
+  // Release 1 Quality Foundation Lookups
+  _GetLoudnessMetricsDart? _getLoudnessMetrics;
+  _ResetLoudnessMeterDart? _resetLoudnessMeter;
+  _SetLoudnessNormalizerEnabledDart? _setLoudnessNormalizerEnabled;
+  _SetLoudnessNormalizerTargetDart? _setLoudnessNormalizerTarget;
+  _GetTruePeakDart? _getTruePeak;
+  _SetLookaheadLimiterEnabledDart? _setLookaheadLimiterEnabled;
+  _SetLookaheadLimiterParamsDart? _setLookaheadLimiterParams;
+  _GetLookaheadLimiterGainReductionDbDart? _getLookaheadLimiterGainReductionDb;
+  _GetQualityTelemetryDart? _getQualityTelemetry;
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
@@ -2845,6 +3061,107 @@ class AudioEngineFFI {
   void resetClippedSamplesCount() {
     if (_engine == ffi.nullptr) return;
     _resetClippedSamplesCount(_engine);
+  }
+
+  // ── Release 1 Quality Foundation API ────────────────────────────────────────
+
+  /// Fetch live ITU-R BS.1770-4 / EBU R128 loudness metrics.
+  AELoudnessMetrics getLoudnessMetrics() {
+    if (_getLoudnessMetrics == null || _engine == ffi.nullptr) {
+      return const AELoudnessMetrics(
+        momentaryLUFS: -100.0,
+        shortTermLUFS: -100.0,
+        integratedLUFS: -100.0,
+        loudnessRangeLRA: 0.0,
+      );
+    }
+    final native = _getLoudnessMetrics!(_engine);
+    return AELoudnessMetrics.fromNative(native);
+  }
+
+  /// Reset accumulated loudness measurements.
+  void resetLoudnessMeter() {
+    if (_resetLoudnessMeter != null && _engine != ffi.nullptr) {
+      _resetLoudnessMeter!(_engine);
+    }
+  }
+
+  /// Enable or disable live ITU/EBU loudness normalizer.
+  void setLoudnessNormalizerEnabled(bool enabled) {
+    if (_setLoudnessNormalizerEnabled != null && _engine != ffi.nullptr) {
+      _setLoudnessNormalizerEnabled!(_engine, enabled ? 1 : 0);
+    }
+  }
+
+  /// Set the loudness normalizer target in LUFS (e.g. -14.0 LUFS).
+  void setLoudnessNormalizerTarget(double targetLUFS) {
+    if (_setLoudnessNormalizerTarget != null && _engine != ffi.nullptr) {
+      _setLoudnessNormalizerTarget!(_engine, targetLUFS);
+    }
+  }
+
+  /// Fetch 4x oversampled True-Peak metrics in dBTP.
+  AETruePeakMetrics getTruePeak() {
+    if (_getTruePeak == null || _engine == ffi.nullptr) {
+      return const AETruePeakMetrics(
+        leftDBTP: -100.0,
+        rightDBTP: -100.0,
+        maxDBTP: -100.0,
+      );
+    }
+    final native = _getTruePeak!(_engine);
+    return AETruePeakMetrics.fromNative(native);
+  }
+
+  /// Enable or disable the Look-Ahead True-Peak Limiter.
+  void setLookaheadLimiterEnabled(bool enabled) {
+    if (_setLookaheadLimiterEnabled != null && _engine != ffi.nullptr) {
+      _setLookaheadLimiterEnabled!(_engine, enabled ? 1 : 0);
+    }
+  }
+
+  /// Configure Look-Ahead Limiter parameters.
+  /// [ceilingDBTP] – maximum peak output in dBTP (default -1.0 dBTP).
+  /// [attackMs] – look-ahead window time in ms (default 2.0 ms).
+  /// [releaseMs] – release recovery time in ms (default 50.0 ms).
+  void setLookaheadLimiterParams({
+    double ceilingDBTP = -1.0,
+    double attackMs = 2.0,
+    double releaseMs = 50.0,
+  }) {
+    if (_setLookaheadLimiterParams != null && _engine != ffi.nullptr) {
+      _setLookaheadLimiterParams!(_engine, ceilingDBTP, attackMs, releaseMs);
+    }
+  }
+
+  /// Get current gain reduction in dB applied by the Look-Ahead Limiter.
+  double getLookaheadLimiterGainReductionDB() {
+    if (_getLookaheadLimiterGainReductionDb != null && _engine != ffi.nullptr) {
+      return _getLookaheadLimiterGainReductionDb!(_engine);
+    }
+    return 0.0;
+  }
+
+  /// Fetch unified quality telemetry snapshot (True Peak, LUFS, LRA, Crest Factor, Limiter GR, Latencies).
+  AEQualityTelemetry getQualityTelemetry() {
+    if (_getQualityTelemetry == null || _engine == ffi.nullptr) {
+      return const AEQualityTelemetry(
+        samplePeakDB: -100.0,
+        truePeakDBTP: -100.0,
+        momentaryLUFS: -100.0,
+        shortTermLUFS: -100.0,
+        integratedLUFS: -100.0,
+        loudnessRangeLRA: 0.0,
+        crestFactorDB: 0.0,
+        limiterGainReductionDB: 0.0,
+        resamplerLatencyMs: 0.0,
+        totalEngineLatencyMs: 0.0,
+        clippedSamplesCount: 0,
+        underrunCount: 0,
+      );
+    }
+    final native = _getQualityTelemetry!(_engine);
+    return AEQualityTelemetry.fromNative(native);
   }
 
   void initMultibandEq(

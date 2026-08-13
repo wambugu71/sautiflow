@@ -303,6 +303,83 @@ extern "C"
     AE_API uint64_t ae_get_clipped_samples_count(AudioEngineHandle *engine);
     AE_API void ae_reset_clipped_samples_count(AudioEngineHandle *engine);
 
+    // ==========================================
+    // Release 1 Quality Foundation Subsystems
+    // ==========================================
+
+    typedef struct AELoudnessMetrics
+    {
+        float momentary_lufs;     // ~400 ms sliding window
+        float short_term_lufs;    // ~3000 ms sliding window
+        float integrated_lufs;    // Accumulated gated programme loudness
+        float loudness_range_lra; // Loudness range (LU)
+    } AELoudnessMetrics;
+
+    typedef struct AETruePeakMetrics
+    {
+        float left_dbtp;   // Left channel peak in dBTP
+        float right_dbtp;  // Right channel peak in dBTP
+        float max_dbtp;    // Max peak across channels in dBTP
+    } AETruePeakMetrics;
+
+    typedef struct AEQualityTelemetry
+    {
+        float sample_peak_db;
+        float true_peak_dbtp;
+        float momentary_lufs;
+        float short_term_lufs;
+        float integrated_lufs;
+        float loudness_range_lra;
+        float crest_factor_db;
+        float limiter_gain_reduction_db;
+        double resampler_latency_ms;
+        double total_engine_latency_ms;
+        uint64_t clipped_samples_count;
+        uint64_t underrun_count;
+    } AEQualityTelemetry;
+
+    typedef struct AEResamplingPolicyInfo
+    {
+        int is_bypassed;              // 1 if 1:1 input/output rate match (no SRC)
+        int mode;                     // 0=Bypass, 1=AutoDAC, 2=IntegerPolyphase, 3=SincHighQuality, 4=SoxrVHQ
+        int input_sample_rate;
+        int engine_sample_rate;
+        int device_sample_rate;
+        double resampler_latency_ms;
+        double filter_passband_ratio; // e.g. 0.45 * fs
+        int is_linear_phase;
+    } AEResamplingPolicyInfo;
+
+    // Loudness Meter & Normalizer (ITU-R BS.1770-4 / EBU R128)
+    AE_API void ae_set_loudness_meter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_loudness_meter_enabled(AudioEngineHandle *engine);
+    AE_API AELoudnessMetrics ae_get_loudness_metrics(AudioEngineHandle *engine);
+    AE_API void ae_reset_loudness_meter(AudioEngineHandle *engine);
+
+    AE_API void ae_set_loudness_normalizer_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_loudness_normalizer_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_loudness_normalizer_target(AudioEngineHandle *engine, float target_lufs);
+    AE_API float ae_get_loudness_normalizer_target(AudioEngineHandle *engine);
+
+    // True-Peak Meter & Look-Ahead True-Peak Limiter
+    AE_API void ae_set_true_peak_meter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_true_peak_meter_enabled(AudioEngineHandle *engine);
+    AE_API AETruePeakMetrics ae_get_true_peak(AudioEngineHandle *engine);
+
+    AE_API void ae_set_lookahead_limiter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_lookahead_limiter_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_lookahead_limiter_params(AudioEngineHandle *engine, float ceiling_dbtp, float attack_ms, float release_ms);
+    AE_API void ae_get_lookahead_limiter_params(AudioEngineHandle *engine, float *out_ceiling_dbtp, float *out_attack_ms, float *out_release_ms);
+    AE_API float ae_get_lookahead_limiter_gain_reduction_db(AudioEngineHandle *engine);
+
+    // Click-Free Parameter Automation
+    AE_API void ae_set_parameter_smoothing_ms(AudioEngineHandle *engine, float smoothing_ms);
+    AE_API float ae_get_parameter_smoothing_ms(AudioEngineHandle *engine);
+
+    // Resampling Policy & Unified Quality Telemetry Snapshot
+    AE_API AEResamplingPolicyInfo ae_get_resampling_policy_info(AudioEngineHandle *engine);
+    AE_API AEQualityTelemetry ae_get_quality_telemetry(AudioEngineHandle *engine);
+
     // Latency Compensation (Plugin Delay Compensation - PDC)
     AE_API double ae_get_engine_latency_samples(AudioEngineHandle *engine);
     AE_API double ae_get_engine_latency_ms(AudioEngineHandle *engine);

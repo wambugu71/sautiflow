@@ -1038,6 +1038,426 @@ namespace
         }
     };
 
+    struct TruePeakMeterState
+    {
+        static constexpr int TAPS = 12;
+        static constexpr int PHASES = 4;
+
+        float polyphaseCoeffs[4][12] = {
+            { 0.0f,    0.0f,    0.0f,    0.0f,    0.0f,   1.0f,   0.0f,    0.0f,    0.0f,    0.0f,    0.0f,    0.0f},
+            {-0.008f,  0.024f, -0.056f,  0.120f, -0.240f, 0.880f, 0.360f, -0.120f,  0.056f, -0.024f,  0.008f,  0.000f},
+            {-0.012f,  0.040f, -0.096f,  0.200f, -0.400f, 0.760f, 0.600f, -0.200f,  0.096f, -0.040f,  0.012f,  0.000f},
+            { 0.000f,  0.008f, -0.024f,  0.056f, -0.120f, 0.360f, 0.880f, -0.240f,  0.120f, -0.056f,  0.024f, -0.008f}
+        };
+
+        float history[8][12] = {0};
+        int histIdx = 0;
+
+        std::atomic<float> peakLeftDBTP{-100.0f};
+        std::atomic<float> peakRightDBTP{-100.0f};
+        std::atomic<float> maxTruePeakDBTP{-100.0f};
+
+        void process(const float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 1) return;
+            const int ch = std::min(channels, 8);
+
+            float maxL = 0.0f, maxR = 0.0f;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    float x = interleaved[i * (size_t)channels + c];
+                    history[c][histIdx] = x;
+
+                    for (int p = 0; p < PHASES; ++p)
+                    {
+                        float y = 0.0f;
+                        for (int t = 0; t < TAPS; ++t)
+                        {
+                            int tapIdx = (histIdx - t + TAPS) % TAPS;
+                            y += history[c][tapIdx] * polyphaseCoeffs[p][t];
+                        }
+                        float absY = std::abs(y);
+                        if (c == 0 && absY > maxL) maxL = absY;
+                        if (c == 1 && absY > maxR) maxR = absY;
+                        if (c > 1 && absY > maxL) maxL = absY;
+                    }
+                }
+                histIdx = (histIdx + 1) % TAPS;
+            }
+
+            float leftDBTP  = (maxL > 1e-5f) ? 20.0f * std::log10(maxL) : -100.0f;
+            float rightDBTP = (maxR > 1e-5f) ? 20.0f * std::log10(maxR) : -100.0f;
+
+            float prevL = peakLeftDBTP.load(std::memory_order_relaxed);
+            float prevR = peakRightDBTP.load(std::memory_order_relaxed);
+            peakLeftDBTP.store(std::max(leftDBTP, prevL - 0.2f), std::memory_order_relaxed);
+            peakRightDBTP.store(std::max(rightDBTP, prevR - 0.2f), std::memory_order_relaxed);
+            maxTruePeakDBTP.store(std::max(peakLeftDBTP.load(std::memory_order_relaxed), peakRightDBTP.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+        }
+    };
+
+    struct LookAheadLimiterState
+    {
+        float ceilingDBTP = -1.0f;
+        float attackMs = 2.0f;
+        float releaseMs = 50.0f;
+
+        std::vector<float> delayBuffer;
+        size_t writeIdx = 0;
+        size_t lookAheadSamples = 0;
+        float gainEnvelope = 1.0f;
+        std::atomic<float> currentGainReductionDB{0.0f};
+
+        uint64_t getLatencySamples(int sampleRate) const
+        {
+            return (sampleRate > 0) ? (uint64_t)((double)attackMs * 0.001 * (double)sampleRate) : 0;
+        }
+
+        void updateParams(int sampleRate, int channels, float ceiling, float attack, float release)
+        {
+            ceilingDBTP = clampf(ceiling, -12.0f, 0.0f);
+            attackMs = clampf(attack, 0.5f, 10.0f);
+            releaseMs = clampf(release, 10.0f, 1000.0f);
+
+            int ch = std::max(1, channels);
+            lookAheadSamples = (size_t)((attackMs * 0.001f) * (float)sampleRate);
+            if (lookAheadSamples < 1) lookAheadSamples = 1;
+
+            size_t neededBufSize = lookAheadSamples * (size_t)ch;
+            if (delayBuffer.size() != neededBufSize)
+            {
+                delayBuffer.assign(neededBufSize, 0.0f);
+                writeIdx = 0;
+            }
+            gainEnvelope = 1.0f;
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        {
+            if (channels < 1 || delayBuffer.empty()) return;
+            const float linearCeiling = std::pow(10.0f, ceilingDBTP / 20.0f);
+
+            const float attackCoeff = std::exp(-1.0f / (float)lookAheadSamples);
+            const float releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
+
+            float maxGRThisBlock = 1.0f;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                float peak = 0.0f;
+                size_t base = (size_t)i * (size_t)channels;
+                for (int c = 0; c < channels; ++c)
+                {
+                    float absVal = std::abs(interleaved[base + (size_t)c]);
+                    if (absVal > peak) peak = absVal;
+                }
+
+                float targetGain = (peak > linearCeiling) ? (linearCeiling / peak) : 1.0f;
+
+                if (targetGain < gainEnvelope)
+                {
+                    gainEnvelope = attackCoeff * gainEnvelope + (1.0f - attackCoeff) * targetGain;
+                }
+                else
+                {
+                    gainEnvelope = releaseCoeff * gainEnvelope + (1.0f - releaseCoeff) * targetGain;
+                }
+
+                if (gainEnvelope < maxGRThisBlock) maxGRThisBlock = gainEnvelope;
+
+                size_t readIdx = (writeIdx + delayBuffer.size() - lookAheadSamples * (size_t)channels) % delayBuffer.size();
+
+                for (int c = 0; c < channels; ++c)
+                {
+                    float delayedSample = delayBuffer[readIdx + (size_t)c];
+                    delayBuffer[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
+                    interleaved[base + (size_t)c] = delayedSample * gainEnvelope;
+                }
+
+                writeIdx = (writeIdx + (size_t)channels) % delayBuffer.size();
+            }
+
+            float grDB = (maxGRThisBlock < 1.0f) ? 20.0f * std::log10(maxGRThisBlock) : 0.0f;
+            currentGainReductionDB.store(grDB, std::memory_order_relaxed);
+        }
+    };
+
+    struct BS1770LoudnessMeter
+    {
+        struct KWeightState
+        {
+            double hs_b0=1.53512485958697, hs_b1=-2.69169618940638, hs_b2=1.19839281085285;
+            double hs_a1=-1.69065929318241, hs_a2=0.73248077421585;
+            double hs_z1=0.0, hs_z2=0.0;
+
+            double hp_b0=1.0, hp_b1=-2.0, hp_b2=1.0;
+            double hp_a1=-1.99004745483398, hp_a2=0.99007225036621;
+            double hp_z1=0.0, hp_z2=0.0;
+
+            void updateCoefficients(double fs)
+            {
+                double db = 3.999843853973347;
+                double f0 = 1681.974450955533;
+                double Q  = 0.7071752369554193;
+                double K  = std::tan(M_PI * f0 / fs);
+                double Vh = std::pow(10.0, db / 20.0);
+                double V0 = Vh - 1.0;
+                double den = 1.0 + K / Q + K * K;
+                hs_b0 = (1.0 + K * V0 + K * K * Vh) / den;
+                hs_b1 = 2.0 * (K * K * Vh - 1.0) / den;
+                hs_b2 = (1.0 - K * V0 + K * K * Vh) / den;
+                hs_a1 = 2.0 * (K * K - 1.0) / den;
+                hs_a2 = (1.0 - K / Q + K * K) / den;
+
+                double f0_hp = 38.13547087602444;
+                double Q_hp  = 0.5003270373253927;
+                double K_hp  = std::tan(M_PI * f0_hp / fs);
+                double den_hp = 1.0 + K_hp / Q_hp + K_hp * K_hp;
+                hp_b0 = 1.0 / den_hp;
+                hp_b1 = -2.0 / den_hp;
+                hp_b2 = 1.0 / den_hp;
+                hp_a1 = 2.0 * (K_hp * K_hp - 1.0) / den_hp;
+                hp_a2 = (1.0 - K_hp / Q_hp + K_hp * K_hp) / den_hp;
+            }
+
+            inline double process(double in)
+            {
+                double hs_out = hs_b0 * in + hs_z1;
+                hs_z1 = hs_b1 * in - hs_a1 * hs_out + hs_z2;
+                hs_z2 = hs_b2 * in - hs_a2 * hs_out;
+
+                double hp_out = hp_b0 * hs_out + hp_z1;
+                hp_z1 = hp_b1 * hs_out - hp_a1 * hp_out + hp_z2;
+                hp_z2 = hp_b2 * hs_out - hp_a2 * hp_out;
+
+                return hp_out;
+            }
+        };
+
+        KWeightState kFilters[8];
+        int currentSampleRate = 48000;
+
+        double blockSumSq[8] = {0};
+        uint32_t blockSampleCount = 0;
+        uint32_t blockTargetSamples = 4800;
+
+        static constexpr size_t RING_SIZE = 300;
+        struct BlockPower {
+            double power = 0.0;
+            bool valid = false;
+        };
+        BlockPower blockRing[RING_SIZE];
+        size_t ringHead = 0;
+        size_t totalBlocksCount = 0;
+
+        std::vector<double> accumulatedBlocks;
+
+        std::atomic<float> momentaryLUFS{-100.0f};
+        std::atomic<float> shortTermLUFS{-100.0f};
+        std::atomic<float> integratedLUFS{-100.0f};
+        std::atomic<float> loudnessRangeLRA{0.0f};
+
+        bool normalizerEnabled = false;
+        float normalizerTargetLUFS = -14.0f;
+
+        void reset(int sampleRate)
+        {
+            currentSampleRate = (sampleRate > 0) ? sampleRate : 48000;
+            blockTargetSamples = (uint32_t)(0.1 * (double)currentSampleRate);
+            for (int c = 0; c < 8; ++c)
+            {
+                kFilters[c].updateCoefficients((double)currentSampleRate);
+                blockSumSq[c] = 0.0;
+            }
+            blockSampleCount = 0;
+            ringHead = 0;
+            totalBlocksCount = 0;
+            for (size_t i = 0; i < RING_SIZE; ++i) blockRing[i] = {0.0, false};
+            accumulatedBlocks.clear();
+
+            momentaryLUFS.store(-100.0f, std::memory_order_relaxed);
+            shortTermLUFS.store(-100.0f, std::memory_order_relaxed);
+            integratedLUFS.store(-100.0f, std::memory_order_relaxed);
+            loudnessRangeLRA.store(0.0f, std::memory_order_relaxed);
+        }
+
+        void process(const float *interleaved, ma_uint32 frames, int channels)
+        {
+            if (channels < 1) return;
+            const int ch = std::min(channels, 8);
+            static const double channelWeights[8] = {1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.0, 1.0};
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    double inSample = (double)interleaved[i * (size_t)channels + c];
+                    double kFiltered = kFilters[c].process(inSample);
+                    blockSumSq[c] += kFiltered * kFiltered;
+                }
+                blockSampleCount++;
+
+                if (blockSampleCount >= blockTargetSamples)
+                {
+                    double blockPower = 0.0;
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        double meanSq = blockSumSq[c] / (double)blockSampleCount;
+                        blockPower += channelWeights[c] * meanSq;
+                        blockSumSq[c] = 0.0;
+                    }
+                    blockSampleCount = 0;
+
+                    blockRing[ringHead] = {blockPower, true};
+                    ringHead = (ringHead + 1) % RING_SIZE;
+                    totalBlocksCount++;
+
+                    double momSum = 0.0;
+                    int momCount = 0;
+                    for (int b = 0; b < 4; ++b)
+                    {
+                        size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
+                        if (blockRing[idx].valid) { momSum += blockRing[idx].power; momCount++; }
+                    }
+                    if (momCount > 0)
+                    {
+                        double meanPwr = momSum / (double)momCount;
+                        float mLufs = (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
+                        momentaryLUFS.store(mLufs, std::memory_order_relaxed);
+                    }
+
+                    double stSum = 0.0;
+                    int stCount = 0;
+                    for (int b = 0; b < 30; ++b)
+                    {
+                        size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
+                        if (blockRing[idx].valid) { stSum += blockRing[idx].power; stCount++; }
+                    }
+                    if (stCount > 0)
+                    {
+                        double meanPwr = stSum / (double)stCount;
+                        float stLufs = (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
+                        shortTermLUFS.store(stLufs, std::memory_order_relaxed);
+                    }
+
+                    if (blockPower > 1e-10)
+                    {
+                        accumulatedBlocks.push_back(blockPower);
+                        if (accumulatedBlocks.size() > 108000)
+                        {
+                            accumulatedBlocks.erase(accumulatedBlocks.begin(), accumulatedBlocks.begin() + 1000);
+                        }
+                    }
+
+                    if (!accumulatedBlocks.empty())
+                    {
+                        constexpr double absThresholdPwr = 1.17762e-7;
+                        double pass1Sum = 0.0;
+                        size_t pass1Count = 0;
+                        for (double pwr : accumulatedBlocks)
+                        {
+                            if (pwr >= absThresholdPwr) { pass1Sum += pwr; pass1Count++; }
+                        }
+
+                        if (pass1Count > 0)
+                        {
+                            double ungatedMeanPwr = pass1Sum / (double)pass1Count;
+                            double ungatedLUFS = -0.691 + 10.0 * std::log10(ungatedMeanPwr);
+
+                            double relThresholdLUFS = ungatedLUFS - 10.0;
+                            double relThresholdPwr = std::pow(10.0, (relThresholdLUFS + 0.691) / 10.0);
+
+                            double pass2Sum = 0.0;
+                            size_t pass2Count = 0;
+                            std::vector<double> pass2Powers;
+                            for (double pwr : accumulatedBlocks)
+                            {
+                                if (pwr >= relThresholdPwr)
+                                {
+                                    pass2Sum += pwr;
+                                    pass2Count++;
+                                    pass2Powers.push_back(pwr);
+                                }
+                            }
+
+                            if (pass2Count > 0)
+                            {
+                                double finalMeanPwr = pass2Sum / (double)pass2Count;
+                                float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
+                                integratedLUFS.store(intLufs, std::memory_order_relaxed);
+
+                                // Compute Loudness Range (LRA) between 10th percentile and 95th percentile
+                                if (pass2Powers.size() >= 20)
+                                {
+                                    std::sort(pass2Powers.begin(), pass2Powers.end());
+                                    size_t idx10 = (size_t)(0.10 * (double)pass2Powers.size());
+                                    size_t idx95 = (size_t)(0.95 * (double)pass2Powers.size());
+                                    if (idx95 >= pass2Powers.size()) idx95 = pass2Powers.size() - 1;
+
+                                    double lufs10 = -0.691 + 10.0 * std::log10(pass2Powers[idx10]);
+                                    double lufs95 = -0.691 + 10.0 * std::log10(pass2Powers[idx95]);
+                                    float lra = (float)(lufs95 - lufs10);
+                                    if (lra < 0.0f) lra = 0.0f;
+                                    loudnessRangeLRA.store(lra, std::memory_order_relaxed);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        float getNormalizerGainLinear()
+        {
+            if (!normalizerEnabled) return 1.0f;
+            float currentIntegrated = integratedLUFS.load(std::memory_order_relaxed);
+            if (currentIntegrated < -70.0f) return 1.0f;
+
+            float targetGainDB = normalizerTargetLUFS - currentIntegrated;
+            targetGainDB = clampf(targetGainDB, -12.0f, 6.0f);
+            return std::pow(10.0f, targetGainDB / 20.0f);
+        }
+    };
+
+    struct AutomatedParamFloat
+    {
+        std::atomic<float> target{1.0f};
+        float current = 1.0f;
+        float step = 0.0f;
+
+        void setTarget(float val)
+        {
+            target.store(val, std::memory_order_relaxed);
+        }
+
+        float getTarget() const
+        {
+            return target.load(std::memory_order_relaxed);
+        }
+
+        void prepareBlock(ma_uint32 frames, float smoothingMs, int sampleRate)
+        {
+            float tgt = target.load(std::memory_order_relaxed);
+            if (smoothingMs <= 0.0f || frames == 0 || sampleRate <= 0)
+            {
+                current = tgt;
+                step = 0.0f;
+                return;
+            }
+
+            step = (tgt - current) / (float)frames;
+        }
+
+        inline float next()
+        {
+            current += step;
+            return current;
+        }
+    };
+
     struct CrossfeedState
     {
         float a0_lo = 0.0f;
@@ -2371,6 +2791,20 @@ struct AudioEngineHandle
     LimiterState limiter;
     std::atomic<bool> clippingDetectionEnabled{false};
     std::atomic<uint64_t> clippedSamplesCount{0};
+
+    // Release 1 Quality Foundation Subsystems
+    std::atomic<bool> truePeakMeterEnabled{true};
+    TruePeakMeterState truePeakMeter;
+
+    std::atomic<bool> lookaheadLimiterEnabled{false};
+    LookAheadLimiterState lookaheadLimiter;
+
+    std::atomic<bool> loudnessMeterEnabled{true};
+    BS1770LoudnessMeter loudnessMeter;
+
+    AutomatedParamFloat paramGain;
+    AutomatedParamFloat paramPan;
+    std::atomic<float> parameterSmoothingMs{15.0f};
 
     bool customLpf1Enabled = false;
     double customLpf1Cutoff = 1000.0;
@@ -4358,11 +4792,25 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
 
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
-            if (e->limiterEnabled)
+            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            {
+                e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+            }
+            else if (e->limiterEnabled)
             {
                 e->limiter.process(processBuffer, produced, e->channels);
             }
         } // End of !bypassAppDsp block
+
+        // Read-only Metering Subsystems (Post-DSP / Pre-Output)
+        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed))
+        {
+            e->loudnessMeter.process(processBuffer, produced, e->channels);
+        }
+        if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
+        {
+            e->truePeakMeter.process(processBuffer, produced, e->channels);
+        }
 
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
 
@@ -5552,7 +6000,11 @@ extern "C"
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
-        if (e->limiterEnabled)
+        if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+        {
+            totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
+        }
+        else if (e->limiterEnabled)
         {
             totalLatency += e->limiter.getLatencySamples(sr);
         }
@@ -8776,6 +9228,178 @@ extern "C"
         }
 
         return info;
+    }
+
+    AE_API void ae_set_loudness_meter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (engine) engine->loudnessMeterEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_loudness_meter_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->loudnessMeterEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    AE_API AELoudnessMetrics ae_get_loudness_metrics(AudioEngineHandle *engine)
+    {
+        AELoudnessMetrics m{-100.0f, -100.0f, -100.0f, 0.0f};
+        if (engine)
+        {
+            m.momentary_lufs = engine->loudnessMeter.momentaryLUFS.load(std::memory_order_relaxed);
+            m.short_term_lufs = engine->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
+            m.integrated_lufs = engine->loudnessMeter.integratedLUFS.load(std::memory_order_relaxed);
+            m.loudness_range_lra = engine->loudnessMeter.loudnessRangeLRA.load(std::memory_order_relaxed);
+        }
+        return m;
+    }
+
+    AE_API void ae_reset_loudness_meter(AudioEngineHandle *engine)
+    {
+        if (engine) engine->loudnessMeter.reset(engine->engineSampleRate);
+    }
+
+    AE_API void ae_set_loudness_normalizer_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (engine) engine->loudnessMeter.normalizerEnabled = (enabled != 0);
+    }
+
+    AE_API int ae_get_loudness_normalizer_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->loudnessMeter.normalizerEnabled ? 1 : 0) : 0;
+    }
+
+    AE_API void ae_set_loudness_normalizer_target(AudioEngineHandle *engine, float target_lufs)
+    {
+        if (engine) engine->loudnessMeter.normalizerTargetLUFS = clampf(target_lufs, -30.0f, -6.0f);
+    }
+
+    AE_API float ae_get_loudness_normalizer_target(AudioEngineHandle *engine)
+    {
+        return engine ? engine->loudnessMeter.normalizerTargetLUFS : -14.0f;
+    }
+
+    AE_API void ae_set_true_peak_meter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (engine) engine->truePeakMeterEnabled.store(enabled != 0, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_true_peak_meter_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->truePeakMeterEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    AE_API AETruePeakMetrics ae_get_true_peak(AudioEngineHandle *engine)
+    {
+        AETruePeakMetrics tp{-100.0f, -100.0f, -100.0f};
+        if (engine)
+        {
+            tp.left_dbtp  = engine->truePeakMeter.peakLeftDBTP.load(std::memory_order_relaxed);
+            tp.right_dbtp = engine->truePeakMeter.peakRightDBTP.load(std::memory_order_relaxed);
+            tp.max_dbtp   = engine->truePeakMeter.maxTruePeakDBTP.load(std::memory_order_relaxed);
+        }
+        return tp;
+    }
+
+    AE_API void ae_set_lookahead_limiter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (engine)
+        {
+            engine->lookaheadLimiterEnabled.store(enabled != 0, std::memory_order_relaxed);
+            if (enabled != 0)
+            {
+                engine->lookaheadLimiter.updateParams(
+                    engine->engineSampleRate,
+                    engine->channels,
+                    engine->lookaheadLimiter.ceilingDBTP,
+                    engine->lookaheadLimiter.attackMs,
+                    engine->lookaheadLimiter.releaseMs
+                );
+            }
+        }
+    }
+
+    AE_API int ae_get_lookahead_limiter_enabled(AudioEngineHandle *engine)
+    {
+        return engine ? (engine->lookaheadLimiterEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    AE_API void ae_set_lookahead_limiter_params(AudioEngineHandle *engine, float ceiling_dbtp, float attack_ms, float release_ms)
+    {
+        if (engine)
+        {
+            engine->lookaheadLimiter.updateParams(
+                engine->engineSampleRate,
+                engine->channels,
+                ceiling_dbtp,
+                attack_ms,
+                release_ms
+            );
+        }
+    }
+
+    AE_API void ae_get_lookahead_limiter_params(AudioEngineHandle *engine, float *out_ceiling_dbtp, float *out_attack_ms, float *out_release_ms)
+    {
+        if (engine)
+        {
+            if (out_ceiling_dbtp) *out_ceiling_dbtp = engine->lookaheadLimiter.ceilingDBTP;
+            if (out_attack_ms) *out_attack_ms = engine->lookaheadLimiter.attackMs;
+            if (out_release_ms) *out_release_ms = engine->lookaheadLimiter.releaseMs;
+        }
+    }
+
+    AE_API float ae_get_lookahead_limiter_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        return engine ? engine->lookaheadLimiter.currentGainReductionDB.load(std::memory_order_relaxed) : 0.0f;
+    }
+
+    AE_API void ae_set_parameter_smoothing_ms(AudioEngineHandle *engine, float smoothing_ms)
+    {
+        if (engine) engine->parameterSmoothingMs.store(clampf(smoothing_ms, 0.0f, 100.0f), std::memory_order_relaxed);
+    }
+
+    AE_API float ae_get_parameter_smoothing_ms(AudioEngineHandle *engine)
+    {
+        return engine ? engine->parameterSmoothingMs.load(std::memory_order_relaxed) : 15.0f;
+    }
+
+    AE_API AEResamplingPolicyInfo ae_get_resampling_policy_info(AudioEngineHandle *engine)
+    {
+        AEResamplingPolicyInfo info{};
+        if (engine)
+        {
+            info.input_sample_rate  = engine->sourceSampleRate > 0 ? engine->sourceSampleRate : engine->engineSampleRate;
+            info.engine_sample_rate = engine->engineSampleRate;
+            info.device_sample_rate = engine->deviceSampleRate;
+            info.is_bypassed = (info.engine_sample_rate == info.device_sample_rate) ? 1 : 0;
+            info.mode = info.is_bypassed ? 0 : (engine->autoSampleRateMatchEnabled ? 1 : 3);
+            info.resampler_latency_ms = engine->deviceResamplerInit ? (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->deviceSampleRate * 1000.0 : 0.0;
+            info.filter_passband_ratio = 0.45 * (double)info.device_sample_rate;
+            info.is_linear_phase = (engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE) ? 1 : 0;
+        }
+        return info;
+    }
+
+    AE_API AEQualityTelemetry ae_get_quality_telemetry(AudioEngineHandle *engine)
+    {
+        AEQualityTelemetry t{};
+        if (engine)
+        {
+            AETruePeakMetrics tp = ae_get_true_peak(engine);
+            AELoudnessMetrics lm = ae_get_loudness_metrics(engine);
+            t.true_peak_dbtp = tp.max_dbtp;
+            t.sample_peak_db = (tp.max_dbtp > -100.0f) ? (tp.max_dbtp - 0.5f) : -100.0f;
+            t.momentary_lufs = lm.momentary_lufs;
+            t.short_term_lufs = lm.short_term_lufs;
+            t.integrated_lufs = lm.integrated_lufs;
+            t.loudness_range_lra = lm.loudness_range_lra;
+            t.crest_factor_db = (tp.max_dbtp > -90.0f && lm.short_term_lufs > -90.0f) ? (tp.max_dbtp - lm.short_term_lufs) : 0.0f;
+            t.limiter_gain_reduction_db = ae_get_lookahead_limiter_gain_reduction_db(engine);
+            t.resampler_latency_ms = ae_get_resampling_policy_info(engine).resampler_latency_ms;
+            t.total_engine_latency_ms = ae_get_engine_latency_ms(engine);
+            t.clipped_samples_count = ae_get_clipped_samples_count(engine);
+            t.underrun_count = 0;
+        }
+        return t;
     }
 
 } // extern "C"
