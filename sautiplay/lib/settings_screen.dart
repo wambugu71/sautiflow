@@ -171,6 +171,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AppThemeId get _activeThemeId => context.appTheme.id;
 
   StreamSubscription<void>? _audioSettingsSub;
+  StreamSubscription<PlayerStatus>? _playerStatusSub;
+  bool _isPlaying = false;
 
   @override
   void initState() {
@@ -183,11 +185,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _loadUiSettings();
       }
     });
+    _playerStatusSub = widget.player.statusStream.listen((status) {
+      if (mounted && _isPlaying != status.isPlaying) {
+        setState(() => _isPlaying = status.isPlaying);
+      }
+    });
   }
 
   @override
   void dispose() {
     _audioSettingsSub?.cancel();
+    _playerStatusSub?.cancel();
     super.dispose();
   }
 
@@ -2013,17 +2021,153 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildVisualizationSubScreen() {
     return StatefulBuilder(
       builder: (context, setSubState) {
+        final isArea = widget.analyzerType == 'area';
+        final activeStyleName = widget.spectrumStyle.toLowerCase();
+        final displayTypeLabel = isArea ? 'Area Curve' : 'Bar Spectrum';
+        final displayThemeLabel = activeStyleName.toUpperCase();
+
         return _buildSubScreenLayout(
-          title: 'Visualization',
+          title: 'Visualization & RTA',
           children: [
-            _buildSectionHeader('SPECTRUM ANALYZER'),
+            // ── TOP LIVE SPECTRUM PREVIEW CARD ────────────────────────────
+            _buildSectionHeader('REAL-TIME SPECTRUM MONITOR'),
+            const SizedBox(height: 8),
+            AppCardContainer(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                Row(
+                  children: [
+                    AppShapeIcon(
+                      Icons.auto_graph_rounded,
+                      shape: Shapes.pill,
+                      color: widget.analyzerEnabled ? _primary : _textDark,
+                      size: 38,
+                      iconSize: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Real-Time Spectrum (RTA)',
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.analyzerEnabled
+                                ? (_isPlaying
+                                    ? '60 FPS Active RTA Monitoring'
+                                    : 'Awaiting Audio Playback')
+                                : 'Visualizer Engine Disabled',
+                            style: TextStyle(
+                              color: _textDark,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppStatusBadge(
+                      text: widget.analyzerEnabled
+                          ? '$displayTypeLabel • $displayThemeLabel'
+                          : 'BYPASSED',
+                      color: widget.analyzerEnabled ? _primary : _textDark,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.bgDark.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: widget.analyzerEnabled
+                          ? _primary.withValues(alpha: 0.25)
+                          : context.outlineColor,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
+                  child: widget.analyzerEnabled
+                      ? Column(
+                          children: [
+                            SizedBox(
+                              height: 120,
+                              child: SpectrumVisualizerWidget(
+                                analyzerStream: widget.player.analyzerStream,
+                                isPlaying: _isPlaying,
+                                bandCount: 36,
+                                style: _getSpectrumVisualStyle(widget.spectrumStyle),
+                                showPeakHold: true,
+                                barRadius: isArea ? 1.0 : (widget.spectrumStyle == 'pill' ? 8.0 : 3.0),
+                                height: 120,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // Frequency Legend Ticks
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('20 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('100 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('500 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('1 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('5 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('20 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            RmsMeterWidget(
+                              analyzerStream: widget.player.analyzerStream,
+                              isPlaying: _isPlaying,
+                            ),
+                          ],
+                        )
+                      : Container(
+                          height: 110,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.graphic_eq_rounded,
+                                color: _textDark.withValues(alpha: 0.4),
+                                size: 36,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Audio spectrum analyzer is paused & bypassed',
+                                style: TextStyle(
+                                  color: _textDark,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── SPECTRUM ENGINE & RENDERING CARD ──────────────────────────
+            _buildSectionHeader('SPECTRUM ENGINE & RENDERING'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Spectrum Analyzer',
-                  subtitle: 'Audio Spectrum Visualizer',
-                  secondary: _buildLeadingIcon(Icons.bar_chart),
+                  title: 'Spectrum Analyzer Engine',
+                  subtitle: 'Real-time native FFT frequency spectrum analyzer',
+                  secondary: _buildLeadingIcon(Icons.bar_chart_rounded),
                   value: widget.analyzerEnabled,
                   onChanged: (v) {
                     widget.onAnalyzerEnabledChanged(v);
@@ -2033,82 +2177,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (widget.analyzerEnabled) ...[
                   Divider(color: context.outlineColor, height: 1),
                   Padding(
-                    padding: const EdgeInsets.all(20.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Analyzer Type',
-                            style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 16),
-                        Container(
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: context.outlineColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    widget.onAnalyzerTypeChanged('bar');
-                                    setSubState(() {});
-                                  },
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: widget.analyzerType == 'bar'
-                                          ? _primary
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      'Bar',
-                                      style: TextStyle(
-                                        color: widget.analyzerType == 'bar'
-                                            ? Colors.white
-                                            : _textDark,
-                                        fontWeight: widget.analyzerType == 'bar'
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
-                                      ),
-                                    ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Rendering Mode',
+                                  style: TextStyle(
+                                    color: _textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Discrete frequency bars or continuous area curve',
+                                  style: TextStyle(color: _textDark, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: M3ESegmentedButton<String>(
+                            segments: const [
+                              M3ESegment(
+                                value: 'bar',
+                                label: 'Bar Spectrum',
+                                icon: Icon(Icons.bar_chart_rounded, size: 18),
                               ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    widget.onAnalyzerTypeChanged('area');
-                                    setSubState(() {});
-                                  },
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: widget.analyzerType == 'area'
-                                          ? _primary
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      'Area',
-                                      style: TextStyle(
-                                        color: widget.analyzerType == 'area'
-                                            ? Colors.white
-                                            : _textDark,
-                                        fontWeight:
-                                            widget.analyzerType == 'area'
-                                                ? FontWeight.w600
-                                                : FontWeight.normal,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                              M3ESegment(
+                                value: 'area',
+                                label: 'Area Curve',
+                                icon: Icon(Icons.show_chart_rounded, size: 18),
                               ),
                             ],
+                            selected: {isArea ? 'area' : 'bar'},
+                            onSelectionChanged: (val) {
+                              if (val.isNotEmpty) {
+                                widget.onAnalyzerTypeChanged(val.first);
+                                setSubState(() {});
+                              }
+                            },
                           ),
                         ),
                       ],
@@ -2116,86 +2234,141 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   Divider(color: context.outlineColor, height: 1),
                   Padding(
-                    padding: const EdgeInsets.all(20.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Spectrum Theme',
-                            style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 4),
-                        Text('Spectrum visual style',
-                            style: TextStyle(color: _textDark, fontSize: 12)),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final entry in {
-                              'neon': ('Neon', Icons.auto_awesome),
-                              'fire': ('Fire', Icons.local_fire_department),
-                              'minimal': ('Minimal', Icons.remove),
-                              'pill': ('Pill', Icons.lens),
-                            }.entries)
-                              GestureDetector(
-                                onTap: () {
-                                  widget.onSpectrumStyleChanged(entry.key);
-                                  setSubState(() {});
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: widget.spectrumStyle == entry.key
-                                        ? _primary
-                                        : context.outlineColor
-                                            .withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: widget.spectrumStyle == entry.key
-                                          ? _primary
-                                          : context.outlineColor,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(entry.value.$2,
-                                          size: 16,
-                                          color:
-                                              widget.spectrumStyle == entry.key
-                                                  ? Colors.white
-                                                  : _textDark),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        entry.value.$1,
-                                        style: TextStyle(
-                                          color:
-                                              widget.spectrumStyle == entry.key
-                                                  ? Colors.white
-                                                  : _textDark,
-                                          fontWeight:
-                                              widget.spectrumStyle == entry.key
-                                                  ? FontWeight.w600
-                                                  : FontWeight.normal,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                        Text(
+                          'Visual Theme',
+                          style: TextStyle(
+                            color: _textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Color gradient palette and bar styling preset',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: M3ESegmentedButton<String>(
+                            segments: const [
+                              M3ESegment(
+                                value: 'neon',
+                                label: 'Neon',
+                                icon: Icon(Icons.auto_awesome_rounded, size: 16),
                               ),
-                          ],
+                              M3ESegment(
+                                value: 'fire',
+                                label: 'Fire',
+                                icon: Icon(Icons.local_fire_department_rounded, size: 16),
+                              ),
+                              M3ESegment(
+                                value: 'minimal',
+                                label: 'Minimal',
+                                icon: Icon(Icons.horizontal_rule_rounded, size: 16),
+                              ),
+                              M3ESegment(
+                                value: 'pill',
+                                label: 'Pill',
+                                icon: Icon(Icons.lens_blur_rounded, size: 16),
+                              ),
+                            ],
+                            selected: {
+                              ['neon', 'fire', 'minimal', 'pill'].contains(activeStyleName)
+                                  ? activeStyleName
+                                  : 'neon'
+                            },
+                            onSelectionChanged: (val) {
+                              if (val.isNotEmpty) {
+                                widget.onSpectrumStyleChanged(val.first);
+                                setSubState(() {});
+                              }
+                            },
+                          ),
                         ),
                       ],
                     ),
                   ),
                   Divider(color: context.outlineColor, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 14.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Visualizer Presets',
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Quick 1-tap curated configurations',
+                              style: TextStyle(color: _textDark, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        M3EMenu(
+                          anchorBuilder: (context, open) => M3EButton.icon(
+                            onPressed: open,
+                            icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                            label: const Text('Presets'),
+                          ),
+                          children: [
+                            M3EMenuGroup.entries(
+                              entries: [
+                                M3EMenuEntry(
+                                  label: 'Balanced (Bar • Neon • 1024)',
+                                  leading: const Icon(Icons.bar_chart_rounded, size: 18),
+                                  onPressed: () => _applyVisualizerPreset('balanced', setSubState),
+                                ),
+                                M3EMenuEntry(
+                                  label: 'Smooth Curve (Area • Fire • 2048)',
+                                  leading: const Icon(Icons.show_chart_rounded, size: 18),
+                                  onPressed: () => _applyVisualizerPreset('smooth_curve', setSubState),
+                                ),
+                                M3EMenuEntry(
+                                  label: 'Audiophile (Bar • Pill • 4096)',
+                                  leading: const Icon(Icons.lens_blur_rounded, size: 18),
+                                  onPressed: () => _applyVisualizerPreset('audiophile_precision', setSubState),
+                                ),
+                                M3EMenuEntry(
+                                  label: 'Minimalist (Area • Minimal • 512)',
+                                  leading: const Icon(Icons.horizontal_rule_rounded, size: 18),
+                                  onPressed: () => _applyVisualizerPreset('minimalist', setSubState),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── SCALING & GRID DYNAMICS CARD ──────────────────────────────
+            if (widget.analyzerEnabled) ...[
+              _buildSectionHeader('SCALING & GRID DYNAMICS'),
+              const SizedBox(height: 8),
+              _buildCardContainer(
+                children: [
                   _buildM3ESwitchTile(
-                    title: 'Auto Fit Scale',
-                    subtitle: 'Dynamically adjust Y-axis peak range',
+                    title: 'Auto Peak Headroom',
+                    subtitle: 'Dynamically adapts Y-axis ceiling to track loudness',
+                    secondary: _buildLeadingIcon(Icons.fit_screen_rounded),
                     value: widget.analyzerAutoFit,
                     onChanged: (v) {
                       widget.onAnalyzerAutoFitChanged(v);
@@ -2205,6 +2378,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(color: context.outlineColor, height: 1),
                   _buildM3ESwitchTile(
                     title: 'Show Grids & Decibels',
+                    subtitle: 'Display amplitude level grid and frequency axis ticks',
+                    secondary: _buildLeadingIcon(Icons.grid_4x4_rounded),
                     value: widget.analyzerShowGrids,
                     onChanged: (v) {
                       widget.onAnalyzerShowGridsChanged(v);
@@ -2214,45 +2389,177 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(color: context.outlineColor, height: 1),
                   _buildM3ESwitchTile(
                     title: 'Logarithmic Decibel Scale',
-                    subtitle: 'Logarithmic audio response curve',
+                    subtitle: 'Logarithmic response curve matching human hearing',
+                    secondary: _buildLeadingIcon(Icons.tune_rounded),
                     value: widget.analyzerLogScale,
                     onChanged: (v) {
                       widget.onAnalyzerLogScaleChanged(v);
                       setSubState(() {});
                     },
                   ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // ── FFT RESOLUTION & PERFORMANCE CARD ───────────────────────
+              _buildSectionHeader('FFT RESOLUTION & PERFORMANCE'),
+              const SizedBox(height: 8),
+              _buildCardContainer(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            _buildLeadingIcon(Icons.data_array_rounded),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'FFT Sample Window',
+                                    style: TextStyle(
+                                      color: _textPrimary,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _getFftSampleSizeDescription(widget.analyzerSampleSize),
+                                    style: TextStyle(color: _textDark, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            AppStatusBadge(
+                              text: '${widget.analyzerSampleSize} pts',
+                              onTap: () => _showAnalyzerSampleSizeDialog(
+                                onDone: () => setSubState(() {}),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: M3ESegmentedButton<int>(
+                            segments: const [
+                              M3ESegment(value: 512, label: '512 (Fast)'),
+                              M3ESegment(value: 1024, label: '1024 (Std)'),
+                              M3ESegment(value: 2048, label: '2048 (Hi-Res)'),
+                              M3ESegment(value: 4096, label: '4096 (Ultra)'),
+                            ],
+                            selected: {
+                              [512, 1024, 2048, 4096].contains(widget.analyzerSampleSize)
+                                  ? widget.analyzerSampleSize
+                                  : 1024
+                            },
+                            onSelectionChanged: (val) {
+                              if (val.isNotEmpty) {
+                                widget.onAnalyzerSampleSizeChanged(val.first);
+                                widget.player.configureAnalyzer(frameSize: val.first);
+                                setSubState(() {});
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   Divider(color: context.outlineColor, height: 1),
                   M3EListItem(
-                    headline: 'FFT Sample Size',
-                    leading: _buildLeadingIcon(Icons.data_array),
-                    trailing: SizedBox(
-                      width: 150,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.analyzerSampleSize.toString(),
-                              style: TextStyle(color: _textDark, fontSize: 14),
-                              textAlign: TextAlign.right,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.chevron_right, color: _textDark, size: 20),
-                        ],
-                      ),
-                    ),
+                    headline: 'All Sample Sizes (256 - 8192)',
+                    supportingText: 'Inspect full latency and resolution breakdown',
+                    leading: _buildLeadingIcon(Icons.tune_rounded),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 22),
                     onTap: () => _showAnalyzerSampleSizeDialog(
-                        onDone: () => setSubState(() {})),
+                      onDone: () => setSubState(() {}),
+                    ),
                   ),
                 ],
-              ],
-            ),
+              ),
+            ],
           ],
         );
       },
     );
+  }
+
+  SpectrumVisualStyle _getSpectrumVisualStyle(String styleName) {
+    return SpectrumVisualStyle.values.firstWhere(
+      (s) => s.name == styleName,
+      orElse: () => SpectrumVisualStyle.neon,
+    );
+  }
+
+  String _getFftSampleSizeDescription(int size) {
+    switch (size) {
+      case 256:
+        return '256 samples • Ultra-fast, lowest latency';
+      case 512:
+        return '512 samples • Fast transient response';
+      case 1024:
+        return '1024 samples • Balanced standard';
+      case 2048:
+        return '2048 samples • High frequency resolution';
+      case 4096:
+        return '4096 samples • Studio precision FFT';
+      case 8192:
+        return '8192 samples • Ultra HD analytical resolution';
+      default:
+        return '$size samples window';
+    }
+  }
+
+  void _applyVisualizerPreset(String preset, StateSetter setSubState) {
+    switch (preset) {
+      case 'balanced':
+        widget.onAnalyzerEnabledChanged(true);
+        widget.onAnalyzerTypeChanged('bar');
+        widget.onSpectrumStyleChanged('neon');
+        widget.onAnalyzerAutoFitChanged(true);
+        widget.onAnalyzerShowGridsChanged(true);
+        widget.onAnalyzerLogScaleChanged(true);
+        widget.onAnalyzerSampleSizeChanged(1024);
+        widget.player.configureAnalyzer(frameSize: 1024);
+        break;
+      case 'smooth_curve':
+        widget.onAnalyzerEnabledChanged(true);
+        widget.onAnalyzerTypeChanged('area');
+        widget.onSpectrumStyleChanged('fire');
+        widget.onAnalyzerAutoFitChanged(true);
+        widget.onAnalyzerShowGridsChanged(true);
+        widget.onAnalyzerLogScaleChanged(true);
+        widget.onAnalyzerSampleSizeChanged(2048);
+        widget.player.configureAnalyzer(frameSize: 2048);
+        break;
+      case 'audiophile_precision':
+        widget.onAnalyzerEnabledChanged(true);
+        widget.onAnalyzerTypeChanged('bar');
+        widget.onSpectrumStyleChanged('pill');
+        widget.onAnalyzerAutoFitChanged(false);
+        widget.onAnalyzerShowGridsChanged(true);
+        widget.onAnalyzerLogScaleChanged(true);
+        widget.onAnalyzerSampleSizeChanged(4096);
+        widget.player.configureAnalyzer(frameSize: 4096);
+        break;
+      case 'minimalist':
+        widget.onAnalyzerEnabledChanged(true);
+        widget.onAnalyzerTypeChanged('area');
+        widget.onSpectrumStyleChanged('minimal');
+        widget.onAnalyzerAutoFitChanged(true);
+        widget.onAnalyzerShowGridsChanged(false);
+        widget.onAnalyzerLogScaleChanged(false);
+        widget.onAnalyzerSampleSizeChanged(512);
+        widget.player.configureAnalyzer(frameSize: 512);
+        break;
+    }
+    setSubState(() {});
+    setState(() {});
   }
 
   // 5. Playback & Crossfade Sub-Screen
@@ -2956,48 +3263,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAnalyzerSampleSizeDialog({VoidCallback? onDone}) {
-    final sizes = [256, 512, 1024, 2048, 4096, 8192];
+    final sizes = [
+      (256, '256 samples', 'Ultra-fast, lowest CPU (Lightweight FFT)'),
+      (512, '512 samples', 'Fast transient response (Low Latency)'),
+      (1024, '1024 samples', 'Balanced default (Standard Music Playback)'),
+      (2048, '2048 samples', 'High frequency resolution (Crisp Bass/Treble)'),
+      (4096, '4096 samples', 'Studio precision (Audiophile Inspection)'),
+      (8192, '8192 samples', 'Ultra HD analytical FFT (Maximum Resolution)'),
+    ];
     M3EBottomSheet.show<void>(
       context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Text('Sample Size (FFT)',
-                  style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            M3ECardList(
-              itemCount: sizes.length,
-              onTap: (index) {
-                final size = sizes[index];
-                widget.onAnalyzerSampleSizeChanged(size);
-                onDone?.call();
-                Navigator.pop(ctx);
-              },
-              itemBuilder: (context, index) {
-                final size = sizes[index];
-                return M3EListItem(
-                  headline: size.toString(),
-                  trailing: M3ERadio<String>(
-                    value: size.toString(),
-                    groupValue: widget.analyzerSampleSize.toString(),
-                    onChanged: (v) {
-                      widget.onAnalyzerSampleSizeChanged(size);
-                      onDone?.call();
-                      Navigator.pop(ctx);
-                    },
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Text('FFT Sample Window Size',
+                    style: TextStyle(
+                        color: _textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+              ),
+              M3ECardList(
+                itemCount: sizes.length,
+                onTap: (index) {
+                  final size = sizes[index].$1;
+                  setDlgState(() {});
+                  widget.onAnalyzerSampleSizeChanged(size);
+                  widget.player.configureAnalyzer(frameSize: size);
+                  onDone?.call();
+                  Navigator.pop(ctx);
+                },
+                itemBuilder: (context, index) {
+                  final item = sizes[index];
+                  final size = item.$1;
+                  return M3EListItem(
+                    headline: item.$2,
+                    supportingText: item.$3,
+                    trailing: M3ERadio<int>(
+                      value: size,
+                      groupValue: widget.analyzerSampleSize,
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDlgState(() {});
+                          widget.onAnalyzerSampleSizeChanged(v);
+                          widget.player.configureAnalyzer(frameSize: v);
+                          onDone?.call();
+                          Navigator.pop(ctx);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );

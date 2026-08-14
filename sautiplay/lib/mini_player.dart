@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 
@@ -102,9 +104,8 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final slideFraction = screenWidth > 0
-        ? (_dragOffsetX / screenWidth).clamp(-0.25, 0.25)
-        : 0.0;
+    final slideFraction =
+        screenWidth > 0 ? (_dragOffsetX / screenWidth).clamp(-0.25, 0.25) : 0.0;
 
     return GestureDetector(
       onTap: widget.onTap,
@@ -112,134 +113,150 @@ class _MiniPlayerState extends State<MiniPlayer>
       onHorizontalDragEnd: _handleDragEnd,
       onHorizontalDragCancel: _handleDragCancel,
       child: AnimatedSlide(
-        duration: _isDragging ? Duration.zero : const Duration(milliseconds: 250),
+        duration:
+            _isDragging ? Duration.zero : const Duration(milliseconds: 250),
         curve: Curves.easeOutCubic,
         offset: Offset(slideFraction, 0),
         child: Container(
-        height: 64,
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: AppThemeService.instance.currentData.cardDark, // surfaceDarkColor
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+          height: 64,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: AppThemeService
+                .instance.currentData.cardDark, // surfaceDarkColor
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.1),
+              width: 1,
             ),
-          ],
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.1),
-            width: 1,
           ),
-        ),
-        child: Column(
-          children: [
-            // Top Progress Bar
-            LinearProgressIndicator(
+          child: Column(
+            children: [
+              M3EProgressIndicator.linearWavy(
+                  strokeWidth: 4,
+                  value: widget.progress.clamp(0.0, 1.0),
+                  linearSize: M3EProgressIndicatorSize.s,
+                  //   minHeight: 2,
+                  trackColor: Colors.transparent,
+                  color: AppThemeService.instance.currentData.primary
+                  // AlwaysStoppedAnimation<Color>(AppThemeService.instance.currentData.primary),
+                  ),
+              // Top Progress Bar
+              /*    LinearProgressIndicator(
               value: widget.progress.clamp(0.0, 1.0),
               minHeight: 2,
               backgroundColor: Colors.transparent,
               valueColor:
                   AlwaysStoppedAnimation<Color>(AppThemeService.instance.currentData.primary),
-            ),
-            // Main content
-            Expanded(
-              child: Row(
-                children: [
-                  // Album Art
-                  Container(
-                    width: 48,
-                    height: 48,
-                    margin: const EdgeInsets.only(left: 8),
-                    decoration: BoxDecoration(
-                      color: AppThemeService.instance.currentData.primary
-                          .withValues(alpha: 0.2), // primaryColor
-                      borderRadius: BorderRadius.circular(12),
+            ),*/
+              // Main content
+              Expanded(
+                child: Row(
+                  children: [
+                    // Album Art
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          left: 8, right: 0, top: 0, bottom: 4),
+                      child: M3EContainer.c6SidedCookie(
+                        width: 48,
+                        height: 48,
+                        child: (widget.albumArt != null &&
+                                widget.albumArt!.isNotEmpty)
+                            ? Image.memory(
+                                widget.albumArt!,
+                                fit: BoxFit.contain,
+                              )
+                            : RotationTransition(
+                                turns: _rotationController,
+                                child: M3EContainer(
+                                  Shapes.c6SidedCookie,
+                                  color: AppThemeService
+                                      .instance.currentData.primary
+                                      .withValues(alpha: 0.2),
+                                  padding: const EdgeInsets.all(6.0),
+                                  child: Image.asset(
+                                    'assets/icon/splash.png',
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                      ),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
-                          ? Container(
-                              decoration: BoxDecoration(
-                                image: DecorationImage(
-                                  image: MemoryImage(widget.albumArt!),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            )
-                          : RotationTransition(
-                              turns: _rotationController,
-                              child: Container(
-                                color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.2),
-                                padding: const EdgeInsets.all(6.0),
-                                child: Image.asset(
-                                  'assets/icon/splash.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
+                    /*  Container(
+                      width: 48,
+                      height: 48,
+                      margin: const EdgeInsets.only(left: 8),
+                      decoration: BoxDecoration(
+                        color: AppThemeService.instance.currentData.primary
+                            .withValues(alpha: 0.2), // primaryColor
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:  ),*/
+                    const SizedBox(width: 16),
+                    // Track Info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          AdaptiveMarqueeText(
+                            text: widget.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
                             ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Track Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        AdaptiveMarqueeText(
-                          text: widget.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                            height: 20,
+                            velocity: 25.0,
+                            blankSpace: 30.0,
+                            pauseAfterRound: const Duration(seconds: 2),
                           ),
-                          height: 20,
-                          velocity: 25.0,
-                          blankSpace: 30.0,
-                          pauseAfterRound: const Duration(seconds: 2),
-                        ),
-                        Text(
-                          widget.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 12,
+                          Text(
+                            widget.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  // Controls
-                  IconButton(
-                    onPressed: widget.onPlayPause,
-                    icon: Icon(
-                      widget.isPlaying
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 32,
-                      color: Colors.white,
+                    // Controls
+                    M3EIconButton(
+                      onPressed: widget.onPlayPause,
+                      icon: Icon(
+                        widget.isPlaying
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_filled,
+                        size: 32,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: widget.onNext,
-                    icon: const Icon(
-                      Icons.skip_next,
-                      size: 28,
-                      color: Colors.white,
+                    M3EIconButton(
+                      onPressed: widget.onNext,
+                      icon: const Icon(
+                        Icons.skip_next,
+                        size: 28,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
+                    const SizedBox(width: 8),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
