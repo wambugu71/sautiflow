@@ -15,6 +15,7 @@ import 'widgets/app_m3e_widgets.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'widgets/album_art_shape_selector.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -886,6 +887,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 20),
+            // ── NOW PLAYING ALBUM ART SHAPE SECTION ─────────────────────────
+            _buildSectionHeader('NOW PLAYING ALBUM ART SHAPE'),
+            const SizedBox(height: 12),
+            AlbumArtShapeSelector(
+              showLivePreview: true,
+              onShapeSelected: (newShape) {
+                setState(() {});
+                setSubState(() {});
+              },
             ),
             const SizedBox(height: 20),
             // ── SEEK BAR SECTION ──────────────────────────────────────────

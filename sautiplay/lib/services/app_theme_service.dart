@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'artwork_theme_service.dart';
@@ -174,6 +175,7 @@ class AppThemeService {
   static final AppThemeService instance = AppThemeService._();
 
   static const _kAppThemeKey = 'sp_app_theme_id';
+  static const _kAlbumArtShapeKey = 'sp_album_art_shape';
 
   /// All available themes, ordered for display.
   static const List<AppThemeData> themes = [
@@ -246,8 +248,15 @@ class AppThemeService {
   final StreamController<AppThemeId> themeChanged =
       StreamController<AppThemeId>.broadcast();
 
+  /// Broadcast stream – emits the new [Shapes] whenever the album art shape changes.
+  final StreamController<Shapes> albumArtShapeChanged =
+      StreamController<Shapes>.broadcast();
+
   AppThemeId _current = AppThemeId.darkBlue;
   AppThemeId get current => _current;
+
+  Shapes _albumArtShape = Shapes.bun;
+  Shapes get albumArtShape => _albumArtShape;
 
   AppThemeData get currentData {
     final base = themes.firstWhere((t) => t.id == _current);
@@ -275,6 +284,11 @@ class AppThemeService {
       final match = AppThemeId.values.where((e) => e.name == saved);
       if (match.isNotEmpty) _current = match.first;
     }
+    final savedShape = prefs.getString(_kAlbumArtShapeKey);
+    if (savedShape != null) {
+      final match = Shapes.values.where((e) => e.name == savedShape);
+      if (match.isNotEmpty) _albumArtShape = match.first;
+    }
   }
 
   Future<void> saveTheme(AppThemeId id) async {
@@ -284,6 +298,13 @@ class AppThemeService {
     themeChanged.add(id);
   }
 
+  Future<void> saveAlbumArtShape(Shapes shape) async {
+    _albumArtShape = shape;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kAlbumArtShapeKey, shape.name);
+    albumArtShapeChanged.add(shape);
+  }
+
   static AppThemeData dataFor(AppThemeId id) =>
       themes.firstWhere((t) => t.id == id);
 }
@@ -291,10 +312,12 @@ class AppThemeService {
 // ─── InheritedWidget so any descendant can reactively read the current theme ──
 class AppThemeProvider extends InheritedWidget {
   final AppThemeData themeData;
+  final Shapes albumArtShape;
 
   const AppThemeProvider({
     super.key,
     required this.themeData,
+    this.albumArtShape = Shapes.bun,
     required super.child,
   });
 
@@ -304,17 +327,25 @@ class AppThemeProvider extends InheritedWidget {
     return provider?.themeData ?? AppThemeService.instance.currentData;
   }
 
+  static Shapes ofShape(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.albumArtShape ?? AppThemeService.instance.albumArtShape;
+  }
+
   @override
   bool updateShouldNotify(AppThemeProvider oldWidget) =>
       themeData.id != oldWidget.themeData.id ||
       themeData.primary != oldWidget.themeData.primary ||
       themeData.bgDark != oldWidget.themeData.bgDark ||
-      themeData.cardDark != oldWidget.themeData.cardDark;
+      themeData.cardDark != oldWidget.themeData.cardDark ||
+      albumArtShape != oldWidget.albumArtShape;
 }
 
 // ─── BuildContext Extension for Reactive Theme Tokens ─────────────────────────
 extension AppThemeContextExtension on BuildContext {
   AppThemeData get appTheme => AppThemeProvider.of(this);
+  Shapes get albumArtShape => AppThemeProvider.ofShape(this);
   Color get bgDark => appTheme.bgDark;
   Color get cardDark => appTheme.cardDark;
   Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);

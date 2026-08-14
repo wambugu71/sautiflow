@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -68,7 +69,9 @@ class DemoApp extends StatefulWidget {
 class _DemoAppState extends State<DemoApp> {
   AppThemeData _themeData =
       AppThemeService.themes.first; // default until loaded
+  Shapes _albumArtShape = Shapes.bun;
   StreamSubscription<AppThemeId>? _themeSub;
+  StreamSubscription<Shapes>? _shapeSub;
 
   @override
   void initState() {
@@ -81,6 +84,14 @@ class _DemoAppState extends State<DemoApp> {
         });
       }
     });
+    _shapeSub =
+        AppThemeService.instance.albumArtShapeChanged.stream.listen((shape) {
+      if (mounted) {
+        setState(() {
+          _albumArtShape = shape;
+        });
+      }
+    });
   }
 
   Future<void> _loadTheme() async {
@@ -88,6 +99,7 @@ class _DemoAppState extends State<DemoApp> {
     if (mounted) {
       setState(() {
         _themeData = AppThemeService.instance.currentData;
+        _albumArtShape = AppThemeService.instance.albumArtShape;
       });
     }
   }
@@ -95,6 +107,7 @@ class _DemoAppState extends State<DemoApp> {
   @override
   void dispose() {
     _themeSub?.cancel();
+    _shapeSub?.cancel();
     super.dispose();
   }
 
@@ -107,6 +120,7 @@ class _DemoAppState extends State<DemoApp> {
 
     return AppThemeProvider(
       themeData: _themeData,
+      albumArtShape: _albumArtShape,
       child: M3EMaterialApp(
         title: 'SautiPlay',
         data: m3eThemeData,

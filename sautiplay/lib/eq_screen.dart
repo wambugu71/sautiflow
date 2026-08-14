@@ -645,54 +645,57 @@ class _EqScreenState extends State<EqScreen>
         title: 'Audio Pipeline State',
         topDivider: true,
         bottomDivider: true,
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Input File Format',
-                  style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(
-                  'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 12.5)),
-              const SizedBox(height: 14),
-              Text('DSP Processing Format',
-                  style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(
-                  'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 12.5)),
-              const SizedBox(height: 14),
-              Text('Hardware Output Format',
-                  style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(
-                  'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 12.5)),
-              const SizedBox(height: 14),
-              Text('Active DSP Nodes',
-                  style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(
-                  'EQ: ${state.eqEnabled}\nReverb: ${state.reverbEnabled}\nLimiter: ${state.limiterEnabled}\nDelay: ${state.delayEnabled}\nStereo Widen: ${state.stereoWidenEnabled}\nSpatialization: ${state.spatializationEnabled}',
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 12.5)),
-            ],
+        content: Material(
+          color: Colors.transparent,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Input File Format',
+                    style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                    'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                const SizedBox(height: 14),
+                Text('DSP Processing Format',
+                    style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                    'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                const SizedBox(height: 14),
+                Text('Hardware Output Format',
+                    style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                    'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                const SizedBox(height: 14),
+                Text('Active DSP Nodes',
+                    style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(
+                    'EQ: ${state.eqEnabled}\nReverb: ${state.reverbEnabled}\nLimiter: ${state.limiterEnabled}\nDelay: ${state.delayEnabled}\nStereo Widen: ${state.stereoWidenEnabled}\nSpatialization: ${state.spatializationEnabled}',
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -710,9 +713,12 @@ class _EqScreenState extends State<EqScreen>
       context,
       dialog: M3EDialog(
         title: 'Reset All Effects?',
-        content: const Text(
-          'This will reset the Equalizer and all audio DSP effects to their flat defaults.',
-          style: TextStyle(color: Colors.white70, fontSize: 13.5),
+        content: const Material(
+          color: Colors.transparent,
+          child: Text(
+            'This will reset the Equalizer and all audio DSP effects to their flat defaults.',
+            style: TextStyle(color: Colors.white70, fontSize: 13.5),
+          ),
         ),
         topDivider: true,
         bottomDivider: true,
@@ -1791,25 +1797,28 @@ class _EqScreenState extends State<EqScreen>
         title: 'Enter $title',
         topDivider: true,
         bottomDivider: true,
-        content: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Allowed range: $min to $max',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 12,
+        content: Material(
+          color: Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Allowed range: $min to $max',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              M3ETextField(
-                controller: controller,
-                label: 'Value',
-              ),
-            ],
+                const SizedBox(height: 12),
+                M3ETextField(
+                  controller: controller,
+                  label: 'Value',
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -4439,55 +4448,58 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
         title: 'Adjust ${widget.label}',
         topDivider: true,
         bottomDivider: true,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                M3EContainer(
-                  Shapes.pill,
-                  width: 32,
-                  height: 32,
-                  color: accentColor.withValues(alpha: 0.15),
-                  border:
-                      BorderSide(color: accentColor.withValues(alpha: 0.35)),
-                  child: Center(
-                    child:
-                        Icon(Icons.tune_rounded, size: 16, color: accentColor),
+        content: Material(
+          color: Colors.transparent,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  M3EContainer(
+                    Shapes.pill,
+                    width: 32,
+                    height: 32,
+                    color: accentColor.withValues(alpha: 0.15),
+                    border:
+                        BorderSide(color: accentColor.withValues(alpha: 0.35)),
+                    child: Center(
+                      child:
+                          Icon(Icons.tune_rounded, size: 16, color: accentColor),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Allowed range: $displayMinStr to $displayMaxStr',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
-                          fontSize: 11.5,
+                        Text(
+                          'Allowed range: $displayMinStr to $displayMaxStr',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 11.5,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            M3ETextField(
-              controller: controller,
-              label: 'Target Value',
-            ),
-          ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              M3ETextField(
+                controller: controller,
+                label: 'Target Value',
+              ),
+            ],
+          ),
         ),
         actions: [
           M3EButton(

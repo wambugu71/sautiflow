@@ -150,208 +150,214 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return M3EDialog(
-            title: 'Save Audio Profile',
-            topDivider: true,
-            bottomDivider: true,
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                    decoration: InputDecoration(
-                      labelText: 'Profile Name',
-                      labelStyle: const TextStyle(color: Colors.white70),
-                      filled: true,
-                      fillColor: surfaceDarkColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                            color: primaryColor.withValues(alpha: 0.3)),
+      builder: (context) => Material(
+        color: Colors.transparent,
+        child: StatefulBuilder(
+          builder: (context, setDialogState) {
+            return M3EDialog(
+              title: 'Save Audio Profile',
+              topDivider: true,
+              bottomDivider: true,
+              content: Material(
+                color: Colors.transparent,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Profile Name',
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          filled: true,
+                          fillColor: surfaceDarkColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: primaryColor.withValues(alpha: 0.3)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: primaryColor, width: 1.5),
+                          ),
+                        ),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: primaryColor, width: 1.5),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: surfaceDarkColor,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: primaryColor.withValues(alpha: 0.3)),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: category,
+                            dropdownColor: bgDarkColor,
+                            isExpanded: true,
+                            style:
+                                const TextStyle(color: Colors.white, fontSize: 14),
+                            items: [
+                              'Headphones',
+                              'Speakers',
+                              'Car',
+                              'Reference',
+                              'Genre',
+                              'Custom'
+                            ]
+                                .map((c) =>
+                                    DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) setDialogState(() => category = val);
+                            },
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: surfaceDarkColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: primaryColor.withValues(alpha: 0.3)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: category,
-                        dropdownColor: bgDarkColor,
-                        isExpanded: true,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 14),
-                        items: [
-                          'Headphones',
-                          'Speakers',
-                          'Car',
-                          'Reference',
-                          'Genre',
-                          'Custom'
-                        ]
-                            .map((c) =>
-                                DropdownMenuItem(value: c, child: Text(c)))
-                            .toList(),
-                        onChanged: (val) {
-                          if (val != null) setDialogState(() => category = val);
-                        },
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: descController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Description (Optional)',
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          filled: true,
+                          fillColor: surfaceDarkColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: primaryColor.withValues(alpha: 0.3)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: primaryColor, width: 1.5),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: descController,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                    decoration: InputDecoration(
-                      labelText: 'Description (Optional)',
-                      labelStyle: const TextStyle(color: Colors.white70),
-                      filled: true,
-                      fillColor: surfaceDarkColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                            color: primaryColor.withValues(alpha: 0.3)),
+                      const SizedBox(height: 18),
+                      Text(
+                        'INCLUDE EFFECTS IN PROFILE',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                        ),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: primaryColor, width: 1.5),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'INCLUDE EFFECTS IN PROFILE',
-                    style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  M3ECard(
-                    variant: M3ECardVariant.filled,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      child: Column(
-                        children: [
-                          Row(
+                      const SizedBox(height: 8),
+                      M3ECard(
+                        variant: M3ECardVariant.filled,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          child: Column(
                             children: [
-                              const Expanded(
-                                child: Text(
-                                  'Graphic EQ & DSP Effects',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 13),
-                                ),
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Graphic EQ & DSP Effects',
+                                      style: TextStyle(
+                                          color: Colors.white, fontSize: 13),
+                                    ),
+                                  ),
+                                  M3ESwitch(
+                                    value: includeEqAndDsp,
+                                    onChanged: (v) =>
+                                        setDialogState(() => includeEqAndDsp = v),
+                                  ),
+                                ],
                               ),
-                              M3ESwitch(
-                                value: includeEqAndDsp,
-                                onChanged: (v) =>
-                                    setDialogState(() => includeEqAndDsp = v),
+                              const Divider(color: Colors.white12, height: 12),
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'ViPER FX Settings',
+                                      style: TextStyle(
+                                          color: Colors.white, fontSize: 13),
+                                    ),
+                                  ),
+                                  M3ESwitch(
+                                    value: includeViper,
+                                    onChanged: (v) =>
+                                        setDialogState(() => includeViper = v),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const Divider(color: Colors.white12, height: 12),
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  'ViPER FX Settings',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 13),
-                                ),
-                              ),
-                              M3ESwitch(
-                                value: includeViper,
-                                onChanged: (v) =>
-                                    setDialogState(() => includeViper = v),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-            actions: [
-              M3EButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              M3EButton(
-                onPressed: () async {
-                  final name = nameController.text.trim();
-                  if (name.isEmpty) return;
+              actions: [
+                M3EButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                M3EButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) return;
 
-                  final navigator = Navigator.of(context);
-                  final messenger = ScaffoldMessenger.of(context);
+                    final navigator = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
 
-                  final currentState = await _fetchCurrentState();
-                  final eqState = includeEqAndDsp
-                      ? (currentState['eqState'] as Map<String, dynamic>? ?? {})
-                      : <String, dynamic>{};
-                  final dspState = includeEqAndDsp
-                      ? (currentState['dspEffectsState']
-                              as Map<String, dynamic>? ??
-                          {})
-                      : <String, dynamic>{};
-                  final viperState = includeViper
-                      ? (currentState['viperFxState']
-                              as Map<String, dynamic>? ??
-                          {})
-                      : <String, dynamic>{};
+                    final currentState = await _fetchCurrentState();
+                    final eqState = includeEqAndDsp
+                        ? (currentState['eqState'] as Map<String, dynamic>? ?? {})
+                        : <String, dynamic>{};
+                    final dspState = includeEqAndDsp
+                        ? (currentState['dspEffectsState']
+                                as Map<String, dynamic>? ??
+                            {})
+                        : <String, dynamic>{};
+                    final viperState = includeViper
+                        ? (currentState['viperFxState']
+                                as Map<String, dynamic>? ??
+                            {})
+                        : <String, dynamic>{};
 
-                  final newProfile = AudioProfile(
-                    id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-                    name: name,
-                    category: category,
-                    description: descController.text.trim().isNotEmpty
-                        ? descController.text.trim()
-                        : null,
-                    isBuiltIn: false,
-                    createdAt: DateTime.now(),
-                    updatedAt: DateTime.now(),
-                    eqState: eqState,
-                    dspEffectsState: dspState,
-                    viperFxState: viperState,
-                  );
-
-                  await AudioProfileService.instance.saveProfile(newProfile);
-                  navigator.pop();
-                  await _loadProfiles();
-                  if (mounted) {
-                    setState(() {
-                      _selectedProfile = newProfile;
-                    });
-                    messenger.showSnackBar(
-                      SnackBar(content: Text('Profile "$name" saved!')),
+                    final newProfile = AudioProfile(
+                      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                      name: name,
+                      category: category,
+                      description: descController.text.trim().isNotEmpty
+                          ? descController.text.trim()
+                          : null,
+                      isBuiltIn: false,
+                      createdAt: DateTime.now(),
+                      updatedAt: DateTime.now(),
+                      eqState: eqState,
+                      dspEffectsState: dspState,
+                      viperFxState: viperState,
                     );
-                  }
-                },
-                child: const Text('Save Profile'),
-              ),
-            ],
-          );
-        },
+
+                    await AudioProfileService.instance.saveProfile(newProfile);
+                    navigator.pop();
+                    await _loadProfiles();
+                    if (mounted) {
+                      setState(() {
+                        _selectedProfile = newProfile;
+                      });
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('Profile "$name" saved!')),
+                      );
+                    }
+                  },
+                  child: const Text('Save Profile'),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -654,112 +660,118 @@ class _AudioProfileManagerDialogState extends State<AudioProfileManagerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return M3EDialog(
-      title: 'Manage Audio Profiles',
-      topDivider: true,
-      bottomDivider: true,
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 380,
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Material(
+      color: Colors.transparent,
+      child: M3EDialog(
+        title: 'Manage Audio Profiles',
+        topDivider: true,
+        bottomDivider: true,
+        content: Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            width: double.maxFinite,
+            height: 380,
+            child: Column(
               children: [
-                Text(
-                  'SAVED PROFILES (${_profiles.length})',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'SAVED PROFILES (${_profiles.length})',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    M3EButton.icon(
+                      icon: const Icon(Icons.file_upload_outlined, size: 14),
+                      label: const Text('Import'),
+                      onPressed: _importProfile,
+                    ),
+                  ],
                 ),
-                M3EButton.icon(
-                  icon: const Icon(Icons.file_upload_outlined, size: 14),
-                  label: const Text('Import'),
-                  onPressed: _importProfile,
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _profiles.isEmpty
+                      ? const Center(
+                          child: Text('No profiles found',
+                              style: TextStyle(color: Colors.white54)))
+                      : ListView.separated(
+                          itemCount: _profiles.length,
+                          separatorBuilder: (context, index) =>
+                              const Divider(color: Colors.white12, height: 1),
+                          itemBuilder: (context, index) {
+                            final p = _profiles[index];
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Row(
+                                children: [
+                                  Text(p.name,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14)),
+                                  if (p.isBuiltIn) ...[
+                                    const SizedBox(width: 8),
+                                    M3EContainer(
+                                      Shapes.pill,
+                                      color: Colors.white12,
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                            horizontal: 6, vertical: 1),
+                                        child: Text('BUILT-IN',
+                                            style: TextStyle(
+                                                color: Colors.white38,
+                                                fontSize: 9)),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              subtitle: Text(
+                                  '${p.category} ${p.description != null ? "• ${p.description}" : ""}',
+                                  style: const TextStyle(
+                                      color: Colors.white38, fontSize: 11)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  M3EIconButton(
+                                    icon: const Icon(Icons.file_download_outlined,
+                                        color: Colors.white70, size: 18),
+                                    variant: M3EIconButtonVariant.standard,
+                                    onPressed: () => _exportProfile(p),
+                                  ),
+                                  if (!p.isBuiltIn)
+                                    M3EIconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.redAccent, size: 18),
+                                      variant: M3EIconButtonVariant.standard,
+                                      onPressed: () async {
+                                        await AudioProfileService.instance
+                                            .deleteProfile(p.id);
+                                        await _reload();
+                                        widget.onProfilesUpdated();
+                                      },
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _profiles.isEmpty
-                  ? const Center(
-                      child: Text('No profiles found',
-                          style: TextStyle(color: Colors.white54)))
-                  : ListView.separated(
-                      itemCount: _profiles.length,
-                      separatorBuilder: (context, index) =>
-                          const Divider(color: Colors.white12, height: 1),
-                      itemBuilder: (context, index) {
-                        final p = _profiles[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Row(
-                            children: [
-                              Text(p.name,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14)),
-                              if (p.isBuiltIn) ...[
-                                const SizedBox(width: 8),
-                                M3EContainer(
-                                  Shapes.pill,
-                                  color: Colors.white12,
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 1),
-                                    child: Text('BUILT-IN',
-                                        style: TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 9)),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          subtitle: Text(
-                              '${p.category} ${p.description != null ? "• ${p.description}" : ""}',
-                              style: const TextStyle(
-                                  color: Colors.white38, fontSize: 11)),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              M3EIconButton(
-                                icon: const Icon(Icons.file_download_outlined,
-                                    color: Colors.white70, size: 18),
-                                variant: M3EIconButtonVariant.standard,
-                                onPressed: () => _exportProfile(p),
-                              ),
-                              if (!p.isBuiltIn)
-                                M3EIconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: Colors.redAccent, size: 18),
-                                  variant: M3EIconButtonVariant.standard,
-                                  onPressed: () async {
-                                    await AudioProfileService.instance
-                                        .deleteProfile(p.id);
-                                    await _reload();
-                                    widget.onProfilesUpdated();
-                                  },
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+          ),
         ),
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
-      actions: [
-        M3EButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
-        ),
-      ],
     );
   }
 }

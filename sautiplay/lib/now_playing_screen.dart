@@ -27,6 +27,7 @@ import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
 import 'services/waveform_extractor_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
+import 'widgets/album_art_shape_selector.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
@@ -92,8 +93,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   late final AnimationController _rotationController;
   late final PageController _pageController;
 
-  final ValueNotifier<List<double>> _analyzerValuesNotifier =
-      ValueNotifier([]);
+  final ValueNotifier<List<double>> _analyzerValuesNotifier = ValueNotifier([]);
   StreamSubscription? _analyzerSub;
   FftProcessor? _fftProcessor;
 
@@ -140,6 +140,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool _useWaveformSeekBar = false;
   List<double>? _currentWaveformPeaks;
   StreamSubscription<bool>? _waveformSub;
+  StreamSubscription<Shapes>? _albumArtShapeSub;
   int _lastKnownTrackIndex = -1;
 
   @override
@@ -152,6 +153,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fetchAudioProperties();
     _loadPlaybackSpeed();
     _loadWaveformSetting();
+
+    _albumArtShapeSub =
+        AppThemeService.instance.albumArtShapeChanged.stream.listen((_) {
+      if (mounted) setState(() {});
+    });
 
     _setupAnalyzer(_isAnalyzerEnabled);
     _initHardwareSpecs();
@@ -277,6 +283,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _analyzerSub?.cancel();
     _hardwareSub?.cancel();
     _waveformSub?.cancel();
+    _albumArtShapeSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
     _pageController.dispose();
@@ -478,9 +485,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final dur = Duration(milliseconds: currentMs);
       final mm = dur.inMinutes.remainder(60).toString().padLeft(2, '0');
       final ss = (dur.inSeconds % 60).toString().padLeft(2, '0');
-      final xx = ((dur.inMilliseconds % 1000) ~/ 10)
-          .toString()
-          .padLeft(2, '0');
+      final xx = ((dur.inMilliseconds % 1000) ~/ 10).toString().padLeft(2, '0');
       sb.writeln('[$mm:$ss.$xx] ${lines[i]}');
     }
 
@@ -593,135 +598,182 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                    Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2),
+                        Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Text(
-                        'EXPRESSIVE TRACK OPTIONS',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                          color: AppThemeService.instance.currentData.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      leading:
-                          const Icon(Icons.info_outline, color: Colors.white),
-                      title: const Text('Song Info & Tags',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600)),
-                      subtitle: const Text('View or edit track metadata',
-                          style:
-                              TextStyle(color: Colors.white54, fontSize: 12)),
-                      onTap: () {
-                        Navigator.pop(sheetContext);
-                        _showMusicInfoDialog(context);
-                      },
-                    ),
-                    ListTile(
-                      leading: Icon(Icons.developer_board,
-                          color: AppThemeService.instance.currentData.primary),
-                      title: const Text('Audio Output Signal Chain',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600)),
-                      subtitle: const Text(
-                          'View live DAC, sample rate, & hardware pipeline specs',
-                          style:
-                              TextStyle(color: Colors.white54, fontSize: 12)),
-                      onTap: () {
-                        Navigator.pop(sheetContext);
-                        _showHardwareSpecsModal(context);
-                      },
-                    ),
-                    ListTile(
-                      leading: Icon(Icons.subtitles_outlined,
-                          color: AppThemeService.instance.currentData.primary),
-                      title: const Text('Add .lrc Lyrics File',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                        _isCustomLyricsLoaded
-                            ? 'Loaded: ${_customLyricsFileName ?? "Custom LRC"}'
-                            : 'Select synchronized .lrc / .txt file from storage',
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 12),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: () {
-                        Navigator.pop(sheetContext);
-                        _pickLrcFile();
-                      },
-                    ),
-                    SwitchListTile(
-                      secondary: Icon(
-                        _showLyricsOverlayOnAlbumArt
-                            ? Icons.layers
-                            : Icons.layers_clear,
-                        color: _showLyricsOverlayOnAlbumArt
-                            ? AppThemeService.instance.currentData.primary
-                            : Colors.white54,
-                      ),
-                      title: const Text('Lyrics Overlay on Album Art',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600)),
-                      subtitle: const Text(
-                          'Display synchronized lyrics over album cover',
-                          style:
-                              TextStyle(color: Colors.white54, fontSize: 12)),
-                      activeThumbColor:
-                          AppThemeService.instance.currentData.primary,
-                      value: _showLyricsOverlayOnAlbumArt,
-                      onChanged: (_lyricsRaw == null && !_isCustomLyricsLoaded)
-                          ? null
-                          : (val) {
-                              setSheetState(
-                                  () => _showLyricsOverlayOnAlbumArt = val);
-                              setState(
-                                  () => _showLyricsOverlayOnAlbumArt = val);
-                            },
-                    ),
-                    if (_isCustomLyricsLoaded)
-                      ListTile(
-                        leading: const Icon(Icons.cleaning_services_outlined,
-                            color: Colors.redAccent),
-                        title: const Text('Reset to Default Lyrics',
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          child: Text(
+                            'EXPRESSIVE TRACK OPTIONS',
                             style: TextStyle(
-                                color: Colors.redAccent,
-                                fontWeight: FontWeight.w600)),
-                        onTap: () {
-                          Navigator.pop(sheetContext);
-                          _clearCustomLyrics();
-                        },
-                      ),
-                    ],
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                              color:
+                                  AppThemeService.instance.currentData.primary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ListTile(
+                          leading: M3EContainer(
+                            AppThemeService.instance.albumArtShape,
+                            width: 38,
+                            height: 38,
+                            color: AppThemeService
+                                .instance.currentData.primary
+                                .withAlpha(35),
+                            border: BorderSide(
+                              color: AppThemeService
+                                  .instance.currentData.primary
+                                  .withAlpha(80),
+                              width: 1.2,
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.crop_original_rounded,
+                                color: AppThemeService
+                                    .instance.currentData.primary,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                          title: const Text('Album Art Shape',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                            'Current: ${kM3EAlbumArtShapes.firstWhere((s) => s.shape == AppThemeService.instance.albumArtShape, orElse: () => kM3EAlbumArtShapes.first).name} • Tap to customize',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12),
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded,
+                              color: Colors.white54, size: 20),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            AlbumArtShapePickerSheet.show(
+                              context,
+                              sampleAlbumArt: widget.albumArt,
+                            );
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.info_outline,
+                              color: Colors.white),
+                          title: const Text('Song Info & Tags',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          subtitle: const Text('View or edit track metadata',
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 12)),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _showMusicInfoDialog(context);
+                          },
+                        ),
+                        ListTile(
+                          leading: Icon(Icons.developer_board,
+                              color:
+                                  AppThemeService.instance.currentData.primary),
+                          title: const Text('Audio Output Signal Chain',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          subtitle: const Text(
+                              'View live DAC, sample rate, & hardware pipeline specs',
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 12)),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _showHardwareSpecsModal(context);
+                          },
+                        ),
+                        ListTile(
+                          leading: Icon(Icons.subtitles_outlined,
+                              color:
+                                  AppThemeService.instance.currentData.primary),
+                          title: const Text('Add .lrc Lyrics File',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                            _isCustomLyricsLoaded
+                                ? 'Loaded: ${_customLyricsFileName ?? "Custom LRC"}'
+                                : 'Select synchronized .lrc / .txt file from storage',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _pickLrcFile();
+                          },
+                        ),
+                        SwitchListTile(
+                          secondary: Icon(
+                            _showLyricsOverlayOnAlbumArt
+                                ? Icons.layers
+                                : Icons.layers_clear,
+                            color: _showLyricsOverlayOnAlbumArt
+                                ? AppThemeService.instance.currentData.primary
+                                : Colors.white54,
+                          ),
+                          title: const Text('Lyrics Overlay on Album Art',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600)),
+                          subtitle: const Text(
+                              'Display synchronized lyrics over album cover',
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 12)),
+                          activeThumbColor:
+                              AppThemeService.instance.currentData.primary,
+                          value: _showLyricsOverlayOnAlbumArt,
+                          onChanged: (_lyricsRaw == null &&
+                                  !_isCustomLyricsLoaded)
+                              ? null
+                              : (val) {
+                                  setSheetState(
+                                      () => _showLyricsOverlayOnAlbumArt = val);
+                                  setState(
+                                      () => _showLyricsOverlayOnAlbumArt = val);
+                                },
+                        ),
+                        if (_isCustomLyricsLoaded)
+                          ListTile(
+                            leading: const Icon(
+                                Icons.cleaning_services_outlined,
+                                color: Colors.redAccent),
+                            title: const Text('Reset to Default Lyrics',
+                                style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontWeight: FontWeight.w600)),
+                            onTap: () {
+                              Navigator.pop(sheetContext);
+                              _clearCustomLyrics();
+                            },
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-        ),
-      );
-    },
-  );
-}
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildAlbumArtLyricsOverlay({
     required double borderRadius,
@@ -788,8 +840,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           children: [
                             Icon(Icons.lyrics,
                                 size: 12,
-                                color:
-                                    AppThemeService.instance.currentData.primary),
+                                color: AppThemeService
+                                    .instance.currentData.primary),
                             const SizedBox(width: 4),
                             Text(
                               _isCustomLyricsLoaded
@@ -913,8 +965,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             initialData: initial,
             stream: AudioHardwareInspector.hardwareStream(widget.player),
             builder: (context, snapshot) {
-              final specs =
-                  snapshot.data ?? initial ?? AudioHardwareInspector.currentSpecs;
+              final specs = snapshot.data ??
+                  initial ??
+                  AudioHardwareInspector.currentSpecs;
               return ConstrainedBox(
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.of(context).size.height * 0.92,
@@ -928,7 +981,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             height: 160,
                             child: Center(
                               child: M3EProgressIndicator.circular(
-                                color: AppThemeService.instance.currentData.primary,
+                                color: AppThemeService
+                                    .instance.currentData.primary,
                               ),
                             ),
                           )
@@ -1308,8 +1362,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             : status.durationSeconds;
 
         final trackTotal = widget.queue.isNotEmpty ? widget.queue.length : 0;
-        final trackIdx =
-            status.currentIndex >= 0 ? status.currentIndex + 1 : 1;
+        final trackIdx = status.currentIndex >= 0 ? status.currentIndex + 1 : 1;
         final trackPosition = trackTotal > 0 ? '$trackIdx/$trackTotal' : '';
 
         final duration =
@@ -1332,6 +1385,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
         final Color primaryColor = AppThemeService.instance.currentData.primary;
         final Color bgColor = AppThemeService.instance.currentData.bgDark;
+        final Shapes albumArtShape = AppThemeService.instance.albumArtShape;
         const Color surfaceColor = Color(0xFF18232E);
         const Color textLight = Colors.white;
         final Color textDark = AppThemeService.instance.currentData.textDark;
@@ -1475,7 +1529,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               Positioned.fill(
                                                 child: RepaintBoundary(
                                                   child: M3EContainer(
-                                                    Shapes.c4SidedCookie,
+                                                    albumArtShape,
                                                     clipBehavior:
                                                         Clip.antiAlias,
                                                     color: surfaceColor,
@@ -1486,39 +1540,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                 alpha: 0.35),
                                                         blurRadius: 36,
                                                         spreadRadius: 4,
-                                                        offset: const Offset(
-                                                            0, 8),
+                                                        offset:
+                                                            const Offset(0, 8),
                                                       ),
                                                       BoxShadow(
                                                         color: Colors.black
                                                             .withValues(
                                                                 alpha: 0.6),
                                                         blurRadius: 28,
-                                                        offset: const Offset(
-                                                            0, 12),
+                                                        offset:
+                                                            const Offset(0, 12),
                                                       ),
                                                     ],
                                                     child: (widget.albumArt !=
                                                                 null &&
                                                             widget.albumArt!
                                                                 .isNotEmpty)
-                                                        ? Container(
-                                                            decoration:
-                                                                BoxDecoration(
-                                                              image:
-                                                                  DecorationImage(
-                                                                image: MemoryImage(
-                                                                    widget
-                                                                        .albumArt!),
-                                                                fit: BoxFit
-                                                                    .cover,
+                                                        ? RepaintBoundary(
+                                                            child: M3EContainer(
+                                                              albumArtShape,
+                                                              clipBehavior:
+                                                                  Clip.antiAlias,
+                                                              child: Image.memory(
+                                                                widget.albumArt!,
+                                                                fit: BoxFit.cover,
                                                               ),
                                                             ),
                                                           )
                                                         : RotationTransition(
                                                             turns:
                                                                 _rotationController,
-                                                            child: Container(
+                                                            child: M3EContainer(
+                                                              albumArtShape,
                                                               color:
                                                                   surfaceColor,
                                                               padding:
@@ -1537,7 +1590,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               ),
                                               // Bottom Gradient Fade Overlay
-                                              Positioned(
+                                              /*        Positioned(
                                                 bottom: 0,
                                                 left: 0,
                                                 right: 0,
@@ -1563,7 +1616,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                     ),
                                                   ),
                                                 ),
-                                              ),
+                                              ),*/
                                               // Lyrics Overlay on Album Art
                                               _buildAlbumArtLyricsOverlay(
                                                 borderRadius: 32.0,
@@ -1695,9 +1748,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           variant:
                                                               M3EIconButtonVariant
                                                                   .outlined,
-                                                          icon: const Icon(
-                                                              Icons
-                                                                  .thumb_down_outlined),
+                                                          icon: const Icon(Icons
+                                                              .thumb_down_outlined),
                                                           onPressed: () {},
                                                         ),
                                                       ],
@@ -1744,7 +1796,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             child: M3EToolbar(
                                               actions: <M3EToolbarItem>[
                                                 M3EToolbarAction(
-                                                  icon: Icons.graphic_eq_rounded,
+                                                  icon:
+                                                      Icons.graphic_eq_rounded,
                                                   onPressed: () {
                                                     Navigator.push(
                                                         context,
@@ -1755,8 +1808,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                       .player,
                                                                   analyzerEnabled:
                                                                       _isAnalyzerEnabled,
-                                                                  analyzerType: widget
-                                                                      .analyzerType,
+                                                                  analyzerType:
+                                                                      widget
+                                                                          .analyzerType,
                                                                   analyzerAutoFit:
                                                                       widget
                                                                           .analyzerAutoFit,
@@ -1779,8 +1833,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       showPlaybackSpeedModal(
                                                     context,
                                                     widget.player,
-                                                    currentPitch:
-                                                        _currentPitch,
+                                                    currentPitch: _currentPitch,
                                                     onPitchChanged: (p) =>
                                                         setState(() =>
                                                             _currentPitch = p),
@@ -1834,22 +1887,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   MainAxisAlignment.center,
                                               children: [
                                                 M3EIconButton(
-                                                  variant:
-                                                      M3EIconButtonVariant.standard,
+                                                  variant: M3EIconButtonVariant
+                                                      .standard,
                                                   icon: const Icon(
                                                       Icons.fast_rewind_rounded,
                                                       size: 32),
                                                   onPressed: () {
-                                                    widget.player.seekTo(
-                                                        Duration(
-                                                            milliseconds:
-                                                                (displayPosMs -
-                                                                        10000)
-                                                                    .toInt()
-                                                                    .clamp(
-                                                                        0,
-                                                                        maxMs
-                                                                            .toInt())));
+                                                    widget.player.seekTo(Duration(
+                                                        milliseconds:
+                                                            (displayPosMs -
+                                                                    10000)
+                                                                .toInt()
+                                                                .clamp(
+                                                                    0,
+                                                                    maxMs
+                                                                        .toInt())));
                                                   },
                                                 ),
                                                 const SizedBox(width: 12),
@@ -1907,23 +1959,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                                 const SizedBox(width: 12),
                                                 M3EIconButton(
-                                                  variant:
-                                                      M3EIconButtonVariant.standard,
+                                                  variant: M3EIconButtonVariant
+                                                      .standard,
                                                   icon: const Icon(
                                                       Icons
                                                           .fast_forward_rounded,
                                                       size: 32),
                                                   onPressed: () {
-                                                    widget.player.seekTo(
-                                                        Duration(
-                                                            milliseconds:
-                                                                (displayPosMs +
-                                                                        10000)
-                                                                    .toInt()
-                                                                    .clamp(
-                                                                        0,
-                                                                        maxMs
-                                                                            .toInt())));
+                                                    widget.player.seekTo(Duration(
+                                                        milliseconds:
+                                                            (displayPosMs +
+                                                                    10000)
+                                                                .toInt()
+                                                                .clamp(
+                                                                    0,
+                                                                    maxMs
+                                                                        .toInt())));
                                                   },
                                                 ),
                                               ],
@@ -2083,7 +2134,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         Positioned.fill(
                                           child: RepaintBoundary(
                                             child: M3EContainer(
-                                              Shapes.c4SidedCookie,
+                                              albumArtShape,
                                               clipBehavior: Clip.antiAlias,
                                               color: surfaceColor,
                                               boxShadow: [
@@ -2096,20 +2147,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               ],
                                               child: (widget.albumArt != null &&
-                                                      widget.albumArt!.isNotEmpty)
-                                                  ? Container(
-                                                      decoration: BoxDecoration(
-                                                        image: DecorationImage(
-                                                          image: MemoryImage(
-                                                              widget.albumArt!),
-                                                          fit: BoxFit.cover,
-                                                        ),
+                                                      widget
+                                                          .albumArt!.isNotEmpty)
+                                                  ? M3EContainer(
+                                                      albumArtShape,
+                                                      clipBehavior:
+                                                          Clip.antiAlias,
+                                                      child: Image.memory(
+                                                        widget.albumArt!,
+                                                        fit: BoxFit.cover,
                                                       ),
                                                     )
                                                   : RotationTransition(
                                                       turns:
                                                           _rotationController,
-                                                      child: Container(
+                                                      child: M3EContainer(
+                                                        albumArtShape,
                                                         color: surfaceColor,
                                                         padding:
                                                             const EdgeInsets
@@ -2123,7 +2176,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             ),
                                           ),
                                         ),
-                                        Positioned(
+                                        /* Positioned(
                                           bottom: 0,
                                           left: 0,
                                           right: 0,
@@ -2145,7 +2198,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               ),
                                             ),
                                           ),
-                                        ),
+                                        ),*/
                                         _buildAlbumArtLyricsOverlay(
                                           borderRadius: 24.0,
                                           bottomOffset: 100.0,
@@ -2311,7 +2364,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   const SizedBox(width: 8),
                                   M3EIconButton(
                                     variant: M3EIconButtonVariant.tonal,
-                                    icon: const Icon(Icons.skip_previous_rounded,
+                                    icon: const Icon(
+                                        Icons.skip_previous_rounded,
                                         size: 32),
                                     onPressed: widget.player.seekToPrevious,
                                   ),
@@ -2459,8 +2513,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         player: widget.player,
                                                         analyzerEnabled:
                                                             _isAnalyzerEnabled,
-                                                        analyzerType: widget
-                                                            .analyzerType,
+                                                        analyzerType:
+                                                            widget.analyzerType,
                                                         analyzerAutoFit: widget
                                                             .analyzerAutoFit,
                                                         analyzerShowGrids: widget
@@ -2473,16 +2527,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       const SizedBox(width: 8),
                                       M3EIconButton(
                                         variant: M3EIconButtonVariant.tonal,
-                                        icon: Icon((_currentPitch - 1.0).abs() >
-                                                0.01
-                                            ? Icons.speed_rounded
-                                            : Icons.speed_outlined),
+                                        icon: Icon(
+                                            (_currentPitch - 1.0).abs() > 0.01
+                                                ? Icons.speed_rounded
+                                                : Icons.speed_outlined),
                                         onPressed: () => showPlaybackSpeedModal(
                                           context,
                                           widget.player,
                                           currentPitch: _currentPitch,
-                                          onPitchChanged: (p) => setState(
-                                              () => _currentPitch = p),
+                                          onPitchChanged: (p) =>
+                                              setState(() => _currentPitch = p),
                                         ),
                                       ),
                                       const SizedBox(width: 8),
@@ -2490,8 +2544,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         variant: status.loopMode != LoopMode.off
                                             ? M3EIconButtonVariant.filled
                                             : M3EIconButtonVariant.tonal,
-                                        icon:
-                                            Icon(_loopIcon(status.loopMode)),
+                                        icon: Icon(_loopIcon(status.loopMode)),
                                         onPressed: () {
                                           final currentMode = status.loopMode;
                                           final nextMode =
@@ -2923,8 +2976,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       children: [
                         Text('Point B',
                             style: TextStyle(
-                                color:
-                                    AppThemeService.instance.currentData.primary,
+                                color: AppThemeService
+                                    .instance.currentData.primary,
                                 fontWeight: FontWeight.bold)),
                         const Spacer(),
                         M3EIconButton(
@@ -2932,7 +2985,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           icon: const Icon(Icons.remove, color: Colors.white70),
                           onPressed: () {
                             setSheetState(() {
-                              localB = (localB - 100).clamp(localA + 500, maxMs);
+                              localB =
+                                  (localB - 100).clamp(localA + 500, maxMs);
                             });
                             apply();
                           },
@@ -2948,7 +3002,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           icon: const Icon(Icons.add, color: Colors.white70),
                           onPressed: () {
                             setSheetState(() {
-                              localB = (localB + 100).clamp(localA + 500, maxMs);
+                              localB =
+                                  (localB + 100).clamp(localA + 500, maxMs);
                             });
                             apply();
                           },
@@ -2967,7 +3022,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 _abPointBMs = null;
                               });
                               widget.player.setAbRepeat(
-                                  enabled: false, startSeconds: 0, endSeconds: 0);
+                                  enabled: false,
+                                  startSeconds: 0,
+                                  endSeconds: 0);
                               Navigator.pop(ctx);
                             },
                             child: const Text('Clear A-B Loop'),
