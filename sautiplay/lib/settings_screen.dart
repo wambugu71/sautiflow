@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sautiflow/sautiflow.dart';
 
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'main.dart' show AppThemeProvider;
@@ -171,7 +174,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadUiSettings();
-    _audioSettingsSub = AppStateService.instance.audioProcessingSettingsChanged.stream
+    _audioSettingsSub = AppStateService
+        .instance.audioProcessingSettingsChanged.stream
         .listen((_) {
       if (mounted) {
         _loadUiSettings();
@@ -256,7 +260,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _activeThemeId = AppThemeService.instance.current;
     });
 
-    final loudnessNorm = await AppStateService.instance.loadLoudnessNormalizer();
+    final loudnessNorm =
+        await AppStateService.instance.loadLoudnessNormalizer();
     final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
 
     if (mounted) {
@@ -275,7 +280,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
     widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
     widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
-    widget.player.setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
+    widget.player
+        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
     widget.player.setPhaseInversion(
       invertLeft: _phaseInvertLeft,
       invertRight: _phaseInvertRight,
@@ -303,7 +309,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ceilingDBTP: _lookaheadLimiterCeilingDBTP,
     );
     widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
-    widget.player.setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
+    widget.player
+        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
   }
 
   void _persistPhaseInversionSettings() {
@@ -421,103 +428,161 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 20),
                         _buildSectionHeader('PREFERENCES & ENGINE'),
                         const SizedBox(height: 10),
-                        _buildCategoryCard(
-                          title: 'Look & Feel',
-                          subtitle: 'Theme, seek bar & UI appearance',
-                          icon: Icons.palette_outlined,
-                          accentColor: _primary,
-                          badgeText: AppThemeService.dataFor(_activeThemeId)
-                              .displayName,
-                          onTap: () => _navigateToSubScreen(
-                              _buildLookAndFeelSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Audio & Processing',
-                          subtitle:
-                              'Resampling, Bit depth, Safeguards & ReplayGain',
-                          icon: Icons.graphic_eq_rounded,
-                          accentColor: _primary,
-                          badgeText: _getAudioProcessingBadgeText(),
-                          onTap: () => _navigateToSubScreen(
-                              _buildAudioProcessingSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Equalizer & DSP',
-                          subtitle: 'Band configuration & ViPER FX shortcuts',
-                          icon: Icons.tune_rounded,
-                          accentColor: _primary,
-                          badgeText: '$_eqBandCount-Band',
-                          onTap: () =>
-                              _navigateToSubScreen(_buildEqualizerSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Visualization & RTA',
-                          subtitle: 'Spectrum analyzer styles, grids, FFT size',
-                          icon: Icons.bar_chart_rounded,
-                          accentColor: _primary,
-                          badgeText: widget.analyzerEnabled
-                              ? widget.spectrumStyle.toUpperCase()
-                              : 'Off',
-                          onTap: () => _navigateToSubScreen(
-                              _buildVisualizationSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Playback & Crossfade',
-                          subtitle:
-                              'Gapless mode, crossfade transitions & volume',
-                          icon: Icons.queue_music_rounded,
-                          accentColor: _primary,
-                          badgeText: widget.crossfadeEnabled
-                              ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s'
-                              : 'Gapless',
-                          onTap: () =>
-                              _navigateToSubScreen(_buildPlaybackSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Library & Storage',
-                          subtitle: 'Wi-Fi streaming preferences & audio cache',
-                          icon: Icons.storage_rounded,
-                          accentColor: _primary,
-                          badgeText: '145 MB Cache',
-                          onTap: () =>
-                              _navigateToSubScreen(_buildStorageSubScreen()),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Network Sources (FTP & DLNA)',
-                          subtitle:
-                              'Browse FTP servers, DLNA NAS, and cast audio',
-                          icon: Icons.lan_rounded,
-                          accentColor: _primary,
-                          badgeText: 'FTP & DLNA',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => NetworkSourcesScreen(
-                                  player: widget.player,
-                                  onPlayNetworkFile: widget.onPlayNetworkFile,
-                                  onPlayFtpFolder: widget.onPlayFtpFolder,
-                                ),
-                              ),
-                            );
+                        M3ECardList(
+                          itemCount: 8,
+                          onTap: (index) {
+                            switch (index) {
+                              case 0:
+                                _navigateToSubScreen(
+                                    _buildLookAndFeelSubScreen());
+                                break;
+                              case 1:
+                                _navigateToSubScreen(
+                                    _buildAudioProcessingSubScreen());
+                                break;
+                              case 2:
+                                _navigateToSubScreen(
+                                    _buildEqualizerSubScreen());
+                                break;
+                              case 3:
+                                _navigateToSubScreen(
+                                    _buildVisualizationSubScreen());
+                                break;
+                              case 4:
+                                _navigateToSubScreen(_buildPlaybackSubScreen());
+                                break;
+                              case 5:
+                                _navigateToSubScreen(_buildStorageSubScreen());
+                                break;
+                              case 6:
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => NetworkSourcesScreen(
+                                      player: widget.player,
+                                      onPlayNetworkFile:
+                                          widget.onPlayNetworkFile,
+                                      onPlayFtpFolder: widget.onPlayFtpFolder,
+                                    ),
+                                  ),
+                                );
+                                break;
+                              case 7:
+                                _navigateToSubScreen(
+                                    _buildMiscSystemSubScreen());
+                                break;
+                            }
                           },
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCategoryCard(
-                          title: 'Misc & System',
-                          subtitle:
-                              'Open source licenses, TLS, diagnostic logs',
-                          icon: Icons.admin_panel_settings_outlined,
-                          accentColor: _primary,
-                          badgeText: _appVersion,
-                          onTap: () =>
-                              _navigateToSubScreen(_buildMiscSystemSubScreen()),
+                          itemBuilder: (context, index) {
+                            switch (index) {
+                              case 0:
+                                return _buildCategoryCard(
+                                  title: 'Look & Feel',
+                                  subtitle: 'Theme, seek bar & UI appearance',
+                                  icon: Icons.palette_outlined,
+                                  accentColor: _primary,
+                                  badgeText:
+                                      AppThemeService.dataFor(_activeThemeId)
+                                          .displayName,
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildLookAndFeelSubScreen()),
+                                );
+                              case 1:
+                                return _buildCategoryCard(
+                                  title: 'Audio & Processing',
+                                  subtitle:
+                                      'Resampling, Bit depth, Safeguards & ReplayGain',
+                                  icon: Icons.graphic_eq_rounded,
+                                  accentColor: _primary,
+                                  badgeText: _getAudioProcessingBadgeText(),
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildAudioProcessingSubScreen()),
+                                );
+                              case 2:
+                                return _buildCategoryCard(
+                                  title: 'Equalizer & DSP',
+                                  subtitle:
+                                      'Band configuration & ViPER FX shortcuts',
+                                  icon: Icons.tune_rounded,
+                                  accentColor: _primary,
+                                  badgeText: '$_eqBandCount-Band',
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildEqualizerSubScreen()),
+                                );
+                              case 3:
+                                return _buildCategoryCard(
+                                  title: 'Visualization & RTA',
+                                  subtitle:
+                                      'Spectrum analyzer styles, grids, FFT size',
+                                  icon: Icons.bar_chart_rounded,
+                                  accentColor: _primary,
+                                  badgeText: widget.analyzerEnabled
+                                      ? widget.spectrumStyle.toUpperCase()
+                                      : 'Off',
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildVisualizationSubScreen()),
+                                );
+                              case 4:
+                                return _buildCategoryCard(
+                                  title: 'Playback & Crossfade',
+                                  subtitle:
+                                      'Gapless mode, crossfade transitions & volume',
+                                  icon: Icons.queue_music_rounded,
+                                  accentColor: _primary,
+                                  badgeText: widget.crossfadeEnabled
+                                      ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s'
+                                      : 'Gapless',
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildPlaybackSubScreen()),
+                                );
+                              case 5:
+                                return _buildCategoryCard(
+                                  title: 'Library & Storage',
+                                  subtitle:
+                                      'Wi-Fi streaming preferences & audio cache',
+                                  icon: Icons.storage_rounded,
+                                  accentColor: _primary,
+                                  badgeText: '145 MB Cache',
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildStorageSubScreen()),
+                                );
+                              case 6:
+                                return _buildCategoryCard(
+                                  title: 'Network Sources (FTP & DLNA)',
+                                  subtitle:
+                                      'Browse FTP servers, DLNA NAS, and cast audio',
+                                  icon: Icons.lan_rounded,
+                                  accentColor: _primary,
+                                  badgeText: 'FTP & DLNA',
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            NetworkSourcesScreen(
+                                          player: widget.player,
+                                          onPlayNetworkFile:
+                                              widget.onPlayNetworkFile,
+                                          onPlayFtpFolder:
+                                              widget.onPlayFtpFolder,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              default:
+                                return _buildCategoryCard(
+                                  title: 'Misc & System',
+                                  subtitle:
+                                      'Open source licenses, TLS, diagnostic logs',
+                                  icon: Icons.admin_panel_settings_outlined,
+                                  accentColor: _primary,
+                                  badgeText: _appVersion,
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildMiscSystemSubScreen()),
+                                );
+                            }
+                          },
                         ),
                         const SizedBox(height: 120),
                       ]),
@@ -561,75 +626,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String badgeText,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        splashColor: accentColor.withAlpha(40),
-        highlightColor: accentColor.withAlpha(20),
-        child: Ink(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: _cardDark,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withAlpha(12)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: accentColor.withAlpha(30),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: accentColor, size: 24),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(color: _textDark, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: accentColor.withAlpha(25),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: accentColor.withAlpha(60)),
-                ),
-                child: Text(
-                  badgeText,
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
-            ],
-          ),
+    return M3EListItem(
+      headline: title,
+      supportingText: subtitle,
+      leading: M3EContainer(
+        Shapes.pill,
+        width: 44,
+        height: 44,
+        color: accentColor.withAlpha(30),
+        border: BorderSide(color: accentColor.withAlpha(60), width: 1),
+        child: Center(
+          child: Icon(icon, color: accentColor, size: 22),
         ),
       ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: accentColor.withAlpha(25),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accentColor.withAlpha(60)),
+            ),
+            child: Text(
+              badgeText,
+              style: TextStyle(
+                color: accentColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
+        ],
+      ),
+      onTap: onTap,
     );
   }
 
@@ -682,6 +715,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: children,
       ),
+    );
+  }
+
+  Widget _buildM3ESwitchTile({
+    required String title,
+    String? subtitle,
+    Widget? secondary,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return M3EListItem(
+      headline: title,
+      supportingText: subtitle,
+      leading: secondary,
+      trailing: M3ESwitch(
+        value: value,
+        onChanged: onChanged,
+      ),
+      onTap: () => onChanged(!value),
     );
   }
 
@@ -868,27 +920,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Waveform Seek Bar',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    'Replaces classic time slider with interactive track amplitude waveform',
-                    style: TextStyle(color: _textDark, fontSize: 12),
-                  ),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _primary.withAlpha(25),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Waveform Seek Bar',
+                  subtitle:
+                      'Replaces classic time slider with interactive track amplitude waveform',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: _primary.withAlpha(25),
+                    child: Center(
+                      child: Icon(Icons.graphic_eq, color: _primary, size: 20),
                     ),
-                    child: Icon(Icons.graphic_eq, color: _primary, size: 20),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -904,23 +947,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _primary.withAlpha(25),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Re-run Feature Tour',
+                  supportingText:
+                      'Re-start the interactive guided walkthrough for SautiPlay',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: _primary.withAlpha(25),
+                    child: Center(
+                      child:
+                          Icon(Icons.tour_rounded, color: _primary, size: 20),
                     ),
-                    child: Icon(Icons.tour_rounded, color: _primary, size: 20),
-                  ),
-                  title: const Text('Re-run Feature Tour',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    'Re-start the interactive guided walkthrough for SautiPlay',
-                    style: TextStyle(color: _textDark, fontSize: 12),
                   ),
                   trailing: Icon(Icons.play_arrow_rounded, color: _primary),
                   onTap: () {
@@ -947,24 +986,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.cyanAccent.withAlpha(35),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Audio Engine Diagnostic Panel',
+                  supportingText:
+                      'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.cyanAccent.withAlpha(35),
+                    child: const Center(
+                      child: Icon(Icons.monitor_heart_rounded,
+                          color: Colors.cyanAccent, size: 20),
                     ),
-                    child: const Icon(Icons.monitor_heart_rounded,
-                        color: Colors.cyanAccent, size: 20),
-                  ),
-                  title: const Text('Audio Engine Diagnostic Panel',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text(
-                    'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
-                    style: TextStyle(color: _textDark, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded,
                       color: Colors.cyanAccent, size: 22),
@@ -979,21 +1013,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Resampler',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child:
+                          Icon(Icons.memory, color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.memory,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Resampler',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: SizedBox(
                     width: 170,
                     child: Row(
@@ -1016,23 +1047,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Oversampler',
+                  supportingText: 'Anti-aliasing for ViPER FX & limiters',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child:
+                          Icon(Icons.blur_on, color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.blur_on,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Oversampler',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Anti-aliasing for ViPER FX & limiters',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   trailing: SizedBox(
                     width: 150,
                     child: Row(
@@ -1055,21 +1082,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _showOversamplingDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Dither',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.waves, color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.waves,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Dither',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: SizedBox(
                     width: 150,
                     child: Row(
@@ -1098,23 +1121,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Output Bit Depth',
+                  supportingText: 'Hardware PCM bit precision',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.code, color: Colors.white70, size: 20),
                     ),
-                    child:
-                        const Icon(Icons.code, color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Output Bit Depth',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Hardware PCM bit precision',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   trailing: SizedBox(
                     width: 150,
                     child: Row(
@@ -1137,36 +1155,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                // Sample Rate tile is locked when Auto Bit-Perfect is active
-                // (miniaudio uses native device rate in that mode, so manual
-                // selection has no effect and causes pitch-shift confusion)
                 IgnorePointer(
                   ignoring: _autoBitPerfectEnabled,
                   child: AnimatedOpacity(
                     opacity: _autoBitPerfectEnabled ? 0.38 : 1.0,
                     duration: const Duration(milliseconds: 200),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      leading: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withAlpha(10),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.speed,
-                            color: Colors.white70, size: 20),
-                      ),
-                      title: const Text('Sample Rate',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500)),
-                      subtitle: _autoBitPerfectEnabled
-                          ? Text(
-                              'Managed automatically (Auto Bit-Perfect is on)',
-                              style: TextStyle(color: _textDark, fontSize: 12),
-                            )
+                    child: M3EListItem(
+                      headline: 'Sample Rate',
+                      supportingText: _autoBitPerfectEnabled
+                          ? 'Managed automatically (Auto Bit-Perfect is on)'
                           : null,
+                      leading: M3EContainer(
+                        Shapes.pill,
+                        width: 40,
+                        height: 40,
+                        color: Colors.white.withAlpha(10),
+                        child: const Center(
+                          child: Icon(Icons.speed,
+                              color: Colors.white70, size: 20),
+                        ),
+                      ),
                       trailing: SizedBox(
                         width: 150,
                         child: Row(
@@ -1195,21 +1203,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                M3EListItem(
+                  headline: 'Output Channels',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.speaker_group,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.speaker_group,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Output Channels',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
                   trailing: SizedBox(
                     width: 150,
                     child: Row(
@@ -1240,14 +1245,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withAlpha(10),
-                              shape: BoxShape.circle,
+                          M3EContainer(
+                            Shapes.pill,
+                            width: 40,
+                            height: 40,
+                            color: Colors.white.withAlpha(10),
+                            child: const Center(
+                              child: Icon(Icons.swap_calls,
+                                  color: Colors.white70, size: 20),
                             ),
-                            child: const Icon(Icons.swap_calls,
-                                color: Colors.white70, size: 20),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
@@ -1275,13 +1281,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Left Phase Ø',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 13)),
+                            child: _buildM3ESwitchTile(
+                              title: 'Left Phase Ø',
                               value: _phaseInvertLeft,
-                              activeThumbColor: _primary,
                               onChanged: (val) {
                                 setState(() => _phaseInvertLeft = val);
                                 _persistPhaseInversionSettings();
@@ -1290,13 +1292,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           Expanded(
-                            child: SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Right Phase Ø',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 13)),
+                            child: _buildM3ESwitchTile(
+                              title: 'Right Phase Ø',
                               value: _phaseInvertRight,
-                              activeThumbColor: _primary,
                               onChanged: (val) {
                                 setState(() => _phaseInvertRight = val);
                                 _persistPhaseInversionSettings();
@@ -1310,40 +1308,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                // ── L/R SWAP ──────────────────────────────────────────────
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _lrSwapEnabled
-                          ? _primary.withAlpha(35)
-                          : Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'L/R Channel Swap',
+                  subtitle: _lrSwapEnabled
+                      ? 'Left and right outputs are swapped'
+                      : 'Mirror left and right audio channels',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: _lrSwapEnabled
+                        ? _primary.withAlpha(35)
+                        : Colors.white.withAlpha(10),
+                    child: Center(
+                      child: Icon(Icons.swap_horiz_rounded,
+                          color: _lrSwapEnabled ? _primary : Colors.white70,
+                          size: 20),
                     ),
-                    child: Icon(Icons.swap_horiz_rounded,
-                        color: _lrSwapEnabled ? _primary : Colors.white70,
-                        size: 20),
-                  ),
-                  title: const Text('L/R Channel Swap',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    _lrSwapEnabled
-                        ? 'Left and right outputs are swapped'
-                        : 'Mirror left and right audio channels',
-                    style: TextStyle(
-                        color: _lrSwapEnabled
-                            ? _primary.withAlpha(200)
-                            : _textDark,
-                        fontSize: 12),
                   ),
                   value: _lrSwapEnabled,
-                  activeThumbColor: _primary,
-                  activeTrackColor: _primary.withAlpha(80),
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
                   onChanged: (val) {
                     setState(() => _lrSwapEnabled = val);
                     _persistChannelRoutingSettings();
@@ -1351,23 +1334,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                // ── PER-CHANNEL GAIN ──────────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withAlpha(10),
-                              shape: BoxShape.circle,
+                          M3EContainer(
+                            Shapes.pill,
+                            width: 40,
+                            height: 40,
+                            color: Colors.white.withAlpha(10),
+                            child: const Center(
+                              child: Icon(Icons.tune_rounded,
+                                  color: Colors.white70, size: 20),
                             ),
-                            child: const Icon(Icons.tune_rounded,
-                                color: Colors.white70, size: 20),
                           ),
                           const SizedBox(width: 16),
                           const Expanded(
@@ -1404,28 +1387,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     fontSize: 13)),
                           ),
                           Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                activeTrackColor: _primary,
-                                inactiveTrackColor: Colors.white10,
-                                thumbColor: _primary,
-                                overlayColor: _primary.withAlpha(40),
-                                trackHeight: 3,
-                              ),
-                              child: Slider(
-                                min: -12,
-                                max: 12,
-                                divisions: 48,
-                                value: _channelGainLeftDb,
-                                onChanged: (val) {
-                                  setState(() => _channelGainLeftDb =
-                                      double.parse(val.toStringAsFixed(1)));
-                                },
-                                onChangeEnd: (_) {
-                                  _persistChannelRoutingSettings();
-                                  setSubState(() {});
-                                },
-                              ),
+                            child: M3ESlider(
+                              min: -12,
+                              max: 12,
+                              divisions: 48,
+                              value: _channelGainLeftDb,
+                              onChanged: (val) {
+                                setState(() => _channelGainLeftDb =
+                                    double.parse(val.toStringAsFixed(1)));
+                              },
+                              onChangeEnd: (_) {
+                                _persistChannelRoutingSettings();
+                                setSubState(() {});
+                              },
                             ),
                           ),
                           SizedBox(
@@ -1459,29 +1433,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     fontSize: 13)),
                           ),
                           Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                activeTrackColor: Colors.deepOrangeAccent,
-                                inactiveTrackColor: Colors.white10,
-                                thumbColor: Colors.deepOrangeAccent,
-                                overlayColor:
-                                    Colors.deepOrangeAccent.withAlpha(40),
-                                trackHeight: 3,
-                              ),
-                              child: Slider(
-                                min: -12,
-                                max: 12,
-                                divisions: 48,
-                                value: _channelGainRightDb,
-                                onChanged: (val) {
-                                  setState(() => _channelGainRightDb =
-                                      double.parse(val.toStringAsFixed(1)));
-                                },
-                                onChangeEnd: (_) {
-                                  _persistChannelRoutingSettings();
-                                  setSubState(() {});
-                                },
-                              ),
+                            child: M3ESlider(
+                              min: -12,
+                              max: 12,
+                              divisions: 48,
+                              value: _channelGainRightDb,
+                              onChanged: (val) {
+                                setState(() => _channelGainRightDb =
+                                    double.parse(val.toStringAsFixed(1)));
+                              },
+                              onChangeEnd: (_) {
+                                _persistChannelRoutingSettings();
+                                setSubState(() {});
+                              },
                             ),
                           ),
                           SizedBox(
@@ -1508,7 +1472,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _channelGainRightDb != 0.0)
                         Align(
                           alignment: Alignment.centerRight,
-                          child: TextButton.icon(
+                          child: M3EButton.icon(
                             onPressed: () {
                               setState(() {
                                 _channelGainLeftDb = 0.0;
@@ -1528,25 +1492,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Bit-Perfect Playback',
+                  subtitle: 'Bypasses OS Mixer',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child:
+                          Icon(Icons.verified, color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.verified,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Bit-Perfect Playback',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Bypasses OS Mixer',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.exclusiveMode,
-                  activeThumbColor: _primary,
                   onChanged: (val) async {
                     widget.player.setExclusiveMode(val);
                     await Future.delayed(const Duration(milliseconds: 150));
@@ -1636,25 +1595,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: '64-Bit Float DSP',
+                  subtitle: 'Higher accuracy (requires more power)',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.architecture,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.architecture,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('64-Bit Float DSP',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Higher accuracy (requires more power)',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _use64BitProcessingEnabled,
-                  activeThumbColor: _primary,
                   onChanged: (val) {
                     setState(() => _use64BitProcessingEnabled = val);
                     widget.player.set64BitProcessingEnabled(val);
@@ -1663,25 +1617,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Auto Sample-Rate Match',
+                  subtitle:
+                      'Automatically switch hardware DAC rate to match track native rate',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.graphic_eq,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.graphic_eq,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Auto Sample-Rate Match',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Automatically switch hardware DAC rate to match track native rate',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   value: _autoBitPerfectEnabled,
-                  activeThumbColor: _primary,
                   onChanged: (val) {
                     setState(() => _autoBitPerfectEnabled = val);
                     widget.player.setAutoSampleRateMatchEnabled(val);
@@ -1731,44 +1681,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Hardware Safeguards',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    _speakerProtectionEnabled
-                        ? 'Peak ceiling & subsonic/ultrasonic guard active'
-                        : 'Hardware protection disabled',
-                    style: TextStyle(
-                      color: _speakerProtectionEnabled
-                          ? Colors.greenAccent.shade200
-                          : Colors.amberAccent,
-                      fontSize: 12,
-                    ),
-                  ),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (_speakerProtectionEnabled
-                              ? _primary
-                              : Colors.amberAccent)
-                          .withAlpha(25),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      _speakerProtectionEnabled
-                          ? Icons.health_and_safety
-                          : Icons.warning_amber_rounded,
-                      color: _speakerProtectionEnabled
-                          ? _primary
-                          : Colors.amberAccent,
-                      size: 20,
+                _buildM3ESwitchTile(
+                  title: 'Hardware Safeguards',
+                  subtitle: _speakerProtectionEnabled
+                      ? 'Peak ceiling & subsonic/ultrasonic guard active'
+                      : 'Hardware protection disabled',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: (_speakerProtectionEnabled
+                            ? _primary
+                            : Colors.amberAccent)
+                        .withAlpha(25),
+                    child: Center(
+                      child: Icon(
+                        _speakerProtectionEnabled
+                            ? Icons.health_and_safety
+                            : Icons.warning_amber_rounded,
+                        color: _speakerProtectionEnabled
+                            ? _primary
+                            : Colors.amberAccent,
+                        size: 20,
+                      ),
                     ),
                   ),
                   value: _speakerProtectionEnabled,
@@ -1780,23 +1715,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 if (_speakerProtectionEnabled) ...[
                   const Divider(color: Colors.white10, height: 1),
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(10),
-                        shape: BoxShape.circle,
+                  M3EListItem(
+                    headline: 'Subsonic Filter (High-Pass)',
+                    supportingText: 'Below woofer tuning',
+                    leading: M3EContainer(
+                      Shapes.pill,
+                      width: 40,
+                      height: 40,
+                      color: Colors.white.withAlpha(10),
+                      child: const Center(
+                        child: Icon(Icons.arrow_upward,
+                            color: Colors.white70, size: 20),
                       ),
-                      child: const Icon(Icons.arrow_upward,
-                          color: Colors.white70, size: 20),
                     ),
-                    title: const Text('Subsonic Filter (High-Pass)',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text('Below woofer tuning',
-                        style: TextStyle(color: _textDark, fontSize: 12)),
                     trailing: SizedBox(
                       width: 130,
                       child: Row(
@@ -1821,23 +1752,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _showSubsonicDialog(onDone: () => setSubState(() {})),
                   ),
                   const Divider(color: Colors.white10, height: 1),
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(10),
-                        shape: BoxShape.circle,
+                  M3EListItem(
+                    headline: 'Ultrasonic Guard (Low-Pass)',
+                    supportingText: 'Filters frequencies above 18-22kHz',
+                    leading: M3EContainer(
+                      Shapes.pill,
+                      width: 40,
+                      height: 40,
+                      color: Colors.white.withAlpha(10),
+                      child: const Center(
+                        child: Icon(Icons.arrow_downward,
+                            color: Colors.white70, size: 20),
                       ),
-                      child: const Icon(Icons.arrow_downward,
-                          color: Colors.white70, size: 20),
                     ),
-                    title: const Text('Ultrasonic Guard (Low-Pass)',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text('Filters frequencies above 18-22kHz',
-                        style: TextStyle(color: _textDark, fontSize: 12)),
                     trailing: SizedBox(
                       width: 130,
                       child: Row(
@@ -2003,9 +1930,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             min: -6.0,
                             max: 0.0,
                             activeColor: _primary,
-                            valueFormatter: (v) => '${v.toStringAsFixed(1)} dBTP',
+                            valueFormatter: (v) =>
+                                '${v.toStringAsFixed(1)} dBTP',
                             onChanged: (val) {
-                              setState(() => _lookaheadLimiterCeilingDBTP = val);
+                              setState(
+                                  () => _lookaheadLimiterCeilingDBTP = val);
                               setSubState(() {});
                               _persistLookaheadLimiterSettings();
                             },
@@ -2080,9 +2009,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             min: -24.0,
                             max: -8.0,
                             activeColor: _primary,
-                            valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+                            valueFormatter: (v) =>
+                                '${v.toStringAsFixed(1)} LUFS',
                             onChanged: (val) {
-                              setState(() => _loudnessNormalizerTargetLUFS = val);
+                              setState(
+                                  () => _loudnessNormalizerTargetLUFS = val);
                               setSubState(() {});
                               _persistLoudnessNormalizerSettings();
                             },
@@ -2191,14 +2122,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: _primary.withAlpha(25),
-                              shape: BoxShape.circle,
+                          M3EContainer(
+                            Shapes.pill,
+                            width: 48,
+                            height: 48,
+                            color: _primary.withAlpha(25),
+                            child: Center(
+                              child: Icon(Icons.settings_input_composite,
+                                  color: _primary, size: 24),
                             ),
-                            child: Icon(Icons.settings_input_composite,
-                                color: _primary, size: 24),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
@@ -2291,25 +2223,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Spectrum Analyzer',
+                  subtitle: 'Audio Spectrum Visualizer',
+                  secondary: M3EContainer(
+                    Shapes.c6SidedCookie,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.bar_chart,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.bar_chart,
-                        color: Colors.white70, size: 20),
                   ),
-                  title: const Text('Spectrum Analyzer',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Audio Spectrum Visualizer',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
                   value: widget.analyzerEnabled,
-                  activeThumbColor: _primary,
                   onChanged: (v) {
                     widget.onAnalyzerEnabledChanged(v);
                     setSubState(() {});
@@ -2477,18 +2404,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const Divider(color: Colors.white10, height: 1),
-                  SwitchListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: _primary,
-                    inactiveThumbColor: Colors.white70,
-                    inactiveTrackColor: Colors.white10,
-                    title: const Text('Auto Fit Scale',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text('Dynamically adjust Y-axis peak range',
-                        style: TextStyle(color: _textDark, fontSize: 12)),
+                  _buildM3ESwitchTile(
+                    title: 'Auto Fit Scale',
+                    subtitle: 'Dynamically adjust Y-axis peak range',
                     value: widget.analyzerAutoFit,
                     onChanged: (v) {
                       widget.onAnalyzerAutoFitChanged(v);
@@ -2496,16 +2414,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const Divider(color: Colors.white10, height: 1),
-                  SwitchListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: _primary,
-                    inactiveThumbColor: Colors.white70,
-                    inactiveTrackColor: Colors.white10,
-                    title: const Text('Show Grids & Decibels',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
+                  _buildM3ESwitchTile(
+                    title: 'Show Grids & Decibels',
                     value: widget.analyzerShowGrids,
                     onChanged: (v) {
                       widget.onAnalyzerShowGridsChanged(v);
@@ -2513,18 +2423,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const Divider(color: Colors.white10, height: 1),
-                  SwitchListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: _primary,
-                    inactiveThumbColor: Colors.white70,
-                    inactiveTrackColor: Colors.white10,
-                    title: const Text('Logarithmic Decibel Scale',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
-                    subtitle: Text('Logarithmic audio response curve',
-                        style: TextStyle(color: _textDark, fontSize: 12)),
+                  _buildM3ESwitchTile(
+                    title: 'Logarithmic Decibel Scale',
+                    subtitle: 'Logarithmic audio response curve',
                     value: widget.analyzerLogScale,
                     onChanged: (v) {
                       widget.onAnalyzerLogScaleChanged(v);
@@ -2532,21 +2433,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const Divider(color: Colors.white10, height: 1),
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(10),
-                        shape: BoxShape.circle,
+                  M3EListItem(
+                    headline: 'FFT Sample Size',
+                    leading: M3EContainer(
+                      Shapes.pill,
+                      width: 40,
+                      height: 40,
+                      color: Colors.white.withAlpha(10),
+                      child: const Center(
+                        child: Icon(Icons.data_array,
+                            color: Colors.white70, size: 20),
                       ),
-                      child: const Icon(Icons.data_array,
-                          color: Colors.white70, size: 20),
                     ),
-                    title: const Text('FFT Sample Size',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w500)),
                     trailing: SizedBox(
                       width: 150,
                       child: Row(
@@ -2588,26 +2486,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Gapless Playback',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Seamless transitions between track ends',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Gapless Playback',
+                  subtitle: 'Seamless transitions between track ends',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.queue_music,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.queue_music,
-                        color: Colors.white70, size: 20),
                   ),
                   value: _gaplessPlayback,
                   onChanged: (v) {
@@ -2627,14 +2517,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Row(
                             children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withAlpha(10),
-                                  shape: BoxShape.circle,
+                              M3EContainer(
+                                Shapes.pill,
+                                width: 40,
+                                height: 40,
+                                color: Colors.white.withAlpha(10),
+                                child: const Center(
+                                  child: Icon(Icons.tune,
+                                      color: Colors.white70, size: 20),
                                 ),
-                                child: const Icon(Icons.tune,
-                                    color: Colors.white70, size: 20),
                               ),
                               const SizedBox(width: 16),
                               const Text('Crossfade Duration',
@@ -2644,50 +2535,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       fontWeight: FontWeight.w500)),
                             ],
                           ),
-                          Switch(
-                              activeThumbColor: Colors.white,
-                              activeTrackColor: _primary,
-                              inactiveThumbColor: Colors.white70,
-                              inactiveTrackColor: Colors.white10,
-                              value: widget.crossfadeEnabled,
-                              onChanged: (v) {
-                                widget.onCrossfadeEnabledChanged(v);
-                                widget.player.setCrossfadeEnabled(v);
-                                setSubState(() {});
-                              }),
+                          M3ESwitch(
+                            value: widget.crossfadeEnabled,
+                            onChanged: (v) {
+                              widget.onCrossfadeEnabledChanged(v);
+                              widget.player.setCrossfadeEnabled(v);
+                              setSubState(() {});
+                            },
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          activeTrackColor: _primary,
-                          inactiveTrackColor: Colors.white10,
-                          thumbColor: Colors.white,
-                          disabledActiveTrackColor: _primary.withAlpha(100),
-                          disabledInactiveTrackColor:
-                              Colors.white10.withAlpha(50),
-                          disabledThumbColor: Colors.white54,
-                        ),
-                        child: Slider(
-                          value: widget.crossfadeDurationMs / 1000.0,
-                          min: 0,
-                          max: 12,
-                          divisions: 24,
-                          onChanged: widget.crossfadeEnabled
-                              ? (v) {
-                                  widget.onCrossfadeDurationMsChanged(
-                                      (v * 1000).toInt());
-                                  setSubState(() {});
-                                }
-                              : null,
-                          onChangeEnd: widget.crossfadeEnabled
-                              ? (v) {
-                                  widget.player.setCrossfadeDurationMs(
-                                      (v * 1000).toInt());
-                                }
-                              : null,
-                        ),
+                      M3ESlider(
+                        value: widget.crossfadeDurationMs / 1000.0,
+                        min: 0,
+                        max: 12,
+                        divisions: 24,
+                        onChanged: widget.crossfadeEnabled
+                            ? (v) {
+                                widget.onCrossfadeDurationMsChanged(
+                                    (v * 1000).toInt());
+                                setSubState(() {});
+                              }
+                            : null,
+                        onChangeEnd: widget.crossfadeEnabled
+                            ? (v) {
+                                widget.player
+                                    .setCrossfadeDurationMs((v * 1000).toInt());
+                              }
+                            : null,
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2712,83 +2588,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                // Loudness-Aware Crossfade – only meaningful when crossfade is on
                 if (widget.crossfadeEnabled) ...[
-                  SwitchListTile(
-                    contentPadding: const EdgeInsets.only(
-                        left: 32, right: 20, top: 4, bottom: 4),
-                    secondary: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: (_loudnessCrossfadeEnabled
-                                ? _primary
-                                : Colors.white)
-                            .withAlpha(20),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.volume_up_rounded,
-                        color: _loudnessCrossfadeEnabled
-                            ? _primary
-                            : Colors.white54,
-                        size: 18,
-                      ),
-                    ),
-                    title: Text(
-                      'Loudness-Aware Crossfade',
-                      style: TextStyle(
-                        color: _loudnessCrossfadeEnabled
-                            ? Colors.white
-                            : Colors.white70,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 14,
+                  _buildM3ESwitchTile(
+                    title: 'Loudness-Aware Crossfade',
+                    subtitle: _loudnessCrossfadeEnabled
+                        ? 'Per-track gain applied during blend — no volume jumps'
+                        : 'Disabled — raw PCM blending',
+                    secondary: M3EContainer(
+                      Shapes.pill,
+                      width: 36,
+                      height: 36,
+                      color:
+                          (_loudnessCrossfadeEnabled ? _primary : Colors.white)
+                              .withAlpha(20),
+                      child: Center(
+                        child: Icon(
+                          Icons.volume_up_rounded,
+                          color: _loudnessCrossfadeEnabled
+                              ? _primary
+                              : Colors.white54,
+                          size: 18,
+                        ),
                       ),
                     ),
-                    subtitle: Text(
-                      _loudnessCrossfadeEnabled
-                          ? 'Per-track gain applied during blend — no volume jumps'
-                          : 'Disabled — raw PCM blending',
-                      style: TextStyle(
-                        color: _loudnessCrossfadeEnabled
-                            ? Colors.greenAccent.shade200
-                            : Colors.white38,
-                        fontSize: 11,
-                      ),
-                    ),
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: _primary,
-                    inactiveThumbColor: Colors.white54,
-                    inactiveTrackColor: Colors.white10,
                     value: _loudnessCrossfadeEnabled,
                     onChanged: (val) {
                       setState(() => _loudnessCrossfadeEnabled = val);
                       setSubState(() {});
                       widget.player.setLoudnessCrossfadeEnabled(val);
-                      AppStateService.instance.saveLoudnessCrossfadeEnabled(val);
+                      AppStateService.instance
+                          .saveLoudnessCrossfadeEnabled(val);
                     },
                   ),
                   const Divider(color: Colors.white10, height: 1),
                 ],
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Normalize Volume',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text('Normalizes volume across tracks',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Normalize Volume',
+                  subtitle: 'Normalizes volume across tracks',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.bar_chart,
+                          color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.bar_chart,
-                        color: Colors.white70, size: 20),
                   ),
                   value: _normalizeVolume,
                   onChanged: (v) {
@@ -2816,24 +2661,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Stream over Wi-Fi Only',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Stream over Wi-Fi Only',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.wifi, color: Colors.white70, size: 20),
                     ),
-                    child:
-                        const Icon(Icons.wifi, color: Colors.white70, size: 20),
                   ),
                   value: _streamOverWifi,
                   onChanged: (v) {
@@ -2843,14 +2680,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading:
-                      const Icon(Icons.dns, color: Colors.white70, size: 20),
-                  title: const Text('Audio Cache Storage',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
+                M3EListItem(
+                  headline: 'Audio Cache Storage',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.dns, color: Colors.white70, size: 20),
+                    ),
+                  ),
                   trailing: Text('145 MB',
                       style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
@@ -2890,27 +2730,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.info_outline,
-                      color: Colors.white70, size: 20),
-                  title: const Text('Version',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
+                M3EListItem(
+                  headline: 'Version',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.info_outline,
+                          color: Colors.white70, size: 20),
+                    ),
+                  ),
                   trailing: Text(_appVersion,
                       style:
                           const TextStyle(color: Colors.white54, fontSize: 14)),
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.policy_outlined,
-                      color: Colors.white70, size: 20),
-                  title: const Text('Open Source Licenses',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
+                M3EListItem(
+                  headline: 'Open Source Licenses',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.policy_outlined,
+                          color: Colors.white70, size: 20),
+                    ),
+                  ),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: () {
@@ -2928,28 +2776,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                SwitchListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: _primary,
-                  inactiveThumbColor: Colors.white70,
-                  inactiveTrackColor: Colors.white10,
-                  title: const Text('Allow invalid TLS certs',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14)),
-                  subtitle: Text('Testing & fallback media server mode',
-                      style: TextStyle(color: _textDark, fontSize: 12)),
-                  secondary: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(10),
-                      shape: BoxShape.circle,
+                _buildM3ESwitchTile(
+                  title: 'Allow invalid TLS certs',
+                  subtitle: 'Testing & fallback media server mode',
+                  secondary: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child:
+                          Icon(Icons.security, color: Colors.white70, size: 20),
                     ),
-                    child: const Icon(Icons.security,
-                        color: Colors.white70, size: 20),
                   ),
                   value: widget.allowInvalidTls,
                   onChanged: (v) {
@@ -2958,27 +2796,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.refresh,
-                      color: Colors.white70, size: 20),
-                  title: const Text('Poll Native Error',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
+                M3EListItem(
+                  headline: 'Poll Native Error',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child:
+                          Icon(Icons.refresh, color: Colors.white70, size: 20),
+                    ),
+                  ),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
                 const Divider(color: Colors.white10, height: 1),
-                ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: const Icon(Icons.cleaning_services_outlined,
-                      color: Colors.white70, size: 20),
-                  title: const Text('Clear Native Error',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w500)),
+                M3EListItem(
+                  headline: 'Clear Native Error',
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: Colors.white.withAlpha(10),
+                    child: const Center(
+                      child: Icon(Icons.cleaning_services_outlined,
+                          color: Colors.white70, size: 20),
+                    ),
+                  ),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: widget.onClearNativeError,
@@ -2993,8 +2839,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return ExpansionTile(
                         tilePadding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 8),
-                        leading: const Icon(Icons.article_outlined,
-                            color: Colors.white70, size: 20),
+                        leading: M3EContainer(
+                          Shapes.pill,
+                          width: 40,
+                          height: 40,
+                          color: Colors.white.withAlpha(10),
+                          child: const Center(
+                            child: Icon(Icons.article_outlined,
+                                color: Colors.white70, size: 20),
+                          ),
+                        ),
                         title: const Text('App Engine Logs',
                             style: TextStyle(
                                 color: Colors.white,
@@ -3019,7 +2873,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: OutlinedButton.icon(
+                                  child: M3EButton.icon(
                                     onPressed: () async {
                                       if (widget.logs.isEmpty) {
                                         ScaffoldMessenger.of(context)
@@ -3045,7 +2899,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: OutlinedButton.icon(
+                                  child: M3EButton.icon(
                                     onPressed: widget.onClearLogs,
                                     icon: const Icon(Icons.delete_sweep,
                                         size: 18),
@@ -3152,46 +3006,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Text('DSP Anti-Aliasing Oversampling',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            for (final item in options)
-              RadioListTile<int>(
-                title: Text(item['name'] as String,
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w500)),
-                subtitle: Text(item['subtitle'] as String,
-                    style: TextStyle(color: _textDark, fontSize: 12)),
-                value: item['factor'] as int,
-                groupValue: _dspOversampling,
-                activeColor: _primary,
-                onChanged: (val) {
-                  if (val != null) {
-                    setDlgState(() {});
-                    setState(() => _dspOversampling = val);
-                    widget.player.setViperOversampling(val);
-                    AppStateService.instance.saveDspOversampling(val);
-                    onDone?.call();
-                    Navigator.pop(ctx);
-                  }
+        builder: (ctx, setDlgState) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text('DSP Anti-Aliasing Oversampling',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+              ),
+              M3ECardList(
+                itemCount: options.length,
+                onTap: (index) {
+                  final val = options[index]['factor'] as int;
+                  setDlgState(() {});
+                  setState(() => _dspOversampling = val);
+                  widget.player.setViperOversampling(val);
+                  AppStateService.instance.saveDspOversampling(val);
+                  onDone?.call();
+                  Navigator.pop(ctx);
+                },
+                itemBuilder: (context, index) {
+                  final item = options[index];
+                  final val = item['factor'] as int;
+                  return M3EListItem(
+                    headline: item['name'] as String,
+                    supportingText: item['subtitle'] as String,
+                    trailing: M3ERadio<int>(
+                      value: val,
+                      groupValue: _dspOversampling,
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDlgState(() {});
+                          setState(() => _dspOversampling = v);
+                          widget.player.setViperOversampling(v);
+                          AppStateService.instance.saveDspOversampling(v);
+                          onDone?.call();
+                          Navigator.pop(ctx);
+                        }
+                      },
+                    ),
+                  );
                 },
               ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -3205,7 +3072,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {
         'index': 0,
         'name': 'Linear Standard (Fast & Smooth)',
-        'subtitle': 'Default. Ultra-low CPU, zero latency. Recommended for Mobile.',
+        'subtitle':
+            'Default. Ultra-low CPU, zero latency. Recommended for Mobile.',
         'badge': 'Recommended',
         'isHeavy': false,
       },
@@ -3226,28 +3094,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {
         'index': 9,
         'name': 'SoX High Quality',
-        'subtitle': 'High Quality SoX resampler (160dB SNR). Fast & pristine rate conversion.',
+        'subtitle':
+            'High Quality SoX resampler (160dB SNR). Fast & pristine rate conversion.',
         'badge': 'SoX HQ',
         'isHeavy': false,
       },
       {
         'index': 10,
         'name': 'SoX Fast Quality',
-        'subtitle': 'Fast SoX resampler (120dB SNR). High efficiency resampling.',
+        'subtitle':
+            'Fast SoX resampler (120dB SNR). High efficiency resampling.',
         'badge': 'SoX Fast',
         'isHeavy': false,
       },
       {
         'index': 7,
         'name': 'SoX VHQ Linear Phase (Audiophile)',
-        'subtitle': 'Very High Quality linear phase filter (175dB SNR). Exceptional purity.',
+        'subtitle':
+            'Very High Quality linear phase filter (175dB SNR). Exceptional purity.',
         'badge': isMobile ? '⚠️ High CPU' : 'SoX VHQ',
         'isHeavy': true,
       },
       {
         'index': 8,
         'name': 'SoX VHQ Minimum Phase (Zero Pre-Ring)',
-        'subtitle': 'VHQ minimum phase filter. Eliminates pre-ringing on acoustic transients.',
+        'subtitle':
+            'VHQ minimum phase filter. Eliminates pre-ringing on acoustic transients.',
         'badge': isMobile ? '⚠️ High CPU' : 'SoX Min-Phase',
         'isHeavy': true,
       },
@@ -3274,93 +3146,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _cardDark,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                  child: Column(
-                    children: [
-                      Text('Resampling Quality Tier',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold)),
-                      SizedBox(height: 4),
-                      Text(
-                        'Select interpolation algorithm for rate conversion',
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
-                    ],
-                  ),
+        builder: (ctx, setDlgState) => SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                child: Column(
+                  children: [
+                    Text('Resampling Quality Tier',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text(
+                      'Select interpolation algorithm for rate conversion',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
                 ),
-                const Divider(color: Colors.white10),
-                for (final item in options)
-                  RadioListTile<int>(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item['name'] as String,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14),
-                          ),
-                        ),
-                        if (item['badge'] != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: (item['isHeavy'] as bool && isMobile)
-                                  ? Colors.amber.withAlpha(40)
-                                  : _primary.withAlpha(30),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
+              ),
+              const Divider(color: Colors.white10),
+              Expanded(
+                child: M3ECardList.builder(
+                  itemCount: options.length,
+                  itemBuilder: (context, index) {
+                    final item = options[index];
+                    final val = item['index'] as int;
+                    return M3EListItem(
+                      headline: item['name'] as String,
+                      supportingText: item['subtitle'] as String,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (item['badge'] != null) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
                                 color: (item['isHeavy'] as bool && isMobile)
-                                    ? Colors.amber.withAlpha(120)
-                                    : _primary.withAlpha(80),
+                                    ? Colors.amber.withAlpha(40)
+                                    : _primary.withAlpha(30),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: (item['isHeavy'] as bool && isMobile)
+                                      ? Colors.amber.withAlpha(120)
+                                      : _primary.withAlpha(80),
+                                ),
+                              ),
+                              child: Text(
+                                item['badge'] as String,
+                                style: TextStyle(
+                                  color: (item['isHeavy'] as bool && isMobile)
+                                      ? Colors.amberAccent
+                                      : _primary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              item['badge'] as String,
-                              style: TextStyle(
-                                color: (item['isHeavy'] as bool && isMobile)
-                                    ? Colors.amberAccent
-                                    : _primary,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          M3ERadio<int>(
+                            value: val,
+                            groupValue: _resampleAlgorithm,
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDlgState(() {});
+                                if (isMobile && (item['isHeavy'] as bool)) {
+                                  Navigator.pop(ctx);
+                                  _showMobileResamplerWarningDialog(v, onDone);
+                                } else {
+                                  _applyResampleAlgorithm(v, onDone);
+                                  Navigator.pop(ctx);
+                                }
+                              }
+                            },
                           ),
-                      ],
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 2.0),
-                      child: Text(
-                        item['subtitle'] as String,
-                        style: TextStyle(color: _textDark, fontSize: 12),
+                        ],
                       ),
-                    ),
-                    value: item['index'] as int,
-                    groupValue: _resampleAlgorithm,
-                    activeColor: _primary,
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDlgState(() {});
+                      onTap: () {
                         if (isMobile && (item['isHeavy'] as bool)) {
                           Navigator.pop(ctx);
                           _showMobileResamplerWarningDialog(val, onDone);
@@ -3368,12 +3238,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _applyResampleAlgorithm(val, onDone);
                           Navigator.pop(ctx);
                         }
-                      }
-                    },
-                  ),
-                const SizedBox(height: 12),
-              ],
-            ),
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
           ),
         ),
       ),
@@ -3387,48 +3258,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     onDone?.call();
   }
 
-  void _showMobileResamplerWarningDialog(int requestedIndex, VoidCallback? onDone) {
-    showDialog(
-      context: context,
-      builder: (dlgCtx) => AlertDialog(
-        backgroundColor: _cardDark,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(color: Colors.amber.withAlpha(80))),
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 24),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'High CPU Resampler Warning',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
+  void _showMobileResamplerWarningDialog(
+      int requestedIndex, VoidCallback? onDone) {
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'High CPU Resampler Warning',
         content: Text(
           '${_getResampleAlgorithmName(requestedIndex)} calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',
-          style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+          style:
+              const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
         ),
         actions: [
-          TextButton(
-            child: const Text('Use Linear (Recommended)', style: TextStyle(color: Colors.lightBlueAccent)),
+          M3EButton.text(
             onPressed: () {
               _applyResampleAlgorithm(0, onDone);
-              Navigator.pop(dlgCtx);
+              Navigator.pop(context);
             },
+            child: const Text('Use Linear (Recommended)'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.amber.withAlpha(40),
-              side: const BorderSide(color: Colors.amberAccent),
-            ),
-            child: const Text('Enable Anyway', style: TextStyle(color: Colors.amberAccent)),
+          M3EButton(
             onPressed: () {
               _applyResampleAlgorithm(requestedIndex, onDone);
-              Navigator.pop(dlgCtx);
+              Navigator.pop(context);
             },
+            child: const Text('Enable Anyway'),
           ),
         ],
       ),
@@ -3436,89 +3290,92 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAnalyzerSampleSizeDialog({VoidCallback? onDone}) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Text('Sample Size (FFT)',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          for (final size in [256, 512, 1024, 2048, 4096, 8192])
-            _buildRadioOption(
-                size.toString(), widget.analyzerSampleSize.toString(), (v) {
-              widget.onAnalyzerSampleSizeChanged(size);
-              onDone?.call();
-              Navigator.pop(ctx);
-            }),
-          const SizedBox(height: 20),
-        ],
+    final sizes = [256, 512, 1024, 2048, 4096, 8192];
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Text('Sample Size (FFT)',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ),
+            M3ECardList(
+              itemCount: sizes.length,
+              onTap: (index) {
+                final size = sizes[index];
+                widget.onAnalyzerSampleSizeChanged(size);
+                onDone?.call();
+                Navigator.pop(ctx);
+              },
+              itemBuilder: (context, index) {
+                final size = sizes[index];
+                return M3EListItem(
+                  headline: size.toString(),
+                  trailing: M3ERadio<String>(
+                    value: size.toString(),
+                    groupValue: widget.analyzerSampleSize.toString(),
+                    onChanged: (v) {
+                      widget.onAnalyzerSampleSizeChanged(size);
+                      onDone?.call();
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
 
   Future<void> _showReplayGainModeDialog({VoidCallback? onDone}) async {
-    return showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: _cardDark,
-          title: const Text('ReplayGain Mode',
-              style: TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('None', style: TextStyle(color: Colors.white)),
-                activeColor: _primary,
-                value: ReplayGainMode.none,
+    final modes = [
+      (ReplayGainMode.none, 'None'),
+      (ReplayGainMode.track, 'Track'),
+      (ReplayGainMode.album, 'Album'),
+    ];
+    return M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'ReplayGain Mode',
+        content: M3ECardList(
+          itemCount: modes.length,
+          onTap: (index) {
+            final mode = modes[index].$1;
+            setState(() => _replayGainMode = mode);
+            _persistReplayGainSettings();
+            onDone?.call();
+            Navigator.pop(context);
+          },
+          itemBuilder: (context, index) {
+            final mode = modes[index];
+            return M3EListItem(
+              headline: mode.$2,
+              trailing: M3ERadio<ReplayGainMode>(
+                value: mode.$1,
                 groupValue: _replayGainMode,
                 onChanged: (val) {
-                  setState(() => _replayGainMode = val!);
-                  _persistReplayGainSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
+                  if (val != null) {
+                    setState(() => _replayGainMode = val);
+                    _persistReplayGainSettings();
+                    onDone?.call();
+                    Navigator.pop(context);
+                  }
                 },
               ),
-              RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('Track', style: TextStyle(color: Colors.white)),
-                activeColor: _primary,
-                value: ReplayGainMode.track,
-                groupValue: _replayGainMode,
-                onChanged: (val) {
-                  setState(() => _replayGainMode = val!);
-                  _persistReplayGainSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
-                },
-              ),
-              RadioListTile<ReplayGainMode>(
-                title:
-                    const Text('Album', style: TextStyle(color: Colors.white)),
-                activeColor: _primary,
-                value: ReplayGainMode.album,
-                groupValue: _replayGainMode,
-                onChanged: (val) {
-                  setState(() => _replayGainMode = val!);
-                  _persistReplayGainSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -3588,17 +3445,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.75,
-          ),
+        builder: (ctx, setDlgState) => SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3611,31 +3462,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontWeight: FontWeight.bold)),
               ),
               Expanded(
-                child: ListView.builder(
+                child: M3ECardList.builder(
                   itemCount: modes.length,
                   itemBuilder: (context, i) {
                     final item = modes[i];
                     final id = item['id'] as int;
                     final name = item['name'] as String;
                     final subtitle = item['subtitle'] as String;
-                    return RadioListTile<int>(
-                      title: Text(name,
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w500)),
-                      subtitle: Text(subtitle,
-                          style: TextStyle(color: _textDark, fontSize: 12)),
-                      value: id,
-                      groupValue: _ditherMode,
-                      activeColor: _primary,
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDlgState(() {});
-                          setState(() => _ditherMode = val);
-                          widget.player.setEngineDitherMode(val);
-                          _persistUiSettings();
-                          onDone?.call();
-                          Navigator.pop(ctx);
-                        }
+                    return M3EListItem(
+                      headline: name,
+                      supportingText: subtitle,
+                      trailing: M3ERadio<int>(
+                        value: id,
+                        groupValue: _ditherMode,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDlgState(() {});
+                            setState(() => _ditherMode = val);
+                            widget.player.setEngineDitherMode(val);
+                            _persistUiSettings();
+                            onDone?.call();
+                            Navigator.pop(ctx);
+                          }
+                        },
+                      ),
+                      onTap: () {
+                        setDlgState(() {});
+                        setState(() => _ditherMode = id);
+                        widget.player.setEngineDitherMode(id);
+                        _persistUiSettings();
+                        onDone?.call();
+                        Navigator.pop(ctx);
                       },
                     );
                   },
@@ -3650,42 +3507,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showOutputFormatDialog({VoidCallback? onDone}) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    final formats = [
+      AudioFormat.f32,
+      AudioFormat.s32,
+      AudioFormat.s24,
+      AudioFormat.s16,
+      AudioFormat.u8
+    ];
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Text('Engine Output Format',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            for (final fmt in [
-              AudioFormat.f32,
-              AudioFormat.s32,
-              AudioFormat.s24,
-              AudioFormat.s16,
-              AudioFormat.u8
-            ])
-              _buildRadioOption(
-                  _formatAudioDepth(fmt), _formatAudioDepth(widget.outputFormat),
-                  (v) {
-                setDlgState(() {});
-                widget.onOutputFormatChanged(fmt);
-                widget.player.setOutputFormat(fmt);
-                setState(() {});
-                onDone?.call();
-                Navigator.pop(ctx);
-              }),
-            const SizedBox(height: 20),
-          ],
+        builder: (ctx, setDlgState) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text('Engine Output Format',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+              ),
+              M3ECardList(
+                itemCount: formats.length,
+                onTap: (index) {
+                  final fmt = formats[index];
+                  setDlgState(() {});
+                  widget.onOutputFormatChanged(fmt);
+                  widget.player.setOutputFormat(fmt);
+                  setState(() {});
+                  onDone?.call();
+                  Navigator.pop(ctx);
+                },
+                itemBuilder: (context, index) {
+                  final fmt = formats[index];
+                  return _buildRadioOption(
+                    _formatAudioDepth(fmt),
+                    _formatAudioDepth(widget.outputFormat),
+                    (v) {
+                      setDlgState(() {});
+                      widget.onOutputFormatChanged(fmt);
+                      widget.player.setOutputFormat(fmt);
+                      setState(() {});
+                      onDone?.call();
+                      Navigator.pop(ctx);
+                    },
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -3693,39 +3567,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showSampleRateDialog({VoidCallback? onDone}) {
     final rates = [0, 44100, 48000, 96000, 192000];
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Text('Engine Sample Rate',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            ...rates.map((r) => _buildRadioOption(
-                    r == 0 ? 'Native' : '$r Hz',
-                    widget.outputSampleRate == 0
-                        ? 'Native'
-                        : '${widget.outputSampleRate} Hz', (v) {
-                  final val =
-                      v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
+        builder: (ctx, setDlgState) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text('Engine Sample Rate',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+              ),
+              M3ECardList(
+                itemCount: rates.length,
+                onTap: (index) {
+                  final r = rates[index];
                   setDlgState(() {});
-                  widget.onOutputSampleRateChanged(val);
-                  widget.player.setOutputSampleRate(val);
+                  widget.onOutputSampleRateChanged(r);
+                  widget.player.setOutputSampleRate(r);
                   setState(() {});
                   onDone?.call();
                   Navigator.pop(ctx);
-                })),
-            const SizedBox(height: 20),
-          ],
+                },
+                itemBuilder: (context, index) {
+                  final r = rates[index];
+                  final label = r == 0 ? 'Native' : '$r Hz';
+                  final currentLabel = widget.outputSampleRate == 0
+                      ? 'Native'
+                      : '${widget.outputSampleRate} Hz';
+                  return _buildRadioOption(label, currentLabel, (v) {
+                    final val =
+                        v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
+                    setDlgState(() {});
+                    widget.onOutputSampleRateChanged(val);
+                    widget.player.setOutputSampleRate(val);
+                    setState(() {});
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  });
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -3794,17 +3683,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: _cardDark,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    M3EBottomSheet.show<void>(
+      context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.75,
-          ),
+        builder: (ctx, setDlgState) => SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3817,31 +3700,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontWeight: FontWeight.bold)),
               ),
               Expanded(
-                child: ListView.builder(
+                child: M3ECardList.builder(
                   itemCount: options.length,
                   itemBuilder: (context, i) {
                     final item = options[i];
                     final ch = item['ch'] as int;
                     final name = item['name'] as String;
                     final subtitle = item['subtitle'] as String;
-                    return RadioListTile<int>(
-                      title: Text(name,
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w500)),
-                      subtitle: Text(subtitle,
-                          style: TextStyle(color: _textDark, fontSize: 12)),
-                      value: ch,
-                      groupValue: widget.outputChannels,
-                      activeColor: _primary,
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDlgState(() {});
-                          widget.onOutputChannelsChanged(val);
-                          widget.player.setOutputChannels(val);
-                          setState(() {});
-                          onDone?.call();
-                          Navigator.pop(ctx);
-                        }
+                    return M3EListItem(
+                      headline: name,
+                      supportingText: subtitle,
+                      trailing: M3ERadio<int>(
+                        value: ch,
+                        groupValue: widget.outputChannels,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDlgState(() {});
+                            widget.onOutputChannelsChanged(val);
+                            widget.player.setOutputChannels(val);
+                            setState(() {});
+                            onDone?.call();
+                            Navigator.pop(ctx);
+                          }
+                        },
+                      ),
+                      onTap: () {
+                        setDlgState(() {});
+                        widget.onOutputChannelsChanged(ch);
+                        widget.player.setOutputChannels(ch);
+                        setState(() {});
+                        onDone?.call();
+                        Navigator.pop(ctx);
                       },
                     );
                   },
@@ -3857,12 +3746,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildRadioOption(
       String title, String groupValue, ValueChanged<String?> onChanged) {
-    return RadioListTile<String>(
-      title: Text(title, style: const TextStyle(color: Colors.white)),
-      value: title,
-      groupValue: groupValue,
-      onChanged: onChanged,
-      activeColor: _primary,
+    return M3EListItem(
+      headline: title,
+      trailing: M3ERadio<String>(
+        value: title,
+        groupValue: groupValue,
+        onChanged: onChanged,
+      ),
+      onTap: () => onChanged(title),
     );
   }
 
@@ -3875,27 +3766,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       (30.0, '30 Hz (Bookshelf / Mobile Speakers)'),
     ];
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: _cardDark,
-          title: const Text('Subsonic High-Pass Filter',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: options.map((opt) {
-              final selected = (opt.$1 == _subsonicCutoffHz);
-              return RadioListTile<double>(
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Subsonic High-Pass Filter',
+        content: M3ECardList(
+          itemCount: options.length,
+          onTap: (index) {
+            final val = options[index].$1;
+            setState(() => _subsonicCutoffHz = val);
+            _persistSpeakerProtectionSettings();
+            onDone?.call();
+            Navigator.pop(context);
+          },
+          itemBuilder: (context, index) {
+            final opt = options[index];
+            return M3EListItem(
+              headline: opt.$2,
+              trailing: M3ERadio<double>(
                 value: opt.$1,
                 groupValue: _subsonicCutoffHz,
-                activeColor: _primary,
-                title: Text(opt.$2,
-                    style: TextStyle(
-                        color: selected ? Colors.white : _textDark,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.normal)),
                 onChanged: (val) {
                   if (val != null) {
                     setState(() => _subsonicCutoffHz = val);
@@ -3904,11 +3794,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                   Navigator.pop(context);
                 },
-              );
-            }).toList(),
-          ),
-        );
-      },
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -3920,27 +3810,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       (18000.0, '18 kHz (Tweeter Guard)'),
     ];
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: _cardDark,
-          title: const Text('Ultrasonic Low-Pass Guard',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: options.map((opt) {
-              final selected = (opt.$1 == _ultrasonicCutoffHz);
-              return RadioListTile<double>(
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Ultrasonic Low-Pass Guard',
+        content: M3ECardList(
+          itemCount: options.length,
+          onTap: (index) {
+            final val = options[index].$1;
+            setState(() => _ultrasonicCutoffHz = val);
+            _persistSpeakerProtectionSettings();
+            onDone?.call();
+            Navigator.pop(context);
+          },
+          itemBuilder: (context, index) {
+            final opt = options[index];
+            return M3EListItem(
+              headline: opt.$2,
+              trailing: M3ERadio<double>(
                 value: opt.$1,
                 groupValue: _ultrasonicCutoffHz,
-                activeColor: _primary,
-                title: Text(opt.$2,
-                    style: TextStyle(
-                        color: selected ? Colors.white : _textDark,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.normal)),
                 onChanged: (val) {
                   if (val != null) {
                     setState(() => _ultrasonicCutoffHz = val);
@@ -3949,11 +3838,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                   Navigator.pop(context);
                 },
-              );
-            }).toList(),
-          ),
-        );
-      },
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
@@ -457,65 +459,105 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                 horizontal: 12.0, vertical: 2.0),
                             child: Row(
                               children: [
-                                // Visualizer Selector Pill Button
+                                // Visualizer Selector Pill Menu
                                 Expanded(
-                                  child: PopupMenuButton<String>(
-                                    tooltip: 'Select Visualizer Mode',
-                                    onSelected: (type) {
-                                      setState(() {
-                                        _currentAnalyzerType = type;
-                                      });
-                                    },
-                                    itemBuilder: (context) => [
-                                      const PopupMenuItem(
-                                          value: 'bar',
-                                          child: Text('Bar Spectrum')),
-                                      const PopupMenuItem(
-                                          value: 'area',
-                                          child: Text('Area Line')),
-                                      const PopupMenuDivider(),
-                                      ...GlslShaderStyle.values.map(
-                                        (s) => PopupMenuItem(
-                                          value: s.name,
-                                          child: Text(s.displayName),
+                                  child: M3EMenu(
+                                    anchorBuilder: (context, open) => InkWell(
+                                      onTap: open,
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          color: AppThemeService
+                                              .instance.currentData.cardDark,
                                         ),
-                                      ),
-                                    ],
-                                    child: Container(
-                                      height: 34,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10),
-                                      decoration: BoxDecoration(
-                                        color: AppThemeService
-                                            .instance.currentData.cardDark,
-                                        borderRadius: BorderRadius.circular(18),
-                                        border: Border.all(
+                                        //  Shapes.ghostish,
+                                        height: 34,
+                                        //  color: AppThemeService
+                                        //    .instance.currentData.cardDark,
+                                        /* border: BorderSide(
                                           color: primaryColor.withValues(
                                               alpha: 0.35),
                                           width: 1,
+                                        ),*/
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.auto_awesome_mosaic,
+                                                  color: primaryColor,
+                                                  size: 14),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  activeVisualizerLabel,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                              const Icon(Icons.arrow_drop_down,
+                                                  color: Colors.white70,
+                                                  size: 16),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.auto_awesome_mosaic,
-                                              color: primaryColor, size: 14),
-                                          const SizedBox(width: 6),
-                                          Expanded(
-                                            child: Text(
-                                              activeVisualizerLabel,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
+                                    ),
+                                    children: [
+                                      M3EMenuGroup.entries(
+                                        label: 'Standard Visualizers',
+                                        entries: [
+                                          M3EMenuEntry(
+                                            label: 'Bar Spectrum',
+                                            leading: const Icon(
+                                                Icons.bar_chart_rounded,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType = 'bar';
+                                              });
+                                            },
                                           ),
-                                          const Icon(Icons.arrow_drop_down,
-                                              color: Colors.white70, size: 16),
+                                          M3EMenuEntry(
+                                            label: 'Area Line',
+                                            leading: const Icon(
+                                                Icons.show_chart_rounded,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType = 'area';
+                                              });
+                                            },
+                                          ),
                                         ],
                                       ),
-                                    ),
+                                      M3EMenuGroup.entries(
+                                        label: 'GLSL Shaders',
+                                        entries: GlslShaderStyle.values
+                                            .map(
+                                              (s) => M3EMenuEntry(
+                                                label: s.displayName,
+                                                leading: const Icon(
+                                                    Icons.auto_awesome,
+                                                    size: 18),
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _currentAnalyzerType =
+                                                        s.name;
+                                                  });
+                                                },
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    ],
                                   ),
                                 ),
 

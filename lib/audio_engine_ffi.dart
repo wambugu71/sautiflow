@@ -12,7 +12,15 @@ enum LoopMode { off, all, one }
 
 enum AudioFormat { f32, s16, u8, s24, s32 }
 
-enum EqBandType { peak, bandpass, notch, lowshelf, highshelf, lowpass, highpass }
+enum EqBandType {
+  peak,
+  bandpass,
+  notch,
+  lowshelf,
+  highshelf,
+  lowpass,
+  highpass
+}
 
 enum AttenuationModel { none, inverse, linear, exponential }
 
@@ -302,15 +310,15 @@ class TrackNativeInfo {
   }
 
   Map<String, dynamic> toJson() => {
-    'sampleRate': sampleRate,
-    'bitDepth': bitDepth,
-    'channels': channels,
-    'bitrateKbps': bitrateKbps,
-    'isFloat': isFloat,
-    'durationSecs': durationSecs,
-    'fileSizeBytes': fileSizeBytes,
-    'formatName': formatName,
-  };
+        'sampleRate': sampleRate,
+        'bitDepth': bitDepth,
+        'channels': channels,
+        'bitrateKbps': bitrateKbps,
+        'isFloat': isFloat,
+        'durationSecs': durationSecs,
+        'fileSizeBytes': fileSizeBytes,
+        'formatName': formatName,
+      };
 }
 
 final class AEHardwareInfoNative extends ffi.Struct {
@@ -390,7 +398,8 @@ class AEHardwareInfo {
     }
 
     AudioFormat fmt = AudioFormat.f32;
-    if (native.output_format >= 0 && native.output_format < AudioFormat.values.length) {
+    if (native.output_format >= 0 &&
+        native.output_format < AudioFormat.values.length) {
       fmt = AudioFormat.values[native.output_format];
     }
 
@@ -410,18 +419,18 @@ class AEHardwareInfo {
   }
 
   Map<String, dynamic> toJson() => {
-    'backendName': backendName,
-    'deviceName': deviceName,
-    'outputFormat': outputFormat.name,
-    'bitDepth': bitDepth,
-    'isFloat': isFloat,
-    'sampleRate': sampleRate,
-    'channels': channels,
-    'periodSizeFrames': periodSizeFrames,
-    'periodCount': periodCount,
-    'latencyMs': latencyMs,
-    'isExclusiveMode': isExclusiveMode,
-  };
+        'backendName': backendName,
+        'deviceName': deviceName,
+        'outputFormat': outputFormat.name,
+        'bitDepth': bitDepth,
+        'isFloat': isFloat,
+        'sampleRate': sampleRate,
+        'channels': channels,
+        'periodSizeFrames': periodSizeFrames,
+        'periodCount': periodCount,
+        'latencyMs': latencyMs,
+        'isExclusiveMode': isExclusiveMode,
+      };
 }
 
 final class AELoudnessMetricsNative extends ffi.Struct {
@@ -624,21 +633,16 @@ typedef _SetAbRepeatNative = ffi.Void Function(
 typedef _SetAbRepeatDart = void Function(
     ffi.Pointer<ffi.Void>, int, double, double);
 
-typedef _GetAbRepeatNative = ffi.Void Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Int32>,
-    ffi.Pointer<ffi.Double>,
-    ffi.Pointer<ffi.Double>);
-typedef _GetAbRepeatDart = void Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Int32>,
-    ffi.Pointer<ffi.Double>,
-    ffi.Pointer<ffi.Double>);
+typedef _GetAbRepeatNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Double>, ffi.Pointer<ffi.Double>);
+typedef _GetAbRepeatDart = void Function(ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Double>, ffi.Pointer<ffi.Double>);
 
 typedef _GetDeviceLatencyMsNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
 typedef _GetDeviceLatencyMsDart = double Function(ffi.Pointer<ffi.Void>);
 
-typedef _GetEngineLatencySamplesNative = ffi.Double Function(ffi.Pointer<ffi.Void>);
+typedef _GetEngineLatencySamplesNative = ffi.Double Function(
+    ffi.Pointer<ffi.Void>);
 typedef _GetEngineLatencySamplesDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _GetEngineLatencyMsNative = ffi.Double Function(ffi.Pointer<ffi.Void>);
@@ -743,8 +747,7 @@ typedef _SetStereoEnhancementEnabledDart = void Function(
 
 typedef _GetStereoEnhancementEnabledNative = ffi.Int32 Function(
     ffi.Pointer<ffi.Void>);
-typedef _GetStereoEnhancementEnabledDart = int Function(
-    ffi.Pointer<ffi.Void>);
+typedef _GetStereoEnhancementEnabledDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetStereoEnhancementMixNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float);
@@ -753,8 +756,7 @@ typedef _SetStereoEnhancementMixDart = void Function(
 
 typedef _GetStereoEnhancementMixNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>);
-typedef _GetStereoEnhancementMixDart = double Function(
-    ffi.Pointer<ffi.Void>);
+typedef _GetStereoEnhancementMixDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetDynamicBassParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
@@ -770,8 +772,7 @@ typedef _SetRaceParamsDart = void Function(
 // ae_set_crossfeed_algorithm(AudioEngineHandle*, int)
 typedef _SetCrossfeedAlgorithmNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
-typedef _SetCrossfeedAlgorithmDart = void Function(
-    ffi.Pointer<ffi.Void>, int);
+typedef _SetCrossfeedAlgorithmDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 // ae_set_crossfeed_params(AudioEngineHandle*, float mix, float delay_ms, float cutoff_hz, int output_compensation)
 typedef _SetCrossfeedParamsNative = ffi.Void Function(
@@ -857,10 +858,8 @@ typedef _GetLoudnessMetricsNative = AELoudnessMetricsNative Function(
 typedef _GetLoudnessMetricsDart = AELoudnessMetricsNative Function(
     ffi.Pointer<ffi.Void>);
 
-typedef _ResetLoudnessMeterNative = ffi.Void Function(
-    ffi.Pointer<ffi.Void>);
-typedef _ResetLoudnessMeterDart = void Function(
-    ffi.Pointer<ffi.Void>);
+typedef _ResetLoudnessMeterNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _ResetLoudnessMeterDart = void Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetLoudnessNormalizerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -918,8 +917,7 @@ typedef _GetEngineDitherModeDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _SetPhaseInversionNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
-typedef _SetPhaseInversionDart = void Function(
-    ffi.Pointer<ffi.Void>, int, int);
+typedef _SetPhaseInversionDart = void Function(ffi.Pointer<ffi.Void>, int, int);
 
 typedef _GetPhaseInversionNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
@@ -1011,8 +1009,10 @@ typedef _SetMultibandFxBandsDart = void Function(
 typedef _InspectFileNative = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 typedef _InspectFileDart = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 
-typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
-typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(ffi.Pointer<ffi.Void>);
+typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(
+    ffi.Pointer<ffi.Void>);
 
 typedef _RegisterAndroidJvmNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _RegisterAndroidJvmDart = void Function(ffi.Pointer<ffi.Void>);
@@ -1244,12 +1244,15 @@ class AudioEngineFFI {
         _lib.lookupFunction<_JumpWithPositionNative, _JumpWithPositionDart>(
       'ae_jump_to_with_position',
     );
-    _getDeviceLatencyMs = _lib.lookupFunction<_GetDeviceLatencyMsNative,
-        _GetDeviceLatencyMsDart>('ae_get_device_latency_ms');
-    _getEngineLatencySamples = _lib.lookupFunction<_GetEngineLatencySamplesNative,
+    _getDeviceLatencyMs =
+        _lib.lookupFunction<_GetDeviceLatencyMsNative, _GetDeviceLatencyMsDart>(
+            'ae_get_device_latency_ms');
+    _getEngineLatencySamples = _lib.lookupFunction<
+        _GetEngineLatencySamplesNative,
         _GetEngineLatencySamplesDart>('ae_get_engine_latency_samples');
-    _getEngineLatencyMs = _lib.lookupFunction<_GetEngineLatencyMsNative,
-        _GetEngineLatencyMsDart>('ae_get_engine_latency_ms');
+    _getEngineLatencyMs =
+        _lib.lookupFunction<_GetEngineLatencyMsNative, _GetEngineLatencyMsDart>(
+            'ae_get_engine_latency_ms');
     _getStatus = _lib.lookupFunction<_GetStatusNative, _GetStatusDart>(
       'ae_get_status',
     );
@@ -1300,19 +1303,24 @@ class AudioEngineFFI {
     );
 
     try {
-      _setLoudnessCrossfadeEnabled = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+      _setLoudnessCrossfadeEnabled =
+          _lib.lookupFunction<_SetIntNative, _SetIntDart>(
         'ae_set_loudness_crossfade_enabled',
       );
-      _getLoudnessCrossfadeEnabled = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+      _getLoudnessCrossfadeEnabled =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
         'ae_get_loudness_crossfade_enabled',
       );
-      _setNextReplayGain = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+      _setNextReplayGain =
+          _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
         'ae_set_next_replay_gain',
       );
-      _setCrossfadeSilenceThreshold = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+      _setCrossfadeSilenceThreshold =
+          _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
         'ae_set_crossfade_silence_threshold',
       );
-      _getCrossfadeSilenceThreshold = _lib.lookupFunction<_GetDeviceLatencyMsNative, _GetDeviceLatencyMsDart>(
+      _getCrossfadeSilenceThreshold = _lib
+          .lookupFunction<_GetDeviceLatencyMsNative, _GetDeviceLatencyMsDart>(
         'ae_get_crossfade_silence_threshold',
       );
     } catch (_) {
@@ -1411,15 +1419,14 @@ class AudioEngineFFI {
       'ae_set_race_params',
     );
     // CrossfeedNode extended API
-    _setCrossfeedAlgorithm = _lib.lookupFunction<
-        _SetCrossfeedAlgorithmNative,
+    _setCrossfeedAlgorithm = _lib.lookupFunction<_SetCrossfeedAlgorithmNative,
         _SetCrossfeedAlgorithmDart>('ae_set_crossfeed_algorithm');
-    _setCrossfeedParams = _lib.lookupFunction<
-        _SetCrossfeedParamsNative,
-        _SetCrossfeedParamsDart>('ae_set_crossfeed_params');
-    _getCrossfeedParams = _lib.lookupFunction<
-        _GetCrossfeedParamsNative,
-        _GetCrossfeedParamsDart>('ae_get_crossfeed_params');
+    _setCrossfeedParams =
+        _lib.lookupFunction<_SetCrossfeedParamsNative, _SetCrossfeedParamsDart>(
+            'ae_set_crossfeed_params');
+    _getCrossfeedParams =
+        _lib.lookupFunction<_GetCrossfeedParamsNative, _GetCrossfeedParamsDart>(
+            'ae_get_crossfeed_params');
     _setDynamicBassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_dynamic_bass_enabled',
@@ -1501,8 +1508,8 @@ class AudioEngineFFI {
         _SetSpatializationVec3Dart>('ae_set_direction');
     _setVelocity = _lib.lookupFunction<_SetSpatializationVec3Native,
         _SetSpatializationVec3Dart>('ae_set_velocity');
-    _setSoundCone = _lib.lookupFunction<_SetConeNative,
-        _SetConeDart>('ae_set_sound_cone');
+    _setSoundCone =
+        _lib.lookupFunction<_SetConeNative, _SetConeDart>('ae_set_sound_cone');
     _setAttenuationModel = _lib
         .lookupFunction<_SetIntNative, _SetIntDart>('ae_set_attenuation_model');
     _setRolloff =
@@ -1533,8 +1540,8 @@ class AudioEngineFFI {
         _SetSpatializationVec3Dart>('ae_set_listener_velocity');
     _setListenerWorldUp = _lib.lookupFunction<_SetSpatializationVec3Native,
         _SetSpatializationVec3Dart>('ae_set_listener_world_up');
-    _setListenerCone = _lib.lookupFunction<_SetConeNative,
-        _SetConeDart>('ae_set_listener_cone');
+    _setListenerCone = _lib
+        .lookupFunction<_SetConeNative, _SetConeDart>('ae_set_listener_cone');
 
     // Fading & Scheduling
     _setFadeInMilliseconds = _lib.lookupFunction<_SetFadeInMillisecondsNative,
@@ -1599,30 +1606,38 @@ class AudioEngineFFI {
         _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
     try {
-      _set64BitProcessingEnabled = _lib.lookupFunction<_SetFxEnabledNative,
-          _SetFxEnabledDart>('ae_set_64bit_processing_enabled');
-      _get64BitProcessingEnabled = _lib.lookupFunction<_GetIntNative,
-          _GetIntDart>('ae_get_64bit_processing_enabled');
+      _set64BitProcessingEnabled =
+          _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+              'ae_set_64bit_processing_enabled');
+      _get64BitProcessingEnabled =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_64bit_processing_enabled');
     } catch (_) {
       _set64BitProcessingEnabled = null;
       _get64BitProcessingEnabled = null;
     }
 
     try {
-      _setAutoSampleRateMatchEnabled = _lib.lookupFunction<_SetFxEnabledNative,
-          _SetFxEnabledDart>('ae_set_auto_sample_rate_match_enabled');
-      _getAutoSampleRateMatchEnabled = _lib.lookupFunction<_GetIntNative,
-          _GetIntDart>('ae_get_auto_sample_rate_match_enabled');
-      _consumePendingRateChange = _lib.lookupFunction<_GetIntNative,
-          _GetIntDart>('ae_consume_pending_rate_change');
+      _setAutoSampleRateMatchEnabled =
+          _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+              'ae_set_auto_sample_rate_match_enabled');
+      _getAutoSampleRateMatchEnabled =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_auto_sample_rate_match_enabled');
+      _consumePendingRateChange =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_consume_pending_rate_change');
     } catch (_) {
       try {
-        _setAutoSampleRateMatchEnabled = _lib.lookupFunction<_SetFxEnabledNative,
-            _SetFxEnabledDart>('ae_set_auto_bit_perfect_enabled');
-        _getAutoSampleRateMatchEnabled = _lib.lookupFunction<_GetIntNative,
-            _GetIntDart>('ae_get_auto_bit_perfect_enabled');
-        _consumePendingRateChange = _lib.lookupFunction<_GetIntNative,
-            _GetIntDart>('ae_consume_pending_rate_change');
+        _setAutoSampleRateMatchEnabled =
+            _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
+                'ae_set_auto_bit_perfect_enabled');
+        _getAutoSampleRateMatchEnabled =
+            _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+                'ae_get_auto_bit_perfect_enabled');
+        _consumePendingRateChange =
+            _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+                'ae_consume_pending_rate_change');
       } catch (_) {
         _setAutoSampleRateMatchEnabled = null;
         _getAutoSampleRateMatchEnabled = null;
@@ -1631,24 +1646,28 @@ class AudioEngineFFI {
     }
 
     try {
-      _setPhaseInversion = _lib.lookupFunction<_SetPhaseInversionNative,
-          _SetPhaseInversionDart>('ae_set_phase_inversion');
-      _getPhaseInversion = _lib.lookupFunction<_GetPhaseInversionNative,
-          _GetPhaseInversionDart>('ae_get_phase_inversion');
+      _setPhaseInversion =
+          _lib.lookupFunction<_SetPhaseInversionNative, _SetPhaseInversionDart>(
+              'ae_set_phase_inversion');
+      _getPhaseInversion =
+          _lib.lookupFunction<_GetPhaseInversionNative, _GetPhaseInversionDart>(
+              'ae_get_phase_inversion');
     } catch (_) {
       _setPhaseInversion = null;
       _getPhaseInversion = null;
     }
 
     try {
-      _setLrSwap = _lib.lookupFunction<_SetLrSwapNative,
-          _SetLrSwapDart>('ae_set_lr_swap');
-      _getLrSwap = _lib.lookupFunction<_GetLrSwapNative,
-          _GetLrSwapDart>('ae_get_lr_swap');
-      _setChannelGains = _lib.lookupFunction<_SetChannelGainsNative,
-          _SetChannelGainsDart>('ae_set_channel_gains');
-      _getChannelGains = _lib.lookupFunction<_GetChannelGainsNative,
-          _GetChannelGainsDart>('ae_get_channel_gains');
+      _setLrSwap = _lib
+          .lookupFunction<_SetLrSwapNative, _SetLrSwapDart>('ae_set_lr_swap');
+      _getLrSwap = _lib
+          .lookupFunction<_GetLrSwapNative, _GetLrSwapDart>('ae_get_lr_swap');
+      _setChannelGains =
+          _lib.lookupFunction<_SetChannelGainsNative, _SetChannelGainsDart>(
+              'ae_set_channel_gains');
+      _getChannelGains =
+          _lib.lookupFunction<_GetChannelGainsNative, _GetChannelGainsDart>(
+              'ae_get_channel_gains');
     } catch (_) {
       _setLrSwap = null;
       _getLrSwap = null;
@@ -1730,15 +1749,32 @@ class AudioEngineFFI {
     );
 
     try {
-      _getLoudnessMetrics = _lib.lookupFunction<_GetLoudnessMetricsNative, _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
-      _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative, _ResetLoudnessMeterDart>('ae_reset_loudness_meter');
-      _setLoudnessNormalizerEnabled = _lib.lookupFunction<_SetLoudnessNormalizerEnabledNative, _SetLoudnessNormalizerEnabledDart>('ae_set_loudness_normalizer_enabled');
-      _setLoudnessNormalizerTarget = _lib.lookupFunction<_SetLoudnessNormalizerTargetNative, _SetLoudnessNormalizerTargetDart>('ae_set_loudness_normalizer_target');
-      _getTruePeak = _lib.lookupFunction<_GetTruePeakNative, _GetTruePeakDart>('ae_get_true_peak');
-      _setLookaheadLimiterEnabled = _lib.lookupFunction<_SetLookaheadLimiterEnabledNative, _SetLookaheadLimiterEnabledDart>('ae_set_lookahead_limiter_enabled');
-      _setLookaheadLimiterParams = _lib.lookupFunction<_SetLookaheadLimiterParamsNative, _SetLookaheadLimiterParamsDart>('ae_set_lookahead_limiter_params');
-      _getLookaheadLimiterGainReductionDb = _lib.lookupFunction<_GetLookaheadLimiterGainReductionDbNative, _GetLookaheadLimiterGainReductionDbDart>('ae_get_lookahead_limiter_gain_reduction_db');
-      _getQualityTelemetry = _lib.lookupFunction<_GetQualityTelemetryNative, _GetQualityTelemetryDart>('ae_get_quality_telemetry');
+      _getLoudnessMetrics = _lib.lookupFunction<_GetLoudnessMetricsNative,
+          _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
+      _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative,
+          _ResetLoudnessMeterDart>('ae_reset_loudness_meter');
+      _setLoudnessNormalizerEnabled = _lib.lookupFunction<
+              _SetLoudnessNormalizerEnabledNative,
+              _SetLoudnessNormalizerEnabledDart>(
+          'ae_set_loudness_normalizer_enabled');
+      _setLoudnessNormalizerTarget = _lib.lookupFunction<
+              _SetLoudnessNormalizerTargetNative,
+              _SetLoudnessNormalizerTargetDart>(
+          'ae_set_loudness_normalizer_target');
+      _getTruePeak = _lib.lookupFunction<_GetTruePeakNative, _GetTruePeakDart>(
+          'ae_get_true_peak');
+      _setLookaheadLimiterEnabled = _lib.lookupFunction<
+          _SetLookaheadLimiterEnabledNative,
+          _SetLookaheadLimiterEnabledDart>('ae_set_lookahead_limiter_enabled');
+      _setLookaheadLimiterParams = _lib.lookupFunction<
+          _SetLookaheadLimiterParamsNative,
+          _SetLookaheadLimiterParamsDart>('ae_set_lookahead_limiter_params');
+      _getLookaheadLimiterGainReductionDb = _lib.lookupFunction<
+              _GetLookaheadLimiterGainReductionDbNative,
+              _GetLookaheadLimiterGainReductionDbDart>(
+          'ae_get_lookahead_limiter_gain_reduction_db');
+      _getQualityTelemetry = _lib.lookupFunction<_GetQualityTelemetryNative,
+          _GetQualityTelemetryDart>('ae_get_quality_telemetry');
     } catch (_) {
       _getLoudnessMetrics = null;
       _resetLoudnessMeter = null;
@@ -1771,7 +1807,8 @@ class AudioEngineFFI {
     }
 
     try {
-      _getHardwareInfo = _lib.lookupFunction<_GetHardwareInfoNative, _GetHardwareInfoDart>(
+      _getHardwareInfo =
+          _lib.lookupFunction<_GetHardwareInfoNative, _GetHardwareInfoDart>(
         'ae_get_hardware_info',
       );
     } catch (_) {
@@ -1779,7 +1816,8 @@ class AudioEngineFFI {
     }
 
     try {
-      _registerAndroidJvm = _lib.lookupFunction<_RegisterAndroidJvmNative, _RegisterAndroidJvmDart>(
+      _registerAndroidJvm = _lib
+          .lookupFunction<_RegisterAndroidJvmNative, _RegisterAndroidJvmDart>(
         'ae_register_android_jvm',
       );
     } catch (_) {
@@ -2235,7 +2273,8 @@ class AudioEngineFFI {
   }
 
   bool getLoudnessCrossfadeEnabled() {
-    if (_engine == ffi.nullptr || _getLoudnessCrossfadeEnabled == null) return false;
+    if (_engine == ffi.nullptr || _getLoudnessCrossfadeEnabled == null)
+      return false;
     return _getLoudnessCrossfadeEnabled!(_engine) != 0;
   }
 
@@ -2250,7 +2289,8 @@ class AudioEngineFFI {
   }
 
   double getCrossfadeSilenceThreshold() {
-    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null) return -60.0;
+    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null)
+      return -60.0;
     return _getCrossfadeSilenceThreshold!(_engine);
   }
 
@@ -2556,8 +2596,10 @@ class AudioEngineFFI {
     final cutoffPtr = calloc<ffi.Float>();
     final compPtr = calloc<ffi.Int32>();
     try {
-      _getCrossfeedParams(_engine, algoPtr, mixPtr, delayPtr, cutoffPtr, compPtr);
-      final algoIdx = algoPtr.value.clamp(0, CrossfeedAlgorithm.values.length - 1);
+      _getCrossfeedParams(
+          _engine, algoPtr, mixPtr, delayPtr, cutoffPtr, compPtr);
+      final algoIdx =
+          algoPtr.value.clamp(0, CrossfeedAlgorithm.values.length - 1);
       return CrossfeedParams(
         algorithm: CrossfeedAlgorithm.values[algoIdx],
         mix: mixPtr.value,
@@ -2879,13 +2921,15 @@ class AudioEngineFFI {
     return _getOutputChannels(_engine);
   }
 
-  void setPhaseInversion({required bool invertLeft, required bool invertRight}) {
+  void setPhaseInversion(
+      {required bool invertLeft, required bool invertRight}) {
     if (_engine == ffi.nullptr) return;
     _setPhaseInversion?.call(_engine, invertLeft ? 1 : 0, invertRight ? 1 : 0);
   }
 
   ({bool left, bool right}) getPhaseInversion() {
-    if (_engine == ffi.nullptr || _getPhaseInversion == null) return (left: false, right: false);
+    if (_engine == ffi.nullptr || _getPhaseInversion == null)
+      return (left: false, right: false);
     final pL = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     final pR = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     try {
@@ -2915,7 +2959,8 @@ class AudioEngineFFI {
   /// Sets independent gain for left and right channels.
   /// [leftLinear] and [rightLinear] are linear multipliers [0.0, 4.0].
   /// Use [dbToLinear] to convert from dB if needed.
-  void setChannelGains({required double leftLinear, required double rightLinear}) {
+  void setChannelGains(
+      {required double leftLinear, required double rightLinear}) {
     if (_engine == ffi.nullptr) return;
     _setChannelGains?.call(_engine, leftLinear, rightLinear);
   }
@@ -2986,29 +3031,33 @@ class AudioEngineFFI {
   /// Enable or disable 64-bit float DSP processing mode (-320dB mathematical headroom).
   void set64BitProcessingEnabled(bool enabled) {
     if (_engine == ffi.nullptr || _set64BitProcessingEnabled == null) return;
-    _set64BitProcessingEnabled!(_engine, enabled ? 1 : 0);
+    _set64BitProcessingEnabled(_engine, enabled ? 1 : 0);
   }
 
   /// Check whether 64-bit float DSP processing mode is active.
   bool get64BitProcessingEnabled() {
-    if (_engine == ffi.nullptr || _get64BitProcessingEnabled == null) return false;
-    return _get64BitProcessingEnabled!(_engine) != 0;
+    if (_engine == ffi.nullptr || _get64BitProcessingEnabled == null)
+      return false;
+    return _get64BitProcessingEnabled(_engine) != 0;
   }
 
   /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.
   void setAutoSampleRateMatchEnabled(bool enabled) {
-    if (_engine == ffi.nullptr || _setAutoSampleRateMatchEnabled == null) return;
-    _setAutoSampleRateMatchEnabled!(_engine, enabled ? 1 : 0);
+    if (_engine == ffi.nullptr || _setAutoSampleRateMatchEnabled == null)
+      return;
+    _setAutoSampleRateMatchEnabled(_engine, enabled ? 1 : 0);
   }
 
   /// Check whether Auto Sample-Rate Match hardware sample-rate matching is enabled.
   bool getAutoSampleRateMatchEnabled() {
-    if (_engine == ffi.nullptr || _getAutoSampleRateMatchEnabled == null) return false;
-    return _getAutoSampleRateMatchEnabled!(_engine) != 0;
+    if (_engine == ffi.nullptr || _getAutoSampleRateMatchEnabled == null)
+      return false;
+    return _getAutoSampleRateMatchEnabled(_engine) != 0;
   }
 
   /// Deprecated alias for [setAutoSampleRateMatchEnabled].
-  void setAutoBitPerfectEnabled(bool enabled) => setAutoSampleRateMatchEnabled(enabled);
+  void setAutoBitPerfectEnabled(bool enabled) =>
+      setAutoSampleRateMatchEnabled(enabled);
 
   /// Deprecated alias for [getAutoSampleRateMatchEnabled].
   bool getAutoBitPerfectEnabled() => getAutoSampleRateMatchEnabled();

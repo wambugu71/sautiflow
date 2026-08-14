@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'dart:ui';
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:mini_music_visualizer/mini_music_visualizer.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
@@ -124,7 +127,7 @@ class _QueueScreenState extends State<QueueScreen>
     final index = _getPlayingIndex(status);
     if (index < 0) return;
 
-    const double itemHeight = 72.0;
+    const double itemHeight = 76.0;
     final double screenHeight = _scrollController.position.viewportDimension;
     double targetOffset =
         (index * itemHeight) - (screenHeight / 2.0) + (itemHeight / 2.0);
@@ -181,16 +184,16 @@ class _QueueScreenState extends State<QueueScreen>
             constraints: const BoxConstraints(maxWidth: 600.0),
             child: Column(
               children: [
-                const SizedBox(height: 16),
-                // ── Top Header matching NowPlayingScreen top level exactly ──
+                const SizedBox(height: 12),
+                // ── Top Header matching M3E Design ──
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8.0, vertical: 4.0),
+                      horizontal: 12.0, vertical: 4.0),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.keyboard_arrow_down,
-                            color: Colors.white, size: 32),
+                      M3EIconButton(
+                        icon: const Icon(Icons.keyboard_arrow_down, size: 28),
+                        variant: M3EIconButtonVariant.standard,
                         onPressed:
                             widget.onClose ?? () => Navigator.of(context).pop(),
                       ),
@@ -200,11 +203,11 @@ class _QueueScreenState extends State<QueueScreen>
                           children: [
                             // Center drag handle pill for sheet representation
                             Container(
-                              width: 36,
+                              width: 38,
                               height: 4,
-                              margin: const EdgeInsets.only(bottom: 4),
+                              margin: const EdgeInsets.only(bottom: 6),
                               decoration: BoxDecoration(
-                                color: Colors.white24,
+                                color: Colors.white.withValues(alpha: 0.25),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -216,36 +219,41 @@ class _QueueScreenState extends State<QueueScreen>
                                   'Up Next',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 16,
+                                    fontSize: 17,
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: -0.3,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 1.5),
+                                      horizontal: 8, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: primaryColor.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(8),
+                                    color: primaryColor.withValues(alpha: 0.18),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color:
+                                          primaryColor.withValues(alpha: 0.35),
+                                      width: 1,
+                                    ),
                                   ),
                                   child: Text(
                                     'QUEUE',
                                     style: TextStyle(
                                       color: primaryColor,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.8,
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.0,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 3),
                             Text(
                               _calculateTotalDuration(),
-                              style: const TextStyle(
-                                color: Colors.white38,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w400,
                               ),
@@ -256,14 +264,14 @@ class _QueueScreenState extends State<QueueScreen>
                         ),
                       ),
                       if (widget.queue.isNotEmpty)
-                        IconButton(
-                          icon: Icon(Icons.my_location_rounded,
-                              color: primaryColor, size: 22),
+                        M3EIconButton(
+                          icon: const Icon(Icons.my_location_rounded, size: 20),
+                          variant: M3EIconButtonVariant.tonal,
                           tooltip: 'Center playing track',
                           onPressed: () => _scrollToPlayingItem(animate: true),
                         )
                       else
-                        const SizedBox(width: 48),
+                        const SizedBox(width: 44),
                     ],
                   ),
                 ),
@@ -275,29 +283,37 @@ class _QueueScreenState extends State<QueueScreen>
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Container(
-                                width: 72,
-                                height: 72,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.04),
-                                  shape: BoxShape.circle,
+                              M3EContainer(
+                                Shapes.c4SidedCookie,
+                                width: 88,
+                                height: 88,
+                                color: primaryColor.withValues(alpha: 0.12),
+                                border: BorderSide(
+                                  color: primaryColor.withValues(alpha: 0.3),
+                                  width: 1.5,
                                 ),
-                                child: const Icon(Icons.queue_music_rounded,
-                                    color: Colors.white30, size: 36),
+                                child: Center(
+                                  child: Icon(Icons.queue_music_rounded,
+                                      color: primaryColor, size: 40),
+                                ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 20),
                               const Text(
                                 'Queue is empty',
                                 style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600),
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Play a track or album to populate the queue',
+                              const SizedBox(height: 6),
+                              Text(
+                                'Play a track or album to populate the playback queue',
                                 style: TextStyle(
-                                    color: Colors.white38, fontSize: 13),
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  fontSize: 13.5,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
                             ],
                           ),
@@ -312,171 +328,201 @@ class _QueueScreenState extends State<QueueScreen>
                                 parent: AlwaysScrollableScrollPhysics()),
                             itemCount: widget.queue.length,
                             onReorder: widget.onReorderQueue,
+                            proxyDecorator:
+                                (Widget child, int index, Animation<double> animation) {
+                              return AnimatedBuilder(
+                                animation: animation,
+                                builder: (BuildContext context, Widget? child) {
+                                  final double animValue =
+                                      Curves.easeInOut.transform(animation.value);
+                                  final double scale =
+                                      lerpDouble(1.0, 1.025, animValue)!;
+                                  return Transform.scale(
+                                    scale: scale,
+                                    child: Material(
+                                      elevation: 10,
+                                      shadowColor:
+                                          primaryColor.withValues(alpha: 0.4),
+                                      color: Colors.transparent,
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: child,
+                              );
+                            },
                             itemBuilder: (context, index) {
                               final track = widget.queue[index];
                               final isPlaying = (playingIndex == index) ||
                                   (widget.videoId != null &&
                                       track.videoId == widget.videoId);
 
-                              return Container(
+                              return RepaintBoundary(
                                 key: ValueKey('${track.videoId}_$index'),
-                                margin: const EdgeInsets.symmetric(
-                                    vertical: 3, horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: isPlaying
-                                      ? primaryColor.withValues(alpha: 0.16)
-                                      : Colors.white.withValues(alpha: 0.035),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: isPlaying
-                                      ? Border.all(
-                                          color: primaryColor.withValues(
-                                              alpha: 0.55),
-                                          width: 1.5,
-                                        )
-                                      : Border.all(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.03)),
-                                  boxShadow: isPlaying
-                                      ? [
-                                          BoxShadow(
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(
+                                      vertical: 3.5, horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    color: isPlaying
+                                        ? primaryColor.withValues(alpha: 0.16)
+                                        : Colors.white.withValues(alpha: 0.035),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: isPlaying
+                                        ? Border.all(
                                             color: primaryColor.withValues(
-                                                alpha: 0.22),
-                                            blurRadius: 12,
-                                            spreadRadius: 0,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ]
-                                      : null,
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.only(
-                                      left: 8, right: 12, top: 2, bottom: 2),
-                                  leading: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Track index number or playing icon indicator
-                                      SizedBox(
-                                        width: 24,
-                                        child: isPlaying
-                                            ? Icon(
-                                                Icons.volume_up_rounded,
-                                                color: primaryColor,
-                                                size: 16)
-                                            : Text(
-                                                '${index + 1}',
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                  color: Colors.white30,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
+                                                alpha: 0.6),
+                                            width: 1.5,
+                                          )
+                                        : Border.all(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.035)),
+                                    boxShadow: isPlaying
+                                        ? [
+                                            BoxShadow(
+                                              color: primaryColor.withValues(
+                                                  alpha: 0.22),
+                                              blurRadius: 14,
+                                              spreadRadius: 0,
+                                              offset: const Offset(0, 3),
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.only(
+                                        left: 10, right: 12, top: 3, bottom: 3),
+                                    leading: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Track index number or playing icon indicator
+                                        SizedBox(
+                                          width: 24,
+                                          child: isPlaying
+                                              ? Icon(
+                                                  Icons.volume_up_rounded,
+                                                  color: primaryColor,
+                                                  size: 17)
+                                              : Text(
+                                                  '${index + 1}',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.35),
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                                 ),
-                                              ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      _QueueTrackArtwork(
-                                        track: track,
-                                        isPlaying: isPlaying,
-                                        albumArt: widget.albumArt,
-                                        primaryColor: primaryColor,
-                                      ),
-                                    ],
-                                  ),
-                                  title: isPlaying
-                                      ? AdaptiveMarqueeText(
-                                          text: track.title,
-                                          style: TextStyle(
-                                            color: primaryColor,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 15,
-                                          ),
-                                          blankSpace: 30.0,
-                                          velocity: 30.0,
-                                        )
-                                      : Text(
-                                          track.title,
-                                          style: TextStyle(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.92),
-                                            fontWeight: FontWeight.w500,
-                                            fontSize: 15,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                  subtitle: Row(
-                                    children: [
-                                      if (isPlaying) ...[
-                                        MiniMusicVisualizer(
-                                          color: primaryColor,
-                                          width: 3,
-                                          height: 12,
-                                          animate: true,
+                                        const SizedBox(width: 8),
+                                        _QueueTrackArtwork(
+                                          track: track,
+                                          isPlaying: isPlaying,
+                                          albumArt: widget.albumArt,
+                                          primaryColor: primaryColor,
                                         ),
-                                        const SizedBox(width: 6),
                                       ],
-                                      Expanded(
-                                        child: Text(
-                                          track.artist,
-                                          style: TextStyle(
-                                            color: isPlaying
-                                                ? primaryColor.withValues(
-                                                    alpha: 0.85)
-                                                : Colors.white
-                                                    .withValues(alpha: 0.5),
-                                            fontWeight: isPlaying
-                                                ? FontWeight.w600
-                                                : FontWeight.normal,
-                                            fontSize: 13,
+                                    ),
+                                    title: isPlaying
+                                        ? AdaptiveMarqueeText(
+                                            text: track.title,
+                                            style: TextStyle(
+                                              color: primaryColor,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 15,
+                                            ),
+                                            blankSpace: 30.0,
+                                            velocity: 30.0,
+                                          )
+                                        : Text(
+                                            track.title,
+                                            style: TextStyle(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.92),
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 15,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (track.durationSeconds != null &&
-                                          track.durationSeconds! > 0)
-                                        Text(
-                                          _formatDuration(
-                                              track.durationSeconds),
-                                          style: TextStyle(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.35),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
+                                    subtitle: Row(
+                                      children: [
+                                        if (isPlaying) ...[
+                                          RepaintBoundary(
+                                            child: MiniMusicVisualizer(
+                                              color: primaryColor,
+                                              width: 3,
+                                              height: 12,
+                                              animate: true,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                        ],
+                                        Expanded(
+                                          child: Text(
+                                            track.artist,
+                                            style: TextStyle(
+                                              color: isPlaying
+                                                  ? primaryColor.withValues(
+                                                      alpha: 0.88)
+                                                  : Colors.white
+                                                      .withValues(alpha: 0.5),
+                                              fontWeight: isPlaying
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
+                                              fontSize: 13,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                    ],
+                                        if (track.durationSeconds != null &&
+                                            track.durationSeconds! > 0)
+                                          Text(
+                                            _formatDuration(
+                                                track.durationSeconds),
+                                            style: TextStyle(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.35),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (widget.onRemoveFromQueue != null)
+                                          M3EIconButton(
+                                            icon: const Icon(
+                                                Icons.close_rounded,
+                                                size: 18),
+                                            variant: M3EIconButtonVariant.standard,
+                                            visualSize: const Size(32, 32),
+                                            tooltip: 'Remove from queue',
+                                            onPressed: () =>
+                                                widget.onRemoveFromQueue!(
+                                                    index),
+                                          ),
+                                        const SizedBox(width: 4),
+                                        ReorderableDragStartListener(
+                                          index: index,
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(6.0),
+                                            child: Icon(
+                                              Icons.drag_handle_rounded,
+                                              color: Colors.white38,
+                                              size: 22,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    onTap: () {
+                                      widget.onPlayQueueIndex(index);
+                                    },
                                   ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (widget.onRemoveFromQueue != null)
-                                        IconButton(
-                                          icon: const Icon(Icons.close_rounded,
-                                              size: 18, color: Colors.white30),
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          splashRadius: 18,
-                                          tooltip: 'Remove from queue',
-                                          onPressed: () =>
-                                              widget.onRemoveFromQueue!(index),
-                                        ),
-                                      const SizedBox(width: 6),
-                                      ReorderableDragStartListener(
-                                        index: index,
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(4.0),
-                                          child: Icon(
-                                            Icons.drag_handle_rounded,
-                                            color: Colors.white38,
-                                            size: 22,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    widget.onPlayQueueIndex(index);
-                                  },
                                 ),
                               );
                             },
@@ -499,7 +545,7 @@ class _QueueScreenState extends State<QueueScreen>
   }
 }
 
-/// Memoized track artwork component to eliminate synchronous disk checking during scrolling.
+/// Memoized track artwork component wrapped in RepaintBoundary to eliminate synchronous disk/render repaints.
 class _QueueTrackArtwork extends StatelessWidget {
   final TrackInfo track;
   final bool isPlaying;
@@ -515,30 +561,34 @@ class _QueueTrackArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        width: 46,
-        height: 46,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: _buildArtworkContent(),
-            ),
-            if (isPlaying)
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Stack(
+            children: [
               Positioned.fill(
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  child: Center(
-                    child: MiniMusicVisualizer(
-                      color: primaryColor,
-                      width: 4,
-                      height: 15,
+                child: _buildArtworkContent(),
+              ),
+              if (isPlaying)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      child: Center(
+                        child: MiniMusicVisualizer(
+                          color: primaryColor,
+                          width: 4,
+                          height: 16,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -583,8 +633,8 @@ class _QueueTrackArtwork extends StatelessWidget {
         track.videoId.endsWith('.m4a')) {
       return LocalAlbumArt(
         path: track.videoId,
-        size: 46,
-        borderRadius: 8,
+        size: 48,
+        borderRadius: 10,
         fallbackIcon: Icons.music_note,
       );
     }
@@ -603,3 +653,4 @@ class _QueueTrackArtwork extends StatelessWidget {
     );
   }
 }
+

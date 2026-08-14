@@ -89,7 +89,8 @@ class DemoApp extends StatefulWidget {
 }
 
 class _DemoAppState extends State<DemoApp> {
-  AppThemeData _themeData = AppThemeService.themes.first; // default until loaded
+  AppThemeData _themeData =
+      AppThemeService.themes.first; // default until loaded
   StreamSubscription<AppThemeId>? _themeSub;
 
   @override
@@ -155,7 +156,8 @@ class TrackMetadata {
   final Uint8List? albumArt;
   final double? replayGainTrack;
   final double? replayGainAlbum;
-  const TrackMetadata(this.artist, this.albumArt, {this.replayGainTrack, this.replayGainAlbum});
+  const TrackMetadata(this.artist, this.albumArt,
+      {this.replayGainTrack, this.replayGainAlbum});
 }
 
 class PlayerShell extends StatefulWidget {
@@ -309,7 +311,8 @@ class _PlayerShellState extends State<PlayerShell> {
 
     _metadata.addListener(_applyReplayGain);
     _metadata.addListener(_extractArtworkTheme);
-    _replayGainSubscription = AppStateService.instance.replayGainChanged.stream.listen((_) {
+    _replayGainSubscription =
+        AppStateService.instance.replayGainChanged.stream.listen((_) {
       _applyReplayGain();
     });
 
@@ -348,8 +351,9 @@ class _PlayerShellState extends State<PlayerShell> {
         gainDb += metadata.replayGainTrack!;
       }
     } else {
-       gainDb = 0.0; // None bypasses preamp in this logic, wait, if none, maybe preamp still applies?
-       // Let's just set it to 0 if none.
+      gainDb =
+          0.0; // None bypasses preamp in this logic, wait, if none, maybe preamp still applies?
+      // Let's just set it to 0 if none.
     }
 
     _player.setReplayGain(gainDb);
@@ -387,8 +391,10 @@ class _PlayerShellState extends State<PlayerShell> {
     final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
-    final loudnessSaved = await AppStateService.instance.loadLoudnessNormalizer();
-    final lookaheadSaved = await AppStateService.instance.loadLookaheadLimiter();
+    final loudnessSaved =
+        await AppStateService.instance.loadLoudnessNormalizer();
+    final lookaheadSaved =
+        await AppStateService.instance.loadLookaheadLimiter();
 
     _player.set64BitProcessingEnabled(is64Bit);
     _player.setAutoSampleRateMatchEnabled(autoBp);
@@ -536,7 +542,6 @@ class _PlayerShellState extends State<PlayerShell> {
     _lastPublishedNowPlayingIndex = idx;
 
     _updateMetadata(source).then((_) async {
-
       // --- DLNA Casting & Local Mute ---
       if (DlnaService.instance.activeRenderer != null) {
         if (isNewTrack) {
@@ -572,9 +577,9 @@ class _PlayerShellState extends State<PlayerShell> {
         source,
         _metadata.value.albumArt,
       );
-      
+
       final finalArtist = _metadata.value.artist;
-      
+
       unawaited(
         _player.updateNowPlaying(
           id: 'track_$idx',
@@ -640,7 +645,9 @@ class _PlayerShellState extends State<PlayerShell> {
           final files = tempDir.listSync();
           for (final f in files) {
             if (f.path.contains('sautiplay_now_playing_art_')) {
-              try { f.deleteSync(); } catch (_) {}
+              try {
+                f.deleteSync();
+              } catch (_) {}
             }
           }
         }
@@ -702,11 +709,11 @@ class _PlayerShellState extends State<PlayerShell> {
           final Map<String, String> custom = m.customMetadata;
           if (rgState.mode == ReplayGainMode.album &&
               custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
-            found = double.tryParse(
-                custom['REPLAYGAIN_ALBUM_GAIN']!.replaceAll(RegExp(r'[^\d.-]'), ''));
+            found = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
+                .replaceAll(RegExp(r'[^\d.-]'), ''));
           }
-          found ??= double.tryParse(
-              (custom['REPLAYGAIN_TRACK_GAIN'] ?? '').replaceAll(RegExp(r'[^\d.-]'), ''));
+          found ??= double.tryParse((custom['REPLAYGAIN_TRACK_GAIN'] ?? '')
+              .replaceAll(RegExp(r'[^\d.-]'), ''));
         }
       } catch (_) {}
       try {
@@ -715,14 +722,18 @@ class _PlayerShellState extends State<PlayerShell> {
           if (rgState.mode == ReplayGainMode.album &&
               m.replayGainAlbumGain != null &&
               (m.replayGainAlbumGain as List).isNotEmpty) {
-            found = double.tryParse(
-                (m.replayGainAlbumGain as List).first.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+            found = double.tryParse((m.replayGainAlbumGain as List)
+                .first
+                .toString()
+                .replaceAll(RegExp(r'[^\d.-]'), ''));
           }
           if (found == null &&
               m.replayGainTrackGain != null &&
               (m.replayGainTrackGain as List).isNotEmpty) {
-            found = double.tryParse(
-                (m.replayGainTrackGain as List).first.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+            found = double.tryParse((m.replayGainTrackGain as List)
+                .first
+                .toString()
+                .replaceAll(RegExp(r'[^\d.-]'), ''));
           }
         }
       } catch (_) {}
@@ -781,7 +792,8 @@ class _PlayerShellState extends State<PlayerShell> {
           filePath = _safeFilePathFromUri(uri);
         } else {
           final str = Uri.decodeFull(uri.toString());
-          if (str.startsWith(RegExp(r'^[a-zA-Z]:[\\/]')) || str.startsWith('/')) {
+          if (str.startsWith(RegExp(r'^[a-zA-Z]:[\\/]')) ||
+              str.startsWith('/')) {
             filePath = str;
           }
         }
@@ -802,8 +814,10 @@ class _PlayerShellState extends State<PlayerShell> {
                 for (final f in files) {
                   if (f is File) {
                     final lowerPath = f.path.toLowerCase();
-                    if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || 
-                        lowerPath.endsWith('.png') || lowerPath.endsWith('.webp')) {
+                    if (lowerPath.endsWith('.jpg') ||
+                        lowerPath.endsWith('.jpeg') ||
+                        lowerPath.endsWith('.png') ||
+                        lowerPath.endsWith('.webp')) {
                       albumArt = await f.readAsBytes();
                       break;
                     }
@@ -811,7 +825,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 }
               }
             }
-            
+
             // Extract ReplayGain
             try {
               final dynamic m = metadata;
@@ -819,24 +833,29 @@ class _PlayerShellState extends State<PlayerShell> {
                 // MP3 ID3v2 TXXX
                 final Map<String, String> custom = m.customMetadata;
                 if (custom.containsKey('REPLAYGAIN_TRACK_GAIN')) {
-                  rgTrack = double.tryParse(custom['REPLAYGAIN_TRACK_GAIN']!.replaceAll(RegExp(r'[^\d.-]'), ''));
+                  rgTrack = double.tryParse(custom['REPLAYGAIN_TRACK_GAIN']!
+                      .replaceAll(RegExp(r'[^\d.-]'), ''));
                 }
                 if (custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
-                  rgAlbum = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!.replaceAll(RegExp(r'[^\d.-]'), ''));
+                  rgAlbum = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
+                      .replaceAll(RegExp(r'[^\d.-]'), ''));
                 }
-              }
-            } catch (_) {}
-            
-            try {
-              final dynamic m = metadata;
-              if (m.replayGainTrackGain != null && m.replayGainTrackGain.isNotEmpty) {
-                rgTrack = double.tryParse(m.replayGainTrackGain.first.replaceAll(RegExp(r'[^\d.-]'), ''));
-              }
-              if (m.replayGainAlbumGain != null && m.replayGainAlbumGain.isNotEmpty) {
-                rgAlbum = double.tryParse(m.replayGainAlbumGain.first.replaceAll(RegExp(r'[^\d.-]'), ''));
               }
             } catch (_) {}
 
+            try {
+              final dynamic m = metadata;
+              if (m.replayGainTrackGain != null &&
+                  m.replayGainTrackGain.isNotEmpty) {
+                rgTrack = double.tryParse(m.replayGainTrackGain.first
+                    .replaceAll(RegExp(r'[^\d.-]'), ''));
+              }
+              if (m.replayGainAlbumGain != null &&
+                  m.replayGainAlbumGain.isNotEmpty) {
+                rgAlbum = double.tryParse(m.replayGainAlbumGain.first
+                    .replaceAll(RegExp(r'[^\d.-]'), ''));
+              }
+            } catch (_) {}
           } catch (e) {
             _logs.insert(0, '[metadata] Read error: $e');
           }
@@ -850,12 +869,15 @@ class _PlayerShellState extends State<PlayerShell> {
       }
     }
 
-    _metadata.value = TrackMetadata(artist, albumArt, replayGainTrack: rgTrack, replayGainAlbum: rgAlbum);
+    _metadata.value = TrackMetadata(artist, albumArt,
+        replayGainTrack: rgTrack, replayGainAlbum: rgAlbum);
 
     final idx = _status.value.currentIndex;
     if (idx >= 0 && idx < _currentUiQueue.length) {
       final currentTrack = _currentUiQueue[idx];
-      if (currentTrack.artist == 'Local File' && artist != 'Local File' && artist.isNotEmpty) {
+      if (currentTrack.artist == 'Local File' &&
+          artist != 'Local File' &&
+          artist.isNotEmpty) {
         _currentUiQueue[idx] = TrackInfo(
           videoId: currentTrack.videoId,
           title: currentTrack.title,
@@ -1357,7 +1379,8 @@ class _PlayerShellState extends State<PlayerShell> {
 
     final src = await _materializeSource(uri);
     if (src == null) {
-      _logs.insert(0, '[queue] Failed to materialize source for: ${track.title}');
+      _logs.insert(
+          0, '[queue] Failed to materialize source for: ${track.title}');
       return;
     }
 
@@ -1403,7 +1426,8 @@ class _PlayerShellState extends State<PlayerShell> {
       });
     });
     _saveQueue();
-    _logs.insert(0, '[delete] Removed deleted track from active queue: $filePath');
+    _logs.insert(
+        0, '[delete] Removed deleted track from active queue: $filePath');
   }
 
   /// Plays tracks selected from the Recently Played history list.
@@ -1507,11 +1531,12 @@ class _PlayerShellState extends State<PlayerShell> {
     return 'AUDIO';
   }
 
-  Future<void> _playNetworkFile(String filePath, String title, String artist) async {
+  Future<void> _playNetworkFile(
+      String filePath, String title, String artist) async {
     _isFtpDownloading = false;
     final file = File(filePath);
     final src = AudioSource.file(filePath, title: title, artist: artist);
-    
+
     setState(() {
       _currentUiQueue.clear();
       _currentUiQueue.add(TrackInfo(
@@ -1532,7 +1557,7 @@ class _PlayerShellState extends State<PlayerShell> {
     );
 
     _saveQueue();
-    
+
     final msg = _player.getLastError();
     if (msg.isNotEmpty) {
       _logs.insert(0, '[network-play] $msg');
@@ -1542,7 +1567,8 @@ class _PlayerShellState extends State<PlayerShell> {
     _showNowPlayingScreen();
   }
 
-  Future<void> _playFtpFolder(List<dynamic> dynamicEntries, dynamic config, int initialIndex) async {
+  Future<void> _playFtpFolder(
+      List<dynamic> dynamicEntries, dynamic config, int initialIndex) async {
     final entries = dynamicEntries.cast<FtpFileEntry>();
     final ftpConfig = config as FtpConfig;
 
@@ -1577,9 +1603,10 @@ class _PlayerShellState extends State<PlayerShell> {
           artist: ftpConfig.name,
           thumbnailUrl: null,
         ));
-        _playlist.add(AudioSource.file(cachePath, title: entry.name, artist: ftpConfig.name));
+        _playlist.add(AudioSource.file(cachePath,
+            title: entry.name, artist: ftpConfig.name));
       }
-      
+
       setState(() {});
 
       // Download the initial track so we can start playing immediately
@@ -1589,9 +1616,12 @@ class _PlayerShellState extends State<PlayerShell> {
 
       if (!await initialFile.exists()) {
         messenger.showSnackBar(
-          SnackBar(content: Text('Downloading first track: ${initialEntry.name}...')),
+          SnackBar(
+              content:
+                  Text('Downloading first track: ${initialEntry.name}...')),
         );
-        await FtpService.downloadFile(ftpConfig, initialEntry.path, initialFile);
+        await FtpService.downloadFile(
+            ftpConfig, initialEntry.path, initialFile);
       }
 
       _player.setAudioSources(
@@ -1607,14 +1637,14 @@ class _PlayerShellState extends State<PlayerShell> {
       // Start downloading the rest
       _isFtpDownloading = true;
       _processPendingFtpDownloads(cacheDir, initialIndex);
-
     } catch (e) {
       debugPrint('[NetworkSources] Error playing FTP folder: $e');
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
-  Future<void> _processPendingFtpDownloads(String cacheDir, int startIndex) async {
+  Future<void> _processPendingFtpDownloads(
+      String cacheDir, int startIndex) async {
     if (_activeFtpConfig == null || _pendingFtpDownloads.isEmpty) {
       _isFtpDownloading = false;
       return;
@@ -1626,7 +1656,7 @@ class _PlayerShellState extends State<PlayerShell> {
       downloadQueue.add(_pendingFtpDownloads[i]);
     }
     // We can also download the ones before startIndex if we want, but let's just do forward for now.
-    
+
     for (var entry in downloadQueue) {
       if (!_isFtpDownloading) break; // User cancelled or started another list
 
@@ -1639,7 +1669,8 @@ class _PlayerShellState extends State<PlayerShell> {
 
       try {
         debugPrint('[FTP Download] Background fetching: ${entry.name}');
-        final success = await FtpService.downloadFile(_activeFtpConfig!, entry.path, file);
+        final success =
+            await FtpService.downloadFile(_activeFtpConfig!, entry.path, file);
         if (success) {
           debugPrint('[FTP Download] Finished: ${entry.name}');
         } else {
@@ -1752,240 +1783,246 @@ class _PlayerShellState extends State<PlayerShell> {
       builder: (showContext) {
         _showcaseContext = showContext;
         return Scaffold(
-            // appBar: AppBar(title: const Text('MiniAudio Playlist Demo')),
-            body: IndexedStack(
-              index: _tabIndex,
-              children: [
-                CombinedHomeScreen(
-                  onPlayTracks: _playOnlineTracks,
-                  onGoToDownloads: () {
-                    // Not supported inside CombinedHomeScreen yet without another tab jump, 
-                    // but we can leave it or manage it differently later.
+          // appBar: AppBar(title: const Text('MiniAudio Playlist Demo')),
+          body: IndexedStack(
+            index: _tabIndex,
+            children: [
+              CombinedHomeScreen(
+                onPlayTracks: _playOnlineTracks,
+                onGoToDownloads: () {
+                  // Not supported inside CombinedHomeScreen yet without another tab jump,
+                  // but we can leave it or manage it differently later.
+                },
+                onPlayFolder: _playFolder,
+                onPlayLikedSongs: _playLikedSongs,
+                onQueueTrack: _queueNextTrack,
+                onDeleteTrack: _handleDeletedTrack,
+                player: _player,
+                onPlayNetworkFile: _playNetworkFile,
+                onPlayFtpFolder: _playFtpFolder,
+              ),
+              EffectsScreen(
+                effectsKnobKey: _effectsKnobKey,
+                player: _player,
+                analyzerEnabled: _analyzerEnabled,
+                analyzerType: _analyzerType,
+                analyzerAutoFit: _analyzerAutoFit,
+                analyzerShowGrids: _analyzerShowGrids,
+                analyzerLogScale: _analyzerLogScale,
+                outputSampleRate: _outputSampleRate,
+                spectrumStyle: _spectrumStyle,
+              ),
+              SettingsScreen(
+                  onTriggerShowcase: () => _checkAndShowOnboarding(force: true),
+                  exclusiveMode: _exclusiveMode,
+                  onExclusiveModeChanged: (v) {
+                    setState(() => _exclusiveMode = v);
+                    _saveEngineSettings();
                   },
-                  onPlayFolder: _playFolder,
-                  onPlayLikedSongs: _playLikedSongs,
-                  onQueueTrack: _queueNextTrack,
-                  onDeleteTrack: _handleDeletedTrack,
-                  player: _player,
-                  onPlayNetworkFile: _playNetworkFile,
-                  onPlayFtpFolder: _playFtpFolder,
-                ),
-                EffectsScreen(
-                  effectsKnobKey: _effectsKnobKey,
                   player: _player,
                   analyzerEnabled: _analyzerEnabled,
-                  analyzerType: _analyzerType,
-                  analyzerAutoFit: _analyzerAutoFit,
-                  analyzerShowGrids: _analyzerShowGrids,
-                  analyzerLogScale: _analyzerLogScale,
-                  outputSampleRate: _outputSampleRate,
-                  spectrumStyle: _spectrumStyle,
-                ),
-                SettingsScreen(
-                    onTriggerShowcase: () => _checkAndShowOnboarding(force: true),
-                    exclusiveMode: _exclusiveMode,
-                    onExclusiveModeChanged: (v) {
-                      setState(() => _exclusiveMode = v);
-                      _saveEngineSettings();
-                    },
-                    player: _player,
-                    analyzerEnabled: _analyzerEnabled,
-                    onAnalyzerEnabledChanged: (v) {
-                      setState(() => _analyzerEnabled = v);
-                      _player.setAnalyzerEnabled(v);
-                      _saveEngineSettings();
-                    },
-                    analyzerType: _analyzerType,
-                    onAnalyzerTypeChanged: (v) {
-                      setState(() => _analyzerType = v);
-                      _saveEngineSettings();
-                    },
-                    onPlayNetworkFile: _playNetworkFile,
-                    analyzerAutoFit: _analyzerAutoFit,
-                    onAnalyzerAutoFitChanged: (v) {
-                      setState(() => _analyzerAutoFit = v);
-                      _saveEngineSettings();
-                    },
-                    analyzerShowGrids: _analyzerShowGrids,
-                    onAnalyzerShowGridsChanged: (v) {
-                      setState(() => _analyzerShowGrids = v);
-                      _saveEngineSettings();
-                    },
-                    analyzerLogScale: _analyzerLogScale,
-                    onAnalyzerLogScaleChanged: (v) {
-                      setState(() => _analyzerLogScale = v);
-                      _saveEngineSettings();
-                    },
-                    spectrumStyle: _spectrumStyle,
-                    onSpectrumStyleChanged: (v) {
-                      setState(() => _spectrumStyle = v);
-                      _saveEngineSettings();
-                    },
-                    analyzerSampleSize: _analyzerSampleSize,
-                    onAnalyzerSampleSizeChanged: (v) {
-                      setState(() => _analyzerSampleSize = v);
-                      _player.configureAnalyzer(frameSize: v);
-                      _saveEngineSettings();
-                    },
-                    outputFormat: _outputFormat,
-                    onOutputFormatChanged: (v) {
-                      setState(() => _outputFormat = v);
-                      _saveEngineSettings();
-                    },
-                    outputSampleRate: _outputSampleRate,
-                    onOutputSampleRateChanged: (v) {
-                      setState(() => _outputSampleRate = v);
-                      _saveEngineSettings();
-                    },
-                    outputChannels: _outputChannels,
-                    onOutputChannelsChanged: (v) {
-                      setState(() => _outputChannels = v);
-                      _saveEngineSettings();
-                    },
-                    crossfadeEnabled: _crossfadeEnabled,
-                    onCrossfadeEnabledChanged: (v) {
-                      setState(() => _crossfadeEnabled = v);
-                      _player.setCrossfadeEnabled(v);
-                      _saveEngineSettings();
-                    },
-                    crossfadeDurationMs: _crossfadeDurationMs,
-                    onCrossfadeDurationMsChanged: (v) {
-                      setState(() => _crossfadeDurationMs = v);
-                      _player.setCrossfadeDurationMs(v);
-                      _saveEngineSettings();
-                    },
-                    logs: _logs,
-                    logUpdateNotifier: _logUpdateCounter,
-                    allowInvalidTls: _allowInvalidTlsForDownloads,
-                    onAllowInvalidTlsChanged: (selected) {
-                      setState(() => _allowInvalidTlsForDownloads = selected);
-                      _logs.insert(
-                        0,
-                        selected
-                            ? '[security] Invalid TLS cert acceptance enabled for fallback downloads.'
-                            : '[security] Invalid TLS cert acceptance disabled.',
-                      );
-                      _logUpdateCounter.value++;
-                      _saveEngineSettings();
-                    },
-                    onPollError: () {
-                      final msg = _player.getLastError();
-                      _logs.insert(0, '[poll] ${msg.isEmpty ? "(no error)" : msg}');
-                      _logUpdateCounter.value++;
-                    },
-                    onClearNativeError: () {
-                      _player.clearLastError();
-                      _logs.insert(0, '[action] Cleared native error state');
-                      _logUpdateCounter.value++;
-                    },
-                    onClearLogs: () {
-                      _logs.clear();
-                      _logUpdateCounter.value++;
-                    }),
-              ],
-            ),
-            bottomNavigationBar: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ValueListenableBuilder<PlayerStatus>(
-                  valueListenable: _status,
-                  builder: (context, status, _) {
-                    if (_isLoading) {
-                      return const ShimmerMiniPlayer();
-                    }
-
-                    final idx = status.currentIndex;
-                    if (_playlist.isEmpty || idx < 0 || idx >= _playlist.length) {
-                      return const SizedBox.shrink();
-                    }
-                    final src = _playlist[idx];
-                    final overrideDuration = _durationFromSource(src);
-                    final finalDurationSecs =
-                        (overrideDuration != null && overrideDuration > 0)
-                            ? overrideDuration.toDouble()
-                            : status.durationSeconds;
-
-                    final progress = finalDurationSecs > 0
-                        ? (status.positionSeconds / finalDurationSecs).clamp(0.0, 1.0)
-                        : 0.0;
-
-                    if (_isLoading) {
-                      return const ShimmerMiniPlayer();
-                    }
-                    return ValueListenableBuilder<TrackMetadata>(
-                      valueListenable: _metadata,
-                      builder: (context, meta, _) {
-                        return AppShowcase(
-                          showcaseKey: _miniPlayerKey,
-                          title: 'Interactive Playback',
-                          description: 'Tap to expand full controls, or swipe left/right to skip to next/previous song.',
-                          currentStep: 4,
-                          totalSteps: 5,
-                          child: MiniPlayer(
-                            title: _nameFromSource(src),
-                            artist: meta.artist,
-                            albumArt: meta.albumArt,
-                            progress: progress,
-                            isPlaying: status.isPlaying,
-                            onPlayPause: () {
-                              if (status.isPlaying) {
-                                _player.pause();
-                              } else {
-                                _player.play();
-                              }
-                            },
-                            onNext: () => _player.next(),
-                            onPrevious: () => _player.previous(),
-                            onTap: _showNowPlayingScreen,
-                          ),
-                        );
-                      },
-                    );
+                  onAnalyzerEnabledChanged: (v) {
+                    setState(() => _analyzerEnabled = v);
+                    _player.setAnalyzerEnabled(v);
+                    _saveEngineSettings();
                   },
-                ),
-                NavigationBar(
-                  selectedIndex: _tabIndex,
-                  onDestinationSelected: (i) => setState(() => _tabIndex = i),
-                  destinations: [
-                    AppShowcase(
-                      showcaseKey: _homeTabKey,
-                      title: 'Welcome to SautiPlay',
-                      description: 'Your high-fidelity audio hub. Access local music library, online search & network sources (FTP & DLNA).',
-                      currentStep: 1,
-                      totalSteps: 4,
-                      child: const NavigationDestination(
-                        icon: Icon(Icons.home_rounded),
-                        label: 'Home',
-                      ),
+                  analyzerType: _analyzerType,
+                  onAnalyzerTypeChanged: (v) {
+                    setState(() => _analyzerType = v);
+                    _saveEngineSettings();
+                  },
+                  onPlayNetworkFile: _playNetworkFile,
+                  analyzerAutoFit: _analyzerAutoFit,
+                  onAnalyzerAutoFitChanged: (v) {
+                    setState(() => _analyzerAutoFit = v);
+                    _saveEngineSettings();
+                  },
+                  analyzerShowGrids: _analyzerShowGrids,
+                  onAnalyzerShowGridsChanged: (v) {
+                    setState(() => _analyzerShowGrids = v);
+                    _saveEngineSettings();
+                  },
+                  analyzerLogScale: _analyzerLogScale,
+                  onAnalyzerLogScaleChanged: (v) {
+                    setState(() => _analyzerLogScale = v);
+                    _saveEngineSettings();
+                  },
+                  spectrumStyle: _spectrumStyle,
+                  onSpectrumStyleChanged: (v) {
+                    setState(() => _spectrumStyle = v);
+                    _saveEngineSettings();
+                  },
+                  analyzerSampleSize: _analyzerSampleSize,
+                  onAnalyzerSampleSizeChanged: (v) {
+                    setState(() => _analyzerSampleSize = v);
+                    _player.configureAnalyzer(frameSize: v);
+                    _saveEngineSettings();
+                  },
+                  outputFormat: _outputFormat,
+                  onOutputFormatChanged: (v) {
+                    setState(() => _outputFormat = v);
+                    _saveEngineSettings();
+                  },
+                  outputSampleRate: _outputSampleRate,
+                  onOutputSampleRateChanged: (v) {
+                    setState(() => _outputSampleRate = v);
+                    _saveEngineSettings();
+                  },
+                  outputChannels: _outputChannels,
+                  onOutputChannelsChanged: (v) {
+                    setState(() => _outputChannels = v);
+                    _saveEngineSettings();
+                  },
+                  crossfadeEnabled: _crossfadeEnabled,
+                  onCrossfadeEnabledChanged: (v) {
+                    setState(() => _crossfadeEnabled = v);
+                    _player.setCrossfadeEnabled(v);
+                    _saveEngineSettings();
+                  },
+                  crossfadeDurationMs: _crossfadeDurationMs,
+                  onCrossfadeDurationMsChanged: (v) {
+                    setState(() => _crossfadeDurationMs = v);
+                    _player.setCrossfadeDurationMs(v);
+                    _saveEngineSettings();
+                  },
+                  logs: _logs,
+                  logUpdateNotifier: _logUpdateCounter,
+                  allowInvalidTls: _allowInvalidTlsForDownloads,
+                  onAllowInvalidTlsChanged: (selected) {
+                    setState(() => _allowInvalidTlsForDownloads = selected);
+                    _logs.insert(
+                      0,
+                      selected
+                          ? '[security] Invalid TLS cert acceptance enabled for fallback downloads.'
+                          : '[security] Invalid TLS cert acceptance disabled.',
+                    );
+                    _logUpdateCounter.value++;
+                    _saveEngineSettings();
+                  },
+                  onPollError: () {
+                    final msg = _player.getLastError();
+                    _logs.insert(
+                        0, '[poll] ${msg.isEmpty ? "(no error)" : msg}');
+                    _logUpdateCounter.value++;
+                  },
+                  onClearNativeError: () {
+                    _player.clearLastError();
+                    _logs.insert(0, '[action] Cleared native error state');
+                    _logUpdateCounter.value++;
+                  },
+                  onClearLogs: () {
+                    _logs.clear();
+                    _logUpdateCounter.value++;
+                  }),
+            ],
+          ),
+          bottomNavigationBar: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<PlayerStatus>(
+                valueListenable: _status,
+                builder: (context, status, _) {
+                  if (_isLoading) {
+                    return const ShimmerMiniPlayer();
+                  }
+
+                  final idx = status.currentIndex;
+                  if (_playlist.isEmpty || idx < 0 || idx >= _playlist.length) {
+                    return const SizedBox.shrink();
+                  }
+                  final src = _playlist[idx];
+                  final overrideDuration = _durationFromSource(src);
+                  final finalDurationSecs =
+                      (overrideDuration != null && overrideDuration > 0)
+                          ? overrideDuration.toDouble()
+                          : status.durationSeconds;
+
+                  final progress = finalDurationSecs > 0
+                      ? (status.positionSeconds / finalDurationSecs)
+                          .clamp(0.0, 1.0)
+                      : 0.0;
+
+                  if (_isLoading) {
+                    return const ShimmerMiniPlayer();
+                  }
+                  return ValueListenableBuilder<TrackMetadata>(
+                    valueListenable: _metadata,
+                    builder: (context, meta, _) {
+                      return AppShowcase(
+                        showcaseKey: _miniPlayerKey,
+                        title: 'Interactive Playback',
+                        description:
+                            'Tap to expand full controls, or swipe left/right to skip to next/previous song.',
+                        currentStep: 4,
+                        totalSteps: 5,
+                        child: MiniPlayer(
+                          title: _nameFromSource(src),
+                          artist: meta.artist,
+                          albumArt: meta.albumArt,
+                          progress: progress,
+                          isPlaying: status.isPlaying,
+                          onPlayPause: () {
+                            if (status.isPlaying) {
+                              _player.pause();
+                            } else {
+                              _player.play();
+                            }
+                          },
+                          onNext: () => _player.next(),
+                          onPrevious: () => _player.previous(),
+                          onTap: _showNowPlayingScreen,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+              NavigationBar(
+                selectedIndex: _tabIndex,
+                onDestinationSelected: (i) => setState(() => _tabIndex = i),
+                destinations: [
+                  AppShowcase(
+                    showcaseKey: _homeTabKey,
+                    title: 'Welcome to SautiPlay',
+                    description:
+                        'Your high-fidelity audio hub. Access local music library, online search & network sources (FTP & DLNA).',
+                    currentStep: 1,
+                    totalSteps: 4,
+                    child: const NavigationDestination(
+                      icon: Icon(Icons.home_rounded),
+                      label: 'Home',
                     ),
-                    AppShowcase(
-                      showcaseKey: _effectsTabKey,
-                      title: 'ViPER DSP & EQ',
-                      description: 'Tailor your sound with 10-band EQ, ViPER effects & real-time spectrum visualizers.',
-                      currentStep: 2,
-                      totalSteps: 4,
-                      child: const NavigationDestination(
-                        icon: Icon(Icons.tune),
-                        label: 'Effects',
-                      ),
+                  ),
+                  AppShowcase(
+                    showcaseKey: _effectsTabKey,
+                    title: 'ViPER DSP & EQ',
+                    description:
+                        'Tailor your sound with 10-band EQ, ViPER effects & real-time spectrum visualizers.',
+                    currentStep: 2,
+                    totalSteps: 4,
+                    child: const NavigationDestination(
+                      icon: Icon(Icons.tune),
+                      label: 'Effects',
                     ),
-                    AppShowcase(
-                      showcaseKey: _settingsTabKey,
-                      title: 'Settings & Customization',
-                      description: 'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
-                      currentStep: 4,
-                      totalSteps: 4,
-                      child: const NavigationDestination(
-                        icon: Icon(Icons.settings),
-                        label: 'Settings',
-                      ),
+                  ),
+                  AppShowcase(
+                    showcaseKey: _settingsTabKey,
+                    title: 'Settings & Customization',
+                    description:
+                        'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
+                    currentStep: 4,
+                    totalSteps: 4,
+                    child: const NavigationDestination(
+                      icon: Icon(Icons.settings),
+                      label: 'Settings',
                     ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

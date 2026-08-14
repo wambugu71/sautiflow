@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'isolate_player.dart';
 import 'eq_screen.dart';
 import 'services/app_state_service.dart';
@@ -15,7 +17,8 @@ import 'services/autoeq_parser.dart';
 Color get primaryColor => AppThemeService.instance.currentData.primary;
 Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
 Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
-Color get surfaceDarkerColor => AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.8);
+Color get surfaceDarkerColor =>
+    AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.8);
 
 class ViperFxScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -937,20 +940,33 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: primaryColor,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
-        ),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+      child: Row(
+        children: [
+          M3EContainer(
+            Shapes.pill,
+            width: 8,
+            height: 8,
+            color: primaryColor,
+            child: const SizedBox.shrink(),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              color: primaryColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildEffectTileCard({
+    required Shapes shape,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -958,95 +974,58 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     ValueChanged<bool>? onToggle,
     required VoidCallback onTapDetail,
   }) {
-    return Card(
-      color: surfaceDarkColor,
-      elevation: 0,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
+    return M3EListItem(
+      headline: title,
+      supportingText: subtitle,
+      leading: M3EContainer(
+        shape,
+        width: 42,
+        height: 42,
+        color: isEnabled
+            ? primaryColor.withValues(alpha: 0.18)
+            : Colors.white.withValues(alpha: 0.05),
+        border: BorderSide(
           color: isEnabled
-              ? primaryColor.withValues(alpha: 0.35)
-              : Colors.white.withValues(alpha: 0.06),
+              ? primaryColor.withValues(alpha: 0.45)
+              : Colors.white.withValues(alpha: 0.08),
           width: 1,
         ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTapDetail,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: isEnabled
-                      ? primaryColor.withValues(alpha: 0.18)
-                      : Colors.white.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  color: isEnabled ? primaryColor : Colors.white54,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: isEnabled
-                            ? primaryColor.withValues(alpha: 0.85)
-                            : Colors.white38,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (onToggle != null) ...[
-                Switch(
-                  value: isEnabled,
-                  onChanged: onToggle,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-                const SizedBox(width: 4),
-              ],
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.white38,
-                size: 20,
-              ),
-            ],
+        child: Center(
+          child: Icon(
+            icon,
+            color: isEnabled ? primaryColor : Colors.white54,
+            size: 20,
           ),
         ),
       ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onToggle != null) ...[
+            M3ESwitch(
+              value: isEnabled,
+              onChanged: onToggle,
+            ),
+            const SizedBox(width: 6),
+          ],
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.white38,
+            size: 22,
+          ),
+        ],
+      ),
+      onTap: onTapDetail,
     );
   }
 
   void _openDetailScreen(
-      String title, IconData icon, WidgetBuilder contentBuilder) {
+      String title, Shapes shape, IconData icon, WidgetBuilder contentBuilder) {
     Navigator.push(
       context,
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 260),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 240),
         pageBuilder: (context, animation, secondaryAnimation) {
           return StatefulBuilder(
             builder: (context, setSubState) {
@@ -1056,8 +1035,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 appBar: AppBar(
                   backgroundColor: surfaceDarkerColor,
                   elevation: 0,
-                  leading: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  leading: M3EIconButton(
+                    icon: const Icon(Icons.arrow_back_rounded,
+                        color: Colors.white),
+                    variant: M3EIconButtonVariant.standard,
                     onPressed: () {
                       _subScreenSetState = null;
                       Navigator.pop(context);
@@ -1065,8 +1046,20 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   ),
                   title: Row(
                     children: [
-                      Icon(icon, color: primaryColor, size: 20),
-                      const SizedBox(width: 10),
+                      M3EContainer(
+                        shape,
+                        width: 32,
+                        height: 32,
+                        color: primaryColor.withValues(alpha: 0.18),
+                        border: BorderSide(
+                          color: primaryColor.withValues(alpha: 0.4),
+                          width: 1,
+                        ),
+                        child: Center(
+                          child: Icon(icon, color: primaryColor, size: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
                       Text(
                         title,
                         style: const TextStyle(
@@ -1078,7 +1071,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     ],
                   ),
                 ),
-                body: contentBuilder(context),
+                body: RepaintBoundary(
+                  child: contentBuilder(context),
+                ),
               );
             },
           );
@@ -1091,13 +1086,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
           );
 
           final slideAnimation = Tween<Offset>(
-            begin: const Offset(0.06, 0.0),
+            begin: const Offset(0.05, 0.0),
             end: Offset.zero,
-          ).animate(curveAnimation);
-
-          final scaleAnimation = Tween<double>(
-            begin: 0.96,
-            end: 1.0,
           ).animate(curveAnimation);
 
           final fadeAnimation = Tween<double>(
@@ -1107,12 +1097,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
           return SlideTransition(
             position: slideAnimation,
-            child: ScaleTransition(
-              scale: scaleAnimation,
-              child: FadeTransition(
-                opacity: fadeAnimation,
-                child: child,
-              ),
+            child: FadeTransition(
+              opacity: fadeAnimation,
+              child: child,
             ),
           );
         },
@@ -1132,174 +1119,376 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         children: [
           // Top Master Enable Switch
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Enable ViPER DSP',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: M3ECard(
+              variant: M3ECardVariant.filled,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        M3EContainer(
+                          Shapes.c4SidedCookie,
+                          width: 44,
+                          height: 44,
+                          color: primaryColor.withValues(alpha: 0.18),
+                          border: BorderSide(
+                            color: primaryColor.withValues(alpha: 0.4),
+                            width: 1.0,
+                          ),
+                          child: Center(
+                            child: Icon(Icons.graphic_eq_rounded,
+                                color: primaryColor, size: 22),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'ViPER4Android DSP',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _viperEnabled
+                                  ? 'DSP Pipeline Active'
+                                  : 'Master Bypassed',
+                              style: TextStyle(
+                                color: _viperEnabled
+                                    ? primaryColor.withValues(alpha: 0.9)
+                                    : Colors.white38,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    M3ESwitch(
+                      value: _viperEnabled,
+                      onChanged: _toggleMaster,
+                    ),
+                  ],
                 ),
-                Switch(
-                  value: _viperEnabled,
-                  onChanged: _toggleMaster,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
+              ),
             ),
           ),
           // Grouped List View Hub
-
           Expanded(
             child: ListView(
               padding: const EdgeInsets.only(bottom: 120),
               children: [
                 // Section 1: Core Output & Gain Controls
                 _buildSectionHeader('Core Output & Gain'),
-                _buildEffectTileCard(
-                  icon: Icons.tune,
-                  title: 'Core & Limits',
-                  subtitle:
-                      _viperEnabled ? 'Master Limiter, AGC & LUFS' : 'Disabled',
-                  isEnabled: _viperEnabled,
-                  onToggle: _toggleMaster,
-                  onTapDetail: () => _openDetailScreen(
-                      'Core & Limits', Icons.tune, (_) => _buildDeckViews()[0]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECardList(
+                    itemCount: 1,
+                    onTap: (index) {
+                      _openDetailScreen(
+                        'Core & Limits',
+                        Shapes.gem,
+                        Icons.tune,
+                        (_) => _buildDeckViews()[0],
+                      );
+                    },
+                    itemBuilder: (context, index) {
+                      return _buildEffectTileCard(
+                        shape: Shapes.gem,
+                        icon: Icons.tune,
+                        title: 'Core & Limits',
+                        subtitle: _viperEnabled
+                            ? 'Master Limiter, AGC & LUFS'
+                            : 'Disabled',
+                        isEnabled: _viperEnabled,
+                        onToggle: _toggleMaster,
+                        onTapDetail: () => _openDetailScreen(
+                            'Core & Limits',
+                            Shapes.gem,
+                            Icons.tune,
+                            (_) => _buildDeckViews()[0]),
+                      );
+                    },
+                  ),
                 ),
 
                 // Section 2: VIPRR System & Dynamics
                 _buildSectionHeader('VIPRR System & Dynamics'),
-                _buildEffectTileCard(
-                  icon: Icons.bolt,
-                  title: 'VIPRR Dynamic System',
-                  subtitle: _dynamicSystemEnabled
-                      ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%'
-                      : 'Disabled',
-                  isEnabled: _dynamicSystemEnabled,
-                  onToggle: (v) {
-                    setState(() => _dynamicSystemEnabled = v);
-                    _updateEngine();
-                  },
-                  onTapDetail: () => _openDetailScreen('VIPRR Dynamic System',
-                      Icons.bolt, (_) => _buildDeckViews()[1]),
-                ),
-                _buildEffectTileCard(
-                  icon: Icons.compress,
-                  title: 'Dynamics & Compressors',
-                  subtitle:
-                      (_multibandCompressorEnabled || _fetCompressorEnabled)
-                          ? '5-Band & FET Active'
-                          : 'Disabled',
-                  isEnabled:
-                      _multibandCompressorEnabled || _fetCompressorEnabled,
-                  onTapDetail: () => _openDetailScreen('Dynamics & Compressors',
-                      Icons.compress, (_) => _buildDeckViews()[2]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECardList(
+                    itemCount: 2,
+                    onTap: (index) {
+                      switch (index) {
+                        case 0:
+                          _openDetailScreen(
+                              'VIPRR Dynamic System',
+                              Shapes.boom,
+                              Icons.bolt,
+                              (_) => _buildDeckViews()[1]);
+                          break;
+                        case 1:
+                          _openDetailScreen(
+                              'Dynamics & Compressors',
+                              Shapes.diamond,
+                              Icons.compress,
+                              (_) => _buildDeckViews()[2]);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return _buildEffectTileCard(
+                          shape: Shapes.boom,
+                          icon: Icons.bolt,
+                          title: 'VIPRR Dynamic System',
+                          subtitle: _dynamicSystemEnabled
+                              ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%'
+                              : 'Disabled',
+                          isEnabled: _dynamicSystemEnabled,
+                          onToggle: (v) {
+                            setState(() => _dynamicSystemEnabled = v);
+                            _updateEngine();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                              'VIPRR Dynamic System',
+                              Shapes.boom,
+                              Icons.bolt,
+                              (_) => _buildDeckViews()[1]),
+                        );
+                      }
+                      return _buildEffectTileCard(
+                        shape: Shapes.diamond,
+                        icon: Icons.compress,
+                        title: 'Dynamics & Compressors',
+                        subtitle:
+                            (_multibandCompressorEnabled || _fetCompressorEnabled)
+                                ? '5-Band & FET Active'
+                                : 'Disabled',
+                        isEnabled: _multibandCompressorEnabled ||
+                            _fetCompressorEnabled,
+                        onTapDetail: () => _openDetailScreen(
+                            'Dynamics & Compressors',
+                            Shapes.diamond,
+                            Icons.compress,
+                            (_) => _buildDeckViews()[2]),
+                      );
+                    },
+                  ),
                 ),
 
                 // Section 3: Bass & Clarity Enhancement
                 _buildSectionHeader('Bass & Clarity Enhancement'),
-                _buildEffectTileCard(
-                  icon: Icons.equalizer,
-                  title: 'Bass & Clarity Engine',
-                  subtitle: (_bassEnabled ||
-                          _bassMonoEnabled ||
-                          _psychoBassEnabled ||
-                          _clarityEnabled ||
-                          _spectrumEnabled)
-                      ? 'Active'
-                      : 'Disabled',
-                  isEnabled: _bassEnabled ||
-                      _bassMonoEnabled ||
-                      _psychoBassEnabled ||
-                      _clarityEnabled ||
-                      _spectrumEnabled,
-                  onTapDetail: () => _openDetailScreen('Bass & Clarity Engine',
-                      Icons.equalizer, (_) => _buildDeckViews()[3]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECardList(
+                    itemCount: 1,
+                    onTap: (index) {
+                      _openDetailScreen(
+                          'Bass & Clarity Engine',
+                          Shapes.burst,
+                          Icons.equalizer,
+                          (_) => _buildDeckViews()[3]);
+                    },
+                    itemBuilder: (context, index) {
+                      return _buildEffectTileCard(
+                        shape: Shapes.burst,
+                        icon: Icons.equalizer,
+                        title: 'Bass & Clarity Engine',
+                        subtitle: (_bassEnabled ||
+                                _bassMonoEnabled ||
+                                _psychoBassEnabled ||
+                                _clarityEnabled ||
+                                _spectrumEnabled)
+                            ? 'Active'
+                            : 'Disabled',
+                        isEnabled: _bassEnabled ||
+                            _bassMonoEnabled ||
+                            _psychoBassEnabled ||
+                            _clarityEnabled ||
+                            _spectrumEnabled,
+                        onTapDetail: () => _openDetailScreen(
+                            'Bass & Clarity Engine',
+                            Shapes.burst,
+                            Icons.equalizer,
+                            (_) => _buildDeckViews()[3]),
+                      );
+                    },
+                  ),
                 ),
 
                 // Section 4: Spatial & Surround Sound
                 _buildSectionHeader('Spatial & Surround Sound'),
-                _buildEffectTileCard(
-                  icon: Icons.surround_sound,
-                  title: 'Spatial & Surround Engine',
-                  subtitle: (_stereoImagerEnabled ||
-                          _cureEnabled ||
-                          _headphoneSurroundEnabled ||
-                          _fieldSurroundEnabled ||
-                          _diffSurroundEnabled)
-                      ? 'Active'
-                      : 'Disabled',
-                  isEnabled: _stereoImagerEnabled ||
-                      _cureEnabled ||
-                      _headphoneSurroundEnabled ||
-                      _fieldSurroundEnabled ||
-                      _diffSurroundEnabled,
-                  onTapDetail: () => _openDetailScreen(
-                      'Spatial & Surround Engine',
-                      Icons.surround_sound,
-                      (_) => _buildDeckViews()[4]),
-                ),
-                _buildEffectTileCard(
-                  icon: Icons.meeting_room,
-                  title: 'ViPER Reverb',
-                  subtitle: _reverbEnabled
-                      ? 'Room: ${(_reverbRoom * 100).toInt()}%'
-                      : 'Disabled',
-                  isEnabled: _reverbEnabled,
-                  onToggle: (v) {
-                    setState(() => _reverbEnabled = v);
-                    _updateEngine();
-                  },
-                  onTapDetail: () => _openDetailScreen('ViPER Reverb',
-                      Icons.meeting_room, (_) => _buildDeckViews()[5]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECardList(
+                    itemCount: 2,
+                    onTap: (index) {
+                      switch (index) {
+                        case 0:
+                          _openDetailScreen(
+                              'Spatial & Surround Engine',
+                              Shapes.softBoom,
+                              Icons.surround_sound,
+                              (_) => _buildDeckViews()[4]);
+                          break;
+                        case 1:
+                          _openDetailScreen(
+                              'ViPER Reverb',
+                              Shapes.arch,
+                              Icons.meeting_room,
+                              (_) => _buildDeckViews()[5]);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return _buildEffectTileCard(
+                          shape: Shapes.softBoom,
+                          icon: Icons.surround_sound,
+                          title: 'Spatial & Surround Engine',
+                          subtitle: (_stereoImagerEnabled ||
+                                  _cureEnabled ||
+                                  _headphoneSurroundEnabled ||
+                                  _fieldSurroundEnabled ||
+                                  _diffSurroundEnabled)
+                              ? 'Active'
+                              : 'Disabled',
+                          isEnabled: _stereoImagerEnabled ||
+                              _cureEnabled ||
+                              _headphoneSurroundEnabled ||
+                              _fieldSurroundEnabled ||
+                              _diffSurroundEnabled,
+                          onTapDetail: () => _openDetailScreen(
+                              'Spatial & Surround Engine',
+                              Shapes.softBoom,
+                              Icons.surround_sound,
+                              (_) => _buildDeckViews()[4]),
+                        );
+                      }
+                      return _buildEffectTileCard(
+                        shape: Shapes.arch,
+                        icon: Icons.meeting_room,
+                        title: 'ViPER Reverb',
+                        subtitle: _reverbEnabled
+                            ? 'Room: ${(_reverbRoom * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _reverbEnabled,
+                        onToggle: (v) {
+                          setState(() => _reverbEnabled = v);
+                          _updateEngine();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                            'ViPER Reverb',
+                            Shapes.arch,
+                            Icons.meeting_room,
+                            (_) => _buildDeckViews()[5]),
+                      );
+                    },
+                  ),
                 ),
 
                 // Section 5: Equalization, Impulse & Emulation
                 _buildSectionHeader('EQ, Impulse & Emulation'),
-                _buildEffectTileCard(
-                  icon: Icons.show_chart,
-                  title: 'Dynamic EQ & FIR Filter',
-                  subtitle:
-                      (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled)
-                          ? 'Active'
-                          : 'Disabled',
-                  isEnabled:
-                      _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
-                  onTapDetail: () => _openDetailScreen(
-                      'Dynamic EQ & FIR Filter',
-                      Icons.show_chart,
-                      (_) => _buildDeckViews()[6]),
-                ),
-                _buildEffectTileCard(
-                  icon: Icons.graphic_eq,
-                  title: 'Convolver & DDC Loader',
-                  subtitle: (_convolverEnabled || _ddcEnabled)
-                      ? 'Impulse / DDC Active'
-                      : 'Disabled',
-                  isEnabled: _convolverEnabled || _ddcEnabled,
-                  onTapDetail: () => _openDetailScreen('Convolver & DDC Loader',
-                      Icons.graphic_eq, (_) => _buildDeckViews()[7]),
-                ),
-                _buildEffectTileCard(
-                  icon: Icons.album,
-                  title: 'AnalogX & Tube Simulator',
-                  subtitle: (_tubeEnabled ||
-                          _analogXEnabled ||
-                          _speakerCorrectionEnabled)
-                      ? 'Tube/AnalogX Active'
-                      : 'Disabled',
-                  isEnabled: _tubeEnabled ||
-                      _analogXEnabled ||
-                      _speakerCorrectionEnabled,
-                  onTapDetail: () => _openDetailScreen(
-                      'AnalogX & Tube Simulator',
-                      Icons.album,
-                      (_) => _buildDeckViews()[8]),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECardList(
+                    itemCount: 3,
+                    onTap: (index) {
+                      switch (index) {
+                        case 0:
+                          _openDetailScreen(
+                              'Dynamic EQ & FIR Filter',
+                              Shapes.slanted,
+                              Icons.show_chart,
+                              (_) => _buildDeckViews()[6]);
+                          break;
+                        case 1:
+                          _openDetailScreen(
+                              'Convolver & DDC Loader',
+                              Shapes.l4LeafClover,
+                              Icons.graphic_eq,
+                              (_) => _buildDeckViews()[7]);
+                          break;
+                        case 2:
+                          _openDetailScreen(
+                              'AnalogX & Tube Simulator',
+                              Shapes.circle,
+                              Icons.album,
+                              (_) => _buildDeckViews()[8]);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return _buildEffectTileCard(
+                          shape: Shapes.slanted,
+                          icon: Icons.show_chart,
+                          title: 'Dynamic EQ & FIR Filter',
+                          subtitle:
+                              (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled)
+                                  ? 'Active'
+                                  : 'Disabled',
+                          isEnabled:
+                              _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
+                          onTapDetail: () => _openDetailScreen(
+                              'Dynamic EQ & FIR Filter',
+                              Shapes.slanted,
+                              Icons.show_chart,
+                              (_) => _buildDeckViews()[6]),
+                        );
+                      }
+                      if (index == 1) {
+                        return _buildEffectTileCard(
+                          shape: Shapes.l4LeafClover,
+                          icon: Icons.graphic_eq,
+                          title: 'Convolver & DDC Loader',
+                          subtitle: (_convolverEnabled || _ddcEnabled)
+                              ? 'Impulse / DDC Active'
+                              : 'Disabled',
+                          isEnabled: _convolverEnabled || _ddcEnabled,
+                          onTapDetail: () => _openDetailScreen(
+                              'Convolver & DDC Loader',
+                              Shapes.l4LeafClover,
+                              Icons.graphic_eq,
+                              (_) => _buildDeckViews()[7]),
+                        );
+                      }
+                      return _buildEffectTileCard(
+                        shape: Shapes.circle,
+                        icon: Icons.album,
+                        title: 'AnalogX & Tube Simulator',
+                        subtitle: (_tubeEnabled ||
+                                _analogXEnabled ||
+                                _speakerCorrectionEnabled)
+                            ? 'Tube/AnalogX Active'
+                            : 'Disabled',
+                        isEnabled: _tubeEnabled ||
+                            _analogXEnabled ||
+                            _speakerCorrectionEnabled,
+                        onTapDetail: () => _openDetailScreen(
+                            'AnalogX & Tube Simulator',
+                            Shapes.circle,
+                            Icons.album,
+                            (_) => _buildDeckViews()[8]),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -1491,36 +1680,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Slow',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Normal',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Fast',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Slow'),
+                            M3ESegment(value: 1, label: 'Normal'),
+                            M3ESegment(value: 2, label: 'Fast'),
                           ],
                           selected: {_lufsSpeed},
-                          onSelectionChanged: _viperEnabled && _lufsEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _lufsSpeed = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _lufsEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _lufsSpeed = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -1563,35 +1737,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Natural',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Mild',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Punchy',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Natural'),
+                            M3ESegment(value: 1, label: 'Mild'),
+                            M3ESegment(value: 2, label: 'Punchy'),
                           ],
                           selected: {_alcMode},
-                          onSelectionChanged: _viperEnabled && _alcEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(() => _alcMode = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _alcEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _alcMode = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -1615,112 +1775,113 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     const Text('Preset',
                         style: TextStyle(color: Colors.white70, fontSize: 11)),
                     const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white10),
-                      ),
-                      child: DropdownButton<int>(
-                        value: _dynPreset,
-                        dropdownColor: surfaceDarkColor,
-                        isExpanded: true,
-                        underline: const SizedBox(),
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 12),
-                        onChanged: _viperEnabled && _dynamicSystemEnabled
-                            ? (int? newValue) {
-                                if (newValue != null) {
-                                  setState(() {
-                                    _dynPreset = newValue;
-                                    switch (newValue) {
-                                      case 1:
-                                        _dynXLow = 30;
-                                        _dynXHigh = 50;
-                                        _dynYLow = 80;
-                                        _dynYHigh = 120;
-                                        _dynSideGainLow = 1.2;
-                                        _dynSideGainHigh = 1.0;
-                                        break;
-                                      case 2:
-                                        _dynXLow = 40;
-                                        _dynXHigh = 60;
-                                        _dynYLow = 100;
-                                        _dynYHigh = 150;
-                                        _dynSideGainLow = 1.3;
-                                        _dynSideGainHigh = 1.1;
-                                        break;
-                                      case 3:
-                                        _dynXLow = 50;
-                                        _dynXHigh = 70;
-                                        _dynYLow = 120;
-                                        _dynYHigh = 170;
-                                        _dynSideGainLow = 1.4;
-                                        _dynSideGainHigh = 1.2;
-                                        break;
-                                      case 4:
-                                        _dynXLow = 60;
-                                        _dynXHigh = 80;
-                                        _dynYLow = 140;
-                                        _dynYHigh = 190;
-                                        _dynSideGainLow = 1.5;
-                                        _dynSideGainHigh = 1.3;
-                                        break;
-                                      case 5:
-                                        _dynXLow = 60;
-                                        _dynXHigh = 100;
-                                        _dynYLow = 150;
-                                        _dynYHigh = 200;
-                                        _dynSideGainLow = 1.8;
-                                        _dynSideGainHigh = 1.5;
-                                        break;
-                                      case 6:
-                                        _dynXLow = 40;
-                                        _dynXHigh = 70;
-                                        _dynYLow = 100;
-                                        _dynYHigh = 150;
-                                        _dynSideGainLow = 1.5;
-                                        _dynSideGainHigh = 1.2;
-                                        break;
-                                      case 7:
-                                        _dynXLow = 30;
-                                        _dynXHigh = 50;
-                                        _dynYLow = 80;
-                                        _dynYHigh = 120;
-                                        _dynSideGainLow = 1.2;
-                                        _dynSideGainHigh = 1.0;
-                                        break;
-                                      case 8:
-                                        _dynXLow = 20;
-                                        _dynXHigh = 40;
-                                        _dynYLow = 60;
-                                        _dynYHigh = 100;
-                                        _dynSideGainLow = 2.0;
-                                        _dynSideGainHigh = 1.5;
-                                        break;
-                                    }
-                                  });
-                                  _updateEngine();
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 2),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _dynPreset,
+                          dropdownColor: surfaceDarkColor,
+                          isExpanded: true,
+                          icon: Icon(Icons.arrow_drop_down_rounded,
+                              color: primaryColor),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
+                          onChanged: _viperEnabled && _dynamicSystemEnabled
+                              ? (int? newValue) {
+                                  if (newValue != null) {
+                                    setState(() {
+                                      _dynPreset = newValue;
+                                      switch (newValue) {
+                                        case 1:
+                                          _dynXLow = 30;
+                                          _dynXHigh = 50;
+                                          _dynYLow = 80;
+                                          _dynYHigh = 120;
+                                          _dynSideGainLow = 1.2;
+                                          _dynSideGainHigh = 1.0;
+                                          break;
+                                        case 2:
+                                          _dynXLow = 40;
+                                          _dynXHigh = 60;
+                                          _dynYLow = 100;
+                                          _dynYHigh = 150;
+                                          _dynSideGainLow = 1.3;
+                                          _dynSideGainHigh = 1.1;
+                                          break;
+                                        case 3:
+                                          _dynXLow = 50;
+                                          _dynXHigh = 70;
+                                          _dynYLow = 120;
+                                          _dynYHigh = 170;
+                                          _dynSideGainLow = 1.4;
+                                          _dynSideGainHigh = 1.2;
+                                          break;
+                                        case 4:
+                                          _dynXLow = 60;
+                                          _dynXHigh = 80;
+                                          _dynYLow = 140;
+                                          _dynYHigh = 190;
+                                          _dynSideGainLow = 1.5;
+                                          _dynSideGainHigh = 1.3;
+                                          break;
+                                        case 5:
+                                          _dynXLow = 60;
+                                          _dynXHigh = 100;
+                                          _dynYLow = 150;
+                                          _dynYHigh = 200;
+                                          _dynSideGainLow = 1.8;
+                                          _dynSideGainHigh = 1.5;
+                                          break;
+                                        case 6:
+                                          _dynXLow = 40;
+                                          _dynXHigh = 70;
+                                          _dynYLow = 100;
+                                          _dynYHigh = 150;
+                                          _dynSideGainLow = 1.5;
+                                          _dynSideGainHigh = 1.2;
+                                          break;
+                                        case 7:
+                                          _dynXLow = 30;
+                                          _dynXHigh = 50;
+                                          _dynYLow = 80;
+                                          _dynYHigh = 120;
+                                          _dynSideGainLow = 1.2;
+                                          _dynSideGainHigh = 1.0;
+                                          break;
+                                        case 8:
+                                          _dynXLow = 20;
+                                          _dynXHigh = 40;
+                                          _dynYLow = 60;
+                                          _dynYHigh = 100;
+                                          _dynSideGainLow = 2.0;
+                                          _dynSideGainHigh = 1.5;
+                                          break;
+                                      }
+                                    });
+                                    _updateEngine();
+                                  }
                                 }
-                              }
-                            : null,
-                        items: const [
-                          DropdownMenuItem(value: 0, child: Text('Custom')),
-                          DropdownMenuItem(
-                              value: 1, child: Text('Unknown Type I')),
-                          DropdownMenuItem(
-                              value: 2, child: Text('Unknown Type II')),
-                          DropdownMenuItem(
-                              value: 3, child: Text('Unknown Type III')),
-                          DropdownMenuItem(
-                              value: 4, child: Text('Unknown Type IV')),
-                          DropdownMenuItem(value: 5, child: Text('Earbud')),
-                          DropdownMenuItem(value: 6, child: Text('In-Ear')),
-                          DropdownMenuItem(value: 7, child: Text('Over-Ear')),
-                          DropdownMenuItem(
-                              value: 8, child: Text('Extreme Headphone')),
-                        ],
+                              : null,
+                          items: const [
+                            DropdownMenuItem(value: 0, child: Text('Custom')),
+                            DropdownMenuItem(
+                                value: 1, child: Text('Unknown Type I')),
+                            DropdownMenuItem(
+                                value: 2, child: Text('Unknown Type II')),
+                            DropdownMenuItem(
+                                value: 3, child: Text('Unknown Type III')),
+                            DropdownMenuItem(
+                                value: 4, child: Text('Unknown Type IV')),
+                            DropdownMenuItem(value: 5, child: Text('Earbud')),
+                            DropdownMenuItem(value: 6, child: Text('In-Ear')),
+                            DropdownMenuItem(value: 7, child: Text('Over-Ear')),
+                            DropdownMenuItem(
+                                value: 8, child: Text('Extreme Headphone')),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -2077,96 +2238,118 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             children: [
                               SizedBox(
                                   width: 150,
-                                  child: SwitchListTile(
-                                      title: const Text('Auto Knee',
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Auto Knee',
                                           style: TextStyle(
                                               color: Colors.white70,
                                               fontSize: 11)),
-                                      value: _fetKneeAuto,
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetKneeAuto = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeThumbColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero)),
+                                      M3ESwitch(
+                                        value: _fetKneeAuto,
+                                        onChanged: _viperEnabled &&
+                                                _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _fetKneeAuto = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  )),
                               SizedBox(
                                   width: 150,
-                                  child: SwitchListTile(
-                                      title: const Text('Auto Gain',
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Auto Gain',
                                           style: TextStyle(
                                               color: Colors.white70,
                                               fontSize: 11)),
-                                      value: _fetGainAuto,
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetGainAuto = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeThumbColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero)),
+                                      M3ESwitch(
+                                        value: _fetGainAuto,
+                                        onChanged: _viperEnabled &&
+                                                _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _fetGainAuto = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  )),
                               SizedBox(
                                   width: 150,
-                                  child: SwitchListTile(
-                                      title: const Text('Auto Attack',
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Auto Attack',
                                           style: TextStyle(
                                               color: Colors.white70,
                                               fontSize: 11)),
-                                      value: _fetAttackAuto,
-                                      onChanged:
-                                          _viperEnabled && _fetCompressorEnabled
-                                              ? (v) {
-                                                  setState(
-                                                      () => _fetAttackAuto = v);
-                                                  _updateEngine();
-                                                }
-                                              : null,
-                                      activeThumbColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero)),
+                                      M3ESwitch(
+                                        value: _fetAttackAuto,
+                                        onChanged: _viperEnabled &&
+                                                _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _fetAttackAuto = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  )),
                               SizedBox(
                                   width: 150,
-                                  child: SwitchListTile(
-                                      title: const Text('Auto Release',
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Auto Release',
                                           style: TextStyle(
                                               color: Colors.white70,
                                               fontSize: 11)),
-                                      value: _fetReleaseAuto,
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(
-                                                  () => _fetReleaseAuto = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeThumbColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero)),
+                                      M3ESwitch(
+                                        value: _fetReleaseAuto,
+                                        onChanged: _viperEnabled &&
+                                                _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _fetReleaseAuto = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  )),
                               SizedBox(
                                   width: 150,
-                                  child: SwitchListTile(
-                                      title: const Text('No Clip',
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('No Clip',
                                           style: TextStyle(
                                               color: Colors.white70,
                                               fontSize: 11)),
-                                      value: _fetNoClip,
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetNoClip = v);
-                                              _updateEngine();
-                                            }
-                                          : null,
-                                      activeThumbColor: primaryColor,
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero)),
+                                      M3ESwitch(
+                                        value: _fetNoClip,
+                                        onChanged: _viperEnabled &&
+                                                _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(() => _fetNoClip = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  )),
                             ])
                       ]))),
             ],
@@ -2190,37 +2373,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Natural',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Pure',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Subwoofer',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Natural'),
+                            M3ESegment(value: 1, label: 'Pure'),
+                            M3ESegment(value: 2, label: 'Subwoofer'),
                           ],
                           selected: {_bassMode},
-                          onSelectionChanged: _viperEnabled && _bassEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _bassMode = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: Colors.white,
-                              selectedForegroundColor: primaryColor,
-                              selectedBackgroundColor:
-                                  primaryColor.withAlpha(50),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4)),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _bassEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _bassMode = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         Wrap(
@@ -2259,20 +2426,23 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                             }
                                           : (_) {})),
                             ]),
-                        SwitchListTile(
-                            title: const Text('Anti-Pop',
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Anti-Pop',
                                 style: TextStyle(
                                     color: Colors.white70, fontSize: 11)),
-                            value: _bassAntiPop,
-                            onChanged: _viperEnabled && _bassEnabled
-                                ? (v) {
-                                    setState(() => _bassAntiPop = v);
-                                    _updateEngine();
-                                  }
-                                : null,
-                            activeThumbColor: primaryColor,
-                            dense: true,
-                            contentPadding: EdgeInsets.zero),
+                            M3ESwitch(
+                              value: _bassAntiPop,
+                              onChanged: _viperEnabled && _bassEnabled
+                                  ? (v) {
+                                      setState(() => _bassAntiPop = v);
+                                      _updateEngine();
+                                    }
+                                  : null,
+                            ),
+                          ],
+                        ),
                       ]))),
               const SizedBox(height: 12),
               _buildCard(
@@ -2288,37 +2458,22 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Natural',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Pure',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Subwoofer',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Natural'),
+                            M3ESegment(value: 1, label: 'Pure'),
+                            M3ESegment(value: 2, label: 'Subwoofer'),
                           ],
                           selected: {_bassMonoMode},
-                          onSelectionChanged: _viperEnabled && _bassMonoEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _bassMonoMode = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: Colors.white,
-                              selectedForegroundColor: primaryColor,
-                              selectedBackgroundColor:
-                                  primaryColor.withAlpha(50),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4)),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _bassMonoEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(
+                                  () => _bassMonoMode = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         Wrap(
@@ -2359,20 +2514,23 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                             }
                                           : (_) {})),
                             ]),
-                        SwitchListTile(
-                            title: const Text('Anti-Pop',
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Anti-Pop',
                                 style: TextStyle(
                                     color: Colors.white70, fontSize: 11)),
-                            value: _bassMonoAntiPop,
-                            onChanged: _viperEnabled && _bassMonoEnabled
-                                ? (v) {
-                                    setState(() => _bassMonoAntiPop = v);
-                                    _updateEngine();
-                                  }
-                                : null,
-                            activeThumbColor: primaryColor,
-                            dense: true,
-                            contentPadding: EdgeInsets.zero),
+                            M3ESwitch(
+                              value: _bassMonoAntiPop,
+                              onChanged: _viperEnabled && _bassMonoEnabled
+                                  ? (v) {
+                                      setState(() => _bassMonoAntiPop = v);
+                                      _updateEngine();
+                                    }
+                                  : null,
+                            ),
+                          ],
+                        ),
                       ]))),
               const SizedBox(height: 12),
               _buildCard('Psychoacoustic Bass', 'Harmonic synthesis',
@@ -2387,41 +2545,23 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('2nd',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 3,
-                                label: Text('3rd',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 4,
-                                label: Text('4th',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 5,
-                                label: Text('5th',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 2, label: '2nd'),
+                            M3ESegment(value: 3, label: '3rd'),
+                            M3ESegment(value: 4, label: '4th'),
+                            M3ESegment(value: 5, label: '5th'),
                           ],
                           selected: {_psychoHarmonicOrder},
-                          onSelectionChanged:
-                              _viperEnabled && _psychoBassEnabled
-                                  ? (Set<int> newSelection) {
-                                      setState(() => _psychoHarmonicOrder =
-                                          newSelection.first);
-                                      _updateEngine();
-                                    }
-                                  : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _psychoBassEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() =>
+                                  _psychoHarmonicOrder = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         Wrap(
@@ -2494,37 +2634,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Natural',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Ozone+',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('XHiFi',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Natural'),
+                            M3ESegment(value: 1, label: 'Ozone+'),
+                            M3ESegment(value: 2, label: 'XHiFi'),
                           ],
                           selected: {_clarityMode},
-                          onSelectionChanged: _viperEnabled && _clarityEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _clarityMode = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: Colors.white,
-                              selectedForegroundColor: primaryColor,
-                              selectedBackgroundColor:
-                                  primaryColor.withAlpha(50),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4)),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _clarityEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _clarityMode = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         Wrap(
@@ -2714,36 +2838,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Off',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Slight',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Extreme',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Off'),
+                            M3ESegment(value: 1, label: 'Slight'),
+                            M3ESegment(value: 2, label: 'Extreme'),
                           ],
                           selected: {_curePreset},
-                          onSelectionChanged: _viperEnabled && _cureEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _curePreset = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _cureEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _curePreset = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -2762,37 +2871,22 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Low',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Mid',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('High',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Low'),
+                            M3ESegment(value: 1, label: 'Mid'),
+                            M3ESegment(value: 2, label: 'High'),
                           ],
                           selected: {_headphoneSurroundQuality},
-                          onSelectionChanged:
-                              _viperEnabled && _headphoneSurroundEnabled
-                                  ? (Set<int> newSelection) {
-                                      setState(() => _headphoneSurroundQuality =
-                                          newSelection.first);
-                                      _updateEngine();
-                                    }
-                                  : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _headphoneSurroundEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _headphoneSurroundQuality =
+                                  newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -2811,45 +2905,23 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Lvl 1',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Lvl 2',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Lvl 3',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 3,
-                                label: Text('Lvl 4',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 4,
-                                label: Text('Lvl 5',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Lvl 1'),
+                            M3ESegment(value: 1, label: 'Lvl 2'),
+                            M3ESegment(value: 2, label: 'Lvl 3'),
+                            M3ESegment(value: 3, label: 'Lvl 4'),
+                            M3ESegment(value: 4, label: 'Lvl 5'),
                           ],
                           selected: {_fieldDepth},
-                          onSelectionChanged: _viperEnabled &&
-                                  _fieldSurroundEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _fieldDepth = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            selectedForegroundColor: primaryColor,
-                            selectedBackgroundColor: primaryColor.withAlpha(50),
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _fieldSurroundEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _fieldDepth = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                         const SizedBox(height: 16),
                         Wrap(
@@ -2962,19 +3034,23 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                         ],
                       ),
                     ),
-                    SwitchListTile(
-                        title: const Text('Reverse',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        value: _diffReverse,
-                        onChanged: _viperEnabled && _diffSurroundEnabled
-                            ? (v) {
-                                setState(() => _diffReverse = v);
-                                _updateEngine();
-                              }
-                            : null,
-                        activeThumbColor: primaryColor,
-                        dense: true),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Reverse',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 11)),
+                        M3ESwitch(
+                          value: _diffReverse,
+                          onChanged: _viperEnabled && _diffSurroundEnabled
+                              ? (v) {
+                                  setState(() => _diffReverse = v);
+                                  _updateEngine();
+                                }
+                              : null,
+                        ),
+                      ],
+                    ),
                   ])),
             ],
           ),
@@ -3151,37 +3227,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style:
                                 TextStyle(color: Colors.white70, fontSize: 11)),
                         const SizedBox(height: 4),
-                        SegmentedButton<int>(
+                        M3ESegmentedButton<int>(
                           segments: const [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text('Mild',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text('Moderate',
-                                    style: TextStyle(fontSize: 10))),
-                            ButtonSegment(
-                                value: 2,
-                                label: Text('Aggressive',
-                                    style: TextStyle(fontSize: 10))),
+                            M3ESegment(value: 0, label: 'Mild'),
+                            M3ESegment(value: 1, label: 'Moderate'),
+                            M3ESegment(value: 2, label: 'Aggressive'),
                           ],
                           selected: {_analogXMode},
-                          onSelectionChanged: _viperEnabled && _analogXEnabled
-                              ? (Set<int> newSelection) {
-                                  setState(
-                                      () => _analogXMode = newSelection.first);
-                                  _updateEngine();
-                                }
-                              : null,
-                          style: SegmentedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: Colors.white,
-                              selectedForegroundColor: primaryColor,
-                              selectedBackgroundColor:
-                                  primaryColor.withAlpha(50),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4)),
+                          onSelectionChanged: (Set<int> newSelection) {
+                            if (_viperEnabled &&
+                                _analogXEnabled &&
+                                newSelection.isNotEmpty) {
+                              setState(() => _analogXMode = newSelection.first);
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ]))),
               const SizedBox(height: 12),
@@ -3198,33 +3258,58 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   Widget _buildCard(String title, String subtitle, bool enabled,
       ValueChanged<bool> onEnableChanged,
       {Widget? child}) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      color: surfaceDarkColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 0,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SwitchListTile(
-            title: Text(title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14)),
-            subtitle: Text(subtitle,
-                style: const TextStyle(color: Colors.white54, fontSize: 11)),
-            value: enabled,
-            onChanged: _viperEnabled ? onEnableChanged : null,
-            activeTrackColor: primaryColor,
-            dense: true,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: M3ECard(
+        variant: M3ECardVariant.filled,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            color: enabled
+                                ? primaryColor.withValues(alpha: 0.88)
+                                : Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  M3ESwitch(
+                    value: enabled,
+                    onChanged: _viperEnabled ? onEnableChanged : null,
+                  ),
+                ],
+              ),
+              if (enabled && child != null) ...[
+                const SizedBox(height: 14),
+                const Divider(color: Colors.white12, height: 1),
+                const SizedBox(height: 14),
+                child,
+              ],
+            ],
           ),
-          if (enabled && child != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: child,
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -3471,11 +3556,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ParametricEqGraph(
-          bands: _getViperDynamicEqBands(),
-          isEnabled: _viperEnabled && _dynamicEqEnabled,
-          height: 100.0,
-          primaryColor: primaryColor,
+        RepaintBoundary(
+          child: ParametricEqGraph(
+            bands: _getViperDynamicEqBands(),
+            isEnabled: _viperEnabled && _dynamicEqEnabled,
+            height: 100.0,
+            primaryColor: primaryColor,
+          ),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -3609,36 +3696,22 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           style:
                               TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
-                      SegmentedButton<int>(
+                      M3ESegmentedButton<int>(
                         segments: const [
-                          ButtonSegment(
-                              value: 0,
-                              label:
-                                  Text('Peak', style: TextStyle(fontSize: 10))),
-                          ButtonSegment(
-                              value: 1,
-                              label: Text('LoShelf',
-                                  style: TextStyle(fontSize: 10))),
-                          ButtonSegment(
-                              value: 2,
-                              label: Text('HiShelf',
-                                  style: TextStyle(fontSize: 10))),
+                          M3ESegment(value: 0, label: 'Peak'),
+                          M3ESegment(value: 1, label: 'LoShelf'),
+                          M3ESegment(value: 2, label: 'HiShelf'),
                         ],
                         selected: {_dynamicEqFilterTypes[i]},
-                        onSelectionChanged: _viperEnabled && _dynamicEqEnabled
-                            ? (Set<int> newSelection) {
-                                setState(() => _dynamicEqFilterTypes[i] =
-                                    newSelection.first);
-                                _updateEngine();
-                              }
-                            : null,
-                        style: SegmentedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          foregroundColor: Colors.white,
-                          selectedForegroundColor: primaryColor,
-                          selectedBackgroundColor: primaryColor.withAlpha(50),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                        ),
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _dynamicEqEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() =>
+                                _dynamicEqFilterTypes[i] = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -3652,71 +3725,64 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   }
 
   Widget _buildEqBands(List<double> freqs, List<double> gains, bool enabled) {
-    return SizedBox(
-      height: 240,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: freqs.length,
-        itemBuilder: (context, index) {
-          return Container(
-            width: 100,
-            margin: const EdgeInsets.symmetric(horizontal: 4.0),
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            decoration: BoxDecoration(
-              color: Colors.black12,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('${freqs[index].round()} Hz',
+    return RepaintBoundary(
+      child: SizedBox(
+        height: 250,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: freqs.length,
+          itemBuilder: (context, index) {
+            final freq = freqs[index];
+            String label = freq >= 1000
+                ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
+                : '${freq.round()}';
+
+            return Container(
+              width: 80,
+              margin: const EdgeInsets.symmetric(horizontal: 4.0),
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '$label Hz',
                     style: TextStyle(
-                        color: primaryColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text('${gains[index].toStringAsFixed(1)} dB',
-                    style:
-                        const TextStyle(color: Colors.white54, fontSize: 11)),
-                Expanded(
-                  child: RotatedBox(
-                    quarterTurns: 3,
-                    child: Slider(
-                      value: gains[index],
-                      min: -12.0,
-                      max: 12.0,
-                      activeColor: primaryColor,
-                      inactiveColor: Colors.white24,
-                      onChanged: _viperEnabled && enabled
-                          ? (v) {
-                              setState(() => gains[index] = v);
-                              _updateEngine();
-                            }
-                          : null,
+                      color: primaryColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  height: 36,
-                  child: Slider(
-                    value: freqs[index],
-                    min: 20.0,
-                    max: 20000.0,
-                    activeColor: Colors.orange,
-                    inactiveColor: Colors.white24,
-                    onChanged: _viperEnabled && enabled
-                        ? (v) {
-                            setState(() => freqs[index] = v);
-                            _updateEngine();
-                          }
-                        : null,
+                  const SizedBox(height: 6),
+                  Text(
+                    '${gains[index] > 0 ? '+' : ''}${gains[index].toStringAsFixed(1)} dB',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: SizedBox(
+                      width: 44,
+                      child: M3ESlider.vertical(
+                        value: gains[index],
+                        min: -12.0,
+                        max: 12.0,
+                        onChanged: _viperEnabled && enabled
+                            ? (v) {
+                                setState(() => gains[index] = v);
+                                _updateEngine();
+                              }
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -3797,7 +3863,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ElevatedButton.icon(
+          M3EButton.icon(
             onPressed: () async {
               String? selectedDirectory = await _pickDirectory(true);
               if (selectedDirectory != null) {
@@ -3809,40 +3875,50 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _updateEngine();
               }
             },
-            icon: const Icon(Icons.folder_open),
+            icon: const Icon(Icons.folder_open_rounded),
             label: Text(_convolverFolder == null
                 ? 'Import IRS Folder / Files'
                 : 'Change Directory / Files'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor.withAlpha(50),
-              foregroundColor: primaryColor,
-            ),
           ),
           if (_convolverFolder != null) ...[
             const SizedBox(height: 12),
             Text('Folder: ${p.basename(_convolverFolder!)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 8),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                dropdownColor: surfaceDarkColor,
-                value: _selectedConvolverFile,
-                hint: const Text('Select Impulse Response',
-                    style: TextStyle(color: Colors.white54)),
-                items: _convolverFiles.map((file) {
-                  return DropdownMenuItem<String>(
-                    value: file,
-                    child:
-                        Text(file, style: const TextStyle(color: Colors.white)),
-                  );
-                }).toList(),
-                onChanged: _viperEnabled && _convolverEnabled
-                    ? (val) {
-                        setState(() => _selectedConvolverFile = val);
-                        _updateEngine();
-                      }
-                    : null,
+            M3EContainer(
+              Shapes.pill,
+              color: surfaceDarkColor,
+              border: BorderSide(
+                color: primaryColor.withValues(alpha: 0.35),
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    dropdownColor: surfaceDarkColor,
+                    value: _selectedConvolverFile,
+                    icon: Icon(Icons.arrow_drop_down_rounded,
+                        color: primaryColor),
+                    hint: const Text('Select Impulse Response',
+                        style: TextStyle(color: Colors.white54, fontSize: 13)),
+                    items: _convolverFiles.map((file) {
+                      return DropdownMenuItem<String>(
+                        value: file,
+                        child: Text(file,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13)),
+                      );
+                    }).toList(),
+                    onChanged: _viperEnabled && _convolverEnabled
+                        ? (val) {
+                            setState(() => _selectedConvolverFile = val);
+                            _updateEngine();
+                          }
+                        : null,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -3877,7 +3953,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ElevatedButton.icon(
+          M3EButton.icon(
             onPressed: () async {
               String? selectedDirectory = await _pickDirectory(false);
               if (selectedDirectory != null) {
@@ -3889,40 +3965,50 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 _updateEngine();
               }
             },
-            icon: const Icon(Icons.folder_open),
+            icon: const Icon(Icons.folder_open_rounded),
             label: Text(_ddcFolder == null
                 ? 'Import DDC Folder / Files'
                 : 'Change Directory / Files'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor.withAlpha(50),
-              foregroundColor: primaryColor,
-            ),
           ),
           if (_ddcFolder != null) ...[
             const SizedBox(height: 12),
             Text('Folder: ${p.basename(_ddcFolder!)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 8),
-            DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                dropdownColor: surfaceDarkColor,
-                value: _selectedDdcFile,
-                hint: const Text('Select DDC Profile',
-                    style: TextStyle(color: Colors.white54)),
-                items: _ddcFiles.map((file) {
-                  return DropdownMenuItem<String>(
-                    value: file,
-                    child:
-                        Text(file, style: const TextStyle(color: Colors.white)),
-                  );
-                }).toList(),
-                onChanged: _viperEnabled && _ddcEnabled
-                    ? (val) {
-                        setState(() => _selectedDdcFile = val);
-                        _updateEngine();
-                      }
-                    : null,
+            M3EContainer(
+              Shapes.pill,
+              color: surfaceDarkColor,
+              border: BorderSide(
+                color: primaryColor.withValues(alpha: 0.35),
+              ),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    dropdownColor: surfaceDarkColor,
+                    value: _selectedDdcFile,
+                    icon: Icon(Icons.arrow_drop_down_rounded,
+                        color: primaryColor),
+                    hint: const Text('Select DDC Profile',
+                        style: TextStyle(color: Colors.white54, fontSize: 13)),
+                    items: _ddcFiles.map((file) {
+                      return DropdownMenuItem<String>(
+                        value: file,
+                        child: Text(file,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13)),
+                      );
+                    }).toList(),
+                    onChanged: _viperEnabled && _ddcEnabled
+                        ? (val) {
+                            setState(() => _selectedDdcFile = val);
+                            _updateEngine();
+                          }
+                        : null,
+                  ),
+                ),
               ),
             ),
           ],
@@ -3934,9 +4020,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   Widget _buildAutoEqImporter() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Card(
-        color: surfaceDarkColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: M3ECard(
+        variant: M3ECardVariant.filled,
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -3944,21 +4029,34 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             children: [
               Row(
                 children: [
-                  Icon(Icons.auto_awesome, color: primaryColor, size: 20),
-                  const SizedBox(width: 8),
+                  M3EContainer(
+                    Shapes.burst,
+                    width: 32,
+                    height: 32,
+                    color: primaryColor.withValues(alpha: 0.18),
+                    border: BorderSide(
+                      color: primaryColor.withValues(alpha: 0.4),
+                      width: 1,
+                    ),
+                    child: Center(
+                      child: Icon(Icons.auto_awesome,
+                          color: primaryColor, size: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   const Text('AutoEQ & Presets Importer',
                       style: TextStyle(
                           color: Colors.white,
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold)),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               const Text(
                   'Import AutoEQ text files (.txt, GraphicEQ, ParametricEQ), Convolver impulse files (.irs, .wav), or DDC profiles (.vdc).',
-                  style: TextStyle(color: Colors.white60, fontSize: 11)),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
+                  style: TextStyle(color: Colors.white60, fontSize: 12)),
+              const SizedBox(height: 14),
+              M3EButton.icon(
                 onPressed: _viperEnabled
                     ? () async {
                         final result = await FilePicker.pickFiles(
@@ -4045,11 +4143,6 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     : null,
                 icon: const Icon(Icons.file_upload_outlined),
                 label: const Text('Import AutoEQ / Preset File'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
               ),
             ],
           ),
