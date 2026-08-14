@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -228,7 +230,7 @@ class _EqScreenState extends State<EqScreen>
   double _listenerX = 0.0;
   double _listenerY = 0.0;
   double _listenerZ = 0.0;
-  double _listenerDirZ = 1.0;
+  final double _listenerDirZ = 1.0;
 
   // Custom Filters & Standalone Miniaudio Bindings
   bool _customLpfEnabled = false;
@@ -637,48 +639,52 @@ class _EqScreenState extends State<EqScreen>
 
     if (!mounted) return;
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: bgDarkColor,
-        title: const Text('Audio Pipeline State',
-            style: TextStyle(color: Colors.white)),
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Audio Pipeline State',
+        topDivider: true,
+        bottomDivider: true,
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Input File Format',
                   style: TextStyle(
-                      color: primaryColor, fontWeight: FontWeight.bold)),
+                      color: primaryColor, fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 2),
               Text(
                   'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
-                  style: const TextStyle(color: Colors.white70)),
-              const SizedBox(height: 16),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+              const SizedBox(height: 14),
               Text('DSP Processing Format',
                   style: TextStyle(
-                      color: primaryColor, fontWeight: FontWeight.bold)),
+                      color: primaryColor, fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 2),
               Text(
                   'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
-                  style: const TextStyle(color: Colors.white70)),
-              const SizedBox(height: 16),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+              const SizedBox(height: 14),
               Text('Hardware Output Format',
                   style: TextStyle(
-                      color: primaryColor, fontWeight: FontWeight.bold)),
+                      color: primaryColor, fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 2),
               Text(
                   'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
-                  style: const TextStyle(color: Colors.white70)),
-              const SizedBox(height: 16),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+              const SizedBox(height: 14),
               Text('Active DSP Nodes',
                   style: TextStyle(
-                      color: primaryColor, fontWeight: FontWeight.bold)),
+                      color: primaryColor, fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 2),
               Text(
                   'EQ: ${state.eqEnabled}\nReverb: ${state.reverbEnabled}\nLimiter: ${state.limiterEnabled}\nDelay: ${state.delayEnabled}\nStereo Widen: ${state.stereoWidenEnabled}\nSpatialization: ${state.spatializationEnabled}',
-                  style: const TextStyle(color: Colors.white70)),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
             ],
           ),
         ),
         actions: [
-          TextButton(
+          M3EButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
@@ -688,6 +694,34 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _resetAll() {
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Reset All Effects?',
+        content: const Text(
+          'This will reset the Equalizer and all audio DSP effects to their flat defaults.',
+          style: TextStyle(color: Colors.white70, fontSize: 13.5),
+        ),
+        topDivider: true,
+        bottomDivider: true,
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _performResetAll();
+            },
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _performResetAll() {
     _applyPreset('Flat');
     setState(() {
       _masterEqEnabled = true;
@@ -801,7 +835,6 @@ class _EqScreenState extends State<EqScreen>
         a2: _biquadA2,
       );
 
-      // Limiter
       _limiterEnabled = false;
       _limiterThreshold = 0.95;
       _limiterAttackMs = 2.0;
@@ -813,17 +846,32 @@ class _EqScreenState extends State<EqScreen>
     _saveEqState();
   }
 
-  Widget _buildSectionHeader(String title) {
+  Widget _buildSectionHeader(String title, {IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: primaryColor,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
-        ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: primaryColor, size: 14),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              color: primaryColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: primaryColor.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -833,42 +881,38 @@ class _EqScreenState extends State<EqScreen>
     required String title,
     required String subtitle,
     required bool isEnabled,
+    Shapes shape = Shapes.c4SidedCookie,
     ValueChanged<bool>? onToggle,
     required VoidCallback onTapDetail,
   }) {
-    return Card(
-      color: surfaceDarkColor,
-      elevation: 0,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: isEnabled
-              ? primaryColor.withValues(alpha: 0.35)
-              : Colors.white.withValues(alpha: 0.06),
-          width: 1,
-        ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTapDetail,
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4.5),
+      child: M3ECard(
+        variant: M3ECardVariant.filled,
+        onPressed: onTapDetail,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
+              M3EContainer(
+                shape,
+                width: 44,
+                height: 44,
+                color: isEnabled
+                    ? primaryColor.withValues(alpha: 0.18)
+                    : Colors.white.withValues(alpha: 0.05),
+                border: BorderSide(
                   color: isEnabled
-                      ? primaryColor.withValues(alpha: 0.18)
-                      : Colors.white.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(10),
+                      ? primaryColor.withValues(alpha: 0.45)
+                      : Colors.white.withValues(alpha: 0.1),
+                  width: 1.2,
                 ),
-                child: Icon(
-                  icon,
-                  color: isEnabled ? primaryColor : Colors.white54,
-                  size: 20,
+                child: Center(
+                  child: Icon(
+                    icon,
+                    color: isEnabled ? primaryColor : Colors.white60,
+                    size: 22,
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -882,34 +926,36 @@ class _EqScreenState extends State<EqScreen>
                         color: Colors.white,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: isEnabled
-                            ? primaryColor.withValues(alpha: 0.85)
-                            : Colors.white38,
+                            ? primaryColor.withValues(alpha: 0.9)
+                            : Colors.white.withValues(alpha: 0.45),
                         fontSize: 12,
+                        fontWeight: isEnabled ? FontWeight.w500 : FontWeight.normal,
                       ),
                     ),
                   ],
                 ),
               ),
               if (onToggle != null) ...[
-                Switch(
+                M3ESwitch(
                   value: isEnabled,
                   onChanged: onToggle,
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
               ],
               const Icon(
-                Icons.chevron_right,
+                Icons.chevron_right_rounded,
                 color: Colors.white38,
-                size: 20,
+                size: 22,
               ),
             ],
           ),
@@ -919,7 +965,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _openDetailScreen(
-      String title, IconData icon, WidgetBuilder contentBuilder) {
+      String title, IconData icon, WidgetBuilder contentBuilder, {Shapes shape = Shapes.c4SidedCookie}) {
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -934,8 +980,10 @@ class _EqScreenState extends State<EqScreen>
                 appBar: AppBar(
                   backgroundColor: surfaceDarkerColor,
                   elevation: 0,
-                  leading: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  scrolledUnderElevation: 0,
+                  leading: M3EIconButton(
+                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+                    variant: M3EIconButtonVariant.standard,
                     onPressed: () {
                       _subScreenSetState = null;
                       Navigator.pop(context);
@@ -943,22 +991,41 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   title: Row(
                     children: [
-                      Icon(icon, color: primaryColor, size: 20),
+                      M3EContainer(
+                        shape,
+                        width: 32,
+                        height: 32,
+                        color: primaryColor.withValues(alpha: 0.18),
+                        border: BorderSide(
+                          color: primaryColor.withValues(alpha: 0.4),
+                          width: 1.0,
+                        ),
+                        child: Center(
+                          child: Icon(icon, color: primaryColor, size: 16),
+                        ),
+                      ),
                       const SizedBox(width: 10),
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.2,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-                body: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: contentBuilder(context),
+                body: RepaintBoundary(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    physics: const BouncingScrollPhysics(),
+                    child: contentBuilder(context),
+                  ),
                 ),
               );
             },
@@ -976,11 +1043,6 @@ class _EqScreenState extends State<EqScreen>
             end: Offset.zero,
           ).animate(curveAnimation);
 
-          final scaleAnimation = Tween<double>(
-            begin: 0.96,
-            end: 1.0,
-          ).animate(curveAnimation);
-
           final fadeAnimation = Tween<double>(
             begin: 0.0,
             end: 1.0,
@@ -988,12 +1050,9 @@ class _EqScreenState extends State<EqScreen>
 
           return SlideTransition(
             position: slideAnimation,
-            child: ScaleTransition(
-              scale: scaleAnimation,
-              child: FadeTransition(
-                opacity: fadeAnimation,
-                child: child,
-              ),
+            child: FadeTransition(
+              opacity: fadeAnimation,
+              child: child,
             ),
           );
         },
@@ -1020,84 +1079,147 @@ class _EqScreenState extends State<EqScreen>
                   // Top Master Control Bar
                   Padding(
                     padding: const EdgeInsets.only(
-                        left: 16.0, right: 8.0, top: 12.0, bottom: 4.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.info_outline,
-                                  color: Colors.white54),
-                              onPressed: _showPipelineInfo,
-                            ),
-                            const SizedBox(width: 4),
-                            const Text('Master EQ',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold)),
-                          ],
+                        left: 16.0, right: 16.0, top: 12.0, bottom: 6.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14.0, vertical: 8.0),
+                      decoration: BoxDecoration(
+                        color: surfaceDarkColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _masterEqEnabled
+                              ? primaryColor.withValues(alpha: 0.35)
+                              : Colors.white.withValues(alpha: 0.08),
                         ),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.refresh,
-                                  color: Colors.white),
-                              tooltip: 'Reset All',
-                              onPressed: _resetAll,
-                            ),
-                            Switch(
-                              value: _masterEqEnabled,
-                              onChanged: (val) {
-                                setState(() => _masterEqEnabled = val);
-                                widget.player.setMultibandEqEnabled(val);
-                                _saveEqState();
-                              },
-                              activeThumbColor: Colors.white,
-                              activeTrackColor: primaryColor,
-                            ),
-                          ],
-                        ),
-                      ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              M3EContainer(
+                                Shapes.c4SidedCookie,
+                                width: 36,
+                                height: 36,
+                                color: _masterEqEnabled
+                                    ? primaryColor.withValues(alpha: 0.2)
+                                    : Colors.white.withValues(alpha: 0.05),
+                                border: BorderSide(
+                                  color: _masterEqEnabled
+                                      ? primaryColor.withValues(alpha: 0.4)
+                                      : Colors.white.withValues(alpha: 0.1),
+                                  width: 1.0,
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.equalizer_rounded,
+                                    color: _masterEqEnabled ? primaryColor : Colors.white60,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Master EQ & DSP',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                  Text(
+                                    _masterEqEnabled ? 'Audio engine active' : 'DSP bypassed',
+                                    style: TextStyle(
+                                      color: _masterEqEnabled
+                                          ? primaryColor.withValues(alpha: 0.9)
+                                          : Colors.white38,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              M3EIconButton(
+                                icon: const Icon(Icons.info_outline_rounded, size: 19),
+                                variant: M3EIconButtonVariant.tonal,
+                                tooltip: 'Audio Pipeline State',
+                                onPressed: _showPipelineInfo,
+                              ),
+                              const SizedBox(width: 4),
+                              M3EIconButton(
+                                icon: const Icon(Icons.refresh_rounded, size: 19),
+                                variant: M3EIconButtonVariant.tonal,
+                                tooltip: 'Reset All',
+                                onPressed: _resetAll,
+                              ),
+                              const SizedBox(width: 6),
+                              M3ESwitch(
+                                value: _masterEqEnabled,
+                                onChanged: (val) {
+                                  setState(() => _masterEqEnabled = val);
+                                  widget.player.setMultibandEqEnabled(val);
+                                  _saveEqState();
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
 
                   // Warning Banner (Dismissible)
                   if (_showWarningBanner)
-                    Container(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.red.withOpacity(0.3)),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: Colors.red[400], size: 20),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              'Improper equalizer, limiter, or biquad settings can cause audio distortion or clipping. Proceed with caution.',
-                              style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                  height: 1.3),
-                            ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 4),
+                      child: M3ECard(
+                        variant: M3ECardVariant.filled,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              M3EContainer(
+                                Shapes.c4SidedCookie,
+                                width: 32,
+                                height: 32,
+                                color: Colors.amber.withValues(alpha: 0.15),
+                                border: BorderSide(
+                                  color: Colors.amber.withValues(alpha: 0.35),
+                                  width: 1.0,
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.warning_amber_rounded,
+                                      color: Colors.amberAccent, size: 18),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Extreme equalizer or filter boosts can cause clipping. Use limiter or preamp reduction if needed.',
+                                  style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11.5,
+                                      height: 1.3),
+                                ),
+                              ),
+                              M3EIconButton(
+                                onPressed: _dismissWarningBanner,
+                                icon: const Icon(Icons.close_rounded, size: 16),
+                                variant: M3EIconButtonVariant.standard,
+                                tooltip: 'Dismiss',
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            onPressed: _dismissWarningBanner,
-                            icon: const Icon(Icons.close,
-                                color: Colors.white54, size: 18),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            splashRadius: 18,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
 
@@ -1107,7 +1229,7 @@ class _EqScreenState extends State<EqScreen>
                       padding: const EdgeInsets.only(bottom: 120),
                       children: [
                         // Section 1: Equalization & Tuning
-                        _buildSectionHeader('Equalization'),
+                        _buildSectionHeader('Equalization & Tuning', icon: Icons.equalizer_rounded),
                         AppShowcase(
                           showcaseKey: widget.effectsKnobKey ?? GlobalKey(),
                           title: 'Knob Controls',
@@ -1116,8 +1238,9 @@ class _EqScreenState extends State<EqScreen>
                           currentStep: 3,
                           totalSteps: 4,
                           child: _buildEffectTileCard(
-                            icon: Icons.equalizer,
-                            title: '${_eqFrequencies.length}-Band Equalizer',
+                            icon: Icons.equalizer_rounded,
+                            shape: Shapes.c4SidedCookie,
+                            title: '${_eqFrequencies.length}-Band Graphic EQ',
                             subtitle: _masterEqEnabled
                                 ? '${_eqFrequencies.length}-Band ($_activePreset)'
                                 : 'Disabled',
@@ -1128,15 +1251,17 @@ class _EqScreenState extends State<EqScreen>
                               _saveEqState();
                             },
                             onTapDetail: () => _openDetailScreen(
-                              '${_eqFrequencies.length}-Band Equalizer',
-                              Icons.equalizer,
+                              '${_eqFrequencies.length}-Band Graphic EQ',
+                              Icons.equalizer_rounded,
                               (_) => _buildGraphicEqSection(),
+                              shape: Shapes.c4SidedCookie,
                             ),
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.speed_rounded,
-                          title: 'Playback Speed',
+                          shape: Shapes.sunny,
+                          title: 'Playback Speed & Pitch',
                           subtitle: (_playbackPitch - 1.0).abs() >= 0.01
                               ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
                               : 'Normal Speed (1.0x)',
@@ -1152,10 +1277,12 @@ class _EqScreenState extends State<EqScreen>
                             'Playback Speed & Pitch',
                             Icons.speed_rounded,
                             (_) => _buildPlaybackSpeedSection(),
+                            shape: Shapes.sunny,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.tune,
+                          icon: Icons.tune_rounded,
+                          shape: Shapes.pill,
                           title: '3-Band Audio Tuning',
                           subtitle: _audioTuningEnabled
                               ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
@@ -1168,12 +1295,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             '3-Band Audio Tuning',
-                            Icons.tune,
+                            Icons.tune_rounded,
                             (_) => _buildAudioTuningSection(),
+                            shape: Shapes.pill,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.show_chart,
+                          icon: Icons.show_chart_rounded,
+                          shape: Shapes.gem,
                           title: 'Parametric EQ',
                           subtitle: _parametricEqEnabled
                               ? '${_parametricBands.length} Active Bands'
@@ -1186,15 +1315,17 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Parametric EQ',
-                            Icons.show_chart,
+                            Icons.show_chart_rounded,
                             (_) => _buildParametricEqSection(),
+                            shape: Shapes.gem,
                           ),
                         ),
 
                         // Section 2: Dynamics & Bass
-                        _buildSectionHeader('Dynamics & Bass'),
+                        _buildSectionHeader('Dynamics & Bass', icon: Icons.waves_rounded),
                         _buildEffectTileCard(
-                          icon: Icons.waves,
+                          icon: Icons.waves_rounded,
+                          shape: Shapes.boom,
                           title: 'Dynamic Bass',
                           subtitle: _dynamicBassEnabled
                               ? 'Gain: ${_dynamicBassGain.toInt()}%'
@@ -1214,12 +1345,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Dynamic Bass',
-                            Icons.waves,
+                            Icons.waves_rounded,
                             (_) => _buildDynamicBassSection(),
+                            shape: Shapes.boom,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.auto_fix_high,
+                          icon: Icons.auto_fix_high_rounded,
+                          shape: Shapes.burst,
                           title: 'Crystalizer',
                           subtitle: _crystalizerEnabled
                               ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
@@ -1232,12 +1365,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Crystalizer',
-                            Icons.auto_fix_high,
+                            Icons.auto_fix_high_rounded,
                             (_) => _buildCrystalizerSection(),
+                            shape: Shapes.burst,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.compress,
+                          icon: Icons.compress_rounded,
+                          shape: Shapes.square,
                           title: 'Soft Limiter',
                           subtitle: _limiterEnabled
                               ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%'
@@ -1254,15 +1389,17 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Soft Limiter',
-                            Icons.compress,
+                            Icons.compress_rounded,
                             (_) => _buildLimiterSection(),
+                            shape: Shapes.square,
                           ),
                         ),
 
                         // Section 3: Spatial & Headphones
-                        _buildSectionHeader('Spatial & Headphones'),
+                        _buildSectionHeader('Spatial & Headphones', icon: Icons.headphones_rounded),
                         _buildEffectTileCard(
-                          icon: Icons.headphones,
+                          icon: Icons.headphones_rounded,
+                          shape: Shapes.arch,
                           title: 'Crossfeed',
                           subtitle: _crossfeedEnabled
                               ? (_crossfeedPreset == 1
@@ -1286,12 +1423,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Crossfeed',
-                            Icons.headphones,
+                            Icons.headphones_rounded,
                             (_) => _buildCrossfeedSection(),
+                            shape: Shapes.arch,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.swap_horiz,
+                          icon: Icons.swap_horiz_rounded,
+                          shape: Shapes.slanted,
                           title: 'Stereo Widener',
                           subtitle: _stereoWidenEnabled
                               ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
@@ -1311,12 +1450,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Stereo Widener',
-                            Icons.swap_horiz,
+                            Icons.swap_horiz_rounded,
                             (_) => _buildStereoWidenSection(),
+                            shape: Shapes.slanted,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.surround_sound,
+                          icon: Icons.surround_sound_rounded,
+                          shape: Shapes.puffyDiamond,
                           title: 'Stereo Enhancement',
                           subtitle: _stereoEnhancementEnabled
                               ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
@@ -1329,12 +1470,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Stereo Enhancement',
-                            Icons.surround_sound,
+                            Icons.surround_sound_rounded,
                             (_) => _buildStereoEnhancementSection(),
+                            shape: Shapes.puffyDiamond,
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.spatial_audio_off_outlined,
+                          shape: Shapes.softBoom,
                           title: '3D Audio',
                           subtitle: _spatialAudioEnabled
                               ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
@@ -1350,13 +1493,15 @@ class _EqScreenState extends State<EqScreen>
                             '3D Audio',
                             Icons.spatial_audio_off_outlined,
                             (_) => _buildSpatialAudioSection(),
+                            shape: Shapes.softBoom,
                           ),
                         ),
                         _buildEffectTileCard(
-                          icon: Icons.threed_rotation,
-                          title: 'True 3D Audio',
+                          icon: Icons.threed_rotation_rounded,
+                          shape: Shapes.circle,
+                          title: 'True 3D Spatial Audio',
                           subtitle: _true3dEnabled
-                              ? 'XYZ Positioning Active'
+                              ? 'XYZ Vector Coordinates Active'
                               : 'Disabled',
                           isEnabled: _true3dEnabled,
                           onToggle: (v) {
@@ -1366,17 +1511,19 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'True 3D Audio',
-                            Icons.threed_rotation,
+                            'True 3D Spatial Audio',
+                            Icons.threed_rotation_rounded,
                             (_) => _buildTrue3dSection(),
+                            shape: Shapes.circle,
                           ),
                         ),
 
                         // Section 4: Filters & Custom DSP
-                        _buildSectionHeader('Advanced Audio Filters'),
+                        _buildSectionHeader('Advanced Audio Filters', icon: Icons.filter_alt_rounded),
                         _buildEffectTileCard(
-                          icon: Icons.repeat,
-                          title: 'Delay',
+                          icon: Icons.repeat_rounded,
+                          shape: Shapes.l4LeafClover,
+                          title: 'Delay / Echo',
                           subtitle: _delayEnabled
                               ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
                               : 'Disabled',
@@ -1388,13 +1535,15 @@ class _EqScreenState extends State<EqScreen>
                             _saveEqState();
                           },
                           onTapDetail: () => _openDetailScreen(
-                            'Delay',
-                            Icons.repeat,
+                            'Delay / Echo',
+                            Icons.repeat_rounded,
                             (_) => _buildDelaySection(),
+                            shape: Shapes.l4LeafClover,
                           ),
                         ),
                         _buildEffectTileCard(
                           icon: Icons.filter_alt_outlined,
+                          shape: Shapes.diamond,
                           title: 'Advanced Filters',
                           subtitle: (_customLpfEnabled ||
                                   _customHpfEnabled ||
@@ -1404,7 +1553,7 @@ class _EqScreenState extends State<EqScreen>
                                   _customLoshelfEnabled ||
                                   _customHishelfEnabled ||
                                   _customBiquadEnabled)
-                              ? 'Active Filters'
+                              ? 'Active Filters Configured'
                               : 'Disabled',
                           isEnabled: _customLpfEnabled ||
                               _customHpfEnabled ||
@@ -1418,6 +1567,7 @@ class _EqScreenState extends State<EqScreen>
                             'Advanced Filters',
                             Icons.filter_alt_outlined,
                             (_) => _buildCustomFiltersSection(),
+                            shape: Shapes.diamond,
                           ),
                         ),
                       ],
@@ -1434,35 +1584,11 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildPresetChip(String label) {
     final isSelected = _activePreset == label;
-    return GestureDetector(
-      onTap: () => _applyPreset(label),
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? primaryColor : surfaceDarkColor,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-              color: isSelected ? primaryColor : Colors.white.withOpacity(0.1)),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                      color: primaryColor.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white.withOpacity(0.6),
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
+    return M3EChip(
+      label: label,
+      type: M3EChipType.filter,
+      selected: isSelected,
+      onPressed: () => _applyPreset(label),
     );
   }
 
@@ -1475,60 +1601,68 @@ class _EqScreenState extends State<EqScreen>
   }) async {
     final controller =
         TextEditingController(text: currentValue.toStringAsFixed(2));
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: surfaceDarkColor,
-          title: Text('Enter $title',
-              style: const TextStyle(color: Colors.white, fontSize: 16)),
-          content: TextField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(
-                decimal: true, signed: true),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Value ($min to $max)',
-              labelStyle: const TextStyle(color: Colors.white54),
-              enabledBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white24)),
-              focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: primaryColor)),
-            ),
+    await M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Enter $title',
+        topDivider: true,
+        bottomDivider: true,
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Allowed range: $min to $max',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 12),
+              M3ETextField(
+                controller: controller,
+                label: 'Value',
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child:
-                  const Text('Cancel', style: TextStyle(color: Colors.white54)),
-            ),
-            TextButton(
-              onPressed: () {
-                final val = double.tryParse(controller.text);
-                if (val != null) {
-                  onChanged(val.clamp(min, max));
-                }
-                Navigator.pop(context);
-              },
-              child: Text('OK', style: TextStyle(color: primaryColor)),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val != null) {
+                onChanged(val.clamp(min, max));
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildPlaybackSpeedSection() {
     final isNormal = (_playbackPitch - 1.0).abs() < 0.01;
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.sunny,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Speed & Pitch',
       subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
@@ -1549,10 +1683,12 @@ class _EqScreenState extends State<EqScreen>
                 'Speed: ${_playbackPitch.toStringAsFixed(2)}x',
                 style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.bold),
               ),
-              OutlinedButton.icon(
+              M3EButton.icon(
+                icon: Icon(Icons.tune_rounded, size: 16, color: primaryColor),
+                label: Text('Adjust Speed', style: TextStyle(color: primaryColor)),
                 onPressed: () async {
                   final res = await showPlaybackSpeedModal(
                     context,
@@ -1563,14 +1699,6 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _playbackPitch = res);
                   }
                 },
-                icon: Icon(Icons.tune, size: 16, color: primaryColor),
-                label:
-                    Text('Adjust Speed', style: TextStyle(color: primaryColor)),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: primaryColor),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18)),
-                ),
               ),
             ],
           ),
@@ -1581,17 +1709,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildGraphicEqSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.c4SidedCookie,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.equalizer, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Graphic EQ',
-      subtitle: 'Enable Graphic EQ',
+      title: 'Graphic Equalizer',
+      subtitle: '${_eqFrequencies.length}-Band Frequency Shaping',
       isEnabled: _masterEqEnabled,
       onToggle: (v) {
         setState(() => _masterEqEnabled = v);
@@ -1599,28 +1731,56 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        // Band Count Segmented Selector
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: M3ESegmentedButton<int>(
+            segments: const [
+              M3ESegment(value: 10, label: '10 Bands'),
+              M3ESegment(value: 16, label: '16 Bands'),
+              M3ESegment(value: 32, label: '32 Bands'),
+            ],
+            selected: {
+              _eqFrequencies.length == 10 || _eqFrequencies.length == 16 || _eqFrequencies.length == 32
+                  ? _eqFrequencies.length
+                  : 10
+            },
+            onSelectionChanged: (Set<int> val) {
+              if (val.isNotEmpty) {
+                final bands = val.first;
+                setState(() {
+                  _setupFrequencies(bands);
+                  widget.player.initMultibandEq(_eqFrequencies);
+                  _applyPreset(_activePreset);
+                });
+                _saveEqState();
+              }
+            },
+          ),
+        ),
+        // Preset Chips Row
         SizedBox(
-          height: 36,
+          height: 38,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 0),
+            physics: const BouncingScrollPhysics(),
             children: [
-              _buildPresetChip('Flat'),
-              const SizedBox(width: 12),
-              _buildPresetChip('Bass Boost'),
-              const SizedBox(width: 12),
-              _buildPresetChip('Vocal'),
-              const SizedBox(width: 12),
-              _buildPresetChip('Treble'),
-              const SizedBox(width: 12),
-              _buildPresetChip('Rock'),
-              const SizedBox(width: 12),
-              _buildPresetChip('Jazz'),
+              for (final preset in [
+                'Flat',
+                'Bass Boost',
+                'Vocal',
+                'Treble',
+                'Rock',
+                'Jazz',
+              ]) ...[
+                _buildPresetChip(preset),
+                const SizedBox(width: 8),
+              ],
             ],
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 32, bottom: 16),
+          padding: const EdgeInsets.only(top: 24, bottom: 12),
           child: _buildGraphicEqSliders(),
         ),
       ],
@@ -1628,199 +1788,174 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildGraphicEqSliders() {
-    // Preamp Slider (Independent of Graphic EQ toggle)
-    final Widget preampSlider = Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
+    return RepaintBoundary(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            height: 160,
-            child: RotatedBox(
-              quarterTurns: 3,
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 6,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 8),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 16),
-                  activeTrackColor: Colors.deepOrangeAccent,
-                  inactiveTrackColor: Colors.white.withOpacity(0.1),
-                  thumbColor: Colors.deepOrangeAccent,
-                ),
-                child: Slider(
-                  value: _preampDb,
-                  min: -12.0,
-                  max: 12.0,
-                  onChanged: (v) {
-                    setState(() {
-                      _preampDb = v;
-                      double gain = math.pow(10, v / 20).toDouble();
-                      widget.player.setGain(gain);
-                    });
-                    _saveEqState();
-                  },
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onLongPress: () => _promptForValue(
-              title: 'PREAMP',
-              currentValue: _preampDb,
-              min: -12.0,
-              max: 12.0,
-              onChanged: (v) {
-                setState(() {
-                  _preampDb = v;
-                  double gain = math.pow(10, v / 20).toDouble();
-                  widget.player.setGain(gain);
-                });
-                _saveEqState();
-              },
-            ),
-            child: Text(
-              '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
-              style: const TextStyle(
-                color: Colors.deepOrangeAccent,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text('PREAMP',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.4),
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-
-    // Graphic Sliders (Dynamic based on band count)
-    final List<Widget> bandSliders = List.generate(_eqFrequencies.length, (i) {
-      final freq = _eqFrequencies[i];
-      String label = freq >= 1000
-          ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
-          : '${freq.toInt()}';
-
-      return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 160,
-              child: RotatedBox(
-                quarterTurns: 3,
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 4,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 14),
-                    activeTrackColor:
-                        _masterEqEnabled ? primaryColor : Colors.white24,
-                    inactiveTrackColor: Colors.white.withOpacity(0.1),
-                    thumbColor:
-                        _masterEqEnabled ? Colors.white : Colors.white24,
-                  ),
-                  child: Slider(
-                    value: _eqGains[i],
+          // Preamp Slider (Independent of Graphic EQ toggle)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 160,
+                  width: 44,
+                  child: M3ESlider.vertical(
+                    value: _preampDb,
                     min: -12.0,
                     max: 12.0,
-                    onChanged: _masterEqEnabled
-                        ? (v) {
-                            setState(() {
-                              _eqGains[i] = v;
-                              _activePreset = 'Custom';
-                              widget.player.setMultibandEqBandGain(i, v);
-                            });
-                            _saveEqState();
-                          }
-                        : null,
+                    onChanged: (v) {
+                      setState(() {
+                        _preampDb = v;
+                        double gain = math.pow(10, v / 20).toDouble();
+                        widget.player.setGain(gain);
+                      });
+                      _saveEqState();
+                    },
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onLongPress: _masterEqEnabled
-                  ? () => _promptForValue(
-                        title: 'Band Gain ($label)',
-                        currentValue: _eqGains[i],
-                        min: -12.0,
-                        max: 12.0,
-                        onChanged: (v) {
-                          setState(() {
-                            _eqGains[i] = v;
-                            _activePreset = 'Custom';
-                            widget.player.setMultibandEqBandGain(i, v);
-                          });
-                          _saveEqState();
-                        },
-                      )
-                  : null,
-              child: Text(
-                '${_eqGains[i] > 0 ? '+' : ''}${_eqGains[i].toStringAsFixed(1)} dB',
-                style: TextStyle(
-                  color: _masterEqEnabled ? primaryColor : Colors.white24,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onLongPress: () => _promptForValue(
+                    title: 'PREAMP',
+                    currentValue: _preampDb,
+                    min: -12.0,
+                    max: 12.0,
+                    onChanged: (v) {
+                      setState(() {
+                        _preampDb = v;
+                        double gain = math.pow(10, v / 20).toDouble();
+                        widget.player.setGain(gain);
+                      });
+                      _saveEqState();
+                    },
+                  ),
+                  child: Text(
+                    '${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
+                    style: const TextStyle(
+                      color: Colors.deepOrangeAccent,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(label,
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.4),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold)),
-          ],
-        ),
-      );
-    });
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        preampSlider,
-        Container(
-          width: 1,
-          height: 190,
-          color: Colors.white.withOpacity(0.1),
-          margin: const EdgeInsets.only(right: 4),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: bandSliders,
+                const SizedBox(height: 4),
+                Text('PREAMP',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.45),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold)),
+              ],
             ),
           ),
-        ),
-      ],
+          Container(
+            width: 1,
+            height: 190,
+            color: Colors.white.withValues(alpha: 0.1),
+            margin: const EdgeInsets.only(right: 6),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: List.generate(_eqFrequencies.length, (i) {
+                  final freq = _eqFrequencies[i];
+                  String label = freq >= 1000
+                      ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
+                      : '${freq.toInt()}';
+
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: 160,
+                          width: 44,
+                          child: M3ESlider.vertical(
+                            value: _eqGains[i],
+                            min: -12.0,
+                            max: 12.0,
+                            onChanged: _masterEqEnabled
+                                ? (v) {
+                                    setState(() {
+                                      _eqGains[i] = v;
+                                      _activePreset = 'Custom';
+                                      widget.player
+                                          .setMultibandEqBandGain(i, v);
+                                    });
+                                    _saveEqState();
+                                  }
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onLongPress: _masterEqEnabled
+                              ? () => _promptForValue(
+                                    title: 'Band Gain ($label)',
+                                    currentValue: _eqGains[i],
+                                    min: -12.0,
+                                    max: 12.0,
+                                    onChanged: (v) {
+                                      setState(() {
+                                        _eqGains[i] = v;
+                                        _activePreset = 'Custom';
+                                        widget.player
+                                            .setMultibandEqBandGain(i, v);
+                                      });
+                                      _saveEqState();
+                                    },
+                                  )
+                              : null,
+                          child: Text(
+                            '${_eqGains[i] > 0 ? '+' : ''}${_eqGains[i].toStringAsFixed(1)} dB',
+                            style: TextStyle(
+                              color: _masterEqEnabled
+                                  ? primaryColor
+                                  : Colors.white24,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(label,
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.45),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSpatialAudioSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.softBoom,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.spatial_audio_off_outlined,
-            color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.spatial_audio_off_outlined,
+              color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Spatial Audio',
-      subtitle: 'Immersive soundstage',
+      title: '3D Spatial Audio',
+      subtitle: 'Immersive virtual soundstage & reverb',
       isEnabled: _spatialAudioEnabled,
       onToggle: (v) {
         setState(() => _spatialAudioEnabled = v);
@@ -1885,17 +2020,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildDynamicBassSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.boom,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.waves, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Dynamic Bass',
-      subtitle: 'Powerful bass enhancement',
+      subtitle: 'Harmonic bass boost & sub-frequency enhancement',
       isEnabled: _dynamicBassEnabled,
       onToggle: (v) {
         setState(() => _dynamicBassEnabled = v);
@@ -1929,30 +2068,32 @@ class _EqScreenState extends State<EqScreen>
             ),
             Column(
               children: [
-                Text('PRESET',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
+                Text(
+                  'PRESET FREQ',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                   decoration: BoxDecoration(
                     color: surfaceDarkColor,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(16),
                     border:
-                        Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                        Border.all(color: primaryColor.withValues(alpha: 0.35)),
                   ),
                   child: DropdownButton<int>(
                     value: _dynamicBassPreset,
                     dropdownColor: surfaceDarkerColor,
                     underline: const SizedBox(),
-                    icon: Icon(Icons.arrow_drop_down, color: primaryColor),
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                     items: List.generate(19, (index) {
-                      // 0=60, 1=65, ... 18=180 mappings.
-                      int f = 60 + (index * 5); // Rough mapping for display
+                      int f = 60 + (index * 5);
                       if (index > 14) f = 130 + ((index - 14) * 10);
                       if (index == 18) f = 180;
                       return DropdownMenuItem(
@@ -1976,16 +2117,20 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildCrystalizerSection() {
-    const crystalColor = Color(0xFF00C9B1); // teal-cyan accent
+    const crystalColor = Color(0xFF00C9B1);
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.burst,
         width: 40,
         height: 40,
-        decoration: const BoxDecoration(
-          color: Color(0x2600C9B1),
-          shape: BoxShape.circle,
+        color: const Color(0x2600C9B1),
+        border: const BorderSide(
+          color: Color(0x6600C9B1),
+          width: 1.0,
         ),
-        child: const Icon(Icons.auto_fix_high, color: crystalColor, size: 20),
+        child: const Center(
+          child: Icon(Icons.auto_fix_high_rounded, color: crystalColor, size: 20),
+        ),
       ),
       title: 'Crystalizer',
       subtitle: 'Audiophile transient reconstruction',
@@ -1996,7 +2141,6 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // Knobs row
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -2043,14 +2187,14 @@ class _EqScreenState extends State<EqScreen>
             Text(
               'High-shelf "Air" boost',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
+                color: Colors.white.withValues(alpha: 0.75),
                 fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(width: 12),
-            Switch(
+            M3ESwitch(
               value: _crystalizerHighShelf,
-              activeThumbColor: crystalColor,
               onChanged: (v) {
                 setState(() => _crystalizerHighShelf = v);
                 if (_crystalizerEnabled) _updateCrystalizer();
@@ -2059,20 +2203,19 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        // Info chip
+        const SizedBox(height: 8),
         Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0x1A00C9B1),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0x4000C9B1)),
             ),
             child: Text(
-              'Recovers transient detail & "air" lost in MP3/AAC compression',
+              'Recovers transient detail & "air" lost in compressed audio',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 11,
               ),
               textAlign: TextAlign.center,
@@ -2085,17 +2228,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildCrossfeedSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.arch,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withOpacity(0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.headphones, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Crossfeed',
-      subtitle: 'Simulate natural speaker listening',
+      subtitle: 'Simulate natural acoustic speaker listening',
       isEnabled: _crossfeedEnabled,
       onToggle: (v) {
         setState(() => _crossfeedEnabled = v);
@@ -2108,20 +2255,20 @@ class _EqScreenState extends State<EqScreen>
           children: [
             Text('Algorithm',
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8), fontSize: 14)),
+                    color: Colors.white.withValues(alpha: 0.85), fontSize: 13.5, fontWeight: FontWeight.w600)),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
                 color: surfaceDarkColor,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.35)),
               ),
               child: DropdownButton<int>(
                 value: _crossfeedAlgorithmIndex,
                 dropdownColor: surfaceDarkerColor,
                 underline: const SizedBox(),
-                icon: Icon(Icons.arrow_drop_down, color: primaryColor),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                 items: const [
                   DropdownMenuItem(value: 1, child: Text('Simple Reference')),
                   DropdownMenuItem(value: 2, child: Text('Bauer BS2B')),
@@ -2215,7 +2362,7 @@ class _EqScreenState extends State<EqScreen>
                   Row(
                     children: [
                       Icon(
-                        Icons.equalizer,
+                        Icons.equalizer_rounded,
                         size: 18,
                         color: _crossfeedCompensation ? primaryColor : Colors.white54,
                       ),
@@ -2226,9 +2373,8 @@ class _EqScreenState extends State<EqScreen>
                       ),
                     ],
                   ),
-                  Switch(
+                  M3ESwitch(
                     value: _crossfeedCompensation,
-                    activeColor: primaryColor,
                     onChanged: (v) {
                       setState(() => _crossfeedCompensation = v);
                       if (_crossfeedEnabled) _updateCrossfeed();
@@ -2240,12 +2386,14 @@ class _EqScreenState extends State<EqScreen>
             ),
           ),
         ] else if (_crossfeedAlgorithmIndex == 5) ...[
-          RaceSoundstageVisualizer(
-            delayMs: _raceDelayMs,
-            alpha: _raceAlpha,
-            lpfHz: _raceLpfHz,
-            isEnabled: _crossfeedEnabled,
-            primaryColor: primaryColor,
+          RepaintBoundary(
+            child: RaceSoundstageVisualizer(
+              delayMs: _raceDelayMs,
+              alpha: _raceAlpha,
+              lpfHz: _raceLpfHz,
+              isEnabled: _crossfeedEnabled,
+              primaryColor: primaryColor,
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -2303,17 +2451,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildStereoWidenSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.slanted,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.compare_arrows, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.swap_horiz_rounded, color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Stereo Stage',
-      subtitle: 'M/S & Haas width',
+      title: 'Stereo Widener',
+      subtitle: 'Mid/Side matrix & Haas effect width expansion',
       isEnabled: _stereoWidenEnabled,
       onToggle: (v) {
         setState(() => _stereoWidenEnabled = v);
@@ -2347,7 +2499,7 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
             ModernAudioKnob(
-              label: 'HAAS',
+              label: 'HAAS DELAY',
               value: _stereoWidenDelayMs,
               min: 0.0,
               max: 1.0,
@@ -2369,15 +2521,18 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildStereoEnhancementSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.puffyDiamond,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child:
-            Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Stereo Enhancement',
       subtitle: 'Warped PFB M/S Widening',
@@ -2409,14 +2564,14 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: primaryColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
             ),
             child: Text(
               _stereoEnhancementMix == 0.5
@@ -2425,7 +2580,7 @@ class _EqScreenState extends State<EqScreen>
                       ? 'Stereo Widening (Center Subtraction)'
                       : 'Mono Center Extraction'),
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
+                color: Colors.white.withValues(alpha: 0.65),
                 fontSize: 11,
               ),
               textAlign: TextAlign.center,
@@ -2438,17 +2593,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildDelaySection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.l4LeafClover,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.blur_on, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.repeat_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Delay / Echo',
-      subtitle: 'Repeats & rhythms',
+      subtitle: 'Feedback, time delay & rhythmic repeats',
       isEnabled: _delayEnabled,
       onToggle: (v) {
         setState(() => _delayEnabled = v);
@@ -2476,7 +2635,7 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
             ModernAudioKnob(
-              label: 'FDBK',
+              label: 'FEEDBACK',
               value: _delayFeedback,
               min: 0.0,
               max: 1.0,
@@ -2575,7 +2734,6 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateStereoWiden() {
-    // mapped _stereoWidenDelayMs mapping 0.0-1.0 to 0-100ms
     double delayMsMapping = _stereoWidenDelayMs * 100.0;
     widget.player.setStereoWiden(
       enabled: _stereoWidenEnabled,
@@ -2585,9 +2743,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateSpatialAudio() {
-    // DelayMs mapping: 20ms to 350ms
     double delayMs = 20.0 + (_roomSize * 330.0);
-    // Feedback mapping: 0 to 0.98 based on Echo
     double feedback = _echo * 0.98;
 
     widget.player
@@ -2600,8 +2756,8 @@ class _EqScreenState extends State<EqScreen>
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          color: primaryColor.withValues(alpha: 0.8),
-          fontSize: 10,
+          color: primaryColor.withValues(alpha: 0.9),
+          fontSize: 10.5,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.0,
         ),
@@ -2611,17 +2767,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildTrue3dSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.circle,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.spatial_tracking, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.threed_rotation_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'True 3D Spatial Audio',
-      subtitle: 'Positioning, Cones & Attenuation',
+      subtitle: '3D Positioning, Sound Cones & Distance Attenuation',
       isEnabled: _true3dEnabled,
       onToggle: (v) {
         setState(() => _true3dEnabled = v);
@@ -2687,20 +2847,20 @@ class _EqScreenState extends State<EqScreen>
           children: [
             Text('Attenuation Model',
                 style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8), fontSize: 13)),
+                    color: Colors.white.withValues(alpha: 0.85), fontSize: 13, fontWeight: FontWeight.w600)),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
                 color: surfaceDarkColor,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.35)),
               ),
               child: DropdownButton<int>(
                 value: _spatAttenuationModel,
                 dropdownColor: surfaceDarkerColor,
                 underline: const SizedBox(),
-                icon: Icon(Icons.arrow_drop_down, color: primaryColor),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text('None')),
                   DropdownMenuItem(value: 1, child: Text('Inverse')),
@@ -2905,17 +3065,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildAudioTuningSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.pill,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.tune, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.tune_rounded, color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Audio Tuning',
-      subtitle: '3-band EQ',
+      title: '3-Band Audio Tuning',
+      subtitle: 'Bass, midrange & treble shelving tone control',
       isEnabled: _audioTuningEnabled,
       onToggle: (v) {
         setState(() => _audioTuningEnabled = v);
@@ -2995,17 +3159,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildParametricEqSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.gem,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.tune, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.show_chart_rounded, color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Parametric EQ',
-      subtitle: 'Advanced mixed FX chain',
+      title: 'Parametric Equalizer',
+      subtitle: 'Dynamic cascade filter nodes & visual response curve',
       isEnabled: _parametricEqEnabled,
       onToggle: (v) {
         setState(() {
@@ -3036,18 +3204,20 @@ class _EqScreenState extends State<EqScreen>
         });
       },
       children: [
-        ParametricEqGraph(
-          bands: _parametricBands,
-          isEnabled: _parametricEqEnabled,
-          height: 100.0,
-          primaryColor: primaryColor,
+        RepaintBoundary(
+          child: ParametricEqGraph(
+            bands: _parametricBands,
+            isEnabled: _parametricEqEnabled,
+            height: 110.0,
+            primaryColor: primaryColor,
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            TextButton.icon(
-              icon: Icon(Icons.add_circle_outline, color: primaryColor),
+            M3EButton.icon(
+              icon: Icon(Icons.add_rounded, color: primaryColor, size: 18),
               label: Text('Add Band', style: TextStyle(color: primaryColor)),
               onPressed: () {
                 setState(() {
@@ -3064,11 +3234,12 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         SizedBox(
-          height: 220,
+          height: 235,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             itemCount: _parametricBands.length,
             itemBuilder: (context, index) {
               final band = _parametricBands[index];
@@ -3082,269 +3253,267 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildParametricBandCard(int index, EqBandConfig band) {
     return Container(
-      width: 220,
-      margin: const EdgeInsets.only(right: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      width: 230,
+      margin: const EdgeInsets.only(right: 14),
+      child: M3ECard(
+        variant: M3ECardVariant.filled,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Band ${index + 1}',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold)),
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('${band.frequencyHz.toInt()}Hz',
-                      style: TextStyle(
-                          color: primaryColor, fontFamily: 'monospace')),
-                  const SizedBox(width: 12),
-                  GestureDetector(
-                    onTap: () {
+                  Text('Band ${index + 1}',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
+                  Row(
+                    children: [
+                      Text('${band.frequencyHz.toInt()}Hz',
+                          style: TextStyle(
+                              color: primaryColor, fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      M3EIconButton(
+                        onPressed: () {
+                          setState(() {
+                            _parametricBands.removeAt(index);
+                            _applyParametricBands();
+                          });
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 16),
+                        variant: M3EIconButtonVariant.standard,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Type Selector
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: surfaceDarkerColor,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<EqBandType>(
+                    value: band.type,
+                    isExpanded: true,
+                    dropdownColor: surfaceDarkerColor,
+                    icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.white54),
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    items: EqBandType.values
+                        .map((t) => DropdownMenuItem(
+                              value: t,
+                              child: Text(switch (t) {
+                                EqBandType.peak => 'Peak EQ',
+                                EqBandType.bandpass => 'Band-Pass',
+                                EqBandType.notch => 'Notch',
+                                EqBandType.lowshelf => 'Low Shelf',
+                                EqBandType.highshelf => 'High Shelf',
+                                EqBandType.lowpass => 'Low-Pass',
+                                EqBandType.highpass => 'High-Pass',
+                              }),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        setState(() {
+                          _parametricBands[index] = EqBandConfig(
+                            type: v,
+                            frequencyHz: band.frequencyHz,
+                            enabled: band.enabled,
+                            q: band.q,
+                            gainDb: band.gainDb,
+                            slope: band.slope,
+                          );
+                          _applyParametricBands();
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Frequency Knob
+                  ModernAudioKnob(
+                    label: 'FREQ',
+                    value: band.frequencyHz.clamp(20.0, 20000.0),
+                    min: 20.0,
+                    max: 20000.0,
+                    flatValue: 1000.0,
+                    activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
+                    valueFormatter: (v) => '${v.toInt()}Hz',
+                    onChanged: (v) {
                       setState(() {
-                        _parametricBands.removeAt(index);
+                        _parametricBands[index] = EqBandConfig(
+                          type: band.type,
+                          frequencyHz: v,
+                          enabled: band.enabled,
+                          q: band.q,
+                          gainDb: band.gainDb,
+                          slope: band.slope,
+                        );
                         _applyParametricBands();
                       });
                     },
-                    child: const Icon(Icons.close,
-                        color: Colors.white54, size: 20),
                   ),
+
+                  // Q Factor / Slope Knob
+                  ModernAudioKnob(
+                    label: band.type == EqBandType.lowshelf ||
+                            band.type == EqBandType.highshelf
+                        ? 'SLOPE'
+                        : 'Q',
+                    value: band.type == EqBandType.lowshelf ||
+                            band.type == EqBandType.highshelf
+                        ? band.slope
+                        : band.q,
+                    min: 0.1,
+                    max: 18.0,
+                    flatValue: 1.0,
+                    activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
+                    valueFormatter: (v) => v.toStringAsFixed(1),
+                    onChanged: (v) {
+                      setState(() {
+                        if (band.type == EqBandType.lowshelf ||
+                            band.type == EqBandType.highshelf) {
+                          _parametricBands[index] = EqBandConfig(
+                            type: band.type,
+                            frequencyHz: band.frequencyHz,
+                            enabled: band.enabled,
+                            q: band.q,
+                            gainDb: band.gainDb,
+                            slope: v,
+                          );
+                        } else {
+                          _parametricBands[index] = EqBandConfig(
+                            type: band.type,
+                            frequencyHz: band.frequencyHz,
+                            enabled: band.enabled,
+                            q: v,
+                            gainDb: band.gainDb,
+                            slope: band.slope,
+                          );
+                        }
+                        _applyParametricBands();
+                      });
+                    },
+                  ),
+
+                  // Gain Knob (for Peak, Low Shelf, High Shelf)
+                  if (band.type == EqBandType.peak ||
+                      band.type == EqBandType.lowshelf ||
+                      band.type == EqBandType.highshelf)
+                    ModernAudioKnob(
+                      label: 'GAIN',
+                      value: band.gainDb,
+                      min: -24.0,
+                      max: 24.0,
+                      flatValue: 0.0,
+                      activeColor:
+                          _parametricEqEnabled ? primaryColor : Colors.white,
+                      valueFormatter: (v) =>
+                          '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                      onChanged: (v) {
+                        setState(() {
+                          _parametricBands[index] = EqBandConfig(
+                            type: band.type,
+                            frequencyHz: band.frequencyHz,
+                            enabled: band.enabled,
+                            q: band.q,
+                            gainDb: v,
+                            slope: band.slope,
+                          );
+                          _applyParametricBands();
+                        });
+                      },
+                    ),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          // Type Selector
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: surfaceDarkerColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<EqBandType>(
-                value: band.type,
-                isExpanded: true,
-                dropdownColor: surfaceDarkerColor,
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                items: EqBandType.values
-                    .map((t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(switch (t) {
-                            EqBandType.peak => 'Peak EQ',
-                            EqBandType.bandpass => 'Band-Pass',
-                            EqBandType.notch => 'Notch',
-                            EqBandType.lowshelf => 'Low Shelf',
-                            EqBandType.highshelf => 'High Shelf',
-                            EqBandType.lowpass => 'Low-Pass',
-                            EqBandType.highpass => 'High-Pass',
-                          }),
-                        ))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) {
-                    setState(() {
-                      _parametricBands[index] = EqBandConfig(
-                        type: v,
-                        frequencyHz: band.frequencyHz,
-                        enabled: band.enabled,
-                        q: band.q,
-                        gainDb: band.gainDb,
-                        slope: band.slope,
-                      );
-                      _applyParametricBands();
-                    });
-                  }
-                },
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Frequency Knob
-              ModernAudioKnob(
-                label: 'FREQ',
-                value: band.frequencyHz.clamp(20.0, 20000.0),
-                min: 20.0,
-                max: 20000.0,
-                flatValue: 1000.0,
-                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) => '${v.toInt()}Hz',
-                onChanged: (v) {
-                  setState(() {
-                    _parametricBands[index] = EqBandConfig(
-                      type: band.type,
-                      frequencyHz: v,
-                      enabled: band.enabled,
-                      q: band.q,
-                      gainDb: band.gainDb,
-                      slope: band.slope,
-                    );
-                    _applyParametricBands();
-                  });
-                },
-              ),
-
-              // Q Factor / Slope Knob
-              ModernAudioKnob(
-                label: band.type == EqBandType.lowshelf ||
-                        band.type == EqBandType.highshelf
-                    ? 'SLOPE'
-                    : 'Q',
-                value: band.type == EqBandType.lowshelf ||
-                        band.type == EqBandType.highshelf
-                    ? band.slope
-                    : band.q,
-                min: 0.1,
-                max: 18.0,
-                flatValue: 1.0,
-                activeColor: _parametricEqEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) => v.toStringAsFixed(1),
-                onChanged: (v) {
-                  setState(() {
-                    if (band.type == EqBandType.lowshelf ||
-                        band.type == EqBandType.highshelf) {
-                      _parametricBands[index] = EqBandConfig(
-                        type: band.type,
-                        frequencyHz: band.frequencyHz,
-                        enabled: band.enabled,
-                        q: band.q,
-                        gainDb: band.gainDb,
-                        slope: v,
-                      );
-                    } else {
-                      _parametricBands[index] = EqBandConfig(
-                        type: band.type,
-                        frequencyHz: band.frequencyHz,
-                        enabled: band.enabled,
-                        q: v,
-                        gainDb: band.gainDb,
-                        slope: band.slope,
-                      );
-                    }
-                    _applyParametricBands();
-                  });
-                },
-              ),
-
-              // Gain Knob (for Peak, Low Shelf, High Shelf)
-              if (band.type == EqBandType.peak ||
-                  band.type == EqBandType.lowshelf ||
-                  band.type == EqBandType.highshelf)
-                ModernAudioKnob(
-                  label: 'GAIN',
-                  value: band.gainDb,
-                  min: -24.0,
-                  max: 24.0,
-                  flatValue: 0.0,
-                  activeColor:
-                      _parametricEqEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) =>
-                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                  onChanged: (v) {
-                    setState(() {
-                      _parametricBands[index] = EqBandConfig(
-                        type: band.type,
-                        frequencyHz: band.frequencyHz,
-                        enabled: band.enabled,
-                        q: band.q,
-                        gainDb: v,
-                        slope: band.slope,
-                      );
-                      _applyParametricBands();
-                    });
-                  },
-                ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildCustomFiltersSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.diamond,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.filter_list, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.filter_alt_rounded, color: primaryColor, size: 20),
+        ),
       ),
-      title: 'Advanced Filters',
+      title: 'Advanced Audio Filters',
       subtitle: 'Real-Time LPF, HPF, BPF, Notch, Peak, Low/High Shelf & Biquad',
       hasSwitch: false,
       children: [
         // Real-Time Combined Frequency Response Graph
-        CustomFiltersGraph(
-          config: CustomFilterGraphConfig(
-            lpfEnabled: _customLpfEnabled,
-            lpfCutoff: _customLpfCutoff,
-            hpfEnabled: _customHpfEnabled,
-            hpfCutoff: _customHpfCutoff,
-            bpfEnabled: _customBpfEnabled,
-            bpfCutoff: _customBpfCutoff,
-            bpfQ: _customBpfQ,
-            notchEnabled: _customNotchEnabled,
-            notchCutoff: _customNotchCutoff,
-            notchQ: _customNotchQ,
-            peakEnabled: _customPeakEnabled,
-            peakCutoff: _customPeakCutoff,
-            peakGainDb: _customPeakGainDb,
-            peakQ: _customPeakQ,
-            loshelfEnabled: _customLoshelfEnabled,
-            loshelfCutoff: _customLoshelfCutoff,
-            loshelfGainDb: _customLoshelfGainDb,
-            loshelfSlope: _customLoshelfSlope,
-            hishelfEnabled: _customHishelfEnabled,
-            hishelfCutoff: _customHishelfCutoff,
-            hishelfGainDb: _customHishelfGainDb,
-            hishelfSlope: _customHishelfSlope,
-            biquadEnabled: _customBiquadEnabled,
-            biquadB0: _biquadB0,
-            biquadB1: _biquadB1,
-            biquadB2: _biquadB2,
-            biquadA0: _biquadA0,
-            biquadA1: _biquadA1,
-            biquadA2: _biquadA2,
+        RepaintBoundary(
+          child: CustomFiltersGraph(
+            config: CustomFilterGraphConfig(
+              lpfEnabled: _customLpfEnabled,
+              lpfCutoff: _customLpfCutoff,
+              hpfEnabled: _customHpfEnabled,
+              hpfCutoff: _customHpfCutoff,
+              bpfEnabled: _customBpfEnabled,
+              bpfCutoff: _customBpfCutoff,
+              bpfQ: _customBpfQ,
+              notchEnabled: _customNotchEnabled,
+              notchCutoff: _customNotchCutoff,
+              notchQ: _customNotchQ,
+              peakEnabled: _customPeakEnabled,
+              peakCutoff: _customPeakCutoff,
+              peakGainDb: _customPeakGainDb,
+              peakQ: _customPeakQ,
+              loshelfEnabled: _customLoshelfEnabled,
+              loshelfCutoff: _customLoshelfCutoff,
+              loshelfGainDb: _customLoshelfGainDb,
+              loshelfSlope: _customLoshelfSlope,
+              hishelfEnabled: _customHishelfEnabled,
+              hishelfCutoff: _customHishelfCutoff,
+              hishelfGainDb: _customHishelfGainDb,
+              hishelfSlope: _customHishelfSlope,
+              biquadEnabled: _customBiquadEnabled,
+              biquadB0: _biquadB0,
+              biquadB1: _biquadB1,
+              biquadB2: _biquadB2,
+              biquadA0: _biquadA0,
+              biquadA1: _biquadA1,
+              biquadA2: _biquadA2,
+            ),
+            primaryColor: primaryColor,
+            height: 125.0,
           ),
-          primaryColor: primaryColor,
-          height: 125.0,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
 
         // LPF Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Low-Pass Filter (LPF)',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customLpfEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customLpfEnabled = v;
-                      widget.player.setCustomLpf1(
-                          enabled: v, cutoffHz: _customLpfCutoff);
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
+        _buildFilterRow(
+          title: 'Low-Pass Filter (LPF)',
+          isEnabled: _customLpfEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customLpfEnabled = v;
+              widget.player
+                  .setCustomLpf1(enabled: v, cutoffHz: _customLpfCutoff);
+            });
+          },
+          controls: [
             ModernAudioKnob(
               label: 'CUTOFF',
               value: _customLpfCutoff,
@@ -3364,35 +3533,20 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
 
         // HPF Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('High-Pass Filter (HPF)',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customHpfEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customHpfEnabled = v;
-                      widget.player.setCustomHpf1(
-                          enabled: v, cutoffHz: _customHpfCutoff);
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
+        _buildFilterRow(
+          title: 'High-Pass Filter (HPF)',
+          isEnabled: _customHpfEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customHpfEnabled = v;
+              widget.player
+                  .setCustomHpf1(enabled: v, cutoffHz: _customHpfCutoff);
+            });
+          },
+          controls: [
             ModernAudioKnob(
               label: 'CUTOFF',
               value: _customHpfCutoff,
@@ -3412,465 +3566,403 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
 
         // Band-Pass Filter (BPF) Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Band-Pass Filter (BPF)',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customBpfEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customBpfEnabled = v;
-                      _updateBpf();
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                ModernAudioKnob(
-                  label: 'CUTOFF',
-                  value: _customBpfCutoff,
-                  min: 20.0,
-                  max: 20000.0,
-                  flatValue: 1000.0,
-                  activeColor: _customBpfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => '${v.toInt()} Hz',
-                  onChanged: (v) {
-                    setState(() {
-                      _customBpfCutoff = v;
-                      _updateBpf();
-                    });
-                  },
-                ),
-                const SizedBox(width: 12),
-                ModernAudioKnob(
-                  label: 'Q',
-                  value: _customBpfQ,
-                  min: 0.1,
-                  max: 10.0,
-                  flatValue: 0.707,
-                  activeColor: _customBpfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => v.toStringAsFixed(2),
-                  onChanged: (v) {
-                    setState(() {
-                      _customBpfQ = v;
-                      _updateBpf();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-
-        // Notch Filter Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Notch Filter',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customNotchEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customNotchEnabled = v;
-                      _updateNotch();
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                ModernAudioKnob(
-                  label: 'FREQ',
-                  value: _customNotchCutoff,
-                  min: 20.0,
-                  max: 20000.0,
-                  flatValue: 60.0,
-                  activeColor:
-                      _customNotchEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => '${v.toInt()} Hz',
-                  onChanged: (v) {
-                    setState(() {
-                      _customNotchCutoff = v;
-                      _updateNotch();
-                    });
-                  },
-                ),
-                const SizedBox(width: 12),
-                ModernAudioKnob(
-                  label: 'Q',
-                  value: _customNotchQ,
-                  min: 0.5,
-                  max: 30.0,
-                  flatValue: 10.0,
-                  activeColor:
-                      _customNotchEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => v.toStringAsFixed(1),
-                  onChanged: (v) {
-                    setState(() {
-                      _customNotchQ = v;
-                      _updateNotch();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-
-        // Peaking EQ Filter Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Peaking EQ Filter',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customPeakEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customPeakEnabled = v;
-                      _updatePeak();
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                ModernAudioKnob(
-                  label: 'FREQ',
-                  value: _customPeakCutoff,
-                  min: 20.0,
-                  max: 20000.0,
-                  flatValue: 1000.0,
-                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => '${v.toInt()} Hz',
-                  onChanged: (v) {
-                    setState(() {
-                      _customPeakCutoff = v;
-                      _updatePeak();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'GAIN',
-                  value: _customPeakGainDb,
-                  min: -24.0,
-                  max: 24.0,
-                  flatValue: 0.0,
-                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) =>
-                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                  onChanged: (v) {
-                    setState(() {
-                      _customPeakGainDb = v;
-                      _updatePeak();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'Q',
-                  value: _customPeakQ,
-                  min: 0.1,
-                  max: 10.0,
-                  flatValue: 1.0,
-                  activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => v.toStringAsFixed(2),
-                  onChanged: (v) {
-                    setState(() {
-                      _customPeakQ = v;
-                      _updatePeak();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-
-        // Low Shelf Filter Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Low Shelf Filter',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customLoshelfEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customLoshelfEnabled = v;
-                      _updateLoshelf();
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                ModernAudioKnob(
-                  label: 'CUTOFF',
-                  value: _customLoshelfCutoff,
-                  min: 20.0,
-                  max: 5000.0,
-                  flatValue: 250.0,
-                  activeColor:
-                      _customLoshelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => '${v.toInt()} Hz',
-                  onChanged: (v) {
-                    setState(() {
-                      _customLoshelfCutoff = v;
-                      _updateLoshelf();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'GAIN',
-                  value: _customLoshelfGainDb,
-                  min: -24.0,
-                  max: 24.0,
-                  flatValue: 0.0,
-                  activeColor:
-                      _customLoshelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) =>
-                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                  onChanged: (v) {
-                    setState(() {
-                      _customLoshelfGainDb = v;
-                      _updateLoshelf();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'SLOPE',
-                  value: _customLoshelfSlope,
-                  min: 0.1,
-                  max: 2.0,
-                  flatValue: 1.0,
-                  activeColor:
-                      _customLoshelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => v.toStringAsFixed(2),
-                  onChanged: (v) {
-                    setState(() {
-                      _customLoshelfSlope = v;
-                      _updateLoshelf();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-
-        // High Shelf Filter Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('High Shelf Filter',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 12),
-                Switch(
-                  value: _customHishelfEnabled,
-                  onChanged: (v) {
-                    setState(() {
-                      _customHishelfEnabled = v;
-                      _updateHishelf();
-                    });
-                  },
-                  activeThumbColor: Colors.white,
-                  activeTrackColor: primaryColor,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                ModernAudioKnob(
-                  label: 'CUTOFF',
-                  value: _customHishelfCutoff,
-                  min: 1000.0,
-                  max: 20000.0,
-                  flatValue: 8000.0,
-                  activeColor:
-                      _customHishelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => '${v.toInt()} Hz',
-                  onChanged: (v) {
-                    setState(() {
-                      _customHishelfCutoff = v;
-                      _updateHishelf();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'GAIN',
-                  value: _customHishelfGainDb,
-                  min: -24.0,
-                  max: 24.0,
-                  flatValue: 0.0,
-                  activeColor:
-                      _customHishelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) =>
-                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-                  onChanged: (v) {
-                    setState(() {
-                      _customHishelfGainDb = v;
-                      _updateHishelf();
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-                ModernAudioKnob(
-                  label: 'SLOPE',
-                  value: _customHishelfSlope,
-                  min: 0.1,
-                  max: 2.0,
-                  flatValue: 1.0,
-                  activeColor:
-                      _customHishelfEnabled ? primaryColor : Colors.white,
-                  valueFormatter: (v) => v.toStringAsFixed(2),
-                  onChanged: (v) {
-                    setState(() {
-                      _customHishelfSlope = v;
-                      _updateHishelf();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-
-        // Biquad Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Custom Biquad',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500)),
-            Switch(
-              value: _customBiquadEnabled,
+        _buildFilterRow(
+          title: 'Band-Pass Filter (BPF)',
+          isEnabled: _customBpfEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customBpfEnabled = v;
+              _updateBpf();
+            });
+          },
+          controls: [
+            ModernAudioKnob(
+              label: 'CUTOFF',
+              value: _customBpfCutoff,
+              min: 20.0,
+              max: 20000.0,
+              flatValue: 1000.0,
+              activeColor: _customBpfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
               onChanged: (v) {
                 setState(() {
-                  _customBiquadEnabled = v;
-                  _updateBiquad();
+                  _customBpfCutoff = v;
+                  _updateBpf();
                 });
               },
-              activeThumbColor: Colors.white,
-              activeTrackColor: primaryColor,
+            ),
+            ModernAudioKnob(
+              label: 'Q',
+              value: _customBpfQ,
+              min: 0.1,
+              max: 10.0,
+              flatValue: 0.707,
+              activeColor: _customBpfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(2),
+              onChanged: (v) {
+                setState(() {
+                  _customBpfQ = v;
+                  _updateBpf();
+                });
+              },
             ),
           ],
         ),
         const SizedBox(height: 16),
-        Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          alignment: WrapAlignment.center,
-          children: [
-            _buildBiquadKnob(
-                'B0',
-                _biquadB0,
-                (v) => setState(() {
-                      _biquadB0 = v;
-                      _updateBiquad();
-                    })),
-            _buildBiquadKnob(
-                'B1',
-                _biquadB1,
-                (v) => setState(() {
-                      _biquadB1 = v;
-                      _updateBiquad();
-                    })),
-            _buildBiquadKnob(
-                'B2',
-                _biquadB2,
-                (v) => setState(() {
-                      _biquadB2 = v;
-                      _updateBiquad();
-                    })),
-            _buildBiquadKnob(
-                'A0',
-                _biquadA0,
-                (v) => setState(() {
-                      _biquadA0 = v;
-                      _updateBiquad();
-                    })),
-            _buildBiquadKnob(
-                'A1',
-                _biquadA1,
-                (v) => setState(() {
-                      _biquadA1 = v;
-                      _updateBiquad();
-                    })),
-            _buildBiquadKnob(
-                'A2',
-                _biquadA2,
-                (v) => setState(() {
-                      _biquadA2 = v;
-                      _updateBiquad();
-                    })),
+
+        // Notch Filter Section
+        _buildFilterRow(
+          title: 'Notch Filter',
+          isEnabled: _customNotchEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customNotchEnabled = v;
+              _updateNotch();
+            });
+          },
+          controls: [
+            ModernAudioKnob(
+              label: 'FREQ',
+              value: _customNotchCutoff,
+              min: 20.0,
+              max: 20000.0,
+              flatValue: 60.0,
+              activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _customNotchCutoff = v;
+                  _updateNotch();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'Q',
+              value: _customNotchQ,
+              min: 0.5,
+              max: 30.0,
+              flatValue: 10.0,
+              activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(1),
+              onChanged: (v) {
+                setState(() {
+                  _customNotchQ = v;
+                  _updateNotch();
+                });
+              },
+            ),
           ],
-        )
+        ),
+        const SizedBox(height: 16),
+
+        // Peaking EQ Filter Section
+        _buildFilterRow(
+          title: 'Peaking EQ Filter',
+          isEnabled: _customPeakEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customPeakEnabled = v;
+              _updatePeak();
+            });
+          },
+          controls: [
+            ModernAudioKnob(
+              label: 'FREQ',
+              value: _customPeakCutoff,
+              min: 20.0,
+              max: 20000.0,
+              flatValue: 1000.0,
+              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _customPeakCutoff = v;
+                  _updatePeak();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'GAIN',
+              value: _customPeakGainDb,
+              min: -24.0,
+              max: 24.0,
+              flatValue: 0.0,
+              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _customPeakGainDb = v;
+                  _updatePeak();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'Q',
+              value: _customPeakQ,
+              min: 0.1,
+              max: 10.0,
+              flatValue: 1.0,
+              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(2),
+              onChanged: (v) {
+                setState(() {
+                  _customPeakQ = v;
+                  _updatePeak();
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Low Shelf Filter Section
+        _buildFilterRow(
+          title: 'Low Shelf Filter',
+          isEnabled: _customLoshelfEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customLoshelfEnabled = v;
+              _updateLoshelf();
+            });
+          },
+          controls: [
+            ModernAudioKnob(
+              label: 'CUTOFF',
+              value: _customLoshelfCutoff,
+              min: 20.0,
+              max: 5000.0,
+              flatValue: 250.0,
+              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _customLoshelfCutoff = v;
+                  _updateLoshelf();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'GAIN',
+              value: _customLoshelfGainDb,
+              min: -24.0,
+              max: 24.0,
+              flatValue: 0.0,
+              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _customLoshelfGainDb = v;
+                  _updateLoshelf();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SLOPE',
+              value: _customLoshelfSlope,
+              min: 0.1,
+              max: 2.0,
+              flatValue: 1.0,
+              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(2),
+              onChanged: (v) {
+                setState(() {
+                  _customLoshelfSlope = v;
+                  _updateLoshelf();
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // High Shelf Filter Section
+        _buildFilterRow(
+          title: 'High Shelf Filter',
+          isEnabled: _customHishelfEnabled,
+          onToggle: (v) {
+            setState(() {
+              _customHishelfEnabled = v;
+              _updateHishelf();
+            });
+          },
+          controls: [
+            ModernAudioKnob(
+              label: 'CUTOFF',
+              value: _customHishelfCutoff,
+              min: 1000.0,
+              max: 20000.0,
+              flatValue: 8000.0,
+              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _customHishelfCutoff = v;
+                  _updateHishelf();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'GAIN',
+              value: _customHishelfGainDb,
+              min: -24.0,
+              max: 24.0,
+              flatValue: 0.0,
+              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _customHishelfGainDb = v;
+                  _updateHishelf();
+                });
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SLOPE',
+              value: _customHishelfSlope,
+              min: 0.1,
+              max: 2.0,
+              flatValue: 1.0,
+              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v.toStringAsFixed(2),
+              onChanged: (v) {
+                setState(() {
+                  _customHishelfSlope = v;
+                  _updateHishelf();
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Biquad Section
+        M3ECard(
+          variant: M3ECardVariant.filled,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Direct Form II Biquad Coeffs',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.bold)),
+                    M3ESwitch(
+                      value: _customBiquadEnabled,
+                      onChanged: (v) {
+                        setState(() {
+                          _customBiquadEnabled = v;
+                          _updateBiquad();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _buildBiquadKnob(
+                        'B0',
+                        _biquadB0,
+                        (v) => setState(() {
+                              _biquadB0 = v;
+                              _updateBiquad();
+                            })),
+                    _buildBiquadKnob(
+                        'B1',
+                        _biquadB1,
+                        (v) => setState(() {
+                              _biquadB1 = v;
+                              _updateBiquad();
+                            })),
+                    _buildBiquadKnob(
+                        'B2',
+                        _biquadB2,
+                        (v) => setState(() {
+                              _biquadB2 = v;
+                              _updateBiquad();
+                            })),
+                    _buildBiquadKnob(
+                        'A0',
+                        _biquadA0,
+                        (v) => setState(() {
+                              _biquadA0 = v;
+                              _updateBiquad();
+                            })),
+                    _buildBiquadKnob(
+                        'A1',
+                        _biquadA1,
+                        (v) => setState(() {
+                              _biquadA1 = v;
+                              _updateBiquad();
+                            })),
+                    _buildBiquadKnob(
+                        'A2',
+                        _biquadA2,
+                        (v) => setState(() {
+                              _biquadA2 = v;
+                              _updateBiquad();
+                            })),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildFilterRow({
+    required String title,
+    required bool isEnabled,
+    required ValueChanged<bool> onToggle,
+    required List<Widget> controls,
+  }) {
+    return M3ECard(
+      variant: M3ECardVariant.filled,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                M3ESwitch(
+                  value: isEnabled,
+                  onChanged: onToggle,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: controls,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -3956,17 +4048,21 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildLimiterSection() {
     return _CollapsibleSection(
-      icon: Container(
+      icon: M3EContainer(
+        Shapes.square,
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: primaryColor.withValues(alpha: 0.2),
-          shape: BoxShape.circle,
+        color: primaryColor.withValues(alpha: 0.18),
+        border: BorderSide(
+          color: primaryColor.withValues(alpha: 0.4),
+          width: 1.0,
         ),
-        child: Icon(Icons.compress, color: primaryColor, size: 20),
+        child: Center(
+          child: Icon(Icons.compress_rounded, color: primaryColor, size: 20),
+        ),
       ),
       title: 'Soft Limiter',
-      subtitle: 'Prevent clipping & distortion',
+      subtitle: 'True-peak limiting & anti-clipping dynamics processor',
       isEnabled: _limiterEnabled,
       onToggle: (v) {
         setState(() => _limiterEnabled = v);
@@ -3974,12 +4070,11 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // ── Three knobs ──────────────────────────────────────────────────
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'THRESH',
+              label: 'THRESHOLD',
               value: _limiterThreshold,
               min: 0.1,
               max: 1.0,
@@ -4067,7 +4162,136 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
     double sensitivity = (widget.max - widget.min) / 150.0;
     double newValue = widget.value - (details.delta.dy * sensitivity);
     newValue = newValue.clamp(widget.min, widget.max);
-    widget.onChanged(newValue);
+    if ((newValue - widget.value).abs() > 0.001) {
+      widget.onChanged(newValue);
+    }
+  }
+
+  void _showValueDialog(BuildContext context, double dbValue) {
+    String initialText = widget.value.toStringAsFixed(2);
+    double effectiveMultiplier =
+        widget.isPercentage ? 100.0 : widget.displayMultiplier;
+    int decimals = widget.isPercentage ? 0 : 1;
+
+    if (widget.isPercentage || widget.displayMultiplier != 1.0) {
+      initialText = (widget.value * effectiveMultiplier)
+          .toStringAsFixed(decimals);
+    } else if (widget.valueFormatter == null) {
+      initialText = dbValue.toStringAsFixed(2);
+    }
+
+    final controller = TextEditingController(text: initialText);
+
+    double displayMin = widget.min;
+    double displayMax = widget.max;
+    if (widget.isPercentage || widget.displayMultiplier != 1.0) {
+      displayMin = widget.min * effectiveMultiplier;
+      displayMax = widget.max * effectiveMultiplier;
+    } else if (widget.valueFormatter == null) {
+      displayMin = -24.0;
+      displayMax = 24.0;
+    }
+
+    String displayMinStr = displayMin.toStringAsFixed(decimals);
+    String displayMaxStr = displayMax.toStringAsFixed(decimals);
+    if (widget.valueFormatter == null &&
+        !widget.isPercentage &&
+        widget.displayMultiplier == 1.0) {
+      displayMinStr = displayMin.toStringAsFixed(1);
+      displayMaxStr = displayMax.toStringAsFixed(1);
+    }
+
+    final accentColor = widget.activeColor ?? primaryColor;
+
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Adjust ${widget.label}',
+        topDivider: true,
+        bottomDivider: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                M3EContainer(
+                  Shapes.pill,
+                  width: 32,
+                  height: 32,
+                  color: accentColor.withValues(alpha: 0.15),
+                  border: BorderSide(color: accentColor.withValues(alpha: 0.35)),
+                  child: Center(
+                    child: Icon(Icons.tune_rounded, size: 16, color: accentColor),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        'Allowed range: $displayMinStr to $displayMaxStr',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            M3ETextField(
+              controller: controller,
+              label: 'Target Value',
+            ),
+          ],
+        ),
+        actions: [
+          M3EButton(
+            onPressed: () {
+              widget.onChanged(widget.flatValue);
+              Navigator.pop(context);
+            },
+            child: const Text('Reset Flat'),
+          ),
+          M3EButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val != null) {
+                if (widget.isPercentage ||
+                    widget.displayMultiplier != 1.0) {
+                  widget.onChanged((val / effectiveMultiplier)
+                      .clamp(widget.min, widget.max));
+                } else if (widget.valueFormatter == null) {
+                  double linear = math.pow(10, val / 20).toDouble();
+                  widget.onChanged(
+                      linear.clamp(widget.min, widget.max));
+                } else {
+                  widget.onChanged(val.clamp(widget.min, widget.max));
+                }
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -4080,7 +4304,6 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
     if (widget.valueFormatter != null) {
       displayValue = widget.valueFormatter!(widget.value);
     } else {
-      // It's a dB value internally mapped via math.pow for gain elsewhere, or direct dB.
       dbValue =
           20 * math.log(widget.value == 0 ? 0.0001 : widget.value) / math.ln10;
       dbValue = dbValue.clamp(-24.0, 24.0);
@@ -4088,127 +4311,62 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
           '${dbValue > 0 ? '+' : ''}${dbValue.toStringAsFixed(1)} dB';
     }
 
+    final accentColor = widget.activeColor ?? primaryColor;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
-          onVerticalDragUpdate: _onVerticalDragUpdate,
-          onDoubleTap: () => widget.onChanged(widget.flatValue),
-          child: CustomPaint(
-            size: const Size(60, 60),
-            painter: _KnobPainter(
-              normalizedValue: normalizedValue,
-              activeColor: widget.activeColor ?? primaryColor,
-              inactiveColor: Colors.white.withValues(alpha: 0.1),
+        RepaintBoundary(
+          child: GestureDetector(
+            onVerticalDragUpdate: _onVerticalDragUpdate,
+            onDoubleTap: () => widget.onChanged(widget.flatValue),
+            onLongPress: () => _showValueDialog(context, dbValue),
+            child: CustomPaint(
+              size: const Size(60, 60),
+              painter: _KnobPainter(
+                normalizedValue: normalizedValue,
+                activeColor: accentColor,
+                inactiveColor: Colors.white.withValues(alpha: 0.1),
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        Text(widget.label,
-            style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
-                fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Text(
+          widget.label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.8),
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
         const SizedBox(height: 4),
         GestureDetector(
-          onLongPress: () {
-            // Determine default text based on whether it's plain value or dB
-            String initialText = widget.value.toStringAsFixed(2);
-            double effectiveMultiplier =
-                widget.isPercentage ? 100.0 : widget.displayMultiplier;
-            int decimals = widget.isPercentage ? 0 : 1;
-
-            if (widget.isPercentage || widget.displayMultiplier != 1.0) {
-              initialText = (widget.value * effectiveMultiplier)
-                  .toStringAsFixed(decimals);
-            } else if (widget.valueFormatter == null) {
-              initialText = dbValue.toStringAsFixed(2);
-            }
-
-            final controller = TextEditingController(text: initialText);
-
-            // Determine input bounds for display
-            double displayMin = widget.min;
-            double displayMax = widget.max;
-            if (widget.isPercentage || widget.displayMultiplier != 1.0) {
-              displayMin = widget.min * effectiveMultiplier;
-              displayMax = widget.max * effectiveMultiplier;
-            } else if (widget.valueFormatter == null) {
-              displayMin = -24.0;
-              displayMax = 24.0;
-            }
-
-            // Also format the range correctly
-            String displayMinStr = displayMin.toStringAsFixed(decimals);
-            String displayMaxStr = displayMax.toStringAsFixed(decimals);
-            if (widget.valueFormatter == null &&
-                !widget.isPercentage &&
-                widget.displayMultiplier == 1.0) {
-              // dB case
-              displayMinStr = displayMin.toStringAsFixed(1);
-              displayMaxStr = displayMax.toStringAsFixed(1);
-            }
-
-            showDialog(
-              context: context,
-              builder: (context) {
-                return AlertDialog(
-                  backgroundColor: surfaceDarkColor,
-                  title: Text('Enter ${widget.label}',
-                      style:
-                          const TextStyle(color: Colors.white, fontSize: 16)),
-                  content: TextField(
-                    controller: controller,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true, signed: true),
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Value ($displayMinStr to $displayMaxStr)',
-                      labelStyle: const TextStyle(color: Colors.white54),
-                      enabledBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white24)),
-                      focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: primaryColor)),
-                    ),
+          onTap: () => _showValueDialog(context, dbValue),
+          child: M3EContainer(
+            Shapes.pill,
+            height: 22,
+            color: accentColor.withValues(alpha: 0.12),
+            border: BorderSide(
+              color: accentColor.withValues(alpha: 0.3),
+              width: 1,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Center(
+                child: Text(
+                  displayValue,
+                  style: TextStyle(
+                    color: accentColor,
+                    fontSize: 10.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w700,
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel',
-                          style: TextStyle(color: Colors.white54)),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        final val = double.tryParse(controller.text);
-                        if (val != null) {
-                          if (widget.isPercentage ||
-                              widget.displayMultiplier != 1.0) {
-                            widget.onChanged((val / effectiveMultiplier)
-                                .clamp(widget.min, widget.max));
-                          } else if (widget.valueFormatter == null) {
-                            // User entered dB, convert back to linear
-                            double linear = math.pow(10, val / 20).toDouble();
-                            widget.onChanged(
-                                linear.clamp(widget.min, widget.max));
-                          } else {
-                            // For audio tuning, the value itself is dB and formatter is now provided
-                            widget.onChanged(val.clamp(widget.min, widget.max));
-                          }
-                        }
-                        Navigator.pop(context);
-                      },
-                      child: Text('OK', style: TextStyle(color: primaryColor)),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-          child: Text(displayValue,
-              style: TextStyle(
-                  color: widget.activeColor,
-                  fontSize: 10,
-                  fontFamily: 'monospace')),
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -4340,66 +4498,76 @@ class _CollapsibleSectionState extends State<_CollapsibleSection> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        InkWell(
-          onTap: () {
-            setState(() {
-              _isExpanded = !_isExpanded;
-            });
-          },
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    widget.icon,
-                    const SizedBox(width: 12),
-                    Column(
+    return M3ECard(
+      variant: M3ECardVariant.filled,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Row(
+                children: [
+                  widget.icon,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(widget.title,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
-                        Text(widget.subtitle,
-                            style:
-                                TextStyle(color: Colors.white54, fontSize: 12)),
+                        Text(
+                          widget.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle,
+                          style: TextStyle(
+                            color: widget.isEnabled
+                                ? primaryColor.withValues(alpha: 0.9)
+                                : Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
                       ],
                     ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    if (widget.hasSwitch)
-                      Switch(
-                        value: widget.isEnabled,
-                        onChanged: widget.onToggle,
-                        activeThumbColor: Colors.white,
-                        activeTrackColor: primaryColor,
-                      ),
-                    if (widget.hasSwitch) const SizedBox(width: 8),
-                    Icon(
-                      _isExpanded
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
-                      color: Colors.white54,
+                  ),
+                  if (widget.hasSwitch) ...[
+                    M3ESwitch(
+                      value: widget.isEnabled,
+                      onChanged: widget.onToggle,
                     ),
+                    const SizedBox(width: 4),
                   ],
-                ),
-              ],
+                  Icon(
+                    _isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: Colors.white54,
+                    size: 22,
+                  ),
+                ],
+              ),
             ),
-          ),
+            if (_isExpanded) ...[
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white12, height: 1),
+              const SizedBox(height: 16),
+              ...widget.children,
+            ],
+          ],
         ),
-        if (_isExpanded) ...[
-          const SizedBox(height: 16),
-          ...widget.children,
-        ],
-      ],
+      ),
     );
   }
 }
