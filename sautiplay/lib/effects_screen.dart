@@ -328,9 +328,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = AppThemeService.instance.currentData.primary;
-    final bgColor = AppThemeService.instance.currentData.bgDark;
-    const headerColor = Color(0xFF111a22);
+    final primaryColor = context.primaryColor;
+    final bgColor = context.bgDark;
+    final cardColor = context.cardDark;
+    final headerColor = bgColor;
 
     // Calculate the dynamic expanded height based on what's visible
     final double analyzerChartHeight =
@@ -468,19 +469,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       child: Container(
                                         decoration: BoxDecoration(
                                           borderRadius:
-                                              BorderRadius.circular(12),
-                                          color: AppThemeService
-                                              .instance.currentData.cardDark,
+                                              BorderRadius.circular(14),
+                                          color: cardColor,
+                                          border: Border.all(
+                                            color: primaryColor.withValues(
+                                                alpha: 0.25),
+                                          ),
                                         ),
-                                        //  Shapes.ghostish,
                                         height: 34,
-                                        //  color: AppThemeService
-                                        //    .instance.currentData.cardDark,
-                                        /* border: BorderSide(
-                                          color: primaryColor.withValues(
-                                              alpha: 0.35),
-                                          width: 1,
-                                        ),*/
                                         child: Padding(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 10),

@@ -57,29 +57,6 @@ void main() {
   runApp(const DemoApp());
 }
 
-// ─── InheritedWidget so any descendant can read the current theme ─────────────
-class AppThemeProvider extends InheritedWidget {
-  final AppThemeData themeData;
-
-  const AppThemeProvider({
-    super.key,
-    required this.themeData,
-    required super.child,
-  });
-
-  static AppThemeData of(BuildContext context) {
-    final provider =
-        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
-    return provider?.themeData ?? AppThemeService.themes.first;
-  }
-
-  @override
-  bool updateShouldNotify(AppThemeProvider oldWidget) =>
-      themeData.id != oldWidget.themeData.id ||
-      themeData.primary != oldWidget.themeData.primary ||
-      themeData.bgDark != oldWidget.themeData.bgDark;
-}
-
 // ─── App root ─────────────────────────────────────────────────────────────────
 class DemoApp extends StatefulWidget {
   const DemoApp({super.key});
@@ -135,7 +112,7 @@ class _DemoAppState extends State<DemoApp> {
         data: m3eThemeData,
         autoTheming: false,
         dynamicColoring: false,
-        drawUnderSystemBars: true,
+        drawUnderSystemBars: false,
         theme: _themeData.toThemeData(),
         home: const PlayerShell(),
       ),

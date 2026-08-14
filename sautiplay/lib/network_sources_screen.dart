@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
+import 'widgets/app_m3e_widgets.dart';
 
 class NetworkSourcesScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -28,11 +31,11 @@ class NetworkSourcesScreen extends StatefulWidget {
 
 class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     with SingleTickerProviderStateMixin {
-  // Dynamic theme colors
-  Color get _bgDark => AppThemeService.instance.currentData.bgDark;
-  Color get _cardDark => AppThemeService.instance.currentData.cardDark;
-  Color get _primary => AppThemeService.instance.currentData.primary;
-  Color get _textDark => AppThemeService.instance.currentData.textDark;
+  // Dynamic theme colors from BuildContext
+  Color get _bgDark => context.bgDark;
+  Color get _cardDark => context.cardDark;
+  Color get _primary => context.primaryColor;
+  Color get _textDark => context.textMuted;
 
   late TabController _tabController;
 

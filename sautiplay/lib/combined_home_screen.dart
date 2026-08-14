@@ -42,8 +42,12 @@ class CombinedHomeScreen extends StatefulWidget {
 class _CombinedHomeScreenState extends State<CombinedHomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  Color get _bgDark => AppThemeService.instance.currentData.bgDark;
-  Color get _surfaceColor => AppThemeService.instance.currentData.cardDark;
+  Color get _bgDark => context.bgDark;
+  Color get _surfaceColor => context.cardDark;
+  Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textDark => context.textMuted;
+  Color get _outline => context.outlineColor;
 
   @override
   void initState() {
@@ -75,12 +79,12 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
               ),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? AppThemeService.instance.currentData.primary.withValues(alpha: 0.22)
+                    ? _primary.withValues(alpha: 0.22)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(isDesktop ? 10 : 8),
                 border: isSelected
                     ? Border.all(
-                        color: AppThemeService.instance.currentData.primary.withValues(alpha: 0.4),
+                        color: _primary.withValues(alpha: 0.4),
                         width: 1,
                       )
                     : Border.all(color: Colors.transparent, width: 1),
@@ -92,9 +96,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                   Icon(
                     icon,
                     size: isDesktop ? 18 : 16,
-                    color: isSelected
-                        ? AppThemeService.instance.currentData.primary
-                        : AppThemeService.instance.currentData.textDark,
+                    color: isSelected ? _primary : _textDark,
                   ),
                   const SizedBox(width: 6),
                   Text(
@@ -102,9 +104,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                     style: TextStyle(
                       fontSize: isDesktop ? 15 : 13,
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                      color: isSelected
-                          ? Colors.white
-                          : AppThemeService.instance.currentData.textDark,
+                      color: isSelected ? _textPrimary : _textDark,
                     ),
                   ),
                 ],
@@ -159,7 +159,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                             borderRadius:
                                 BorderRadius.circular(isDesktop ? 14 : 12),
                             border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.05),
+                              color: _outline.withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
@@ -191,12 +191,12 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                             color: _surfaceColor,
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
+                              color: _outline.withValues(alpha: 0.3),
                             ),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.search_rounded,
-                            color: Colors.white,
+                            color: _textPrimary,
                             size: 20,
                           ),
                         ),

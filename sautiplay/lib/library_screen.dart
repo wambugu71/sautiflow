@@ -82,6 +82,13 @@ class _LibraryScreenState extends State<LibraryScreen>
   static const String _prefsKey = 'sautiplay_library_folders';
   static const String _cachedSongsKey = 'sautiplay_library_cached_songs';
 
+  Color get _bgDark => context.bgDark;
+  Color get _surfaceDark => context.cardDark;
+  Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textDark => context.textMuted;
+  Color get _outline => context.outlineColor;
+
   // State
   List<Map<String, dynamic>> _folders = [];
   List<LocalSongItem> _allSongs = [];
@@ -237,8 +244,9 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<void> _importM3uUrlDialog() async {
     final urlController = TextEditingController();
     final nameController = TextEditingController();
-    final textDark = AppThemeService.instance.currentData.textDark;
-    final cardDark = AppThemeService.instance.currentData.cardDark;
+    final textDark = context.textMuted;
+    final cardDark = context.cardDark;
+    final textPrimary = context.textPrimary;
 
     final isMobile = MediaQuery.of(context).size.width < 600;
 
@@ -252,12 +260,12 @@ class _LibraryScreenState extends State<LibraryScreen>
         children: [
           TextField(
             controller: nameController,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: textPrimary),
             decoration: InputDecoration(
               labelText: 'Playlist Name (Optional)',
               labelStyle: TextStyle(color: textDark),
               hintText: 'e.g. Live Radio Stations',
-              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
               filled: true,
               fillColor: cardDark,
               border: OutlineInputBorder(
@@ -269,12 +277,12 @@ class _LibraryScreenState extends State<LibraryScreen>
           const SizedBox(height: 12),
           TextField(
             controller: urlController,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: textPrimary),
             decoration: InputDecoration(
-              labelText: 'M3U / M3U8 URL',
+              labelText: 'Stream / M3U URL',
               labelStyle: TextStyle(color: textDark),
               hintText: 'https://example.com/playlist.m3u8',
-              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
               filled: true,
               fillColor: cardDark,
               border: OutlineInputBorder(
@@ -1297,12 +1305,11 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     super.build(context);
     // Theme colors
-    final Color primaryColor = AppThemeService.instance.currentData.primary;
-    final Color bgDark = AppThemeService.instance.currentData.bgDark;
-    final Color surfaceColor = Color(0xFF18232E);
-    final Color textLight = Colors.white;
-    final Color textDark =
-        AppThemeService.instance.currentData.textDark; // slate-400
+    final Color primaryColor = context.primaryColor;
+    final Color bgDark = context.bgDark;
+    final Color surfaceColor = context.cardDark;
+    final Color textLight = context.textPrimary;
+    final Color textDark = context.textMuted;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1775,15 +1782,15 @@ class _LibraryScreenState extends State<LibraryScreen>
                 child: TextField(
                   controller: _searchController,
                   style: TextStyle(
-                      color: Colors.white, fontSize: isDesktop ? 16 : 14),
+                      color: _textPrimary, fontSize: isDesktop ? 16 : 14),
                   decoration: InputDecoration(
                     hintText: 'Search local tracks...',
                     hintStyle: TextStyle(
-                        color: textDark, fontSize: isDesktop ? 16 : 14),
+                        color: _textDark, fontSize: isDesktop ? 16 : 14),
                     prefixIcon: Icon(Icons.search_rounded,
-                        color: textDark, size: isDesktop ? 24 : 20),
+                        color: _textDark, size: isDesktop ? 24 : 20),
                     filled: true,
-                    fillColor: const Color(0xFF18232E),
+                    fillColor: _surfaceDark,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
                       borderSide: BorderSide.none,
@@ -1802,12 +1809,12 @@ class _LibraryScreenState extends State<LibraryScreen>
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF18232E),
+                      color: _surfaceDark,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.05)),
+                          color: _outline.withValues(alpha: 0.2)),
                     ),
-                    child: Icon(Icons.sort_rounded, color: textDark, size: 20),
+                    child: Icon(Icons.sort_rounded, color: _textDark, size: 20),
                   ),
                 ),
                 children: [
@@ -1841,10 +1848,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF18232E),
+                      color: _surfaceDark,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.05)),
+                          color: _outline.withValues(alpha: 0.2)),
                     ),
                     child: Icon(_trackViewMode.icon,
                         color: primaryColor, size: 20),
@@ -1860,7 +1867,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                         leading: Icon(
                           mode.icon,
                           size: 18,
-                          color: isSelected ? primaryColor : textDark,
+                          color: isSelected ? primaryColor : _textDark,
                         ),
                         trailingText: isSelected ? '✓' : null,
                         onPressed: () {
@@ -1882,17 +1889,17 @@ class _LibraryScreenState extends State<LibraryScreen>
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF18232E),
+                      color: _surfaceDark,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: _groupByOption != 'None'
                             ? primaryColor.withValues(alpha: 0.5)
-                            : Colors.white.withValues(alpha: 0.05),
+                            : _outline.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Icon(
                       Icons.account_tree_rounded,
-                      color: _groupByOption != 'None' ? primaryColor : textDark,
+                      color: _groupByOption != 'None' ? primaryColor : _textDark,
                       size: 20,
                     ),
                   ),
@@ -2010,10 +2017,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF18232E),
+                    color: _surfaceDark,
                     borderRadius: BorderRadius.circular(12),
                     border:
-                        Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                        Border.all(color: _outline.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     children: [
@@ -2032,7 +2039,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               style: TextStyle(
                                 fontSize: isDesktop ? 16 : 14,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: _textPrimary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -2204,8 +2211,8 @@ class _LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     final artistName =
         song.artist != 'Unknown Artist' ? song.artist : 'Local File';
-    final primaryColor = AppThemeService.instance.currentData.primary;
-    final cardColor = AppThemeService.instance.currentData.cardDark;
+    final primaryColor = context.primaryColor;
+    final cardColor = context.cardDark;
 
     const Shapes itemShape = Shapes.slanted;
 
@@ -2847,9 +2854,12 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bgDark = AppThemeService.instance.currentData.bgDark;
-    final surfaceColor = AppThemeService.instance.currentData.cardDark;
-    final primaryColor = AppThemeService.instance.currentData.primary;
+    final bgDark = context.bgDark;
+    final surfaceColor = context.cardDark;
+    final primaryColor = context.primaryColor;
+    final textPrimary = context.textPrimary;
+    final textDark = context.textMuted;
+    final outlineColor = context.outlineColor;
 
     return Scaffold(
       backgroundColor: bgDark,
@@ -2858,13 +2868,12 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         elevation: 0,
         title: Text(
           widget.groupTitle,
-          style:
-              const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary),
         ),
         actions: [
           if (widget.onPlayTracks != null && widget.groupType == 'Artist')
             IconButton(
-              icon: const Icon(Icons.language, color: Colors.white70),
+              icon: Icon(Icons.language, color: textDark),
               tooltip: 'View Online Discography',
               onPressed: () {
                 Navigator.of(context).push(
@@ -2889,6 +2898,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
               decoration: BoxDecoration(
                 color: surfaceColor,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: outlineColor),
               ),
               child: Row(
                 children: [
@@ -2926,10 +2936,10 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                       children: [
                         Text(
                           widget.groupTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: textPrimary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -2938,8 +2948,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         Text(
                           '${_groupSongs.length} Track${_groupSongs.length == 1 ? '' : 's'} • ${widget.groupType}',
                           style: TextStyle(
-                              color:
-                                  AppThemeService.instance.currentData.textDark,
+                              color: textDark,
                               fontSize: 13),
                         ),
                       ],
@@ -2972,9 +2981,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                   ? Center(
                       child: Text(
                         'No songs left in this group.',
-                        style: TextStyle(
-                            color:
-                                AppThemeService.instance.currentData.textDark),
+                        style: TextStyle(color: textDark),
                       ),
                     )
                   : SingleChildScrollView(
@@ -3105,7 +3112,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         final confirm = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF18232E),
+            backgroundColor: context.cardDark,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             title: Row(
@@ -3120,11 +3127,11 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                       color: Colors.redAccent, size: 24),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Delete Song?',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: context.textPrimary,
                         fontWeight: FontWeight.bold,
                         fontSize: 18),
                   ),
@@ -3134,7 +3141,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
             content: Text(
               'Are you sure you want to delete "${song.title}"? This action cannot be undone.',
               style: TextStyle(
-                  color: AppThemeService.instance.currentData.textDark,
+                  color: context.textMuted,
                   fontSize: 14),
             ),
             actionsPadding:
@@ -3143,9 +3150,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   foregroundColor:
-                      AppThemeService.instance.currentData.textDark,
+                      context.textMuted,
                   side: BorderSide(
-                      color: AppThemeService.instance.currentData.textDark
+                      color: context.textMuted
                           .withValues(alpha: 0.3)),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),

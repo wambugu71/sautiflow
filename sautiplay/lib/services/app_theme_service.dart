@@ -42,28 +42,76 @@ class AppThemeData {
     final base = isDark ? ThemeData.dark() : ThemeData.light();
     final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
     final textMuted = isDark ? textDark : const Color(0xFF64748B);
+    final borderAlpha = isDark ? 0.12 : 0.08;
+
+    final colorScheme = isDark
+        ? ColorScheme.dark(
+            primary: primary,
+            onPrimary: Colors.black,
+            surface: cardDark,
+            onSurface: textPrimary,
+            surfaceContainerLowest: bgDark,
+            surfaceContainerLow: bgDark,
+            surfaceContainer: cardDark,
+            surfaceContainerHigh: cardDark,
+            surfaceContainerHighest: cardDark,
+            surfaceDim: bgDark,
+            surfaceBright: cardDark,
+            onSurfaceVariant: textMuted,
+            outline: textPrimary.withValues(alpha: 0.2),
+            outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+          )
+        : ColorScheme.light(
+            primary: primary,
+            onPrimary: Colors.white,
+            surface: cardDark,
+            onSurface: textPrimary,
+            surfaceContainerLowest: bgDark,
+            surfaceContainerLow: bgDark,
+            surfaceContainer: cardDark,
+            surfaceContainerHigh: cardDark,
+            surfaceContainerHighest: cardDark,
+            surfaceDim: bgDark,
+            surfaceBright: cardDark,
+            onSurfaceVariant: textMuted,
+            outline: textPrimary.withValues(alpha: 0.2),
+            outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+          );
 
     return base.copyWith(
+      brightness: isDark ? Brightness.dark : Brightness.light,
       scaffoldBackgroundColor: bgDark,
-      colorScheme: isDark
-          ? ColorScheme.dark(
-              primary: primary,
-              surface: cardDark,
-              onSurface: textPrimary,
-            )
-          : ColorScheme.light(
-              primary: primary,
-              surface: cardDark,
-              onSurface: textPrimary,
-            ),
+      colorScheme: colorScheme,
       cardColor: cardDark,
+      cardTheme: CardThemeData(
+        color: cardDark,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: cardDark,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: textPrimary.withValues(alpha: borderAlpha)),
+        ),
+        titleTextStyle: TextStyle(
+          color: textPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+        contentTextStyle: TextStyle(
+          color: textMuted,
+          fontSize: 14,
+        ),
+      ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: cardDark,
         contentTextStyle: TextStyle(color: textPrimary, fontSize: 14),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: textPrimary.withValues(alpha: 0.1)),
+          side: BorderSide(color: textPrimary.withValues(alpha: borderAlpha)),
         ),
       ),
       appBarTheme: AppBarTheme(
@@ -71,6 +119,12 @@ class AppThemeData {
         foregroundColor: textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: textPrimary),
+        titleTextStyle: TextStyle(
+          color: textPrimary,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: bgDark,
@@ -98,7 +152,12 @@ class AppThemeData {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
       ),
-      dividerColor: textPrimary.withValues(alpha: 0.08),
+      dividerTheme: DividerThemeData(
+        color: textPrimary.withValues(alpha: borderAlpha),
+        thickness: 1,
+      ),
+      dividerColor: textPrimary.withValues(alpha: borderAlpha),
+      iconTheme: IconThemeData(color: textPrimary),
     );
   }
 }
@@ -228,4 +287,42 @@ class AppThemeService {
   static AppThemeData dataFor(AppThemeId id) =>
       themes.firstWhere((t) => t.id == id);
 }
+
+// ─── InheritedWidget so any descendant can reactively read the current theme ──
+class AppThemeProvider extends InheritedWidget {
+  final AppThemeData themeData;
+
+  const AppThemeProvider({
+    super.key,
+    required this.themeData,
+    required super.child,
+  });
+
+  static AppThemeData of(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.themeData ?? AppThemeService.instance.currentData;
+  }
+
+  @override
+  bool updateShouldNotify(AppThemeProvider oldWidget) =>
+      themeData.id != oldWidget.themeData.id ||
+      themeData.primary != oldWidget.themeData.primary ||
+      themeData.bgDark != oldWidget.themeData.bgDark ||
+      themeData.cardDark != oldWidget.themeData.cardDark;
+}
+
+// ─── BuildContext Extension for Reactive Theme Tokens ─────────────────────────
+extension AppThemeContextExtension on BuildContext {
+  AppThemeData get appTheme => AppThemeProvider.of(this);
+  Color get bgDark => appTheme.bgDark;
+  Color get cardDark => appTheme.cardDark;
+  Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);
+  Color get primaryColor => appTheme.primary;
+  Color get textMuted => appTheme.textDark;
+  bool get isDark => bgDark.computeLuminance() < 0.15;
+  Color get textPrimary => isDark ? Colors.white : const Color(0xFF1A1A2E);
+  Color get outlineColor => (isDark ? Colors.white : const Color(0xFF1A1A2E)).withValues(alpha: 0.12);
+}
+
 

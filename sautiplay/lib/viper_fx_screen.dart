@@ -13,12 +13,7 @@ import 'package:sautiflow/sautiflow.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'services/app_theme_service.dart';
 import 'services/autoeq_parser.dart';
-
-Color get primaryColor => AppThemeService.instance.currentData.primary;
-Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
-Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
-Color get surfaceDarkerColor =>
-    AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.8);
+import 'widgets/app_m3e_widgets.dart';
 
 class ViperFxScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -269,6 +264,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  // Reactive theme colors from BuildContext
+  Color get primaryColor => context.primaryColor;
+  Color get bgDarkColor => context.bgDark;
+  Color get surfaceDarkColor => context.cardDark;
+  Color get surfaceDarkerColor => context.cardDark.withValues(alpha: 0.8);
 
   bool _viperEnabled = false;
 

@@ -6,10 +6,6 @@ import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'album_detail_screen.dart'; // For TrackInfo + routing
 import 'services/app_theme_service.dart';
 
-Color get _bgDark => AppThemeService.instance.currentData.bgDark;
-Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
-Color get _primary => AppThemeService.instance.currentData.primary;
-
 class ArtistProfileScreen extends StatefulWidget {
   final String artistName;
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -27,6 +23,13 @@ class ArtistProfileScreen extends StatefulWidget {
 
 class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
   final YTMusic _ytMusic = YTMusic();
+
+  Color get _bgDark => context.bgDark;
+  Color get _surfaceDark => context.cardDark;
+  Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textDark => context.textMuted;
+  Color get _outline => context.outlineColor;
 
   bool _isLoading = true;
   String? _error;

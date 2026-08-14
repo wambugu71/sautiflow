@@ -17,13 +17,6 @@ import 'widgets/race_visualizer.dart';
 
 import 'services/app_theme_service.dart';
 
-// Dynamic Theme Colors
-Color get primaryColor => AppThemeService.instance.currentData.primary;
-const bgLightColor = Color(0xFFf6f7f8);
-Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
-Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
-const surfaceDarkerColor = Color(0xFF111a22);
-
 class EqScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
   final bool analyzerEnabled;
@@ -46,6 +39,12 @@ class _EqScreenState extends State<EqScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  // Reactive theme colors from BuildContext
+  Color get primaryColor => context.primaryColor;
+  Color get bgDarkColor => context.bgDark;
+  Color get surfaceDarkColor => context.cardDark;
+  Color get surfaceDarkerColor => context.cardDark.withValues(alpha: 0.8);
 
   // Preferences
   bool _showWarningBanner = true;
@@ -4386,6 +4385,8 @@ class ModernAudioKnob extends StatefulWidget {
 }
 
 class _ModernAudioKnobState extends State<ModernAudioKnob> {
+  Color get primaryColor => context.primaryColor;
+
   void _onVerticalDragUpdate(DragUpdateDetails details) {
     // dragging up (negative dy) increases value
     double sensitivity = (widget.max - widget.min) / 150.0;
@@ -4710,6 +4711,7 @@ class _CollapsibleSection extends StatefulWidget {
 
 class _CollapsibleSectionState extends State<_CollapsibleSection> {
   bool _isExpanded = false;
+  Color get primaryColor => context.primaryColor;
 
   @override
   void initState() {

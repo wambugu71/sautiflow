@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/components/loading_indicator/m3e_loading_indicator.dart';
-import '../main.dart';
+import '../services/app_theme_service.dart';
 
 // Global cache to prevent re-reading files on scroll
 final Map<String, Uint8List?> _albumArtCache = {};

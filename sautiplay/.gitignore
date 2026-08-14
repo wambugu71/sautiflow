@@ -48,6 +48,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /lib/design_m3e.md
+/m3e_example_app/
 # Keystore & Android Signing Secrets
 *.jks
 *.keystore

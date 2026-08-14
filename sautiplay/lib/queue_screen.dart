@@ -170,8 +170,12 @@ class _QueueScreenState extends State<QueueScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final Color primaryColor = AppThemeService.instance.currentData.primary;
-    final Color bgColor = AppThemeService.instance.currentData.bgDark;
+    final Color primaryColor = context.primaryColor;
+    final Color bgColor = context.bgDark;
+    final Color textPrimary = context.textPrimary;
+    final Color textDark = context.textMuted;
+    final Color surfaceDark = context.cardDark;
+    final Color outlineColor = context.outlineColor;
 
     final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
 
@@ -207,7 +211,7 @@ class _QueueScreenState extends State<QueueScreen>
                               height: 4,
                               margin: const EdgeInsets.only(bottom: 6),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.25),
+                                color: outlineColor,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -215,10 +219,10 @@ class _QueueScreenState extends State<QueueScreen>
                               mainAxisAlignment: MainAxisAlignment.center,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Text(
+                                Text(
                                   'Up Next',
                                   style: TextStyle(
-                                    color: Colors.white,
+                                    color: textPrimary,
                                     fontSize: 17,
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: -0.3,
@@ -253,7 +257,7 @@ class _QueueScreenState extends State<QueueScreen>
                             Text(
                               _calculateTotalDuration(),
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: textDark,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w400,
                               ),
@@ -298,10 +302,10 @@ class _QueueScreenState extends State<QueueScreen>
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              const Text(
+                              Text(
                                 'Queue is empty',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: textPrimary,
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -310,7 +314,7 @@ class _QueueScreenState extends State<QueueScreen>
                               Text(
                                 'Play a track or album to populate the playback queue',
                                 style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.5),
+                                  color: textDark,
                                   fontSize: 13.5,
                                 ),
                                 textAlign: TextAlign.center,
@@ -366,7 +370,7 @@ class _QueueScreenState extends State<QueueScreen>
                                   decoration: BoxDecoration(
                                     color: isPlaying
                                         ? primaryColor.withValues(alpha: 0.16)
-                                        : Colors.white.withValues(alpha: 0.035),
+                                        : surfaceDark,
                                     borderRadius: BorderRadius.circular(16),
                                     border: isPlaying
                                         ? Border.all(
@@ -375,8 +379,7 @@ class _QueueScreenState extends State<QueueScreen>
                                             width: 1.5,
                                           )
                                         : Border.all(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.035)),
+                                            color: outlineColor.withValues(alpha: 0.3)),
                                     boxShadow: isPlaying
                                         ? [
                                             BoxShadow(
@@ -407,8 +410,7 @@ class _QueueScreenState extends State<QueueScreen>
                                                   '${index + 1}',
                                                   textAlign: TextAlign.center,
                                                   style: TextStyle(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.35),
+                                                    color: textDark,
                                                     fontSize: 12,
                                                     fontWeight: FontWeight.w600,
                                                   ),
@@ -437,8 +439,7 @@ class _QueueScreenState extends State<QueueScreen>
                                         : Text(
                                             track.title,
                                             style: TextStyle(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.92),
+                                              color: textPrimary,
                                               fontWeight: FontWeight.w500,
                                               fontSize: 15,
                                             ),

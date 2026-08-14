@@ -8,11 +8,6 @@ import 'models/liked_song.dart';
 import 'services/app_theme_service.dart';
 import 'services/liked_songs_service.dart';
 
-// ─ Dynamic theme colors ─
-Color get _bgDark => AppThemeService.instance.currentData.bgDark;
-Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
-Color get _primary => AppThemeService.instance.currentData.primary;
-
 /// Unified track model that works with both dart_ytmusic_api and youtube_explode_dart
 class TrackInfo {
   final String videoId;
@@ -105,6 +100,13 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   List<TrackInfo> _tracks = [];
   bool _loading = true;
   String? _error;
+
+  Color get _bgDark => context.bgDark;
+  Color get _surfaceDark => context.cardDark;
+  Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textDark => context.textMuted;
+  Color get _outline => context.outlineColor;
 
   // Extracted info
   String _title = '';

@@ -7,14 +7,7 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
-
-// ─ Dynamic theme colors ─
-Color get _bgDark => AppThemeService.instance.currentData.bgDark;
-Color get _surfaceDark => AppThemeService.instance.currentData.cardDark;
-Color get _surfaceBorder =>
-    AppThemeService.instance.currentData.cardDark.withValues(alpha: 0.5);
-Color get _primary => AppThemeService.instance.currentData.primary;
-Color get _textSecondary => AppThemeService.instance.currentData.textDark;
+import 'widgets/app_m3e_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -37,6 +30,15 @@ class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  // ─ Dynamic theme colors from BuildContext ─
+  Color get _bgDark => context.bgDark;
+  Color get _surfaceDark => context.cardDark;
+  Color get _surfaceBorder => context.cardDark.withValues(alpha: 0.5);
+  Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textSecondary => context.textMuted;
+  Color get _outline => context.outlineColor;
   final YTMusic _ytMusic = YTMusic();
   List<HomeSection> _sections = [];
   bool _loading = true;
@@ -235,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen>
             Text(
               _greeting(),
               style: TextStyle(
-                color: Colors.white,
+                color: _textPrimary,
                 fontSize: isDesktop ? 28 : 22,
                 fontWeight: FontWeight.bold,
                 letterSpacing: -0.5,
@@ -393,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white,
+                          color: _textPrimary,
                           fontSize: isDesktop ? 18 : 15,
                           fontWeight: FontWeight.bold,
                         ),
@@ -480,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.white,
+                color: _textPrimary,
                 fontSize: isDesktop ? 22 : 18,
                 fontWeight: FontWeight.bold,
                 letterSpacing: -0.4,
@@ -633,7 +635,7 @@ class _HomeScreenState extends State<HomeScreen>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: _textPrimary,
                   fontSize: isDesktop ? 14 : 13,
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.2,
@@ -696,11 +698,11 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'No Internet Connection',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: _textPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.3,
