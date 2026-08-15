@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_3_expressive/components/navigation_bar/styles/m3e_navigation_bar_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'artwork_theme_service.dart';
@@ -98,6 +99,11 @@ class AppThemeData {
       listTheme: const M3EListTheme(),
       dialogTheme: const M3EDialogTheme(),
       bottomSheetTheme: const M3EBottomSheetTheme(),
+      navigationBarTheme: const M3ENavigationBarTheme(
+        heightMedium: 72,
+        heightSmall: 60,
+        iconSize: 24,
+      ),
     );
   }
 

@@ -198,7 +198,7 @@ class AppSubScreenScaffold extends StatelessWidget {
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: textPrimary),
+          icon: Icon(Icons.keyboard_arrow_down, color: textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(

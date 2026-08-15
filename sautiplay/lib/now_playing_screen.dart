@@ -2044,7 +2044,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                     // M3E Audio Diagnostic Badge Chip
                                                     M3EChip(
                                                       leading: Icon(
-                                                        Icons.equalizer_rounded,
+                                                        Icons.info,
                                                         size: 13,
                                                         color: primaryColor,
                                                       ),

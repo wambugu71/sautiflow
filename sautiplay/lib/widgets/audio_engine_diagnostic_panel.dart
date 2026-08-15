@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:material_3_expressive/components/progress_indicators/m3e_progress_indicators.dart';
 import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
 
@@ -197,10 +198,7 @@ class _AudioEngineDiagnosticPanelState
               child: _loading
                   ? const Padding(
                       padding: EdgeInsets.all(40),
-                      child: Center(
-                        child:
-                            CircularProgressIndicator(color: Colors.cyanAccent),
-                      ),
+                      child: Center(child: M3EProgressIndicator.circularWavy()),
                     )
                   : _error != null
                       ? Padding(
@@ -237,12 +235,14 @@ class _AudioEngineDiagnosticPanelState
         t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
     final int dspRate = t['processingSampleRate'] as int? ?? 48000;
     final int dspChannels = t['processingChannels'] as int? ?? 2;
-    final int dacRate =
-        t['outputSampleRate'] as int? ?? (hw['sampleRate'] as int? ?? specs.sampleRate);
+    final int dacRate = t['outputSampleRate'] as int? ??
+        (hw['sampleRate'] as int? ?? specs.sampleRate);
     final int dacDepth = hw['bitDepth'] as int? ?? specs.bitDepth;
-    final bool isExclusive = hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
+    final bool isExclusive =
+        hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
     final String backend = hw['backendName'] as String? ?? specs.backendName;
-    final int periodFrames = hw['periodSizeFrames'] as int? ?? specs.periodSizeFrames;
+    final int periodFrames =
+        hw['periodSizeFrames'] as int? ?? specs.periodSizeFrames;
     final int periodCount = hw['periodCount'] as int? ?? specs.periodCount;
 
     final bool eqOn = t['eqEnabled'] == true;
@@ -257,7 +257,8 @@ class _AudioEngineDiagnosticPanelState
     // Calculate node latencies
     final nodeLatencies = _calculatePerNodeLatencies(
       sampleRate: dspRate,
-      hwLatencyMs: (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs,
+      hwLatencyMs:
+          (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs,
       crossfeedAlgo: crossfeedAlgo,
       crossfeedDelayMs: (t['crossfeedDelayMs'] as num?)?.toDouble() ?? 0.40,
       limiterOn: limiterOn,
@@ -292,7 +293,7 @@ class _AudioEngineDiagnosticPanelState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 1. Hardware Output Device Card (Speakers, Built-in Earpiece, 3.5mm, BT, USB DAC, etc.)
-        _buildHardwareDeviceCard(specs, activeDeviceName),
+        //  _buildHardwareDeviceCard(specs, activeDeviceName),
 
         const SizedBox(height: 16),
 
@@ -419,7 +420,7 @@ class _AudioEngineDiagnosticPanelState
   }
 
   /// Builds a dedicated, sleek hardware output device card
-  Widget _buildHardwareDeviceCard(
+  /* Widget _buildHardwareDeviceCard(
       AudioHardwareSpecs specs, String activeDeviceName) {
     final deviceIcon = _getDeviceIcon(specs.deviceType);
 
@@ -465,7 +466,7 @@ class _AudioEngineDiagnosticPanelState
                             letterSpacing: 1.2,
                           ),
                         ),
-                        if (specs.isHiResAudio) ...[
+                        /* if (specs.isHiResAudio) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -488,7 +489,7 @@ class _AudioEngineDiagnosticPanelState
                               ),
                             ),
                           ),
-                        ],
+                        ],*/
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -596,7 +597,7 @@ class _AudioEngineDiagnosticPanelState
       ),
     );
   }
-
+*/
   Widget _buildMiniSpecBadge({
     required IconData icon,
     required String label,
@@ -892,8 +893,7 @@ class _AudioEngineDiagnosticPanelState
     final hwLabel = deviceType != null && deviceType.isNotEmpty
         ? 'Hardware Output ($deviceType)'
         : 'Hardware Output DAC';
-    list.add(_NodeLatencyInfo(
-        '${step++}.', hwLabel, hwLatencyMs, hwSamples));
+    list.add(_NodeLatencyInfo('${step++}.', hwLabel, hwLatencyMs, hwSamples));
 
     return list;
   }

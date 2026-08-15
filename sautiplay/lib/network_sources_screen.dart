@@ -204,6 +204,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     return Scaffold(
       backgroundColor: _bgDark,
       appBar: AppBar(
+        leading: M3EIconButton(
+            icon: Icon(Icons.keyboard_arrow_down),
+            onPressed: () => Navigator.of(context).pop()),
         backgroundColor: _bgDark,
         elevation: 0,
         title: const Text(
@@ -493,8 +496,8 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                         Shapes.pill,
                         width: 40,
                         height: 40,
-                        color: (isActive ? Colors.white : _primary)
-                            .withAlpha(25),
+                        color:
+                            (isActive ? Colors.white : _primary).withAlpha(25),
                         child: Center(
                           child: Icon(
                             Icons.cast_rounded,
@@ -626,7 +629,8 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       Row(
                         children: [
                           const Text('FTPS',
-                              style: TextStyle(color: Colors.white, fontSize: 13)),
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 13)),
                           const SizedBox(width: 8),
                           M3ESwitch(
                             value: isSecure,

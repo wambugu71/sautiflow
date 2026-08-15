@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_3_expressive/components/navigation_bar/enums/m3e_nav_bar_enums.dart';
+import 'package:material_3_expressive/components/navigation_bar/models/m3e_navigation_bar_destination.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
@@ -2083,45 +2085,48 @@ class _PlayerShellState extends State<PlayerShell> {
                   );
                 },
               ),
-              NavigationBar(
+              M3ENavigationBar(
                 selectedIndex: _tabIndex,
                 onDestinationSelected: (i) => setState(() => _tabIndex = i),
+                indicatorStyle: M3ENavBarIndicatorStyle.pill,
+                labelBehavior: M3ENavBarLabelBehavior.alwaysShow,
+                backgroundColor: context.bgDark,
                 destinations: [
-                  AppShowcase(
-                    showcaseKey: _homeTabKey,
-                    title: 'Welcome to SautiPlay',
-                    description:
-                        'Your high-fidelity audio hub. Access local music library, online search & network sources (FTP & DLNA).',
-                    currentStep: 1,
-                    totalSteps: 4,
-                    child: const NavigationDestination(
-                      icon: Icon(Icons.home_rounded),
-                      label: 'Home',
+                  M3ENavigationBarDestination(
+                    icon: AppShowcase(
+                      showcaseKey: _homeTabKey,
+                      title: 'Welcome to SautiPlay',
+                      description:
+                          'Your high-fidelity audio hub. Access local music library, online search & network sources (FTP & DLNA).',
+                      currentStep: 1,
+                      totalSteps: 4,
+                      child: const Icon(Icons.home_rounded),
                     ),
+                    label: 'Home',
                   ),
-                  AppShowcase(
-                    showcaseKey: _effectsTabKey,
-                    title: 'ViPER DSP & EQ',
-                    description:
-                        'Tailor your sound with 10-band EQ, ViPER effects & real-time spectrum visualizers.',
-                    currentStep: 2,
-                    totalSteps: 4,
-                    child: const NavigationDestination(
-                      icon: Icon(Icons.tune),
-                      label: 'Effects',
+                  M3ENavigationBarDestination(
+                    icon: AppShowcase(
+                      showcaseKey: _effectsTabKey,
+                      title: 'ViPER DSP & EQ',
+                      description:
+                          'Tailor your sound with 10-band EQ, ViPER effects & real-time spectrum visualizers.',
+                      currentStep: 2,
+                      totalSteps: 4,
+                      child: const Icon(Icons.tune),
                     ),
+                    label: 'Effects',
                   ),
-                  AppShowcase(
-                    showcaseKey: _settingsTabKey,
-                    title: 'Settings & Customization',
-                    description:
-                        'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
-                    currentStep: 4,
-                    totalSteps: 4,
-                    child: const NavigationDestination(
-                      icon: Icon(Icons.settings),
-                      label: 'Settings',
+                  M3ENavigationBarDestination(
+                    icon: AppShowcase(
+                      showcaseKey: _settingsTabKey,
+                      title: 'Settings & Customization',
+                      description:
+                          'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
+                      currentStep: 4,
+                      totalSteps: 4,
+                      child: const Icon(Icons.settings),
                     ),
+                    label: 'Settings',
                   ),
                 ],
               ),

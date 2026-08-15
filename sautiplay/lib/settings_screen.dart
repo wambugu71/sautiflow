@@ -1141,7 +1141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio & Processing',
           children: [
-            _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
+            /* _buildSectionHeader('DIAGNOSTICS & TELEMETRY'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -1167,7 +1167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ],
-            ),
+            ),*/
             const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
