@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'artwork_theme_service.dart';
@@ -36,6 +37,69 @@ class AppThemeData {
     required this.textDark,
     required this.icon,
   });
+
+  /// Builds a full M3EThemeData from this palette for Material 3 Expressive components.
+  M3EThemeData toM3EThemeData() {
+    final isDark = bgDark.computeLuminance() < 0.15;
+    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final textMuted = isDark ? textDark : const Color(0xFF64748B);
+    final borderAlpha = isDark ? 0.12 : 0.08;
+
+    final m3eScheme = M3EColorScheme(
+      brightness: isDark ? Brightness.dark : Brightness.light,
+      primary: primary,
+      onPrimary: isDark ? Colors.black : Colors.white,
+      primaryContainer: primary.withValues(alpha: isDark ? 0.3 : 0.2),
+      onPrimaryContainer: isDark ? Colors.white : primary,
+      secondary: primary,
+      onSecondary: isDark ? Colors.black : Colors.white,
+      secondaryContainer: primary.withValues(alpha: isDark ? 0.25 : 0.15),
+      onSecondaryContainer: isDark ? Colors.white : primary,
+      tertiary: primary,
+      onTertiary: isDark ? Colors.black : Colors.white,
+      tertiaryContainer: primary.withValues(alpha: 0.2),
+      onTertiaryContainer: isDark ? Colors.white : primary,
+      error: const Color(0xFFCF6679),
+      onError: Colors.black,
+      errorContainer: const Color(0xFFB00020).withValues(alpha: 0.2),
+      onErrorContainer: const Color(0xFFCF6679),
+      surface: cardDark,
+      onSurface: textPrimary,
+      onSurfaceVariant: textMuted,
+      surfaceContainerLowest: bgDark,
+      surfaceContainerLow: bgDark,
+      surfaceContainer: cardDark,
+      surfaceContainerHigh: cardDark,
+      surfaceContainerHighest: cardDark,
+      surfaceDim: bgDark,
+      surfaceBright: cardDark,
+      inverseSurface: textPrimary,
+      onInverseSurface: bgDark,
+      inversePrimary: primary,
+      outline: textPrimary.withValues(alpha: 0.2),
+      outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+      shadow: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
+      scrim: Colors.black.withValues(alpha: 0.6),
+      surfaceTint: primary,
+      emphasis: primary,
+      onEmphasis: isDark ? Colors.black : Colors.white,
+      info: primary,
+      success: isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32),
+      warning: isDark ? const Color(0xFFFFB74D) : const Color(0xFFEF6C00),
+      danger: const Color(0xFFCF6679),
+      surfaceStrong: cardDark,
+      onSurfaceStrong: textPrimary,
+      outlineStrong: textPrimary.withValues(alpha: 0.3),
+    );
+
+    return M3EThemeData(
+      colorScheme: m3eScheme,
+      cardTheme: const M3ECardTheme(),
+      listTheme: const M3EListTheme(),
+      dialogTheme: const M3EDialogTheme(),
+      bottomSheetTheme: const M3EBottomSheetTheme(),
+    );
+  }
 
   /// Builds a full MaterialApp ThemeData from this palette.
   ThemeData toThemeData() {

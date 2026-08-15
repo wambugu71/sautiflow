@@ -113,17 +113,12 @@ class _DemoAppState extends State<DemoApp> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = _themeData.bgDark.computeLuminance() < 0.15;
-    final m3eThemeData = isDark
-        ? M3EThemeData.dark(seedColor: _themeData.primary)
-        : M3EThemeData.light(seedColor: _themeData.primary);
-
     return AppThemeProvider(
       themeData: _themeData,
       albumArtShape: _albumArtShape,
       child: M3EMaterialApp(
         title: 'SautiPlay',
-        data: m3eThemeData,
+        data: _themeData.toM3EThemeData(),
         autoTheming: false,
         dynamicColoring: false,
         drawUnderSystemBars: false,

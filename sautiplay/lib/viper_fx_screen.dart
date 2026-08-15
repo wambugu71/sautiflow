@@ -1039,7 +1039,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   backgroundColor: surfaceDarkerColor,
                   elevation: 0,
                   leading: M3EIconButton(
-                    icon: const Icon(Icons.arrow_back_rounded,
+                    icon: const Icon(Icons.keyboard_arrow_down,
                         color: Colors.white),
                     variant: M3EIconButtonVariant.standard,
                     onPressed: () {
@@ -1500,8 +1500,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   M3EExpandableStyle get _deckExpandableStyle => M3EExpandableStyle(
         color: surfaceDarkColor,
         gap: 8,
-        headerPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        headerPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         bodyPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       );
 
@@ -1547,8 +1546,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled
                                   ? (v) {
-                                      setState(() =>
-                                          _masterLimiterThreshold = v);
+                                      setState(
+                                          () => _masterLimiterThreshold = v);
                                       _updateEngine();
                                     }
                                   : (_) {})),
@@ -1560,12 +1559,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 2.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${v.toStringAsFixed(1)}x',
+                              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
                               onChanged: _viperEnabled
                                   ? (v) {
-                                      setState(
-                                          () => _masterLimiterVolume = v);
+                                      setState(() => _masterLimiterVolume = v);
                                       _updateEngine();
                                     }
                                   : (_) {})),
@@ -1620,8 +1617,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _playbackGainEnabled
                                   ? (v) {
-                                      setState(() =>
-                                          _playbackGainStrength = v);
+                                      setState(() => _playbackGainStrength = v);
                                       _updateEngine();
                                     }
                                   : (_) {})),
@@ -1636,8 +1632,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _playbackGainEnabled
                                   ? (v) {
-                                      setState(
-                                          () => _playbackGainMax = v);
+                                      setState(() => _playbackGainMax = v);
                                       _updateEngine();
                                     }
                                   : (_) {})),
@@ -1652,8 +1647,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _playbackGainEnabled
                                   ? (v) {
-                                      setState(() =>
-                                          _playbackGainThreshold = v);
+                                      setState(
+                                          () => _playbackGainThreshold = v);
                                       _updateEngine();
                                     }
                                   : (_) {})),
@@ -1712,8 +1707,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                       '${v.toStringAsFixed(1)}dB',
                                   onChanged: _viperEnabled && _lufsEnabled
                                       ? (v) {
-                                          setState(
-                                              () => _lufsMaxGainDb = v);
+                                          setState(() => _lufsMaxGainDb = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -1721,8 +1715,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       ),
                       const SizedBox(height: 16),
                       const Text('Speed',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -1747,8 +1741,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               M3EExpandableData(
                 title: 'ALC Dynamics',
                 subtitle: 'Automatic Limiter Control',
-                leading:
-                    Icon(Icons.graphic_eq, color: primaryColor, size: 20),
+                leading: Icon(Icons.graphic_eq, color: primaryColor, size: 20),
                 trailing: M3ESwitch(
                   selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: _alcEnabled,
@@ -1788,8 +1781,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       ),
                       const SizedBox(height: 16),
                       const Text('Mode',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -1845,8 +1838,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Preset',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 6),
                       Padding(
                         padding: const EdgeInsets.symmetric(
@@ -1920,76 +1913,83 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 _viperEnabled &&
                                 _dynamicSystemEnabled) {
                               final newValue = selectedList.first.value;
-                              setState(() {
-                                _dynPreset = newValue;
-                                switch (newValue) {
-                                  case 1:
-                                    _dynXLow = 30;
-                                    _dynXHigh = 50;
-                                    _dynYLow = 80;
-                                    _dynYHigh = 120;
-                                    _dynSideGainLow = 1.2;
-                                    _dynSideGainHigh = 1.0;
-                                    break;
-                                  case 2:
-                                    _dynXLow = 40;
-                                    _dynXHigh = 60;
-                                    _dynYLow = 100;
-                                    _dynYHigh = 150;
-                                    _dynSideGainLow = 1.3;
-                                    _dynSideGainHigh = 1.1;
-                                    break;
-                                  case 3:
-                                    _dynXLow = 50;
-                                    _dynXHigh = 70;
-                                    _dynYLow = 120;
-                                    _dynYHigh = 170;
-                                    _dynSideGainLow = 1.4;
-                                    _dynSideGainHigh = 1.2;
-                                    break;
-                                  case 4:
-                                    _dynXLow = 60;
-                                    _dynXHigh = 80;
-                                    _dynYLow = 140;
-                                    _dynYHigh = 190;
-                                    _dynSideGainLow = 1.5;
-                                    _dynSideGainHigh = 1.3;
-                                    break;
-                                  case 5:
-                                    _dynXLow = 60;
-                                    _dynXHigh = 100;
-                                    _dynYLow = 150;
-                                    _dynYHigh = 200;
-                                    _dynSideGainLow = 1.8;
-                                    _dynSideGainHigh = 1.5;
-                                    break;
-                                  case 6:
-                                    _dynXLow = 40;
-                                    _dynXHigh = 70;
-                                    _dynYLow = 100;
-                                    _dynYHigh = 150;
-                                    _dynSideGainLow = 1.5;
-                                    _dynSideGainHigh = 1.2;
-                                    break;
-                                  case 7:
-                                    _dynXLow = 30;
-                                    _dynXHigh = 50;
-                                    _dynYLow = 80;
-                                    _dynYHigh = 120;
-                                    _dynSideGainLow = 1.2;
-                                    _dynSideGainHigh = 1.0;
-                                    break;
-                                  case 8:
-                                    _dynXLow = 20;
-                                    _dynXHigh = 40;
-                                    _dynYLow = 60;
-                                    _dynYHigh = 100;
-                                    _dynSideGainLow = 2.0;
-                                    _dynSideGainHigh = 1.5;
-                                    break;
-                                }
-                              });
-                              _updateEngine();
+                              if (newValue != null && newValue != _dynPreset) {
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _dynPreset = newValue;
+                                      switch (newValue) {
+                                        case 1:
+                                          _dynXLow = 30;
+                                          _dynXHigh = 50;
+                                          _dynYLow = 80;
+                                          _dynYHigh = 120;
+                                          _dynSideGainLow = 1.2;
+                                          _dynSideGainHigh = 1.0;
+                                          break;
+                                        case 2:
+                                          _dynXLow = 40;
+                                          _dynXHigh = 60;
+                                          _dynYLow = 100;
+                                          _dynYHigh = 150;
+                                          _dynSideGainLow = 1.3;
+                                          _dynSideGainHigh = 1.1;
+                                          break;
+                                        case 3:
+                                          _dynXLow = 50;
+                                          _dynXHigh = 70;
+                                          _dynYLow = 120;
+                                          _dynYHigh = 170;
+                                          _dynSideGainLow = 1.4;
+                                          _dynSideGainHigh = 1.2;
+                                          break;
+                                        case 4:
+                                          _dynXLow = 60;
+                                          _dynXHigh = 80;
+                                          _dynYLow = 140;
+                                          _dynYHigh = 190;
+                                          _dynSideGainLow = 1.5;
+                                          _dynSideGainHigh = 1.3;
+                                          break;
+                                        case 5:
+                                          _dynXLow = 60;
+                                          _dynXHigh = 100;
+                                          _dynYLow = 150;
+                                          _dynYHigh = 200;
+                                          _dynSideGainLow = 1.8;
+                                          _dynSideGainHigh = 1.5;
+                                          break;
+                                        case 6:
+                                          _dynXLow = 40;
+                                          _dynXHigh = 70;
+                                          _dynYLow = 100;
+                                          _dynYHigh = 150;
+                                          _dynSideGainLow = 1.5;
+                                          _dynSideGainHigh = 1.2;
+                                          break;
+                                        case 7:
+                                          _dynXLow = 30;
+                                          _dynXHigh = 50;
+                                          _dynYLow = 80;
+                                          _dynYHigh = 120;
+                                          _dynSideGainLow = 1.2;
+                                          _dynSideGainHigh = 1.0;
+                                          break;
+                                        case 8:
+                                          _dynXLow = 20;
+                                          _dynXHigh = 40;
+                                          _dynYLow = 60;
+                                          _dynYHigh = 100;
+                                          _dynSideGainLow = 2.0;
+                                          _dynSideGainHigh = 1.5;
+                                          break;
+                                      }
+                                    });
+                                    _updateEngine();
+                                  }
+                                });
+                              }
                             }
                           },
                         ),
@@ -2012,8 +2012,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   onChanged: _viperEnabled &&
                                           _dynamicSystemEnabled
                                       ? (v) {
-                                          setState(() =>
-                                              _dynamicSystemStrength = v);
+                                          setState(
+                                              () => _dynamicSystemStrength = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -2027,13 +2027,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 200.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged: _viperEnabled &&
-                                            _dynamicSystemEnabled
-                                        ? (v) {
-                                            setState(() => _dynXLow = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynXLow = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -2043,13 +2043,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 200.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged: _viperEnabled &&
-                                            _dynamicSystemEnabled
-                                        ? (v) {
-                                            setState(() => _dynXHigh = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynXHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -2059,13 +2059,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 500.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged: _viperEnabled &&
-                                            _dynamicSystemEnabled
-                                        ? (v) {
-                                            setState(() => _dynYLow = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynYLow = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -2075,13 +2075,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 500.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged: _viperEnabled &&
-                                            _dynamicSystemEnabled
-                                        ? (v) {
-                                            setState(() => _dynYHigh = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(() => _dynYHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -2095,8 +2095,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     onChanged: _viperEnabled &&
                                             _dynamicSystemEnabled
                                         ? (v) {
-                                            setState(() =>
-                                                _dynSideGainLow = v);
+                                            setState(() => _dynSideGainLow = v);
                                             _updateEngine();
                                           }
                                         : (_) {})),
@@ -2110,14 +2109,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     activeColor: primaryColor,
                                     valueFormatter: (v) =>
                                         '${v.toStringAsFixed(1)}x',
-                                    onChanged: _viperEnabled &&
-                                            _dynamicSystemEnabled
-                                        ? (v) {
-                                            setState(() =>
-                                                _dynSideGainHigh = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
+                                    onChanged:
+                                        _viperEnabled && _dynamicSystemEnabled
+                                            ? (v) {
+                                                setState(
+                                                    () => _dynSideGainHigh = v);
+                                                _updateEngine();
+                                              }
+                                            : (_) {})),
                           ]
                         ],
                       ),
@@ -2196,13 +2195,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${v.toStringAsFixed(1)}dB',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetThreshold = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetThreshold = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2213,13 +2212,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${v.toStringAsFixed(1)}:1',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetRatio = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetRatio = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2299,13 +2298,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${(v * 100).round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetKneeMulti = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetKneeMulti = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2315,13 +2314,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 100.0,
                                   activeColor: primaryColor,
                                   valueFormatter: (v) => '${v.round()}ms',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetMaxAttack = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetMaxAttack = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2334,8 +2333,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   onChanged: _viperEnabled &&
                                           _fetCompressorEnabled
                                       ? (v) {
-                                          setState(
-                                              () => _fetMaxRelease = v);
+                                          setState(() => _fetMaxRelease = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -2349,13 +2347,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${(v * 100).round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetCrest = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetCrest = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2366,13 +2364,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${(v * 100).round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _fetCompressorEnabled
-                                      ? (v) {
-                                          setState(() => _fetAdapt = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _fetCompressorEnabled
+                                          ? (v) {
+                                              setState(() => _fetAdapt = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -2389,17 +2387,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 children: [
                                   const Text('Auto Knee',
                                       style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11)),
+                                          color: Colors.white70, fontSize: 11)),
                                   M3ESwitch(
-                                    selectedIcon: Icon(Icons.check,
-                                        color: primaryColor),
+                                    selectedIcon:
+                                        Icon(Icons.check, color: primaryColor),
                                     value: _fetKneeAuto,
                                     onChanged: _viperEnabled &&
                                             _fetCompressorEnabled
                                         ? (v) {
-                                            setState(
-                                                () => _fetKneeAuto = v);
+                                            setState(() => _fetKneeAuto = v);
                                             _updateEngine();
                                           }
                                         : null,
@@ -2414,17 +2410,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 children: [
                                   const Text('Auto Gain',
                                       style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11)),
+                                          color: Colors.white70, fontSize: 11)),
                                   M3ESwitch(
-                                    selectedIcon: Icon(Icons.check,
-                                        color: primaryColor),
+                                    selectedIcon:
+                                        Icon(Icons.check, color: primaryColor),
                                     value: _fetGainAuto,
                                     onChanged: _viperEnabled &&
                                             _fetCompressorEnabled
                                         ? (v) {
-                                            setState(
-                                                () => _fetGainAuto = v);
+                                            setState(() => _fetGainAuto = v);
                                             _updateEngine();
                                           }
                                         : null,
@@ -2439,15 +2433,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 children: [
                                   const Text('Auto Attack',
                                       style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11)),
+                                          color: Colors.white70, fontSize: 11)),
                                   M3ESwitch(
                                     value: _fetAttackAuto,
                                     onChanged: _viperEnabled &&
                                             _fetCompressorEnabled
                                         ? (v) {
-                                            setState(
-                                                () => _fetAttackAuto = v);
+                                            setState(() => _fetAttackAuto = v);
                                             _updateEngine();
                                           }
                                         : null,
@@ -2462,17 +2454,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 children: [
                                   const Text('Auto Release',
                                       style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11)),
+                                          color: Colors.white70, fontSize: 11)),
                                   M3ESwitch(
-                                    selectedIcon: Icon(Icons.check,
-                                        color: primaryColor),
+                                    selectedIcon:
+                                        Icon(Icons.check, color: primaryColor),
                                     value: _fetReleaseAuto,
                                     onChanged: _viperEnabled &&
                                             _fetCompressorEnabled
                                         ? (v) {
-                                            setState(
-                                                () => _fetReleaseAuto = v);
+                                            setState(() => _fetReleaseAuto = v);
                                             _updateEngine();
                                           }
                                         : null,
@@ -2487,19 +2477,18 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                 children: [
                                   const Text('No Clip',
                                       style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11)),
+                                          color: Colors.white70, fontSize: 11)),
                                   M3ESwitch(
-                                    selectedIcon: Icon(Icons.check,
-                                        color: primaryColor),
+                                    selectedIcon:
+                                        Icon(Icons.check, color: primaryColor),
                                     value: _fetNoClip,
-                                    onChanged: _viperEnabled &&
-                                            _fetCompressorEnabled
-                                        ? (v) {
-                                            setState(() => _fetNoClip = v);
-                                            _updateEngine();
-                                          }
-                                        : null,
+                                    onChanged:
+                                        _viperEnabled && _fetCompressorEnabled
+                                            ? (v) {
+                                                setState(() => _fetNoClip = v);
+                                                _updateEngine();
+                                              }
+                                            : null,
                                   ),
                                 ],
                               )),
@@ -2547,8 +2536,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Mode',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -2647,8 +2636,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Mode',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -2661,8 +2650,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           if (_viperEnabled &&
                               _bassMonoEnabled &&
                               newSelection.isNotEmpty) {
-                            setState(
-                                () => _bassMonoMode = newSelection.first);
+                            setState(() => _bassMonoMode = newSelection.first);
                             _updateEngine();
                           }
                         },
@@ -2682,14 +2670,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 120.0,
                                   activeColor: primaryColor,
                                   valueFormatter: (v) => '${v.round()}Hz',
-                                  onChanged:
-                                      _viperEnabled && _bassMonoEnabled
-                                          ? (v) {
-                                              setState(
-                                                  () => _bassMonoFreq = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
+                                  onChanged: _viperEnabled && _bassMonoEnabled
+                                      ? (v) {
+                                          setState(() => _bassMonoFreq = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -2699,14 +2685,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 1.0,
                                   activeColor: primaryColor,
                                   isPercentage: true,
-                                  onChanged:
-                                      _viperEnabled && _bassMonoEnabled
-                                          ? (v) {
-                                              setState(
-                                                  () => _bassMonoGain = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
+                                  onChanged: _viperEnabled && _bassMonoEnabled
+                                      ? (v) {
+                                          setState(() => _bassMonoGain = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
                         ],
                       ),
                       Row(
@@ -2751,8 +2735,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Harmonic Order',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -2766,8 +2750,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           if (_viperEnabled &&
                               _psychoBassEnabled &&
                               newSelection.isNotEmpty) {
-                            setState(() => _psychoHarmonicOrder =
-                                newSelection.first);
+                            setState(() =>
+                                _psychoHarmonicOrder = newSelection.first);
                             _updateEngine();
                           }
                         },
@@ -2787,8 +2771,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 150.0,
                                   activeColor: primaryColor,
                                   valueFormatter: (v) => '${v.round()}Hz',
-                                  onChanged: _viperEnabled &&
-                                          _psychoBassEnabled
+                                  onChanged: _viperEnabled && _psychoBassEnabled
                                       ? (v) {
                                           setState(() => _psychoCutoff = v);
                                           _updateEngine();
@@ -2803,11 +2786,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 100.0,
                                   activeColor: primaryColor,
                                   valueFormatter: (v) => '${v.round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _psychoBassEnabled
+                                  onChanged: _viperEnabled && _psychoBassEnabled
                                       ? (v) {
-                                          setState(() =>
-                                              _psychoIntensity = v);
+                                          setState(() => _psychoIntensity = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -2820,11 +2801,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   max: 100.0,
                                   activeColor: primaryColor,
                                   valueFormatter: (v) => '${v.round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _psychoBassEnabled
+                                  onChanged: _viperEnabled && _psychoBassEnabled
                                       ? (v) {
-                                          setState(() =>
-                                              _psychoOriginalLevel = v);
+                                          setState(
+                                              () => _psychoOriginalLevel = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -2854,8 +2834,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Mode',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -2868,8 +2848,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           if (_viperEnabled &&
                               _clarityEnabled &&
                               newSelection.isNotEmpty) {
-                            setState(
-                                () => _clarityMode = newSelection.first);
+                            setState(() => _clarityMode = newSelection.first);
                             _updateEngine();
                           }
                         },
@@ -2931,14 +2910,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               max: 100.0,
                               activeColor: primaryColor,
                               valueFormatter: (v) => '${v.round()}%',
-                              onChanged:
-                                  _viperEnabled && _spectrumEnabled
-                                      ? (v) {
-                                          setState(() =>
-                                              _spectrumStrength = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _spectrumEnabled
+                                  ? (v) {
+                                      setState(() => _spectrumStrength = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                       SizedBox(
                           width: 75,
                           child: ModernAudioKnob(
@@ -2947,16 +2924,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
-                              onChanged:
-                                  _viperEnabled && _spectrumEnabled
-                                      ? (v) {
-                                          setState(() =>
-                                              _spectrumExciter = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              valueFormatter: (v) => '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _spectrumEnabled
+                                  ? (v) {
+                                      setState(() => _spectrumExciter = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                     ],
                   ),
                 ),
@@ -2983,8 +2957,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               M3EExpandableData(
                 title: 'Stereo Imager',
                 subtitle: 'Multiband width & crossover control',
-                leading: Icon(Icons.surround_sound,
-                    color: primaryColor, size: 20),
+                leading:
+                    Icon(Icons.surround_sound, color: primaryColor, size: 20),
                 trailing: M3ESwitch(
                   selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: _stereoImagerEnabled,
@@ -3011,14 +2985,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               max: 200.0,
                               activeColor: primaryColor,
                               valueFormatter: (v) => '${v.round()}%',
-                              onChanged:
-                                  _viperEnabled && _stereoImagerEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _stereoLowWidth = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _stereoImagerEnabled
+                                  ? (v) {
+                                      setState(() => _stereoLowWidth = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                       SizedBox(
                           width: 75,
                           child: ModernAudioKnob(
@@ -3028,14 +3000,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               max: 200.0,
                               activeColor: primaryColor,
                               valueFormatter: (v) => '${v.round()}%',
-                              onChanged:
-                                  _viperEnabled && _stereoImagerEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _stereoMidWidth = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _stereoImagerEnabled
+                                  ? (v) {
+                                      setState(() => _stereoMidWidth = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                       SizedBox(
                           width: 75,
                           child: ModernAudioKnob(
@@ -3045,14 +3015,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               max: 200.0,
                               activeColor: primaryColor,
                               valueFormatter: (v) => '${v.round()}%',
-                              onChanged:
-                                  _viperEnabled && _stereoImagerEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _stereoHighWidth = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _stereoImagerEnabled
+                                  ? (v) {
+                                      setState(() => _stereoHighWidth = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                       SizedBox(
                           width: 75,
                           child: ModernAudioKnob(
@@ -3062,14 +3030,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               max: 1000.0,
                               activeColor: primaryColor,
                               valueFormatter: (v) => '${v.round()}Hz',
-                              onChanged:
-                                  _viperEnabled && _stereoImagerEnabled
-                                      ? (v) {
-                                          setState(() =>
-                                              _stereoLowCrossover = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _stereoImagerEnabled
+                                  ? (v) {
+                                      setState(() => _stereoLowCrossover = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                       SizedBox(
                           width: 75,
                           child: ModernAudioKnob(
@@ -3080,14 +3046,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               activeColor: primaryColor,
                               valueFormatter: (v) =>
                                   '${(v / 1000).toStringAsFixed(1)}kHz',
-                              onChanged:
-                                  _viperEnabled && _stereoImagerEnabled
-                                      ? (v) {
-                                          setState(() =>
-                                              _stereoHighCrossover = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                              onChanged: _viperEnabled && _stereoImagerEnabled
+                                  ? (v) {
+                                      setState(() => _stereoHighCrossover = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
                     ],
                   ),
                 ),
@@ -3111,8 +3075,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Binaural Level',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -3137,8 +3101,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               M3EExpandableData(
                 title: 'Headphone Surround+',
                 subtitle: 'Eliminates in-head fatigue',
-                leading:
-                    Icon(Icons.headphones, color: primaryColor, size: 20),
+                leading: Icon(Icons.headphones, color: primaryColor, size: 20),
                 trailing: M3ESwitch(
                   selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: _headphoneSurroundEnabled,
@@ -3154,8 +3117,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Quality',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -3168,8 +3131,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           if (_viperEnabled &&
                               _headphoneSurroundEnabled &&
                               newSelection.isNotEmpty) {
-                            setState(() => _headphoneSurroundQuality =
-                                newSelection.first);
+                            setState(() =>
+                                _headphoneSurroundQuality = newSelection.first);
                             _updateEngine();
                           }
                         },
@@ -3198,8 +3161,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Surround Depth Level',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -3214,8 +3177,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           if (_viperEnabled &&
                               _fieldSurroundEnabled &&
                               newSelection.isNotEmpty) {
-                            setState(
-                                () => _fieldDepth = newSelection.first);
+                            setState(() => _fieldDepth = newSelection.first);
                             _updateEngine();
                           }
                         },
@@ -3239,8 +3201,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   onChanged: _viperEnabled &&
                                           _fieldSurroundEnabled
                                       ? (v) {
-                                          setState(() =>
-                                              _fieldWidening = v);
+                                          setState(() => _fieldWidening = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -3257,8 +3218,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   onChanged: _viperEnabled &&
                                           _fieldSurroundEnabled
                                       ? (v) {
-                                          setState(() =>
-                                              _fieldMidImage = v);
+                                          setState(() => _fieldMidImage = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -3271,8 +3231,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               M3EExpandableData(
                 title: 'Differential Surround',
                 subtitle: 'Haas effect delay panning',
-                leading: Icon(Icons.compare_arrows,
-                    color: primaryColor, size: 20),
+                leading:
+                    Icon(Icons.compare_arrows, color: primaryColor, size: 20),
                 trailing: M3ESwitch(
                   selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: _diffSurroundEnabled,
@@ -3302,14 +3262,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${v.toStringAsFixed(1)}ms',
-                                  onChanged: _viperEnabled &&
-                                          _diffSurroundEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _diffDelay = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffDelay = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -3320,14 +3279,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${(v * 100).round()}%',
-                                  onChanged: _viperEnabled &&
-                                          _diffSurroundEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _diffWetDry = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffWetDry = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -3336,16 +3294,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   min: 20.0,
                                   max: 20000.0,
                                   activeColor: primaryColor,
-                                  valueFormatter: (v) =>
-                                      '${v.round()}Hz',
-                                  onChanged: _viperEnabled &&
-                                          _diffSurroundEnabled
-                                      ? (v) {
-                                          setState(
-                                              () => _diffLpCutoff = v);
-                                          _updateEngine();
-                                        }
-                                      : (_) {})),
+                                  valueFormatter: (v) => '${v.round()}Hz',
+                                  onChanged:
+                                      _viperEnabled && _diffSurroundEnabled
+                                          ? (v) {
+                                              setState(() => _diffLpCutoff = v);
+                                              _updateEngine();
+                                            }
+                                          : (_) {})),
                         ],
                       ),
                     ),
@@ -3353,11 +3309,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Reverse',
-                            style: TextStyle(
-                                color: Colors.white70, fontSize: 11)),
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 11)),
                         M3ESwitch(
-                          selectedIcon:
-                              Icon(Icons.check, color: primaryColor),
+                          selectedIcon: Icon(Icons.check, color: primaryColor),
                           value: _diffReverse,
                           onChanged: _viperEnabled && _diffSurroundEnabled
                               ? (v) {
@@ -3416,8 +3371,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
+                              valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _reverbEnabled
                                   ? (v) {
                                       setState(() => _reverbRoom = v);
@@ -3432,8 +3386,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
+                              valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _reverbEnabled
                                   ? (v) {
                                       setState(() => _reverbWidth = v);
@@ -3448,8 +3401,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
+                              valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _reverbEnabled
                                   ? (v) {
                                       setState(() => _reverbDamp = v);
@@ -3464,8 +3416,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
+                              valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _reverbEnabled
                                   ? (v) {
                                       setState(() => _reverbWet = v);
@@ -3480,8 +3431,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               min: 0.0,
                               max: 1.0,
                               activeColor: primaryColor,
-                              valueFormatter: (v) =>
-                                  '${(v * 100).round()}%',
+                              valueFormatter: (v) => '${(v * 100).round()}%',
                               onChanged: _viperEnabled && _reverbEnabled
                                   ? (v) {
                                       setState(() => _reverbDry = v);
@@ -3512,8 +3462,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               M3EExpandableData(
                 title: 'FIR Equalizer',
                 subtitle: 'FIR bands processing',
-                leading:
-                    Icon(Icons.graphic_eq, color: primaryColor, size: 20),
+                leading: Icon(Icons.graphic_eq, color: primaryColor, size: 20),
                 trailing: M3ESwitch(
                   selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: _firEqEnabled,
@@ -3524,8 +3473,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                         }
                       : null,
                 ),
-                body: _buildEqBands(
-                    _firEqFreqs, _firEqGains, _firEqEnabled),
+                body: _buildEqBands(_firEqFreqs, _firEqGains, _firEqEnabled),
               ),
               M3EExpandableData(
                 title: 'Dynamic EQ',
@@ -3557,8 +3505,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                         }
                       : null,
                 ),
-                body: _buildEqBands(
-                    _iirEqFreqs, _iirEqGains, _iirEqEnabled),
+                body: _buildEqBands(_iirEqFreqs, _iirEqGains, _iirEqEnabled),
               ),
             ],
           ),
@@ -3601,8 +3548,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   M3EExpandableData(
                     title: 'Viper DDC',
                     subtitle: 'Device-Dependent Correction',
-                    leading:
-                        Icon(Icons.headset, color: primaryColor, size: 20),
+                    leading: Icon(Icons.headset, color: primaryColor, size: 20),
                     trailing: M3ESwitch(
                       selectedIcon: Icon(Icons.check, color: primaryColor),
                       value: _ddcEnabled,
@@ -3675,8 +3621,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   child: Column(
                     children: [
                       const Text('Mode',
-                          style: TextStyle(
-                              color: Colors.white70, fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 11)),
                       const SizedBox(height: 4),
                       M3ESegmentedButton<int>(
                         segments: const [
@@ -3724,66 +3670,6 @@ class _ViperFxScreenState extends State<ViperFxScreen>
           ),
         ),
       ];
-
-  Widget _buildCard(String title, String subtitle, bool enabled,
-      ValueChanged<bool> onEnableChanged,
-      {Widget? child}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: M3ECard(
-        variant: M3ECardVariant.filled,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            color: enabled
-                                ? primaryColor.withValues(alpha: 0.88)
-                                : Colors.white54,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  M3ESwitch(
-                    selectedIcon: Icon(Icons.check, color: primaryColor),
-                    value: enabled,
-                    onChanged: _viperEnabled ? onEnableChanged : null,
-                  ),
-                ],
-              ),
-              if (enabled && child != null) ...[
-                const SizedBox(height: 14),
-                const M3EDivider(),
-                const SizedBox(height: 14),
-                child,
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildMbcCrossovers() {
     return Column(
@@ -4403,9 +4289,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   if (selectedList.isNotEmpty &&
                       _viperEnabled &&
                       _convolverEnabled) {
-                    setState(
-                        () => _selectedConvolverFile = selectedList.first.value);
-                    _updateEngine();
+                    final newValue = selectedList.first.value;
+                    if (newValue != _selectedConvolverFile) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          setState(() => _selectedConvolverFile = newValue);
+                          _updateEngine();
+                        }
+                      });
+                    }
                   }
                 },
               ),
@@ -4501,8 +4393,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     .toList(),
                 onSelectionChanged: (selectedList) {
                   if (selectedList.isNotEmpty && _viperEnabled && _ddcEnabled) {
-                    setState(() => _selectedDdcFile = selectedList.first.value);
-                    _updateEngine();
+                    final newValue = selectedList.first.value;
+                    if (newValue != _selectedDdcFile) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          setState(() => _selectedDdcFile = newValue);
+                          _updateEngine();
+                        }
+                      });
+                    }
                   }
                 },
               ),

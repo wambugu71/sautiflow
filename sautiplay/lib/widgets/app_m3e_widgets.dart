@@ -89,15 +89,8 @@ class AppShapeIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = color ?? context.primaryColor;
-    return M3EContainer(
-      shape,
-      width: size,
-      height: size,
-      color: accent.withAlpha(30),
-      border: BorderSide(color: accent.withAlpha(60), width: 1),
-      child: Center(
-        child: Icon(icon, color: accent, size: iconSize),
-      ),
+    return Center(
+      child: Icon(icon, color: accent, size: iconSize),
     );
   }
 }

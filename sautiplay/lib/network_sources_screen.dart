@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -341,57 +343,47 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                           subtitle:
                               'No compatible audio files found in this folder.',
                         )
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                      : M3ECardList.builder(
                           itemCount: _ftpEntries.length,
-                          separatorBuilder: (_, __) => const Divider(
-                              color: Colors.white10, height: 1, indent: 64),
                           itemBuilder: (context, index) {
                             final item = _ftpEntries[index];
                             if (item.isDirectory) {
-                              return ListTile(
-                                leading: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: _primary.withAlpha(25),
-                                    borderRadius: BorderRadius.circular(10),
+                              return M3EListItem(
+                                leading: M3EContainer(
+                                  Shapes.pill,
+                                  width: 40,
+                                  height: 40,
+                                  color: _primary.withAlpha(25),
+                                  child: Center(
+                                    child: Icon(Icons.folder_rounded,
+                                        color: _primary, size: 20),
                                   ),
-                                  child: Icon(Icons.folder_rounded,
-                                      color: _primary),
                                 ),
-                                title: Text(item.name,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500)),
+                                headline: item.name,
                                 trailing: Icon(Icons.chevron_right_rounded,
-                                    color: _textDark),
+                                    color: _textDark, size: 20),
                                 onTap: () => _navigateToFtpSubdir(item.path),
                               );
                             } else {
-                              return ListTile(
-                                leading: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.withAlpha(25),
-                                    borderRadius: BorderRadius.circular(10),
+                              return M3EListItem(
+                                leading: M3EContainer(
+                                  Shapes.pill,
+                                  width: 40,
+                                  height: 40,
+                                  color: Colors.amber.withAlpha(25),
+                                  child: const Center(
+                                    child: Icon(Icons.audiotrack_rounded,
+                                        color: Colors.amber, size: 20),
                                   ),
-                                  child: const Icon(Icons.audiotrack_rounded,
-                                      color: Colors.amber),
                                 ),
-                                title: Text(item.name,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500)),
-                                subtitle: Text(
-                                  _formatBytes(item.sizeBytes),
-                                  style:
-                                      TextStyle(color: _textDark, fontSize: 12),
-                                ),
+                                headline: item.name,
+                                supportingText: _formatBytes(item.sizeBytes),
                                 trailing: IconButton(
                                   icon: Icon(Icons.play_circle_fill_rounded,
                                       color: _primary, size: 32),
                                   onPressed: () => _playFtpAudioFile(item),
                                 ),
+                                onTap: () => _playFtpAudioFile(item),
                               );
                             }
                           },
@@ -491,58 +483,45 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           renderers.isEmpty
               ? _buildCardPlaceholder(
                   'No DLNA Speakers or Smart TVs found yet. Tap Scan to search local Wi-Fi.')
-              : Column(
-                  children: renderers.map((r) {
+              : M3ECardList(
+                  itemCount: renderers.length,
+                  itemBuilder: (context, index) {
+                    final r = renderers[index];
                     final isActive = dlna.activeRenderer?.id == r.id;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: isActive ? _primary.withAlpha(40) : _cardDark,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: isActive
-                                ? _primary
-                                : Colors.white.withAlpha(10)),
+                    return M3EListItem(
+                      leading: M3EContainer(
+                        Shapes.pill,
+                        width: 40,
+                        height: 40,
+                        color: (isActive ? Colors.white : _primary)
+                            .withAlpha(25),
+                        child: Center(
+                          child: Icon(
+                            Icons.cast_rounded,
+                            color: isActive ? Colors.white : _primary,
+                            size: 20,
+                          ),
+                        ),
                       ),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.cast_rounded,
-                          color: isActive ? Colors.white : _primary,
-                        ),
-                        title: Text(
-                          r.name,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight:
-                                isActive ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        subtitle: Text(
-                          r.locationUrl,
-                          style: TextStyle(color: _textDark, fontSize: 11),
-                        ),
-                        trailing: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                isActive ? Colors.redAccent : _primary,
-                          ),
-                          onPressed: () {
-                            if (isActive) {
-                              dlna.stop();
-                            } else {
-                              dlna.setActiveRenderer(r);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        'Set active casting device to ${r.name}')),
-                              );
-                            }
-                          },
-                          child: Text(isActive ? 'Disconnect' : 'Connect'),
-                        ),
+                      headline: r.name,
+                      supportingText: r.locationUrl,
+                      trailing: M3EButton(
+                        onPressed: () {
+                          if (isActive) {
+                            dlna.stop();
+                          } else {
+                            dlna.setActiveRenderer(r);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                  content: Text(
+                                      'Set active casting device to ${r.name}')),
+                            );
+                          }
+                        },
+                        child: Text(isActive ? 'Disconnect' : 'Connect'),
                       ),
                     );
-                  }).toList(),
+                  },
                 ),
 
           const SizedBox(height: 24),
@@ -555,36 +534,34 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           servers.isEmpty
               ? _buildCardPlaceholder(
                   'No DLNA Media Servers detected on your local network.')
-              : Column(
-                  children: servers.map((s) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: _cardDark,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withAlpha(10)),
+              : M3ECardList(
+                  itemCount: servers.length,
+                  itemBuilder: (context, index) {
+                    final s = servers[index];
+                    return M3EListItem(
+                      leading: const M3EContainer(
+                        Shapes.pill,
+                        width: 40,
+                        height: 40,
+                        color: Color(0x19FFC107),
+                        child: Center(
+                          child: Icon(Icons.storage_rounded,
+                              color: Colors.amber, size: 20),
+                        ),
                       ),
-                      child: ListTile(
-                        leading: const Icon(Icons.storage_rounded,
-                            color: Colors.amber),
-                        title: Text(s.name,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600)),
-                        subtitle: Text(s.locationUrl,
-                            style: TextStyle(color: _textDark, fontSize: 11)),
-                        trailing:
-                            Icon(Icons.chevron_right_rounded, color: _textDark),
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                                content: Text(
-                                    'Connected to DLNA MediaServer ${s.name}')),
-                          );
-                        },
-                      ),
+                      headline: s.name,
+                      supportingText: s.locationUrl,
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20),
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(
+                                  'Connected to DLNA MediaServer ${s.name}')),
+                        );
+                      },
                     );
-                  }).toList(),
+                  },
                 ),
         ],
       ),
@@ -603,15 +580,13 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     final passCtrl = TextEditingController();
     bool isSecure = false;
 
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(builder: (context, setDlgState) {
-          return AlertDialog(
-            backgroundColor: _cardDark,
-            title: const Text('Add FTP Server',
-                style: TextStyle(color: Colors.white)),
-            content: SingleChildScrollView(
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Add FTP Server',
+        content: StatefulBuilder(
+          builder: (context, setDlgState) {
+            return SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -623,6 +598,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       labelStyle: TextStyle(color: _textDark),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: hostCtrl,
                     style: const TextStyle(color: Colors.white),
@@ -632,6 +608,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       labelStyle: TextStyle(color: _textDark),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -648,9 +625,10 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       const SizedBox(width: 16),
                       Row(
                         children: [
-                          const Text('FTPS (SSL)',
-                              style: TextStyle(color: Colors.white)),
-                          Switch(
+                          const Text('FTPS',
+                              style: TextStyle(color: Colors.white, fontSize: 13)),
+                          const SizedBox(width: 8),
+                          M3ESwitch(
                             value: isSecure,
                             onChanged: (val) =>
                                 setDlgState(() => isSecure = val),
@@ -659,6 +637,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: userCtrl,
                     style: const TextStyle(color: Colors.white),
@@ -667,6 +646,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       labelStyle: TextStyle(color: _textDark),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: passCtrl,
                     obscureText: true,
@@ -678,38 +658,36 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                   ),
                 ],
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel',
-                    style: TextStyle(color: Colors.white54)),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: _primary),
-                onPressed: () async {
-                  if (hostCtrl.text.trim().isEmpty) return;
-                  final config = FtpConfig(
-                    id: DateTime.now().millisecondsSinceEpoch.toString(),
-                    name: nameCtrl.text.trim(),
-                    host: hostCtrl.text.trim(),
-                    port: int.tryParse(portCtrl.text.trim()) ?? 21,
-                    user: userCtrl.text.trim(),
-                    password: passCtrl.text,
-                    isSecure: isSecure,
-                  );
+            );
+          },
+        ),
+        actions: [
+          M3EButton.text(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () async {
+              if (hostCtrl.text.trim().isEmpty) return;
+              final config = FtpConfig(
+                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                name: nameCtrl.text.trim(),
+                host: hostCtrl.text.trim(),
+                port: int.tryParse(portCtrl.text.trim()) ?? 21,
+                user: userCtrl.text.trim(),
+                password: passCtrl.text,
+                isSecure: isSecure,
+              );
 
-                  final nav = Navigator.of(ctx);
-                  await FtpService.saveConfig(config);
-                  nav.pop();
-                  _loadFtpConfigs();
-                },
-                child: const Text('Save & Connect'),
-              ),
-            ],
-          );
-        });
-      },
+              final nav = Navigator.of(context);
+              await FtpService.saveConfig(config);
+              nav.pop();
+              _loadFtpConfigs();
+            },
+            child: const Text('Save & Connect'),
+          ),
+        ],
+      ),
     );
   }
 
