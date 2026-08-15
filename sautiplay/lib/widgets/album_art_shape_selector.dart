@@ -24,8 +24,14 @@ class M3EShapeItem {
 const List<M3EShapeItem> kM3EAlbumArtShapes = [
   // ── Curated & Popular ──────────────────────────────────────────────────────
   M3EShapeItem(
+    shape: Shapes.slanted,
+    name: 'Slanted (Default)',
+    category: 'Curated',
+    isCurated: true,
+  ),
+  M3EShapeItem(
     shape: Shapes.bun,
-    name: 'Bun (Default)',
+    name: 'Bun',
     category: 'Curated',
     isCurated: true,
   ),
@@ -41,12 +47,7 @@ const List<M3EShapeItem> kM3EAlbumArtShapes = [
     category: 'Curated',
     isCurated: true,
   ),
-  M3EShapeItem(
-    shape: Shapes.slanted,
-    name: 'Slanted',
-    category: 'Curated',
-    isCurated: true,
-  ),
+
   M3EShapeItem(
     shape: Shapes.flower,
     name: 'Flower',

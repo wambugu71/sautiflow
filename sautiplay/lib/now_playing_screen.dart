@@ -197,8 +197,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         }
       }
     });
-    _sliderStyleSub = AppStateService.instance.useWavySliderChanged.stream
-        .listen((wavy) {
+    _sliderStyleSub =
+        AppStateService.instance.useWavySliderChanged.stream.listen((wavy) {
       if (mounted) {
         setState(() => _useWavySlider = wavy);
       }
@@ -616,7 +616,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Center(
+                        /*  Center(
                           child: Container(
                             width: 36,
                             height: 4,
@@ -626,12 +626,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
-                        ),
+                        ),*/
                         const SizedBox(height: 8),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
                           child: Text(
-                            'EXPRESSIVE TRACK OPTIONS',
+                            'TRACK OPTIONS',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -642,7 +642,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ListTile(
+                        /*ListTile(
                           leading: M3EContainer(
                             AppThemeService.instance.albumArtShape,
                             width: 38,
@@ -682,7 +682,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               sampleAlbumArt: widget.albumArt,
                             );
                           },
-                        ),
+                        ),*/
+                        ////////////////////////////////////
                         ListTile(
                           leading: const Icon(Icons.info_outline,
                               color: Colors.white),
@@ -706,8 +707,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600)),
-                          subtitle: const Text(
-                              'View live DAC, sample rate, & hardware pipeline specs',
+                          subtitle: const Text('View live pipeline specs',
                               style: TextStyle(
                                   color: Colors.white54, fontSize: 12)),
                           onTap: () {
@@ -1020,7 +1020,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Center(
+        /* Center(
           child: Container(
             width: 36,
             height: 4,
@@ -1030,7 +1030,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-        ),
+        ),*/
         Row(
           children: [
             Container(
@@ -2093,7 +2093,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         // Mobile Layout (< 800px)
                         content = Column(
                           children: [
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 24),
                             // Mobile Header Bar
                             Padding(
                               padding: const EdgeInsets.symmetric(
@@ -2631,8 +2631,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         alignment: Alignment.topCenter,
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
-                              maxWidth:
-                                  isDesktop ? double.infinity : 600.0),
+                              maxWidth: isDesktop ? double.infinity : 600.0),
                           child: SafeArea(
                             child: content,
                           ),

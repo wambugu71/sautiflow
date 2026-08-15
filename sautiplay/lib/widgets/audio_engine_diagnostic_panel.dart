@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sautiplay/isolate_player.dart';
+import 'package:sautiplay/services/audio_hardware_inspector.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
 void showAudioEngineDiagnosticPanel(
@@ -30,6 +31,8 @@ class AudioEngineDiagnosticPanel extends StatefulWidget {
 class _AudioEngineDiagnosticPanelState
     extends State<AudioEngineDiagnosticPanel> {
   Timer? _telemetryTimer;
+  StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
+  AudioHardwareSpecs? _hardwareSpecs;
   Map<String, dynamic>? _telemetry;
   bool _loading = true;
   String? _error;
@@ -37,6 +40,23 @@ class _AudioEngineDiagnosticPanelState
   @override
   void initState() {
     super.initState();
+    _hardwareSpecs = AudioHardwareInspector.currentSpecs;
+    _hardwareSub =
+        AudioHardwareInspector.hardwareStream(widget.player).listen((specs) {
+      if (mounted) {
+        setState(() {
+          _hardwareSpecs = specs;
+        });
+      }
+    });
+    AudioHardwareInspector.inspectAsync(widget.player).then((specs) {
+      if (mounted) {
+        setState(() {
+          _hardwareSpecs = specs;
+        });
+      }
+    });
+
     _fetchTelemetry();
     _telemetryTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       _fetchTelemetry();
@@ -46,6 +66,7 @@ class _AudioEngineDiagnosticPanelState
   @override
   void dispose() {
     _telemetryTimer?.cancel();
+    _hardwareSub?.cancel();
     super.dispose();
   }
 
@@ -111,30 +132,17 @@ class _AudioEngineDiagnosticPanelState
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Row(
               children: [
-                /* Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.cyanAccent.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.graphic_eq_rounded,
-                    color: Colors.cyanAccent,
-                    size: 22,
-                  ),
-                ),*/
-                const SizedBox(width: 12),
+                const SizedBox(width: 4),
                 Expanded(
                   child: Row(
-                    //crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Audio Info',
+                        'Audio Info & Diagnostics',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
-                          letterSpacing: 1.2,
+                          letterSpacing: 1.1,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -147,20 +155,31 @@ class _AudioEngineDiagnosticPanelState
                         ),
                       ),
                       const SizedBox(width: 6),
+                      const Text(
+                        'LIVE',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          color: Colors.greenAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: const Color(0xFF222B40),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   child: Center(
                     child: IconButton(
+                      padding: EdgeInsets.zero,
                       icon: const Icon(Icons.close_rounded,
-                          color: Colors.white70),
+                          color: Colors.white70, size: 20),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ),
@@ -203,18 +222,28 @@ class _AudioEngineDiagnosticPanelState
     final t = _telemetry!;
     final hw = t['hardware'] as Map<String, dynamic>? ?? {};
 
+    final specs = _hardwareSpecs ??
+        AudioHardwareInspector.currentSpecs ??
+        AudioHardwareInspector.inspect(widget.player);
+
+    final String activeDeviceName = specs.isBluetooth
+        ? (specs.bluetoothDeviceName?.isNotEmpty == true
+            ? specs.bluetoothDeviceName!
+            : specs.deviceName)
+        : specs.deviceName;
+
     final int srcRate = t['inputSampleRate'] as int? ?? 48000;
     final int srcDepth =
         t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
     final int dspRate = t['processingSampleRate'] as int? ?? 48000;
     final int dspChannels = t['processingChannels'] as int? ?? 2;
     final int dacRate =
-        t['outputSampleRate'] as int? ?? (hw['sampleRate'] as int? ?? 48000);
-    final int dacDepth = hw['bitDepth'] as int? ?? 24;
-    final bool isExclusive = hw['isExclusiveMode'] as bool? ?? false;
-    final String backend = hw['backendName'] as String? ?? 'Audio Backend';
-    final int periodFrames = hw['periodSizeFrames'] as int? ?? 256;
-    final int periodCount = hw['periodCount'] as int? ?? 2;
+        t['outputSampleRate'] as int? ?? (hw['sampleRate'] as int? ?? specs.sampleRate);
+    final int dacDepth = hw['bitDepth'] as int? ?? specs.bitDepth;
+    final bool isExclusive = hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
+    final String backend = hw['backendName'] as String? ?? specs.backendName;
+    final int periodFrames = hw['periodSizeFrames'] as int? ?? specs.periodSizeFrames;
+    final int periodCount = hw['periodCount'] as int? ?? specs.periodCount;
 
     final bool eqOn = t['eqEnabled'] == true;
     final double crossfeedMix = (t['crossfeedMix'] as num?)?.toDouble() ?? 0.0;
@@ -228,7 +257,7 @@ class _AudioEngineDiagnosticPanelState
     // Calculate node latencies
     final nodeLatencies = _calculatePerNodeLatencies(
       sampleRate: dspRate,
-      hwLatencyMs: (t['deviceLatencyMs'] as num?)?.toDouble() ?? 0.0,
+      hwLatencyMs: (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs,
       crossfeedAlgo: crossfeedAlgo,
       crossfeedDelayMs: (t['crossfeedDelayMs'] as num?)?.toDouble() ?? 0.40,
       limiterOn: limiterOn,
@@ -236,6 +265,7 @@ class _AudioEngineDiagnosticPanelState
       stereoEnhanceOn: stereoEnhanceOn,
       viperOn: viperOn,
       isSrcActive: (srcRate != dacRate),
+      deviceType: specs.deviceType,
     );
 
     // Sum DSP node latencies
@@ -243,14 +273,14 @@ class _AudioEngineDiagnosticPanelState
     double sumDspSamples = 0.0;
     for (final n in nodeLatencies) {
       if (n.nodeName != 'Source / Decoder' &&
-          n.nodeName != 'Hardware Output DAC') {
+          !n.nodeName.startsWith('Hardware Output')) {
         sumDspMs += n.latencyMs;
         sumDspSamples += n.latencySamples;
       }
     }
 
     final double hwLatencyMs =
-        (t['deviceLatencyMs'] as num?)?.toDouble() ?? 0.0;
+        (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs;
     final double totalEndToEndLatencyMs = hwLatencyMs + sumDspMs;
     final int clippedCount = t['clippedCount'] as int? ?? 0;
 
@@ -261,24 +291,18 @@ class _AudioEngineDiagnosticPanelState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Resampling Explanation Box
-        /*   _buildResamplingExplainerCard(
-          srcRate: srcRate,
-          dacRate: dacRate,
-          isExclusive: isExclusive,
-          isSrcActive: isSrcActive,
-          resamplerAlgo: resamplerAlgo,
-        ),*/
+        // 1. Hardware Output Device Card (Speakers, Built-in Earpiece, 3.5mm, BT, USB DAC, etc.)
+        _buildHardwareDeviceCard(specs, activeDeviceName),
 
         const SizedBox(height: 16),
 
-        // Per-Node Latency Breakdown Card (Source -> DAC)
+        // 2. Per-Node Latency Breakdown Card (Source -> DAC)
         _buildPerNodeLatencyCard(
             nodeLatencies, totalEndToEndLatencyMs, sumDspSamples),
 
         const SizedBox(height: 16),
 
-        // Terminal Matrix Display Box
+        // 3. Terminal Matrix Display Box (DSP & Telemetry Details)
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -293,7 +317,7 @@ class _AudioEngineDiagnosticPanelState
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'DSP Status',
+                    'DSP Status & Telemetry',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       color: Colors.white70,
@@ -302,7 +326,7 @@ class _AudioEngineDiagnosticPanelState
                       letterSpacing: 1.5,
                     ),
                   ),
-                  /* Container(
+                  Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -322,12 +346,22 @@ class _AudioEngineDiagnosticPanelState
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  )*/
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
               const Divider(color: Color(0xFF1B2336), height: 1),
               const SizedBox(height: 12),
+              _buildTelemetryRow('Hardware Device', activeDeviceName,
+                  isValueActive: true),
+              _buildTelemetryRow('Hardware Route', specs.deviceType,
+                  isValueActive: true),
+              if (specs.bluetoothCodec != null)
+                _buildTelemetryRow(
+                  'BT Codec',
+                  specs.formattedBtCodec ?? specs.bluetoothCodec!,
+                  isValueActive: true,
+                ),
               _buildTelemetryRow('Source',
                   '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM'),
               _buildTelemetryRow('Decoder',
@@ -335,7 +369,7 @@ class _AudioEngineDiagnosticPanelState
               _buildTelemetryRow('DSP',
                   '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)'),
               _buildTelemetryRow('Output',
-                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit'),
+                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit (${specs.deviceType})'),
               _buildTelemetryRow('Backend',
                   '$backend (${isExclusive ? "Exclusive" : "Shared"})'),
               _buildTelemetryRow(
@@ -380,40 +414,271 @@ class _AudioEngineDiagnosticPanelState
         ),
 
         const SizedBox(height: 16),
-
-        // Action Quick Switches
-        /*
-Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: Icon(
-                  isExclusive
-                      ? Icons.lock_outline_rounded
-                      : Icons.lock_open_rounded,
-                  size: 16,
-                  color: Colors.cyanAccent,
-                ),
-                label: Text(
-                  isExclusive ? 'Exclusive Mode: ON' : 'Exclusive Mode: OFF',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFF2B3754)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: () {
-                  widget.player.setExclusiveMode(!isExclusive);
-                  _fetchTelemetry();
-                },
-              ),
-            ),
-          ],
-        ),*/
       ],
     );
+  }
+
+  /// Builds a dedicated, sleek hardware output device card
+  Widget _buildHardwareDeviceCard(
+      AudioHardwareSpecs specs, String activeDeviceName) {
+    final deviceIcon = _getDeviceIcon(specs.deviceType);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C101A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1E2840)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header Row with Icon, Device Name, and Live badge
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.cyanAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  deviceIcon,
+                  color: Colors.cyanAccent,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'HARDWARE OUTPUT',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            color: Colors.cyanAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        if (specs.isHiResAudio) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: Colors.amber.withValues(alpha: 0.4),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: const Text(
+                              'HI-RES',
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                color: Colors.amberAccent,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      activeDeviceName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Colors.greenAccent.withValues(alpha: 0.3),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.greenAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Text(
+                      'ACTIVE',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: Colors.greenAccent,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(color: Color(0xFF1A2234), height: 1),
+          const SizedBox(height: 12),
+
+          // Wrap of specs badges
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildMiniSpecBadge(
+                icon: Icons.alt_route_rounded,
+                label: 'Route',
+                value: specs.deviceType,
+                highlight: true,
+              ),
+              _buildMiniSpecBadge(
+                icon: Icons.developer_board_rounded,
+                label: 'Backend',
+                value: specs.backendName,
+              ),
+              _buildMiniSpecBadge(
+                icon: Icons.speed_rounded,
+                label: 'Format',
+                value:
+                    '${specs.formattedSampleRate} / ${specs.formattedBitDepth}',
+                highlight: specs.isHiResAudio,
+              ),
+              _buildMiniSpecBadge(
+                icon: specs.isExclusiveMode
+                    ? Icons.lock_outline_rounded
+                    : Icons.lock_open_rounded,
+                label: 'Mode',
+                value: specs.isExclusiveMode ? 'Bit-Perfect' : 'Shared Mixer',
+                highlight: specs.isExclusiveMode,
+              ),
+              if (specs.bluetoothCodec != null)
+                _buildMiniSpecBadge(
+                  icon: Icons.bluetooth_audio_rounded,
+                  label: 'BT Codec',
+                  value: specs.formattedBtCodec ?? specs.bluetoothCodec!,
+                  highlight: specs.bluetoothCodec == 'LDAC' ||
+                      specs.bluetoothCodec == 'aptX HD' ||
+                      specs.bluetoothCodec == 'LC3',
+                ),
+              _buildMiniSpecBadge(
+                icon: Icons.timer_outlined,
+                label: 'HW Latency',
+                value: specs.formattedLatency,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniSpecBadge({
+    required IconData icon,
+    required String label,
+    required String value,
+    bool highlight = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlight
+            ? Colors.cyanAccent.withValues(alpha: 0.1)
+            : const Color(0xFF141A29),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: highlight
+              ? Colors.cyanAccent.withValues(alpha: 0.4)
+              : const Color(0xFF232D42),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 13,
+            color: highlight ? Colors.cyanAccent : Colors.white60,
+          ),
+          const SizedBox(width: 6),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  color: highlight
+                      ? Colors.cyanAccent.withValues(alpha: 0.8)
+                      : Colors.white38,
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  color: highlight ? Colors.white : Colors.white70,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getDeviceIcon(String type) {
+    final lower = type.toLowerCase();
+    if (lower.contains('earpiece')) {
+      return Icons.phone_in_talk_rounded;
+    } else if (lower.contains('usb') || lower.contains('dac')) {
+      return Icons.usb_rounded;
+    } else if (lower.contains('3.5mm') ||
+        lower.contains('headphone') ||
+        lower.contains('headset') ||
+        lower.contains('jack')) {
+      return Icons.headphones_rounded;
+    } else if (lower.contains('bluetooth') ||
+        lower.contains('wireless') ||
+        lower.contains('buds') ||
+        lower.contains('airpods')) {
+      return Icons.bluetooth_audio_rounded;
+    } else if (lower.contains('hdmi') || lower.contains('tv')) {
+      return Icons.tv_rounded;
+    } else if (lower.contains('line') || lower.contains('aux')) {
+      return Icons.settings_input_component_rounded;
+    }
+    return Icons.speaker_rounded;
   }
 
   Widget _buildPerNodeLatencyCard(
@@ -431,12 +696,9 @@ Row(
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
+              const Row(
                 children: [
-                  // const Icon(Icons.timer_outlined,
-                  //color: Colors.cyanAccent, size: 16),
-                  // const SizedBox(width: 6),
-                  const Text(
+                  Text(
                     'Latency Breakdown',
                     style: TextStyle(
                       fontFamily: 'monospace',
@@ -562,6 +824,7 @@ Row(
     required bool stereoEnhanceOn,
     required bool viperOn,
     required bool isSrcActive,
+    String? deviceType,
   }) {
     final list = <_NodeLatencyInfo>[];
     int step = 1;
@@ -626,8 +889,11 @@ Row(
 
     // 8. Hardware Output DAC
     final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
+    final hwLabel = deviceType != null && deviceType.isNotEmpty
+        ? 'Hardware Output ($deviceType)'
+        : 'Hardware Output DAC';
     list.add(_NodeLatencyInfo(
-        '${step++}.', 'Hardware Output DAC', hwLatencyMs, hwSamples));
+        '${step++}.', hwLabel, hwLatencyMs, hwSamples));
 
     return list;
   }

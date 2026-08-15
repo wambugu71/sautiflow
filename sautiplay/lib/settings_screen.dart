@@ -631,15 +631,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return M3EListItem(
       headline: title,
       supportingText: subtitle,
-      leading: M3EContainer(
+      leading: /* M3EContainer(
         Shapes.pill,
         width: 44,
         height: 44,
         color: accentColor.withAlpha(30),
         border: BorderSide(color: accentColor.withAlpha(60), width: 1),
-        child: Center(
-          child: Icon(icon, color: accentColor, size: 22),
-        ),
+        child: 
+        */
+          Center(
+        child: Icon(icon, color: accentColor, size: 22),
+        //  ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -924,14 +926,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Waveform Seek Bar',
                   subtitle:
                       'Replaces classic time slider with interactive track amplitude waveform',
-                  secondary: M3EContainer(
+                  secondary: /*M3EContainer(
                     Shapes.pill,
                     width: 40,
                     height: 40,
                     color: _primary.withAlpha(25),
-                    child: Center(
-                      child: Icon(Icons.graphic_eq, color: _primary, size: 20),
-                    ),
+                    child: */
+                      Center(
+                    child: Icon(Icons.graphic_eq, color: _primary, size: 20),
+                    //  ),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -951,20 +954,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          M3EContainer(
+                          /* M3EContainer(
                             Shapes.pill,
                             width: 40,
                             height: 40,
                             color: _primary.withAlpha(25),
-                            child: Center(
-                              child: Icon(
-                                _useWavySlider
-                                    ? Icons.waves_rounded
-                                    : Icons.linear_scale_rounded,
-                                color: _primary,
-                                size: 20,
-                              ),
+                            child: */
+                          Center(
+                            child: Icon(
+                              _useWavySlider
+                                  ? Icons.waves_rounded
+                                  : Icons.linear_scale_rounded,
+                              color: _primary,
+                              size: 20,
                             ),
+                            //  ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -1106,15 +1110,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Re-run Feature Tour',
                   supportingText:
                       'Re-start the interactive guided walkthrough for SautiPlay',
-                  leading: M3EContainer(
+                  leading: /* M3EContainer(
                     Shapes.pill,
                     width: 40,
                     height: 40,
                     color: _primary.withAlpha(25),
-                    child: Center(
-                      child:
-                          Icon(Icons.tour_rounded, color: _primary, size: 20),
-                    ),
+                    child: */
+                      Center(
+                    child: Icon(Icons.tour_rounded, color: _primary, size: 20),
+                    // ),
                   ),
                   trailing: Icon(Icons.play_arrow_rounded, color: _primary),
                   onTap: () {
@@ -1145,15 +1149,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Audio Engine Diagnostic Panel',
                   supportingText:
                       'Real-time telemetry, PDC latency & "Why is this track resampled?" explainer',
-                  leading: M3EContainer(
+                  leading: /*M3EContainer(
                     Shapes.pill,
                     width: 40,
                     height: 40,
                     color: Colors.cyanAccent.withAlpha(35),
-                    child: const Center(
-                      child: Icon(Icons.monitor_heart_rounded,
-                          color: Colors.cyanAccent, size: 20),
-                    ),
+                    child: */
+                      const Center(
+                    child: Icon(Icons.monitor_heart_rounded,
+                        color: Colors.cyanAccent, size: 20),
+                    // ),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded,
                       color: Colors.cyanAccent, size: 22),
@@ -3186,6 +3191,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Widget _buildModalBottomSheetLayout({
+    required String title,
+    String? subtitle,
+    required Widget child,
+    double? height,
+  }) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: height ?? MediaQuery.of(context).size.height * 0.75,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24.0, 4.0, 24.0, 12.0),
+            child: Column(
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: _textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: _textDark, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20.0),
+            child: M3EDivider(),
+          ),
+          const SizedBox(height: 8),
+          if (height != null)
+            Expanded(child: child)
+          else
+            Flexible(child: child),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
   void _showOversamplingDialog({VoidCallback? onDone}) {
     final options = [
       {'factor': 1, 'name': 'Off (1x)', 'subtitle': 'Native sample rate'},
@@ -3204,53 +3262,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('DSP Anti-Aliasing Oversampling',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              M3ECardList(
-                itemCount: options.length,
-                onTap: (index) {
-                  final val = options[index]['factor'] as int;
-                  setDlgState(() {});
-                  setState(() => _dspOversampling = val);
-                  widget.player.setViperOversampling(val);
-                  AppStateService.instance.saveDspOversampling(val);
-                  onDone?.call();
-                  Navigator.pop(ctx);
-                },
-                itemBuilder: (context, index) {
-                  final item = options[index];
-                  final val = item['factor'] as int;
-                  return M3EListItem(
-                    headline: item['name'] as String,
-                    supportingText: item['subtitle'] as String,
-                    trailing: M3ERadio<int>(
-                      value: val,
-                      groupValue: _dspOversampling,
-                      onChanged: (v) {
-                        setDlgState(() {});
-                        setState(() => _dspOversampling = v);
-                        widget.player.setViperOversampling(v);
-                        AppStateService.instance.saveDspOversampling(v);
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      },
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'DSP Anti-Aliasing Oversampling',
+          subtitle: 'Anti-aliasing oversampling for ViPER FX & limiters',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              final val = options[index]['factor'] as int;
+              setDlgState(() {});
+              setState(() => _dspOversampling = val);
+              widget.player.setViperOversampling(val);
+              AppStateService.instance.saveDspOversampling(val);
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = options[index];
+              final val = item['factor'] as int;
+              final isSelected = val == _dspOversampling;
+              return M3EListItem(
+                headline: item['name'] as String,
+                supportingText: item['subtitle'] as String,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: val,
+                  groupValue: _dspOversampling,
+                  onChanged: (v) {
+                    setDlgState(() {});
+                    setState(() => _dspOversampling = v);
+                    widget.player.setViperOversampling(v);
+                    AppStateService.instance.saveDspOversampling(v);
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  },
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -3342,106 +3395,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20.0, vertical: 12.0),
-                child: Column(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Resampling Quality Tier',
+          subtitle: 'Select interpolation algorithm for rate conversion',
+          height: MediaQuery.of(context).size.height * 0.78,
+          child: M3ECardList.builder(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              final item = options[index];
+              final val = item['index'] as int;
+              if (isMobile && (item['isHeavy'] as bool)) {
+                Navigator.pop(ctx);
+                _showMobileResamplerWarningDialog(val, onDone);
+              } else {
+                _applyResampleAlgorithm(val, onDone);
+                Navigator.pop(ctx);
+              }
+            },
+            itemBuilder: (context, index) {
+              final item = options[index];
+              final val = item['index'] as int;
+              final isSelected = val == _resampleAlgorithm;
+              return M3EListItem(
+                headline: item['name'] as String,
+                supportingText: item['subtitle'] as String,
+                selected: isSelected,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Resampling Quality Tier',
-                        style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Select interpolation algorithm for rate conversion',
-                      style: TextStyle(color: _textDark, fontSize: 12),
+                    if (item['badge'] != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: (item['isHeavy'] as bool && isMobile)
+                              ? Colors.amber.withAlpha(40)
+                              : _primary.withAlpha(30),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: (item['isHeavy'] as bool && isMobile)
+                                ? Colors.amber.withAlpha(120)
+                                : _primary.withAlpha(80),
+                          ),
+                        ),
+                        child: Text(
+                          item['badge'] as String,
+                          style: TextStyle(
+                            color: (item['isHeavy'] as bool && isMobile)
+                                ? Colors.amberAccent
+                                : _primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    M3ERadio<int>(
+                      value: val,
+                      groupValue: _resampleAlgorithm,
+                      onChanged: (v) {
+                        setDlgState(() {});
+                        if (isMobile && (item['isHeavy'] as bool)) {
+                          Navigator.pop(ctx);
+                          _showMobileResamplerWarningDialog(v, onDone);
+                        } else {
+                          _applyResampleAlgorithm(v, onDone);
+                          Navigator.pop(ctx);
+                        }
+                      },
                     ),
                   ],
                 ),
-              ),
-              const M3EDivider(),
-              Expanded(
-                child: M3ECardList.builder(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16.0, vertical: 8.0),
-                  itemCount: options.length,
-                  itemBuilder: (context, index) {
-                    final item = options[index];
-                    final val = item['index'] as int;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: M3EListItem(
-                        headline: item['name'] as String,
-                        supportingText: item['subtitle'] as String,
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (item['badge'] != null) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: (item['isHeavy'] as bool && isMobile)
-                                      ? Colors.amber.withAlpha(40)
-                                      : _primary.withAlpha(30),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: (item['isHeavy'] as bool && isMobile)
-                                        ? Colors.amber.withAlpha(120)
-                                        : _primary.withAlpha(80),
-                                  ),
-                                ),
-                                child: Text(
-                                  item['badge'] as String,
-                                  style: TextStyle(
-                                    color: (item['isHeavy'] as bool && isMobile)
-                                        ? Colors.amberAccent
-                                        : _primary,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            M3ERadio<int>(
-                              value: val,
-                              groupValue: _resampleAlgorithm,
-                              onChanged: (v) {
-                                setDlgState(() {});
-                                if (isMobile && (item['isHeavy'] as bool)) {
-                                  Navigator.pop(ctx);
-                                  _showMobileResamplerWarningDialog(v, onDone);
-                                } else {
-                                  _applyResampleAlgorithm(v, onDone);
-                                  Navigator.pop(ctx);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                        onTap: () {
-                          if (isMobile && (item['isHeavy'] as bool)) {
-                            Navigator.pop(ctx);
-                            _showMobileResamplerWarningDialog(val, onDone);
-                          } else {
-                            _applyResampleAlgorithm(val, onDone);
-                            Navigator.pop(ctx);
-                          }
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -3499,51 +3533,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('FFT Sample Window Size',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              M3ECardList(
-                itemCount: sizes.length,
-                onTap: (index) {
-                  final size = sizes[index].$1;
-                  setDlgState(() {});
-                  widget.onAnalyzerSampleSizeChanged(size);
-                  widget.player.configureAnalyzer(frameSize: size);
-                  onDone?.call();
-                  Navigator.pop(ctx);
-                },
-                itemBuilder: (context, index) {
-                  final item = sizes[index];
-                  final size = item.$1;
-                  return M3EListItem(
-                    headline: item.$2,
-                    supportingText: item.$3,
-                    trailing: M3ERadio<int>(
-                      value: size,
-                      groupValue: widget.analyzerSampleSize,
-                      onChanged: (v) {
-                        setDlgState(() {});
-                        widget.onAnalyzerSampleSizeChanged(v);
-                        widget.player.configureAnalyzer(frameSize: v);
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      },
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'FFT Sample Window Size',
+          subtitle: 'Frequency resolution vs time domain responsiveness',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: sizes.length,
+            onTap: (index) {
+              final size = sizes[index].$1;
+              setDlgState(() {});
+              widget.onAnalyzerSampleSizeChanged(size);
+              widget.player.configureAnalyzer(frameSize: size);
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = sizes[index];
+              final size = item.$1;
+              final isSelected = size == widget.analyzerSampleSize;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: size,
+                  groupValue: widget.analyzerSampleSize,
+                  onChanged: (v) {
+                    setDlgState(() {});
+                    widget.onAnalyzerSampleSizeChanged(v);
+                    widget.player.configureAnalyzer(frameSize: v);
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  },
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -3552,39 +3581,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _showReplayGainModeDialog({VoidCallback? onDone}) async {
     final modes = [
-      (ReplayGainMode.none, 'None'),
-      (ReplayGainMode.track, 'Track'),
-      (ReplayGainMode.album, 'Album'),
+      (ReplayGainMode.none, 'None', 'Disable automatic loudness normalization'),
+      (ReplayGainMode.track, 'Track', 'Normalize per-track volume matching'),
+      (
+        ReplayGainMode.album,
+        'Album',
+        'Preserve album dynamics & relative track volume'
+      ),
     ];
-    return M3EDialog.show<void>(
+    return M3EBottomSheet.show<void>(
       context,
-      dialog: M3EDialog(
-        title: 'ReplayGain Mode',
-        content: M3ECardList(
-          itemCount: modes.length,
-          onTap: (index) {
-            final mode = modes[index].$1;
-            setState(() => _replayGainMode = mode);
-            _persistReplayGainSettings();
-            onDone?.call();
-            Navigator.pop(context);
-          },
-          itemBuilder: (context, index) {
-            final mode = modes[index];
-            return M3EListItem(
-              headline: mode.$2,
-              trailing: M3ERadio<ReplayGainMode>(
-                value: mode.$1,
-                groupValue: _replayGainMode,
-                onChanged: (val) {
-                  setState(() => _replayGainMode = val);
-                  _persistReplayGainSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
-                },
-              ),
-            );
-          },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'ReplayGain Mode',
+          subtitle: 'Select loudness metadata normalization target',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: modes.length,
+            onTap: (index) {
+              final mode = modes[index].$1;
+              setState(() => _replayGainMode = mode);
+              _persistReplayGainSettings();
+              onDone?.call();
+              Navigator.pop(context);
+            },
+            itemBuilder: (context, index) {
+              final mode = modes[index];
+              final isSelected = mode.$1 == _replayGainMode;
+              return M3EListItem(
+                headline: mode.$2,
+                supportingText: mode.$3,
+                selected: isSelected,
+                trailing: M3ERadio<ReplayGainMode>(
+                  value: mode.$1,
+                  groupValue: _replayGainMode,
+                  onChanged: (val) {
+                    setState(() => _replayGainMode = val);
+                    _persistReplayGainSettings();
+                    onDone?.call();
+                    Navigator.pop(context);
+                  },
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -3659,56 +3704,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('Dither Mode',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              Expanded(
-                child: M3ECardList.builder(
-                  itemCount: modes.length,
-                  itemBuilder: (context, i) {
-                    final item = modes[i];
-                    final id = item['id'] as int;
-                    final name = item['name'] as String;
-                    final subtitle = item['subtitle'] as String;
-                    return M3EListItem(
-                      headline: name,
-                      supportingText: subtitle,
-                      trailing: M3ERadio<int>(
-                        value: id,
-                        groupValue: _ditherMode,
-                        onChanged: (val) {
-                          setDlgState(() {});
-                          setState(() => _ditherMode = val);
-                          widget.player.setEngineDitherMode(val);
-                          _persistUiSettings();
-                          onDone?.call();
-                          Navigator.pop(ctx);
-                        },
-                      ),
-                      onTap: () {
-                        setDlgState(() {});
-                        setState(() => _ditherMode = id);
-                        widget.player.setEngineDitherMode(id);
-                        _persistUiSettings();
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      },
-                    );
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Dither Mode',
+          subtitle: 'Quantization noise shaping for bit-depth reduction',
+          height: MediaQuery.of(context).size.height * 0.78,
+          child: M3ECardList.builder(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: modes.length,
+            onTap: (i) {
+              final item = modes[i];
+              final id = item['id'] as int;
+              setDlgState(() {});
+              setState(() => _ditherMode = id);
+              widget.player.setEngineDitherMode(id);
+              _persistUiSettings();
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, i) {
+              final item = modes[i];
+              final id = item['id'] as int;
+              final name = item['name'] as String;
+              final subtitle = item['subtitle'] as String;
+              final isSelected = id == _ditherMode;
+              return M3EListItem(
+                headline: name,
+                supportingText: subtitle,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: id,
+                  groupValue: _ditherMode,
+                  onChanged: (val) {
+                    setDlgState(() {});
+                    setState(() => _ditherMode = val);
+                    widget.player.setEngineDitherMode(val);
+                    _persistUiSettings();
+                    onDone?.call();
+                    Navigator.pop(ctx);
                   },
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -3717,57 +3759,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showOutputFormatDialog({VoidCallback? onDone}) {
     final formats = [
-      AudioFormat.f32,
-      AudioFormat.s32,
-      AudioFormat.s24,
-      AudioFormat.s16,
-      AudioFormat.u8
+      (
+        AudioFormat.f32,
+        '32-Bit Floating Point (f32)',
+        'Highest dynamic range IEEE float (Recommended)'
+      ),
+      (
+        AudioFormat.s32,
+        '32-Bit Signed Integer (s32)',
+        '32-bit signed integer hardware PCM'
+      ),
+      (
+        AudioFormat.s24,
+        '24-Bit Signed Integer (s24)',
+        '24-bit high-resolution studio standard'
+      ),
+      (
+        AudioFormat.s16,
+        '16-Bit Signed Integer (s16)',
+        '16-bit standard CD quality PCM'
+      ),
+      (
+        AudioFormat.u8,
+        '8-Bit Unsigned Integer (u8)',
+        '8-bit legacy PCM format'
+      ),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('Engine Output Format',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              M3ECardList(
-                itemCount: formats.length,
-                onTap: (index) {
-                  final fmt = formats[index];
-                  setDlgState(() {});
-                  widget.onOutputFormatChanged(fmt);
-                  widget.player.setOutputFormat(fmt);
-                  setState(() {});
-                  onDone?.call();
-                  Navigator.pop(ctx);
-                },
-                itemBuilder: (context, index) {
-                  final fmt = formats[index];
-                  return _buildRadioOption(
-                    _formatAudioDepth(fmt),
-                    _formatAudioDepth(widget.outputFormat),
-                    (v) {
-                      setDlgState(() {});
-                      widget.onOutputFormatChanged(fmt);
-                      widget.player.setOutputFormat(fmt);
-                      setState(() {});
-                      onDone?.call();
-                      Navigator.pop(ctx);
-                    },
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Engine Output Format',
+          subtitle: 'Target PCM bit depth for audio hardware output',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: formats.length,
+            onTap: (index) {
+              final fmt = formats[index].$1;
+              setDlgState(() {});
+              widget.onOutputFormatChanged(fmt);
+              widget.player.setOutputFormat(fmt);
+              setState(() {});
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = formats[index];
+              final fmt = item.$1;
+              final isSelected = fmt == widget.outputFormat;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<AudioFormat>(
+                  value: fmt,
+                  groupValue: widget.outputFormat,
+                  onChanged: (v) {
+                    setDlgState(() {});
+                    widget.onOutputFormatChanged(fmt);
+                    widget.player.setOutputFormat(fmt);
+                    setState(() {});
+                    onDone?.call();
+                    Navigator.pop(ctx);
+                  },
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -3775,54 +3837,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showSampleRateDialog({VoidCallback? onDone}) {
-    final rates = [0, 44100, 48000, 96000, 192000];
+    final rates = [
+      (0, 'Native (Auto Match)', 'Match source track sample rate directly'),
+      (44100, '44.1 kHz (44,100 Hz)', 'Standard CD Audio sampling rate'),
+      (48000, '48.0 kHz (48,000 Hz)', 'Digital Video & Studio Audio standard'),
+      (96000, '96.0 kHz (96,000 Hz)', 'High-Resolution Audio standard'),
+      (
+        192000,
+        '192.0 kHz (192,000 Hz)',
+        'Ultra HD Studio Master sampling rate'
+      ),
+    ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('Engine Sample Rate',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              M3ECardList(
-                itemCount: rates.length,
-                onTap: (index) {
-                  final r = rates[index];
-                  setDlgState(() {});
-                  widget.onOutputSampleRateChanged(r);
-                  widget.player.setOutputSampleRate(r);
-                  setState(() {});
-                  onDone?.call();
-                  Navigator.pop(ctx);
-                },
-                itemBuilder: (context, index) {
-                  final r = rates[index];
-                  final label = r == 0 ? 'Native' : '$r Hz';
-                  final currentLabel = widget.outputSampleRate == 0
-                      ? 'Native'
-                      : '${widget.outputSampleRate} Hz';
-                  return _buildRadioOption(label, currentLabel, (v) {
-                    final val =
-                        v == 'Native' ? 0 : int.parse(v!.replaceAll(' Hz', ''));
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Engine Sample Rate',
+          subtitle: 'Target sampling rate for audio output stream',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: rates.length,
+            onTap: (index) {
+              final r = rates[index].$1;
+              setDlgState(() {});
+              widget.onOutputSampleRateChanged(r);
+              widget.player.setOutputSampleRate(r);
+              setState(() {});
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = rates[index];
+              final r = item.$1;
+              final isSelected = r == widget.outputSampleRate;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: r,
+                  groupValue: widget.outputSampleRate,
+                  onChanged: (v) {
                     setDlgState(() {});
-                    widget.onOutputSampleRateChanged(val);
-                    widget.player.setOutputSampleRate(val);
+                    widget.onOutputSampleRateChanged(r);
+                    widget.player.setOutputSampleRate(r);
                     setState(() {});
                     onDone?.call();
                     Navigator.pop(ctx);
-                  });
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+                  },
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -3854,16 +3924,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showChannelsDialog({VoidCallback? onDone}) {
     final options = [
-      {'ch': 1, 'name': 'Mono (1.0)', 'subtitle': 'Single channel output'},
+      {'ch': 1, 'name': 'Mono (1.0)', 'subtitle': 'Single channel mono output'},
       {
         'ch': 2,
         'name': 'Stereo (2.0)',
-        'subtitle': 'Standard 2-channel Left / Right'
+        'subtitle': 'Standard 2-channel Left / Right stereo'
       },
       {
         'ch': 3,
         'name': '2.1 Surround (3 CH)',
-        'subtitle': 'Left, Right, Center/Sub'
+        'subtitle': 'Left, Right, Center/Subwoofer'
       },
       {
         'ch': 4,
@@ -3895,113 +3965,121 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Text('Engine Output Channels',
-                    style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-              ),
-              Expanded(
-                child: M3ECardList.builder(
-                  itemCount: options.length,
-                  itemBuilder: (context, i) {
-                    final item = options[i];
-                    final ch = item['ch'] as int;
-                    final name = item['name'] as String;
-                    final subtitle = item['subtitle'] as String;
-                    return M3EListItem(
-                      headline: name,
-                      supportingText: subtitle,
-                      trailing: M3ERadio<int>(
-                        value: ch,
-                        groupValue: widget.outputChannels,
-                        onChanged: (val) {
-                          setDlgState(() {});
-                          widget.onOutputChannelsChanged(val);
-                          widget.player.setOutputChannels(val);
-                          setState(() {});
-                          onDone?.call();
-                          Navigator.pop(ctx);
-                        },
-                      ),
-                      onTap: () {
-                        setDlgState(() {});
-                        widget.onOutputChannelsChanged(ch);
-                        widget.player.setOutputChannels(ch);
-                        setState(() {});
-                        onDone?.call();
-                        Navigator.pop(ctx);
-                      },
-                    );
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Engine Output Channels',
+          subtitle: 'Select speaker channel topology and surround layout',
+          height: MediaQuery.of(context).size.height * 0.78,
+          child: M3ECardList.builder(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (i) {
+              final item = options[i];
+              final ch = item['ch'] as int;
+              setDlgState(() {});
+              widget.onOutputChannelsChanged(ch);
+              widget.player.setOutputChannels(ch);
+              setState(() {});
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, i) {
+              final item = options[i];
+              final ch = item['ch'] as int;
+              final name = item['name'] as String;
+              final subtitle = item['subtitle'] as String;
+              final isSelected = ch == widget.outputChannels;
+              return M3EListItem(
+                headline: name,
+                supportingText: subtitle,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: ch,
+                  groupValue: widget.outputChannels,
+                  onChanged: (val) {
+                    setDlgState(() {});
+                    widget.onOutputChannelsChanged(val);
+                    widget.player.setOutputChannels(val);
+                    setState(() {});
+                    onDone?.call();
+                    Navigator.pop(ctx);
                   },
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildRadioOption(
-      String title, String groupValue, ValueChanged<String?> onChanged) {
-    return M3EListItem(
-      headline: title,
-      trailing: M3ERadio<String>(
-        value: title,
-        groupValue: groupValue,
-        onChanged: onChanged,
-      ),
-      onTap: () => onChanged(title),
-    );
-  }
-
   void _showSubsonicDialog({VoidCallback? onDone}) {
     final options = [
-      (0.0, 'Disabled (Off)'),
-      (15.0, '15 Hz (Ultra Sub-bass)'),
-      (20.0, '20 Hz (Standard Subwoofer)'),
-      (25.0, '25 Hz (Recommended for Small Woofers)'),
-      (30.0, '30 Hz (Bookshelf / Mobile Speakers)'),
+      (0.0, 'Disabled (Off)', 'No high-pass filter applied'),
+      (
+        15.0,
+        '15 Hz (Ultra Sub-bass)',
+        'Preserves extreme low end for subwoofers'
+      ),
+      (20.0, '20 Hz (Standard Subwoofer)', 'Standard human threshold cutoff'),
+      (
+        25.0,
+        '25 Hz (Recommended for Small Woofers)',
+        'Reduces woofer distortion and cone excursion'
+      ),
+      (
+        30.0,
+        '30 Hz (Bookshelf / Mobile Speakers)',
+        'Protection for small drivers'
+      ),
     ];
 
-    M3EDialog.show<void>(
+    M3EBottomSheet.show<void>(
       context,
-      dialog: M3EDialog(
-        title: 'Subsonic High-Pass Filter',
-        content: M3ECardList(
-          itemCount: options.length,
-          onTap: (index) {
-            final val = options[index].$1;
-            setState(() => _subsonicCutoffHz = val);
-            _persistSpeakerProtectionSettings();
-            onDone?.call();
-            Navigator.pop(context);
-          },
-          itemBuilder: (context, index) {
-            final opt = options[index];
-            return M3EListItem(
-              headline: opt.$2,
-              trailing: M3ERadio<double>(
-                value: opt.$1,
-                groupValue: _subsonicCutoffHz,
-                onChanged: (val) {
-                  setState(() => _subsonicCutoffHz = val);
-                  _persistSpeakerProtectionSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
-                },
-              ),
-            );
-          },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Subsonic High-Pass Filter',
+          subtitle: 'Filter DC & inaudible sub-bass below woofer tuning',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              final val = options[index].$1;
+              setState(() => _subsonicCutoffHz = val);
+              _persistSpeakerProtectionSettings();
+              onDone?.call();
+              Navigator.pop(context);
+            },
+            itemBuilder: (context, index) {
+              final opt = options[index];
+              final isSelected = opt.$1 == _subsonicCutoffHz;
+              return M3EListItem(
+                headline: opt.$2,
+                supportingText: opt.$3,
+                selected: isSelected,
+                trailing: M3ERadio<double>(
+                  value: opt.$1,
+                  groupValue: _subsonicCutoffHz,
+                  onChanged: (val) {
+                    setState(() => _subsonicCutoffHz = val);
+                    _persistSpeakerProtectionSettings();
+                    onDone?.call();
+                    Navigator.pop(context);
+                  },
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -4009,41 +4087,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showUltrasonicDialog({VoidCallback? onDone}) {
     final options = [
-      (24000.0, 'Disabled (Off)'),
-      (22000.0, '22 kHz (Hi-Res Limit)'),
-      (20000.0, '20 kHz (Standard Human Hearing)'),
-      (18000.0, '18 kHz (Tweeter Guard)'),
+      (24000.0, 'Disabled (Off)', 'Pass-through all ultrasonic frequencies'),
+      (22000.0, '22 kHz (Hi-Res Limit)', 'Gentle guard for 44.1/48kHz DACs'),
+      (
+        20000.0,
+        '20 kHz (Standard Human Hearing)',
+        'Cutoff at upper limit of human hearing'
+      ),
+      (
+        18000.0,
+        '18 kHz (Tweeter Guard)',
+        'Protects sensitive dome tweeters from high energy RF'
+      ),
     ];
 
-    M3EDialog.show<void>(
+    M3EBottomSheet.show<void>(
       context,
-      dialog: M3EDialog(
-        title: 'Ultrasonic Low-Pass Guard',
-        content: M3ECardList(
-          itemCount: options.length,
-          onTap: (index) {
-            final val = options[index].$1;
-            setState(() => _ultrasonicCutoffHz = val);
-            _persistSpeakerProtectionSettings();
-            onDone?.call();
-            Navigator.pop(context);
-          },
-          itemBuilder: (context, index) {
-            final opt = options[index];
-            return M3EListItem(
-              headline: opt.$2,
-              trailing: M3ERadio<double>(
-                value: opt.$1,
-                groupValue: _ultrasonicCutoffHz,
-                onChanged: (val) {
-                  setState(() => _ultrasonicCutoffHz = val);
-                  _persistSpeakerProtectionSettings();
-                  onDone?.call();
-                  Navigator.pop(context);
-                },
-              ),
-            );
-          },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Ultrasonic Low-Pass Guard',
+          subtitle: 'Filter out-of-band high frequencies and RF DAC noise',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              final val = options[index].$1;
+              setState(() => _ultrasonicCutoffHz = val);
+              _persistSpeakerProtectionSettings();
+              onDone?.call();
+              Navigator.pop(context);
+            },
+            itemBuilder: (context, index) {
+              final opt = options[index];
+              final isSelected = opt.$1 == _ultrasonicCutoffHz;
+              return M3EListItem(
+                headline: opt.$2,
+                supportingText: opt.$3,
+                selected: isSelected,
+                trailing: M3ERadio<double>(
+                  value: opt.$1,
+                  groupValue: _ultrasonicCutoffHz,
+                  onChanged: (val) {
+                    setState(() => _ultrasonicCutoffHz = val);
+                    _persistSpeakerProtectionSettings();
+                    onDone?.call();
+                    Navigator.pop(context);
+                  },
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
