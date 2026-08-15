@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Centralized service for persisting and restoring all app state across
@@ -12,7 +13,9 @@ enum ReplayGainMode {
   album
 }
 class AppStateService {
-  AppStateService._();
+  AppStateService._() {
+    loadUseWavySlider();
+  }
   static final AppStateService instance = AppStateService._();
 
   // Stream to notify listeners of EQ changes
@@ -30,6 +33,9 @@ class AppStateService {
   // Stream to notify listeners of Waveform Seek Bar setting changes
   final StreamController<bool> useWaveformSeekBarChanged =
       StreamController<bool>.broadcast();
+
+  // ValueNotifier to synchronously notify listeners of Wavy / Linear Seek Bar slider setting changes
+  final ValueNotifier<bool> useWavySliderNotifier = ValueNotifier<bool>(true);
 
   // Stream to notify listeners of Wavy / Linear Seek Bar slider setting changes
   final StreamController<bool> useWavySliderChanged =
@@ -758,12 +764,15 @@ class AppStateService {
   Future<void> saveUseWavySlider(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUseWavySlider, enabled);
+    useWavySliderNotifier.value = enabled;
     useWavySliderChanged.add(enabled);
   }
 
   Future<bool> loadUseWavySlider() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_kUseWavySlider) ?? true;
+    final val = prefs.getBool(_kUseWavySlider) ?? true;
+    useWavySliderNotifier.value = val;
+    return val;
   }
 
   // ─── ViPER DSP Settings ───────────────────────────────────────────────────

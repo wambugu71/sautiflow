@@ -972,7 +972,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Slider Style',
+                                  'Slider & Mini Player Style',
                                   style: TextStyle(
                                     color: textPrimaryColor,
                                     fontSize: 15,
@@ -982,8 +982,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   _useWavySlider
-                                      ? 'M3E Linear Wavy travelling sine-wave'
-                                      : 'M3E Linear Regular straight track',
+                                      ? 'M3E Linear Wavy travelling sine-wave (Now Playing & Mini Player)'
+                                      : 'M3E Linear Regular straight track (Now Playing & Mini Player)',
                                   style: TextStyle(
                                     color: mutedText,
                                     fontSize: 12,
@@ -995,10 +995,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      // Live interactive preview of the selected M3E Slider
+                      // Live interactive preview of the selected M3E Slider & Mini Player Progress
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
+                            horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
                           color: isDarkTheme
                               ? Colors.black.withAlpha(50)
@@ -1008,33 +1008,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: context.outlineColor.withAlpha(40),
                           ),
                         ),
-                        child: _useWavySlider
-                            ? M3ESlider.wavy(
-                                value: _previewSliderValue,
-                                min: 0.0,
-                                max: 100.0,
-                                trackThickness: 8.0,
-                                cornerRadius: 8,
-                                thumbLength: 24.0,
-                                showValueIndicator: false,
-                                onChanged: (v) {
-                                  setState(() => _previewSliderValue = v);
-                                  setSubState(() {});
-                                },
-                              )
-                            : M3ESlider(
-                                value: _previewSliderValue,
-                                min: 0.0,
-                                max: 100.0,
-                                trackThickness: 8.0,
-                                cornerRadius: 8,
-                                thumbLength: 24.0,
-                                showValueIndicator: false,
-                                onChanged: (v) {
-                                  setState(() => _previewSliderValue = v);
-                                  setSubState(() {});
-                                },
-                              ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _useWavySlider
+                                ? M3ESlider.wavy(
+                                    value: _previewSliderValue,
+                                    min: 0.0,
+                                    max: 100.0,
+                                    trackThickness: 8.0,
+                                    cornerRadius: 8,
+                                    thumbLength: 24.0,
+                                    showValueIndicator: false,
+                                    onChanged: (v) {
+                                      setState(() => _previewSliderValue = v);
+                                      setSubState(() {});
+                                    },
+                                  )
+                                : M3ESlider(
+                                    value: _previewSliderValue,
+                                    min: 0.0,
+                                    max: 100.0,
+                                    trackThickness: 8.0,
+                                    cornerRadius: 8,
+                                    thumbLength: 24.0,
+                                    showValueIndicator: false,
+                                    onChanged: (v) {
+                                      setState(() => _previewSliderValue = v);
+                                      setSubState(() {});
+                                    },
+                                  ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: _useWavySlider
+                                  ? M3EProgressIndicator.linearWavy(
+                                      wavelength: 60,
+                                      waveSpeed: 25,
+                                      strokeWidth: 4,
+                                      value: (_previewSliderValue / 100.0)
+                                          .clamp(0.0, 1.0),
+                                      linearSize: M3EProgressIndicatorSize.s,
+                                      trackColor: Colors.white.withAlpha(20),
+                                      color: _primary,
+                                    )
+                                  : M3EProgressIndicator.linear(
+                                      value: (_previewSliderValue / 100.0)
+                                          .clamp(0.0, 1.0),
+                                      linearSize: M3EProgressIndicatorSize.s,
+                                      trackColor: Colors.white.withAlpha(20),
+                                      color: _primary,
+                                    ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 14),
                       // M3E Segmented button selection
@@ -3341,69 +3368,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const M3EDivider(),
               Expanded(
                 child: M3ECardList.builder(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0, vertical: 8.0),
                   itemCount: options.length,
                   itemBuilder: (context, index) {
                     final item = options[index];
                     final val = item['index'] as int;
-                    return M3EListItem(
-                      headline: item['name'] as String,
-                      supportingText: item['subtitle'] as String,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (item['badge'] != null) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: (item['isHeavy'] as bool && isMobile)
-                                    ? Colors.amber.withAlpha(40)
-                                    : _primary.withAlpha(30),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: M3EListItem(
+                        headline: item['name'] as String,
+                        supportingText: item['subtitle'] as String,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (item['badge'] != null) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
                                   color: (item['isHeavy'] as bool && isMobile)
-                                      ? Colors.amber.withAlpha(120)
-                                      : _primary.withAlpha(80),
+                                      ? Colors.amber.withAlpha(40)
+                                      : _primary.withAlpha(30),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: (item['isHeavy'] as bool && isMobile)
+                                        ? Colors.amber.withAlpha(120)
+                                        : _primary.withAlpha(80),
+                                  ),
+                                ),
+                                child: Text(
+                                  item['badge'] as String,
+                                  style: TextStyle(
+                                    color: (item['isHeavy'] as bool && isMobile)
+                                        ? Colors.amberAccent
+                                        : _primary,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                              child: Text(
-                                item['badge'] as String,
-                                style: TextStyle(
-                                  color: (item['isHeavy'] as bool && isMobile)
-                                      ? Colors.amberAccent
-                                      : _primary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            M3ERadio<int>(
+                              value: val,
+                              groupValue: _resampleAlgorithm,
+                              onChanged: (v) {
+                                setDlgState(() {});
+                                if (isMobile && (item['isHeavy'] as bool)) {
+                                  Navigator.pop(ctx);
+                                  _showMobileResamplerWarningDialog(v, onDone);
+                                } else {
+                                  _applyResampleAlgorithm(v, onDone);
+                                  Navigator.pop(ctx);
+                                }
+                              },
                             ),
-                            const SizedBox(width: 8),
                           ],
-                          M3ERadio<int>(
-                            value: val,
-                            groupValue: _resampleAlgorithm,
-                            onChanged: (v) {
-                              setDlgState(() {});
-                              if (isMobile && (item['isHeavy'] as bool)) {
-                                Navigator.pop(ctx);
-                                _showMobileResamplerWarningDialog(v, onDone);
-                              } else {
-                                _applyResampleAlgorithm(v, onDone);
-                                Navigator.pop(ctx);
-                              }
-                            },
-                          ),
-                        ],
+                        ),
+                        onTap: () {
+                          if (isMobile && (item['isHeavy'] as bool)) {
+                            Navigator.pop(ctx);
+                            _showMobileResamplerWarningDialog(val, onDone);
+                          } else {
+                            _applyResampleAlgorithm(val, onDone);
+                            Navigator.pop(ctx);
+                          }
+                        },
                       ),
-                      onTap: () {
-                        if (isMobile && (item['isHeavy'] as bool)) {
-                          Navigator.pop(ctx);
-                          _showMobileResamplerWarningDialog(val, onDone);
-                        } else {
-                          _applyResampleAlgorithm(val, onDone);
-                          Navigator.pop(ctx);
-                        }
-                      },
                     );
                   },
                 ),
@@ -3428,6 +3460,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     M3EDialog.show<void>(
       context,
       dialog: M3EDialog(
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
         title: 'High CPU Resampler Warning',
         content: Text(
           '${_getResampleAlgorithmName(requestedIndex)} calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',

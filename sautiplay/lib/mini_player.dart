@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 
@@ -49,6 +50,13 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (widget.isPlaying) {
       _rotationController.repeat();
     }
+    AppStateService.instance.loadUseWavySlider();
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    AppStateService.instance.loadUseWavySlider();
   }
 
   @override
@@ -139,17 +147,28 @@ class _MiniPlayerState extends State<MiniPlayer>
           ),
           child: Column(
             children: [
-              M3EProgressIndicator.linearWavy(
-                  wavelength: 60,
-                  waveSpeed: 25,
-                  strokeWidth: 4,
-                  value: widget.progress.clamp(0.0, 1.0),
-                  linearSize: M3EProgressIndicatorSize.s,
-                  //   minHeight: 2,
-                  trackColor: Colors.transparent,
-                  color: AppThemeService.instance.currentData.primary
-                  // AlwaysStoppedAnimation<Color>(AppThemeService.instance.currentData.primary),
-                  ),
+              ValueListenableBuilder<bool>(
+                valueListenable: AppStateService.instance.useWavySliderNotifier,
+                builder: (context, useWavy, _) {
+                  if (useWavy) {
+                    return M3EProgressIndicator.linearWavy(
+                      wavelength: 60,
+                      waveSpeed: 25,
+                      strokeWidth: 4,
+                      value: widget.progress.clamp(0.0, 1.0),
+                      linearSize: M3EProgressIndicatorSize.s,
+                      trackColor: Colors.transparent,
+                      color: AppThemeService.instance.currentData.primary,
+                    );
+                  }
+                  return M3EProgressIndicator.linear(
+                    value: widget.progress.clamp(0.0, 1.0),
+                    linearSize: M3EProgressIndicatorSize.s,
+                    trackColor: Colors.transparent,
+                    color: AppThemeService.instance.currentData.primary,
+                  );
+                },
+              ),
               // Top Progress Bar
               /*    LinearProgressIndicator(
               value: widget.progress.clamp(0.0, 1.0),
