@@ -3,20 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
-import 'widgets/app_m3e_widgets.dart';
 
 class NetworkSourcesScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
-  final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
-  final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
+  final void Function(String filePath, String title, String artist)?
+      onPlayNetworkFile;
+  final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
+      onPlayFtpFolder;
 
   const NetworkSourcesScreen({
     super.key,
@@ -132,8 +131,8 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           .toList();
       final initialIndex =
           audioEntries.indexWhere((e) => e.path == fileEntry.path);
-      widget.onPlayFtpFolder!(
-          audioEntries, _selectedFtpConfig, initialIndex >= 0 ? initialIndex : 0);
+      widget.onPlayFtpFolder!(audioEntries, _selectedFtpConfig,
+          initialIndex >= 0 ? initialIndex : 0);
       return;
     }
 
@@ -164,15 +163,15 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
       if (success && localFile.existsSync()) {
         if (widget.onPlayNetworkFile != null) {
           widget.onPlayNetworkFile!(
-            localFile.path, 
-            fileEntry.name, 
+            localFile.path,
+            fileEntry.name,
             _selectedFtpConfig!.name,
           );
         } else {
           widget.player.load(AudioSource.file(localFile.path));
           widget.player.play();
         }
-        
+
         messenger.showSnackBar(
           SnackBar(
             content: Text('Playing ${fileEntry.name}'),
@@ -279,8 +278,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       ),
               ),
               IconButton(
-                icon: Icon(Icons.add_circle_outline_rounded,
-                    color: _primary),
+                icon: Icon(Icons.add_circle_outline_rounded, color: _primary),
                 tooltip: 'Add FTP Server',
                 onPressed: () => _showAddFtpDialog(),
               ),
@@ -308,20 +306,17 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                 IconButton(
                   icon: const Icon(Icons.arrow_back_rounded,
                       color: Colors.white70, size: 20),
-                  onPressed:
-                      _ftpPathHistory.length > 1 ? _navigateFtpUp : null,
+                  onPressed: _ftpPathHistory.length > 1 ? _navigateFtpUp : null,
                 ),
                 Expanded(
                   child: Text(
                     _currentFtpPath,
-                    style: TextStyle(
-                        color: _textDark, fontFamily: 'monospace'),
+                    style: TextStyle(color: _textDark, fontFamily: 'monospace'),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.refresh_rounded,
-                      color: _primary, size: 20),
+                  icon: Icon(Icons.refresh_rounded, color: _primary, size: 20),
                   onPressed: () => _loadFtpDirectory(_currentFtpPath),
                 ),
               ],
@@ -338,8 +333,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       'Tap the "+" button above to connect your FTP music server.',
                 )
               : _isLoadingFtp
-                  ? Center(
-                      child: CircularProgressIndicator(color: _primary))
+                  ? Center(child: CircularProgressIndicator(color: _primary))
                   : _ftpEntries.isEmpty
                       ? _buildEmptyState(
                           icon: Icons.folder_open_rounded,
@@ -369,8 +363,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                     style: const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w500)),
-                                trailing: Icon(
-                                    Icons.chevron_right_rounded,
+                                trailing: Icon(Icons.chevron_right_rounded,
                                     color: _textDark),
                                 onTap: () => _navigateToFtpSubdir(item.path),
                               );
@@ -391,14 +384,12 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                         fontWeight: FontWeight.w500)),
                                 subtitle: Text(
                                   _formatBytes(item.sizeBytes),
-                                  style: TextStyle(
-                                      color: _textDark, fontSize: 12),
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 12),
                                 ),
                                 trailing: IconButton(
-                                  icon: Icon(
-                                      Icons.play_circle_fill_rounded,
-                                      color: _primary,
-                                      size: 32),
+                                  icon: Icon(Icons.play_circle_fill_rounded,
+                                      color: _primary, size: 32),
                                   onPressed: () => _playFtpAudioFile(item),
                                 ),
                               );
@@ -528,8 +519,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                         ),
                         subtitle: Text(
                           r.locationUrl,
-                          style: TextStyle(
-                              color: _textDark, fontSize: 11),
+                          style: TextStyle(color: _textDark, fontSize: 11),
                         ),
                         trailing: ElevatedButton(
                           style: ElevatedButton.styleFrom(
@@ -582,10 +572,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600)),
                         subtitle: Text(s.locationUrl,
-                            style: TextStyle(
-                                color: _textDark, fontSize: 11)),
-                        trailing: Icon(Icons.chevron_right_rounded,
-                            color: _textDark),
+                            style: TextStyle(color: _textDark, fontSize: 11)),
+                        trailing:
+                            Icon(Icons.chevron_right_rounded, color: _textDark),
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

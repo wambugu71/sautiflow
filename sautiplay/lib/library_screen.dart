@@ -254,43 +254,43 @@ class _LibraryScreenState extends State<LibraryScreen>
       color: Colors.transparent,
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: nameController,
-            style: TextStyle(color: textPrimary),
-            decoration: InputDecoration(
-              labelText: 'Playlist Name (Optional)',
-              labelStyle: TextStyle(color: textDark),
-              hintText: 'e.g. Live Radio Stations',
-              hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
-              filled: true,
-              fillColor: cardDark,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: nameController,
+              style: TextStyle(color: textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Playlist Name (Optional)',
+                labelStyle: TextStyle(color: textDark),
+                hintText: 'e.g. Live Radio Stations',
+                hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
+                filled: true,
+                fillColor: cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: urlController,
-            style: TextStyle(color: textPrimary),
-            decoration: InputDecoration(
-              labelText: 'Stream / M3U URL',
-              labelStyle: TextStyle(color: textDark),
-              hintText: 'https://example.com/playlist.m3u8',
-              hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
-              filled: true,
-              fillColor: cardDark,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
+            const SizedBox(height: 12),
+            TextField(
+              controller: urlController,
+              style: TextStyle(color: textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Stream / M3U URL',
+                labelStyle: TextStyle(color: textDark),
+                hintText: 'https://example.com/playlist.m3u8',
+                hintStyle: TextStyle(color: textDark.withValues(alpha: 0.6)),
+                filled: true,
+                fillColor: cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
-          ),
           ],
         ),
       ),
@@ -1821,8 +1821,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     decoration: BoxDecoration(
                       color: _surfaceDark,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: _outline.withValues(alpha: 0.2)),
+                      border:
+                          Border.all(color: _outline.withValues(alpha: 0.2)),
                     ),
                     child: Icon(Icons.sort_rounded, color: _textDark, size: 20),
                   ),
@@ -1860,8 +1860,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     decoration: BoxDecoration(
                       color: _surfaceDark,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: _outline.withValues(alpha: 0.2)),
+                      border:
+                          Border.all(color: _outline.withValues(alpha: 0.2)),
                     ),
                     child: Icon(_trackViewMode.icon,
                         color: primaryColor, size: 20),
@@ -1909,7 +1909,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     ),
                     child: Icon(
                       Icons.account_tree_rounded,
-                      color: _groupByOption != 'None' ? primaryColor : _textDark,
+                      color:
+                          _groupByOption != 'None' ? primaryColor : _textDark,
                       size: 20,
                     ),
                   ),
@@ -2029,8 +2030,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   decoration: BoxDecoration(
                     color: _surfaceDark,
                     borderRadius: BorderRadius.circular(12),
-                    border:
-                        Border.all(color: _outline.withValues(alpha: 0.2)),
+                    border: Border.all(color: _outline.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     children: [
@@ -2172,9 +2172,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             subtitle:
                 '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
             customIcon: LocalAlbumArt(
-                path: song.path,
-                size: isDesktop ? 60 : 48,
-                shape: Shapes.pill),
+                path: song.path, size: isDesktop ? 60 : 48, shape: Shapes.pill),
             isFirst: isFirst,
             isLast: isLast,
             onTap: () {
@@ -2823,7 +2821,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     required BuildContext context,
     IconData? iconData,
     Widget? customIcon,
-    String? imageAsset,
     Gradient? iconGradient,
     VoidCallback? onTap,
     VoidCallback? onLongPress,
@@ -3060,9 +3057,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         const SizedBox(height: 4),
                         Text(
                           '${_groupSongs.length} Track${_groupSongs.length == 1 ? '' : 's'} • ${widget.groupType}',
-                          style: TextStyle(
-                              color: textDark,
-                              fontSize: 13),
+                          style: TextStyle(color: textDark, fontSize: 13),
                         ),
                       ],
                     ),
@@ -3306,20 +3301,16 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
             ),
             content: Text(
               'Are you sure you want to delete "${song.title}"? This action cannot be undone.',
-              style: TextStyle(
-                  color: context.textMuted,
-                  fontSize: 14),
+              style: TextStyle(color: context.textMuted, fontSize: 14),
             ),
             actionsPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             actions: [
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor:
-                      context.textMuted,
+                  foregroundColor: context.textMuted,
                   side: BorderSide(
-                      color: context.textMuted
-                          .withValues(alpha: 0.3)),
+                      color: context.textMuted.withValues(alpha: 0.3)),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),

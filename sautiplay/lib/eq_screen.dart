@@ -716,7 +716,7 @@ class _EqScreenState extends State<EqScreen>
         content: const Material(
           color: Colors.transparent,
           child: Text(
-            'This will reset the Equalizer and all audio DSP effects to their flat defaults.',
+            'This will reset the Equalizer and all audio DSP effects to defaults.',
             style: TextStyle(color: Colors.white70, fontSize: 13.5),
           ),
         ),
@@ -906,7 +906,7 @@ class _EqScreenState extends State<EqScreen>
     return M3EListItem(
       headline: title,
       supportingText: subtitle,
-      leading: M3EContainer(
+      leading: /*M3EContainer(
         shape,
         width: 44,
         height: 44,
@@ -919,19 +919,21 @@ class _EqScreenState extends State<EqScreen>
               : Colors.white.withValues(alpha: 0.1),
           width: 1.2,
         ),
-        child: Center(
-          child: Icon(
-            icon,
-            color: isEnabled ? primaryColor : Colors.white60,
-            size: 22,
-          ),
+        child: */
+          Center(
+        child: Icon(
+          icon,
+          color: isEnabled ? primaryColor : Colors.white60,
+          size: 22,
         ),
+        //  ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (onToggle != null) ...[
             M3ESwitch(
+              selectedIcon: Icon(Icons.check, color: primaryColor),
               value: isEnabled,
               onChanged: onToggle,
             ),
@@ -967,7 +969,7 @@ class _EqScreenState extends State<EqScreen>
                   elevation: 0,
                   scrolledUnderElevation: 0,
                   leading: M3EIconButton(
-                    icon: const Icon(Icons.arrow_back_rounded,
+                    icon: const Icon(Icons.keyboard_arrow_down,
                         color: Colors.white, size: 20),
                     variant: M3EIconButtonVariant.standard,
                     onPressed: () {
@@ -977,7 +979,7 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   title: Row(
                     children: [
-                      M3EContainer(
+                      /* M3EContainer(
                         shape,
                         width: 32,
                         height: 32,
@@ -986,10 +988,11 @@ class _EqScreenState extends State<EqScreen>
                           color: primaryColor.withValues(alpha: 0.4),
                           width: 1.0,
                         ),
-                        child: Center(
-                          child: Icon(icon, color: primaryColor, size: 16),
-                        ),
+                        child: */
+                      Center(
+                        child: Icon(icon, color: primaryColor, size: 16),
                       ),
+                      // ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -1083,8 +1086,8 @@ class _EqScreenState extends State<EqScreen>
                         children: [
                           Row(
                             children: [
-                              M3EContainer(
-                                Shapes.c4SidedCookie,
+                              /* M3EContainer(
+                                Shapes.arch,
                                 width: 36,
                                 height: 36,
                                 color: _masterEqEnabled
@@ -1096,17 +1099,18 @@ class _EqScreenState extends State<EqScreen>
                                       : Colors.white.withValues(alpha: 0.1),
                                   width: 1.0,
                                 ),
-                                child: Center(
-                                  child: Icon(
-                                    Icons.equalizer_rounded,
-                                    color: _masterEqEnabled
-                                        ? primaryColor
-                                        : Colors.white60,
-                                    size: 18,
-                                  ),
+                                child:*/
+                              Center(
+                                child: Icon(
+                                  Icons.equalizer_rounded,
+                                  color: _masterEqEnabled
+                                      ? primaryColor
+                                      : Colors.white60,
+                                  size: 18,
                                 ),
                               ),
-                              const SizedBox(width: 10),
+                              // ),
+                              const SizedBox(width: 8),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1136,13 +1140,13 @@ class _EqScreenState extends State<EqScreen>
                           ),
                           Row(
                             children: [
-                              M3EIconButton(
+                              /*   M3EIconButton(
                                 icon: const Icon(Icons.info_outline_rounded,
                                     size: 19),
                                 variant: M3EIconButtonVariant.tonal,
                                 tooltip: 'Audio Pipeline State',
                                 onPressed: _showPipelineInfo,
-                              ),
+                              ),*/
                               const SizedBox(width: 4),
                               M3EIconButton(
                                 icon:
@@ -1153,11 +1157,9 @@ class _EqScreenState extends State<EqScreen>
                               ),
                               const SizedBox(width: 6),
                               M3ESwitch(
+                                selectedIcon:
+                                    Icon(Icons.check, color: primaryColor),
                                 value: _masterEqEnabled,
-                                selectedIcon: Icon(
-                                  Icons.check,
-                                  color: Colors.greenAccent,
-                                ),
                                 onChanged: (val) {
                                   setState(() => _masterEqEnabled = val);
                                   widget.player.setMultibandEqEnabled(val);
@@ -1184,7 +1186,7 @@ class _EqScreenState extends State<EqScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               M3EContainer(
-                                Shapes.c4SidedCookie,
+                                Shapes.triangle,
                                 width: 32,
                                 height: 32,
                                 color: Colors.amber.withValues(alpha: 0.15),
@@ -1592,8 +1594,7 @@ class _EqScreenState extends State<EqScreen>
                                       widget.player.setStereoWiden(
                                           enabled: false,
                                           width: _stereoWidenWidth,
-                                          delayMs:
-                                              _stereoWidenDelayMs * 100.0);
+                                          delayMs: _stereoWidenDelayMs * 100.0);
                                     }
                                     _saveEqState();
                                   },
@@ -1844,7 +1845,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildPlaybackSpeedSection() {
     final isNormal = (_playbackPitch - 1.0).abs() < 0.01;
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /*M3EContainer(
         Shapes.sunny,
         width: 40,
         height: 40,
@@ -1853,10 +1854,11 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
       ),
+      // ),
       title: 'Speed & Pitch',
       subtitle: '${_playbackPitch.toStringAsFixed(2)}x Speed',
       isEnabled: !isNormal,
@@ -1903,8 +1905,8 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildGraphicEqSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
-        Shapes.c4SidedCookie,
+      icon: /*M3EContainer(
+        Shapes.clampShell,
         width: 40,
         height: 40,
         color: primaryColor.withValues(alpha: 0.18),
@@ -1912,9 +1914,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
+        //  ),
       ),
       title: 'Graphic Equalizer',
       subtitle: '${_eqFrequencies.length}-Band Frequency Shaping',
@@ -2136,7 +2139,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildSpatialAudioSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /*M3EContainer(
         Shapes.softBoom,
         width: 40,
         height: 40,
@@ -2145,10 +2148,11 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.spatial_audio_off_outlined,
-              color: primaryColor, size: 20),
-        ),
+        child:*/
+          Center(
+        child: Icon(Icons.spatial_audio_off_outlined,
+            color: primaryColor, size: 20),
+        //),
       ),
       title: '3D Spatial Audio',
       subtitle: 'Immersive virtual soundstage & reverb',
@@ -2216,7 +2220,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildDynamicBassSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /*M3EContainer(
         Shapes.boom,
         width: 40,
         height: 40,
@@ -2225,9 +2229,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
+        // ),
       ),
       title: 'Dynamic Bass',
       subtitle: 'Harmonic bass boost & sub-frequency enhancement',
@@ -2273,39 +2278,40 @@ class _EqScreenState extends State<EqScreen>
                   ),
                 ),
                 const SizedBox(height: 10),
-                M3EContainer(
+                /*M3EContainer(
                   Shapes.pill,
                   color: surfaceDarkColor,
                   border:
                       BorderSide(color: primaryColor.withValues(alpha: 0.35)),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: _dynamicBassPreset,
-                        dropdownColor: surfaceDarkerColor,
-                        icon: Icon(Icons.arrow_drop_down_rounded,
-                            color: primaryColor),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
-                        items: List.generate(19, (index) {
-                          int f = 60 + (index * 5);
-                          if (index > 14) f = 130 + ((index - 14) * 10);
-                          if (index == 18) f = 180;
-                          return DropdownMenuItem(
-                              value: index, child: Text('$f Hz'));
-                        }),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _dynamicBassPreset = val);
-                            if (_dynamicBassEnabled) _updateDynamicBass();
-                            _saveEqState();
-                          }
-                        },
-                      ),
+                  child: */
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: _dynamicBassPreset,
+                      dropdownColor: surfaceDarkerColor,
+                      icon: Icon(Icons.arrow_drop_down_rounded,
+                          color: primaryColor),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
+                      items: List.generate(19, (index) {
+                        int f = 60 + (index * 5);
+                        if (index > 14) f = 130 + ((index - 14) * 10);
+                        if (index == 18) f = 180;
+                        return DropdownMenuItem(
+                            value: index, child: Text('$f Hz'));
+                      }),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _dynamicBassPreset = val);
+                          if (_dynamicBassEnabled) _updateDynamicBass();
+                          _saveEqState();
+                        }
+                      },
+                      //  ),
                     ),
                   ),
                 ),
@@ -2320,7 +2326,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildCrystalizerSection() {
     const crystalColor = Color(0xFF00C9B1);
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.burst,
         width: 40,
         height: 40,
@@ -2329,10 +2335,10 @@ class _EqScreenState extends State<EqScreen>
           color: Color(0x6600C9B1),
           width: 1.0,
         ),
-        child: const Center(
-          child:
-              Icon(Icons.auto_fix_high_rounded, color: crystalColor, size: 20),
-        ),
+        child: */
+          const Center(
+        child: Icon(Icons.auto_fix_high_rounded, color: crystalColor, size: 20),
+        // ),
       ),
       title: 'Crystalizer',
       subtitle: 'Audiophile transient reconstruction',
@@ -2396,6 +2402,7 @@ class _EqScreenState extends State<EqScreen>
             ),
             const SizedBox(width: 12),
             M3ESwitch(
+              selectedIcon: Icon(Icons.check, color: primaryColor),
               value: _crystalizerHighShelf,
               onChanged: (v) {
                 setState(() => _crystalizerHighShelf = v);
@@ -2430,7 +2437,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildCrossfeedSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.arch,
         width: 40,
         height: 40,
@@ -2439,9 +2446,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
-        ),
+        child:*/
+          Center(
+        child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
+        //  ),
       ),
       title: 'Crossfeed',
       subtitle: 'Simulate natural acoustic speaker listening',
@@ -2460,40 +2468,39 @@ class _EqScreenState extends State<EqScreen>
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 13.5,
                     fontWeight: FontWeight.w600)),
-            M3EContainer(
+            /* M3EContainer(
               Shapes.pill,
               color: surfaceDarkColor,
               border: BorderSide(color: primaryColor.withValues(alpha: 0.35)),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _crossfeedAlgorithmIndex,
-                    dropdownColor: surfaceDarkerColor,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 1, child: Text('Simple Reference')),
-                      DropdownMenuItem(value: 2, child: Text('Bauer BS2B')),
-                      DropdownMenuItem(value: 3, child: Text('Jan Meier')),
-                      DropdownMenuItem(value: 4, child: Text('Custom Natural')),
-                      DropdownMenuItem(
-                          value: 5, child: Text('Ambiophonics (RACE)')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _crossfeedAlgorithmIndex = val);
-                        _updateCrossfeed();
-                        _saveEqState();
-                      }
-                    },
-                  ),
+              child:*/
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  value: _crossfeedAlgorithmIndex,
+                  dropdownColor: surfaceDarkerColor,
+                  icon:
+                      Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Simple Reference')),
+                    DropdownMenuItem(value: 2, child: Text('Bauer BS2B')),
+                    DropdownMenuItem(value: 3, child: Text('Jan Meier')),
+                    DropdownMenuItem(value: 4, child: Text('Custom Natural')),
+                    DropdownMenuItem(
+                        value: 5, child: Text('Ambiophonics (RACE)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _crossfeedAlgorithmIndex = val);
+                      _updateCrossfeed();
+                      _saveEqState();
+                    }
+                  },
+                  // ),
                 ),
               ),
             ),
@@ -2589,6 +2596,7 @@ class _EqScreenState extends State<EqScreen>
                     ],
                   ),
                   M3ESwitch(
+                    selectedIcon: Icon(Icons.check, color: primaryColor),
                     value: _crossfeedCompensation,
                     onChanged: (v) {
                       setState(() => _crossfeedCompensation = v);
@@ -2666,7 +2674,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildStereoWidenSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.slanted,
         width: 40,
         height: 40,
@@ -2675,9 +2683,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.swap_horiz_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.swap_horiz_rounded, color: primaryColor, size: 20),
+        // ),
       ),
       title: 'Stereo Widener',
       subtitle: 'Mid/Side matrix & Haas effect width expansion',
@@ -2736,7 +2745,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildStereoEnhancementSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.puffyDiamond,
         width: 40,
         height: 40,
@@ -2745,10 +2754,11 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child:
-              Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
-        ),
+        child:*/
+          Center(
+        child:
+            Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+        //),
       ),
       title: 'Stereo Enhancement',
       subtitle: 'Warped PFB M/S Widening',
@@ -2809,7 +2819,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildDelaySection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.l4LeafClover,
         width: 40,
         height: 40,
@@ -2818,9 +2828,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.repeat_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.repeat_rounded, color: primaryColor, size: 20),
+        // ),
       ),
       title: 'Delay / Echo',
       subtitle: 'Feedback, time delay & rhythmic repeats',
@@ -2983,7 +2994,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildTrue3dSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.circle,
         width: 40,
         height: 40,
@@ -2992,10 +3003,11 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.threed_rotation_rounded,
-              color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child:
+            Icon(Icons.threed_rotation_rounded, color: primaryColor, size: 20),
+        //  ),
       ),
       title: 'True 3D Spatial Audio',
       subtitle: '3D Positioning, Sound Cones & Distance Attenuation',
@@ -3067,40 +3079,39 @@ class _EqScreenState extends State<EqScreen>
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 13,
                     fontWeight: FontWeight.w600)),
-            M3EContainer(
+            /*M3EContainer(
               Shapes.pill,
               color: surfaceDarkColor,
               border: BorderSide(color: primaryColor.withValues(alpha: 0.35)),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _spatAttenuationModel,
-                    dropdownColor: surfaceDarkerColor,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600),
-                    items: const [
-                      DropdownMenuItem(value: 0, child: Text('None')),
-                      DropdownMenuItem(value: 1, child: Text('Inverse')),
-                      DropdownMenuItem(value: 2, child: Text('Linear')),
-                      DropdownMenuItem(value: 3, child: Text('Exponential')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _spatAttenuationModel = val);
-                        if (_true3dEnabled) _updateTrue3dPositions();
-                        _saveEqState();
-                      }
-                    },
-                  ),
-                ),
+                child:*/
+            DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _spatAttenuationModel,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('None')),
+                  DropdownMenuItem(value: 1, child: Text('Inverse')),
+                  DropdownMenuItem(value: 2, child: Text('Linear')),
+                  DropdownMenuItem(value: 3, child: Text('Exponential')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _spatAttenuationModel = val);
+                    if (_true3dEnabled) _updateTrue3dPositions();
+                    _saveEqState();
+                  }
+                },
               ),
             ),
+            // ),
           ],
         ),
         const SizedBox(height: 12),
@@ -3290,7 +3301,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildAudioTuningSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.pill,
         width: 40,
         height: 40,
@@ -3299,10 +3310,11 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.tune_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.tune_rounded, color: primaryColor, size: 20),
       ),
+      //),
       title: '3-Band Audio Tuning',
       subtitle: 'Bass, midrange & treble shelving tone control',
       isEnabled: _audioTuningEnabled,
@@ -3384,7 +3396,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildParametricEqSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /*M3EContainer(
         Shapes.gem,
         width: 40,
         height: 40,
@@ -3393,9 +3405,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.show_chart_rounded, color: primaryColor, size: 20),
-        ),
+        child:*/
+          Center(
+        child: Icon(Icons.show_chart_rounded, color: primaryColor, size: 20),
+        //),
       ),
       title: 'Parametric Equalizer',
       subtitle: 'Dynamic cascade filter nodes & visual response curve',
@@ -3461,7 +3474,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 235,
+          height: 300,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
@@ -3478,7 +3491,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildParametricBandCard(int index, EqBandConfig band) {
     return Container(
-      width: 230,
+      width: 255,
       margin: const EdgeInsets.only(right: 14),
       child: M3ECard(
         variant: M3ECardVariant.filled,
@@ -3520,55 +3533,54 @@ class _EqScreenState extends State<EqScreen>
               ),
               const SizedBox(height: 8),
               // Type Selector
-              M3EContainer(
+              /* M3EContainer(
                 Shapes.pill,
                 color: surfaceDarkerColor,
                 border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<EqBandType>(
-                      value: band.type,
-                      isExpanded: true,
-                      dropdownColor: surfaceDarkerColor,
-                      icon: const Icon(Icons.arrow_drop_down_rounded,
-                          color: Colors.white54),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600),
-                      items: EqBandType.values
-                          .map((t) => DropdownMenuItem(
-                                value: t,
-                                child: Text(switch (t) {
-                                  EqBandType.peak => 'Peak EQ',
-                                  EqBandType.bandpass => 'Band-Pass',
-                                  EqBandType.notch => 'Notch',
-                                  EqBandType.lowshelf => 'Low Shelf',
-                                  EqBandType.highshelf => 'High Shelf',
-                                  EqBandType.lowpass => 'Low-Pass',
-                                  EqBandType.highpass => 'High-Pass',
-                                }),
-                              ))
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) {
-                          setState(() {
-                            _parametricBands[index] = EqBandConfig(
-                              type: v,
-                              frequencyHz: band.frequencyHz,
-                              enabled: band.enabled,
-                              q: band.q,
-                              gainDb: band.gainDb,
-                              slope: band.slope,
-                            );
-                            _applyParametricBands();
-                          });
-                        }
-                      },
-                    ),
-                  ),
+                  child: */
+              DropdownButtonHideUnderline(
+                child: DropdownButton<EqBandType>(
+                  value: band.type,
+                  isExpanded: true,
+                  dropdownColor: surfaceDarkerColor,
+                  icon: const Icon(Icons.arrow_drop_down_rounded,
+                      color: Colors.white54),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                  items: EqBandType.values
+                      .map((t) => DropdownMenuItem(
+                            value: t,
+                            child: Text(switch (t) {
+                              EqBandType.peak => 'Peak EQ',
+                              EqBandType.bandpass => 'Band-Pass',
+                              EqBandType.notch => 'Notch',
+                              EqBandType.lowshelf => 'Low Shelf',
+                              EqBandType.highshelf => 'High Shelf',
+                              EqBandType.lowpass => 'Low-Pass',
+                              EqBandType.highpass => 'High-Pass',
+                            }),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() {
+                        _parametricBands[index] = EqBandConfig(
+                          type: v,
+                          frequencyHz: band.frequencyHz,
+                          enabled: band.enabled,
+                          q: band.q,
+                          gainDb: band.gainDb,
+                          slope: band.slope,
+                        );
+                        _applyParametricBands();
+                      });
+                    }
+                  },
                 ),
               ),
               const SizedBox(height: 12),
@@ -3577,6 +3589,7 @@ class _EqScreenState extends State<EqScreen>
                 children: [
                   // Frequency Knob
                   ModernAudioKnob(
+                    size: 52,
                     label: 'FREQ',
                     value: band.frequencyHz.clamp(20.0, 20000.0),
                     min: 20.0,
@@ -3602,6 +3615,7 @@ class _EqScreenState extends State<EqScreen>
 
                   // Q Factor / Slope Knob
                   ModernAudioKnob(
+                    size: 52,
                     label: band.type == EqBandType.lowshelf ||
                             band.type == EqBandType.highshelf
                         ? 'SLOPE'
@@ -3648,6 +3662,7 @@ class _EqScreenState extends State<EqScreen>
                       band.type == EqBandType.lowshelf ||
                       band.type == EqBandType.highshelf)
                     ModernAudioKnob(
+                      size: 52,
                       label: 'GAIN',
                       value: band.gainDb,
                       min: -24.0,
@@ -3682,7 +3697,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildCustomFiltersSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /*M3EContainer(
         Shapes.diamond,
         width: 40,
         height: 40,
@@ -3691,9 +3706,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.filter_alt_rounded, color: primaryColor, size: 20),
-        ),
+        child: */
+          Center(
+        child: Icon(Icons.filter_alt_rounded, color: primaryColor, size: 20),
+        // ),
       ),
       title: 'Advanced Audio Filters',
       subtitle: 'Real-Time LPF, HPF, BPF, Notch, Peak, Low/High Shelf & Biquad',
@@ -4095,6 +4111,7 @@ class _EqScreenState extends State<EqScreen>
                             fontSize: 13.5,
                             fontWeight: FontWeight.bold)),
                     M3ESwitch(
+                      selectedIcon: Icon(Icons.check, color: primaryColor),
                       value: _customBiquadEnabled,
                       onChanged: (v) {
                         setState(() {
@@ -4187,6 +4204,7 @@ class _EqScreenState extends State<EqScreen>
                   ),
                 ),
                 M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
                   value: isEnabled,
                   onChanged: onToggle,
                 ),
@@ -4285,7 +4303,7 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildLimiterSection() {
     return _CollapsibleSection(
-      icon: M3EContainer(
+      icon: /* M3EContainer(
         Shapes.square,
         width: 40,
         height: 40,
@@ -4294,9 +4312,10 @@ class _EqScreenState extends State<EqScreen>
           color: primaryColor.withValues(alpha: 0.4),
           width: 1.0,
         ),
-        child: Center(
-          child: Icon(Icons.compress_rounded, color: primaryColor, size: 20),
-        ),
+        child:*/
+          Center(
+        child: Icon(Icons.compress_rounded, color: primaryColor, size: 20),
+        //),
       ),
       title: 'Soft Limiter',
       subtitle: 'True-peak limiting & anti-clipping dynamics processor',
@@ -4374,6 +4393,7 @@ class ModernAudioKnob extends StatefulWidget {
   final Color? activeColor;
   final bool isPercentage;
   final double displayMultiplier;
+  final double size;
 
   const ModernAudioKnob({
     super.key,
@@ -4387,6 +4407,7 @@ class ModernAudioKnob extends StatefulWidget {
     this.activeColor,
     this.isPercentage = false,
     this.displayMultiplier = 1.0,
+    this.size = 60.0,
   });
 
   @override
@@ -4456,17 +4477,9 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
             children: [
               Row(
                 children: [
-                  M3EContainer(
-                    Shapes.pill,
-                    width: 32,
-                    height: 32,
-                    color: accentColor.withValues(alpha: 0.15),
-                    border:
-                        BorderSide(color: accentColor.withValues(alpha: 0.35)),
-                    child: Center(
-                      child:
-                          Icon(Icons.tune_rounded, size: 16, color: accentColor),
-                    ),
+                  Center(
+                    child:
+                        Icon(Icons.tune_rounded, size: 16, color: accentColor),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -4564,7 +4577,7 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
             onDoubleTap: () => widget.onChanged(widget.flatValue),
             onLongPress: () => _showValueDialog(context, dbValue),
             child: CustomPaint(
-              size: const Size(60, 60),
+              size: Size(widget.size, widget.size),
               painter: _KnobPainter(
                 normalizedValue: normalizedValue,
                 activeColor: accentColor,
@@ -4586,29 +4599,23 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
         const SizedBox(height: 4),
         GestureDetector(
           onTap: () => _showValueDialog(context, dbValue),
-          child: M3EContainer(
-            Shapes.pill,
-            height: 22,
-            color: accentColor.withValues(alpha: 0.12),
-            border: BorderSide(
-              color: accentColor.withValues(alpha: 0.3),
-              width: 1,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.size < 60 ? 5 : 8,
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Center(
-                child: Text(
-                  displayValue,
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 10.5,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w700,
-                  ),
+            child: Center(
+              child: Text(
+                displayValue,
+                style: TextStyle(
+                  color: accentColor,
+                  fontSize: widget.size < 60 ? 9.5 : 10.5,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
           ),
+          // ),
         ),
       ],
     );
@@ -4722,95 +4729,94 @@ class _CollapsibleSection extends StatefulWidget {
 }
 
 class _CollapsibleSectionState extends State<_CollapsibleSection> {
-  bool _isExpanded = false;
   Color get primaryColor => context.primaryColor;
 
   @override
-  void initState() {
-    super.initState();
-    _isExpanded = widget.isEnabled;
-  }
-
-  @override
-  void didUpdateWidget(covariant _CollapsibleSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isEnabled && !oldWidget.isEnabled) {
-      _isExpanded = true;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return M3ECard(
-      variant: M3ECardVariant.filled,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return M3EExpandableList.builder(
+      key: ValueKey('${widget.title}_${widget.isEnabled}'),
+      itemCount: 1,
+      initiallyExpanded: widget.isEnabled ? const {0} : const <int>{},
+      allowMultipleExpanded: true,
+      style: const M3EExpandableStyle(
+        outerRadius: 16,
+        innerRadius: 16,
+        headerPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        bodyPadding: EdgeInsets.fromLTRB(14, 0, 14, 14),
+        titleSubtitleGap: 4,
+        expandIcon: Icon(
+          Icons.keyboard_arrow_down_rounded,
+          color: Colors.white54,
+          size: 22,
+        ),
+        collapseIcon: Icon(
+          Icons.keyboard_arrow_up_rounded,
+          color: Colors.white54,
+          size: 22,
+        ),
+      ),
+      headerBuilder: (context, index, progress) {
+        return Row(
           children: [
-            InkWell(
-              onTap: () {
-                setState(() {
-                  _isExpanded = !_isExpanded;
-                });
-              },
-              borderRadius: BorderRadius.circular(10),
-              child: Row(
+            widget.icon,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  widget.icon,
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.subtitle,
-                          style: TextStyle(
-                            color: widget.isEnabled
-                                ? primaryColor.withValues(alpha: 0.9)
-                                : Colors.white54,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+                  Text(
+                    widget.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.2,
                     ),
                   ),
-                  if (widget.hasSwitch) ...[
-                    M3ESwitch(
-                      value: widget.isEnabled,
-                      onChanged: widget.onToggle,
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.subtitle,
+                    style: TextStyle(
+                      color: widget.isEnabled
+                          ? primaryColor.withValues(alpha: 0.9)
+                          : Colors.white54,
+                      fontSize: 12,
                     ),
-                    const SizedBox(width: 4),
-                  ],
-                  Icon(
-                    _isExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: Colors.white54,
-                    size: 22,
                   ),
                 ],
               ),
             ),
-            if (_isExpanded) ...[
-              const SizedBox(height: 16),
-              const Divider(color: Colors.white12, height: 1),
-              const SizedBox(height: 16),
-              ...widget.children,
+            if (widget.hasSwitch) ...[
+              const SizedBox(width: 8),
+              M3ESwitch(
+                selectedIcon: Icon(Icons.check, color: primaryColor),
+                value: widget.isEnabled,
+                onChanged: widget.onToggle,
+              ),
+              const SizedBox(width: 4),
             ],
           ],
-        ),
-      ),
+        );
+      },
+      bodyBuilder: (context, index, progress) {
+        if (progress <= 0.0) return const SizedBox.shrink();
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: progress.clamp(0.0, 1.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(color: Colors.white12, height: 1),
+                const SizedBox(height: 16),
+                ...widget.children,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

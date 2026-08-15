@@ -74,6 +74,8 @@ compile_commands.json
 *.py
 
 # -----------------------------
-# Logs
+# Logs & Packages
 # -----------------------------
 *.log
+material_3_expressive/
+example/build_temp/

@@ -2273,8 +2273,9 @@ class AudioEngineFFI {
   }
 
   bool getLoudnessCrossfadeEnabled() {
-    if (_engine == ffi.nullptr || _getLoudnessCrossfadeEnabled == null)
+    if (_engine == ffi.nullptr || _getLoudnessCrossfadeEnabled == null) {
       return false;
+    }
     return _getLoudnessCrossfadeEnabled!(_engine) != 0;
   }
 
@@ -2289,8 +2290,9 @@ class AudioEngineFFI {
   }
 
   double getCrossfadeSilenceThreshold() {
-    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null)
+    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null) {
       return -60.0;
+    }
     return _getCrossfadeSilenceThreshold!(_engine);
   }
 
@@ -2928,8 +2930,9 @@ class AudioEngineFFI {
   }
 
   ({bool left, bool right}) getPhaseInversion() {
-    if (_engine == ffi.nullptr || _getPhaseInversion == null)
+    if (_engine == ffi.nullptr || _getPhaseInversion == null) {
       return (left: false, right: false);
+    }
     final pL = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     final pR = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
     try {
@@ -3036,22 +3039,25 @@ class AudioEngineFFI {
 
   /// Check whether 64-bit float DSP processing mode is active.
   bool get64BitProcessingEnabled() {
-    if (_engine == ffi.nullptr || _get64BitProcessingEnabled == null)
+    if (_engine == ffi.nullptr || _get64BitProcessingEnabled == null) {
       return false;
+    }
     return _get64BitProcessingEnabled(_engine) != 0;
   }
 
   /// Enable or disable Auto Sample-Rate Match hardware sample-rate matching.
   void setAutoSampleRateMatchEnabled(bool enabled) {
-    if (_engine == ffi.nullptr || _setAutoSampleRateMatchEnabled == null)
+    if (_engine == ffi.nullptr || _setAutoSampleRateMatchEnabled == null) {
       return;
+    }
     _setAutoSampleRateMatchEnabled(_engine, enabled ? 1 : 0);
   }
 
   /// Check whether Auto Sample-Rate Match hardware sample-rate matching is enabled.
   bool getAutoSampleRateMatchEnabled() {
-    if (_engine == ffi.nullptr || _getAutoSampleRateMatchEnabled == null)
+    if (_engine == ffi.nullptr || _getAutoSampleRateMatchEnabled == null) {
       return false;
+    }
     return _getAutoSampleRateMatchEnabled(_engine) != 0;
   }
 

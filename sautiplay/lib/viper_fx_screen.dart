@@ -13,7 +13,6 @@ import 'package:sautiflow/sautiflow.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'services/app_theme_service.dart';
 import 'services/autoeq_parser.dart';
-import 'widgets/app_m3e_widgets.dart';
 
 class ViperFxScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -944,13 +943,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
       child: Row(
         children: [
-          M3EContainer(
+          /*M3EContainer(
             Shapes.pill,
             width: 8,
             height: 8,
             color: primaryColor,
-            child: const SizedBox.shrink(),
-          ),
+            child: */
+          const SizedBox.shrink(),
+          //),
           const SizedBox(width: 8),
           Text(
             title.toUpperCase(),
@@ -978,7 +978,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     return M3EListItem(
       headline: title,
       supportingText: subtitle,
-      leading: M3EContainer(
+      leading: /*M3EContainer(
         shape,
         width: 42,
         height: 42,
@@ -991,19 +991,21 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               : Colors.white.withValues(alpha: 0.08),
           width: 1,
         ),
-        child: Center(
-          child: Icon(
-            icon,
-            color: isEnabled ? primaryColor : Colors.white54,
-            size: 20,
-          ),
+        child: */
+          Center(
+        child: Icon(
+          icon,
+          color: isEnabled ? primaryColor : Colors.white54,
+          size: 20,
         ),
+        // ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (onToggle != null) ...[
             M3ESwitch(
+              selectedIcon: Icon(Icons.check, color: primaryColor),
               value: isEnabled,
               onChanged: onToggle,
             ),
@@ -1047,7 +1049,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   ),
                   title: Row(
                     children: [
-                      M3EContainer(
+                      /* M3EContainer(
                         shape,
                         width: 32,
                         height: 32,
@@ -1056,10 +1058,11 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           color: primaryColor.withValues(alpha: 0.4),
                           width: 1,
                         ),
-                        child: Center(
-                          child: Icon(icon, color: primaryColor, size: 16),
-                        ),
+                        child: */
+                      Center(
+                        child: Icon(icon, color: primaryColor, size: 16),
                       ),
+                      //  ),
                       const SizedBox(width: 12),
                       Text(
                         title,
@@ -1131,7 +1134,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                   children: [
                     Row(
                       children: [
-                        M3EContainer(
+                        /* M3EContainer(
                           Shapes.c4SidedCookie,
                           width: 44,
                           height: 44,
@@ -1140,11 +1143,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             color: primaryColor.withValues(alpha: 0.4),
                             width: 1.0,
                           ),
-                          child: Center(
-                            child: Icon(Icons.graphic_eq_rounded,
-                                color: primaryColor, size: 22),
-                          ),
+                          child:*/
+                        Center(
+                          child: Icon(Icons.graphic_eq_rounded,
+                              color: primaryColor, size: 22),
                         ),
+                        //),
                         const SizedBox(width: 14),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1176,6 +1180,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       ],
                     ),
                     M3ESwitch(
+                      selectedIcon: Icon(Icons.check, color: primaryColor),
                       value: _viperEnabled,
                       onChanged: _toggleMaster,
                     ),
@@ -1192,8 +1197,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 // Section 1: Core Output & Gain Controls
                 _buildSectionHeader('Core Output & Gain'),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECardList(
                     itemCount: 1,
                     onTap: (index) {
@@ -1227,18 +1232,15 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 // Section 2: VIPRR System & Dynamics
                 _buildSectionHeader('VIPRR System & Dynamics'),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECardList(
                     itemCount: 2,
                     onTap: (index) {
                       switch (index) {
                         case 0:
-                          _openDetailScreen(
-                              'VIPRR Dynamic System',
-                              Shapes.boom,
-                              Icons.bolt,
-                              (_) => _buildDeckViews()[1]);
+                          _openDetailScreen('VIPRR Dynamic System', Shapes.boom,
+                              Icons.bolt, (_) => _buildDeckViews()[1]);
                           break;
                         case 1:
                           _openDetailScreen(
@@ -1274,10 +1276,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                         shape: Shapes.diamond,
                         icon: Icons.compress,
                         title: 'Dynamics & Compressors',
-                        subtitle:
-                            (_multibandCompressorEnabled || _fetCompressorEnabled)
-                                ? '5-Band & FET Active'
-                                : 'Disabled',
+                        subtitle: (_multibandCompressorEnabled ||
+                                _fetCompressorEnabled)
+                            ? '5-Band & FET Active'
+                            : 'Disabled',
                         isEnabled: _multibandCompressorEnabled ||
                             _fetCompressorEnabled,
                         onTapDetail: () => _openDetailScreen(
@@ -1293,16 +1295,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 // Section 3: Bass & Clarity Enhancement
                 _buildSectionHeader('Bass & Clarity Enhancement'),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECardList(
                     itemCount: 1,
                     onTap: (index) {
-                      _openDetailScreen(
-                          'Bass & Clarity Engine',
-                          Shapes.burst,
-                          Icons.equalizer,
-                          (_) => _buildDeckViews()[3]);
+                      _openDetailScreen('Bass & Clarity Engine', Shapes.burst,
+                          Icons.equalizer, (_) => _buildDeckViews()[3]);
                     },
                     itemBuilder: (context, index) {
                       return _buildEffectTileCard(
@@ -1334,8 +1333,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 // Section 4: Spatial & Surround Sound
                 _buildSectionHeader('Spatial & Surround Sound'),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECardList(
                     itemCount: 2,
                     onTap: (index) {
@@ -1348,11 +1347,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               (_) => _buildDeckViews()[4]);
                           break;
                         case 1:
-                          _openDetailScreen(
-                              'ViPER Reverb',
-                              Shapes.arch,
-                              Icons.meeting_room,
-                              (_) => _buildDeckViews()[5]);
+                          _openDetailScreen('ViPER Reverb', Shapes.arch,
+                              Icons.meeting_room, (_) => _buildDeckViews()[5]);
                           break;
                       }
                     },
@@ -1406,8 +1402,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                 // Section 5: Equalization, Impulse & Emulation
                 _buildSectionHeader('EQ, Impulse & Emulation'),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECardList(
                     itemCount: 3,
                     onTap: (index) {
@@ -1441,12 +1437,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                           shape: Shapes.slanted,
                           icon: Icons.show_chart,
                           title: 'Dynamic EQ & FIR Filter',
-                          subtitle:
-                              (_firEqEnabled || _dynamicEqEnabled || _iirEqEnabled)
-                                  ? 'Active'
-                                  : 'Disabled',
-                          isEnabled:
-                              _firEqEnabled || _dynamicEqEnabled || _iirEqEnabled,
+                          subtitle: (_firEqEnabled ||
+                                  _dynamicEqEnabled ||
+                                  _iirEqEnabled)
+                              ? 'Active'
+                              : 'Disabled',
+                          isEnabled: _firEqEnabled ||
+                              _dynamicEqEnabled ||
+                              _iirEqEnabled,
                           onTapDetail: () => _openDetailScreen(
                               'Dynamic EQ & FIR Filter',
                               Shapes.slanted,
@@ -1499,264 +1497,320 @@ class _ViperFxScreenState extends State<ViperFxScreen>
     );
   }
 
+  M3EExpandableStyle get _deckExpandableStyle => M3EExpandableStyle(
+        color: surfaceDarkColor,
+        gap: 8,
+        headerPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        bodyPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      );
+
   List<Widget> _buildDeckViews() => [
         // Deck 0: Core & Limits
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('Master Limiter', 'Peak threshold, volume & pan', true,
-                  (_) {},
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      children: [
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'THRESH',
-                                value: _masterLimiterThreshold,
-                                min: 0.0,
-                                max: 1.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${(v * 100).round()}%',
-                                onChanged: _viperEnabled
-                                    ? (v) {
-                                        setState(
-                                            () => _masterLimiterThreshold = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'VOLUME',
-                                value: _masterLimiterVolume,
-                                min: 0.0,
-                                max: 2.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) =>
-                                    '${v.toStringAsFixed(1)}x',
-                                onChanged: _viperEnabled
-                                    ? (v) {
-                                        setState(
-                                            () => _masterLimiterVolume = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'PAN',
-                                value: _masterLimiterPan,
-                                min: -1.0,
-                                max: 1.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => v.toStringAsFixed(2),
-                                onChanged: _viperEnabled
-                                    ? (v) {
-                                        setState(() => _masterLimiterPan = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard('Playback Gain', 'AGC volume normalisation',
-                  _playbackGainEnabled, (v) {
-                setState(() => _playbackGainEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      children: [
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'STRENGTH',
-                                value: _playbackGainStrength,
-                                min: 0.0,
-                                max: 1.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${(v * 100).round()}%',
-                                onChanged: _viperEnabled && _playbackGainEnabled
-                                    ? (v) {
-                                        setState(
-                                            () => _playbackGainStrength = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'MAX GAIN',
-                                value: _playbackGainMax,
-                                min: 0.0,
-                                max: 2.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${(v * 100).round()}%',
-                                onChanged: _viperEnabled && _playbackGainEnabled
-                                    ? (v) {
-                                        setState(() => _playbackGainMax = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'THRESH',
-                                value: _playbackGainThreshold,
-                                min: 0.0,
-                                max: 1.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${(v * 100).round()}%',
-                                onChanged: _viperEnabled && _playbackGainEnabled
-                                    ? (v) {
-                                        setState(
-                                            () => _playbackGainThreshold = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'LUFS Normalizer', 'EBU R128 loudness target', _lufsEnabled,
-                  (v) {
-                setState(() => _lufsEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: [
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'TARGET',
-                                    value: _lufsTarget,
-                                    min: -24.0,
-                                    max: -6.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${v.toStringAsFixed(1)}dB',
-                                    onChanged: _viperEnabled && _lufsEnabled
-                                        ? (v) {
-                                            setState(() => _lufsTarget = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'MAX GAIN',
-                                    value: _lufsMaxGainDb,
-                                    min: 0.0,
-                                    max: 20.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${v.toStringAsFixed(1)}dB',
-                                    onChanged: _viperEnabled && _lufsEnabled
-                                        ? (v) {
-                                            setState(() => _lufsMaxGainDb = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('Speed',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Slow'),
-                            M3ESegment(value: 1, label: 'Normal'),
-                            M3ESegment(value: 2, label: 'Fast'),
-                          ],
-                          selected: {_lufsSpeed},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _lufsEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _lufsSpeed = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'ALC Dynamics', 'Automatic Limiter Control', _alcEnabled,
-                  (v) {
-                setState(() => _alcEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: [
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'STRENGTH',
-                                    value: _alcStrength,
-                                    min: 0.0,
-                                    max: 1.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${(v * 100).round()}%',
-                                    onChanged: _viperEnabled && _alcEnabled
-                                        ? (v) {
-                                            setState(() => _alcStrength = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('Mode',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Natural'),
-                            M3ESegment(value: 1, label: 'Mild'),
-                            M3ESegment(value: 2, label: 'Punchy'),
-                          ],
-                          selected: {_alcMode},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _alcEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _alcMode = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  )),
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_viperEnabled) 0,
+              if (_playbackGainEnabled) 1,
+              if (_lufsEnabled) 2,
+              if (_alcEnabled) 3,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'Master Limiter',
+                subtitle: 'Peak threshold, volume & pan',
+                leading: Icon(Icons.tune, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _viperEnabled,
+                  onChanged: _toggleMaster,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'THRESH',
+                              value: _masterLimiterThreshold,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${(v * 100).round()}%',
+                              onChanged: _viperEnabled
+                                  ? (v) {
+                                      setState(() =>
+                                          _masterLimiterThreshold = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'VOLUME',
+                              value: _masterLimiterVolume,
+                              min: 0.0,
+                              max: 2.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${v.toStringAsFixed(1)}x',
+                              onChanged: _viperEnabled
+                                  ? (v) {
+                                      setState(
+                                          () => _masterLimiterVolume = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'PAN',
+                              value: _masterLimiterPan,
+                              min: -1.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => v.toStringAsFixed(2),
+                              onChanged: _viperEnabled
+                                  ? (v) {
+                                      setState(() => _masterLimiterPan = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Playback Gain',
+                subtitle: 'AGC volume normalisation',
+                leading: Icon(Icons.volume_up, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _playbackGainEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _playbackGainEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'STRENGTH',
+                              value: _playbackGainStrength,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _playbackGainEnabled
+                                  ? (v) {
+                                      setState(() =>
+                                          _playbackGainStrength = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'MAX GAIN',
+                              value: _playbackGainMax,
+                              min: 0.0,
+                              max: 2.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _playbackGainEnabled
+                                  ? (v) {
+                                      setState(
+                                          () => _playbackGainMax = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'THRESH',
+                              value: _playbackGainThreshold,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _playbackGainEnabled
+                                  ? (v) {
+                                      setState(() =>
+                                          _playbackGainThreshold = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'LUFS Normalizer',
+                subtitle: 'EBU R128 loudness target',
+                leading: Icon(Icons.speed, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _lufsEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _lufsEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'TARGET',
+                                  value: _lufsTarget,
+                                  min: -24.0,
+                                  max: -6.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}dB',
+                                  onChanged: _viperEnabled && _lufsEnabled
+                                      ? (v) {
+                                          setState(() => _lufsTarget = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'MAX GAIN',
+                                  value: _lufsMaxGainDb,
+                                  min: 0.0,
+                                  max: 20.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}dB',
+                                  onChanged: _viperEnabled && _lufsEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _lufsMaxGainDb = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Speed',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Slow'),
+                          M3ESegment(value: 1, label: 'Normal'),
+                          M3ESegment(value: 2, label: 'Fast'),
+                        ],
+                        selected: {_lufsSpeed},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _lufsEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _lufsSpeed = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'ALC Dynamics',
+                subtitle: 'Automatic Limiter Control',
+                leading:
+                    Icon(Icons.graphic_eq, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _alcEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _alcEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'STRENGTH',
+                                  value: _alcStrength,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled && _alcEnabled
+                                      ? (v) {
+                                          setState(() => _alcStrength = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Mode',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Natural'),
+                          M3ESegment(value: 1, label: 'Mild'),
+                          M3ESegment(value: 2, label: 'Punchy'),
+                        ],
+                        selected: {_alcMode},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _alcEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _alcMode = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1765,128 +1819,183 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: _buildCard('Dynamic System', 'Psychoacoustic bass enhancer',
-              _dynamicSystemEnabled, (v) {
-            setState(() => _dynamicSystemEnabled = v);
-            _updateEngine();
-          },
-              child: Padding(
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_dynamicSystemEnabled) 0,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'VIPRR Dynamic System',
+                subtitle: 'Psychoacoustic bass enhancer',
+                leading: Icon(Icons.bolt, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _dynamicSystemEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _dynamicSystemEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(children: [
-                    const Text('Preset',
-                        style: TextStyle(color: Colors.white70, fontSize: 11)),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 2),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<int>(
-                          value: _dynPreset,
-                          dropdownColor: surfaceDarkColor,
-                          isExpanded: true,
-                          icon: Icon(Icons.arrow_drop_down_rounded,
-                              color: primaryColor),
-                          style: const TextStyle(
+                  child: Column(
+                    children: [
+                      const Text('Preset',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 2),
+                        child: M3EDropdownMenu<int>(
+                          key: ValueKey('dyn_preset_$_dynPreset'),
+                          singleSelect: true,
+                          enabled: _viperEnabled && _dynamicSystemEnabled,
+                          fieldStyle: M3EDropdownFieldStyle(
+                            hintText: 'Select dynamic system preset',
+                            backgroundColor: surfaceDarkColor,
+                            foregroundColor: Colors.white,
+                            selectedTextStyle: const TextStyle(
                               color: Colors.white,
                               fontSize: 13,
-                              fontWeight: FontWeight.w600),
-                          onChanged: _viperEnabled && _dynamicSystemEnabled
-                              ? (int? newValue) {
-                                  if (newValue != null) {
-                                    setState(() {
-                                      _dynPreset = newValue;
-                                      switch (newValue) {
-                                        case 1:
-                                          _dynXLow = 30;
-                                          _dynXHigh = 50;
-                                          _dynYLow = 80;
-                                          _dynYHigh = 120;
-                                          _dynSideGainLow = 1.2;
-                                          _dynSideGainHigh = 1.0;
-                                          break;
-                                        case 2:
-                                          _dynXLow = 40;
-                                          _dynXHigh = 60;
-                                          _dynYLow = 100;
-                                          _dynYHigh = 150;
-                                          _dynSideGainLow = 1.3;
-                                          _dynSideGainHigh = 1.1;
-                                          break;
-                                        case 3:
-                                          _dynXLow = 50;
-                                          _dynXHigh = 70;
-                                          _dynYLow = 120;
-                                          _dynYHigh = 170;
-                                          _dynSideGainLow = 1.4;
-                                          _dynSideGainHigh = 1.2;
-                                          break;
-                                        case 4:
-                                          _dynXLow = 60;
-                                          _dynXHigh = 80;
-                                          _dynYLow = 140;
-                                          _dynYHigh = 190;
-                                          _dynSideGainLow = 1.5;
-                                          _dynSideGainHigh = 1.3;
-                                          break;
-                                        case 5:
-                                          _dynXLow = 60;
-                                          _dynXHigh = 100;
-                                          _dynYLow = 150;
-                                          _dynYHigh = 200;
-                                          _dynSideGainLow = 1.8;
-                                          _dynSideGainHigh = 1.5;
-                                          break;
-                                        case 6:
-                                          _dynXLow = 40;
-                                          _dynXHigh = 70;
-                                          _dynYLow = 100;
-                                          _dynYHigh = 150;
-                                          _dynSideGainLow = 1.5;
-                                          _dynSideGainHigh = 1.2;
-                                          break;
-                                        case 7:
-                                          _dynXLow = 30;
-                                          _dynXHigh = 50;
-                                          _dynYLow = 80;
-                                          _dynYHigh = 120;
-                                          _dynSideGainLow = 1.2;
-                                          _dynSideGainHigh = 1.0;
-                                          break;
-                                        case 8:
-                                          _dynXLow = 20;
-                                          _dynXHigh = 40;
-                                          _dynYLow = 60;
-                                          _dynYHigh = 100;
-                                          _dynSideGainLow = 2.0;
-                                          _dynSideGainHigh = 1.5;
-                                          break;
-                                      }
-                                    });
-                                    _updateEngine();
-                                  }
-                                }
-                              : null,
-                          items: const [
-                            DropdownMenuItem(value: 0, child: Text('Custom')),
-                            DropdownMenuItem(
-                                value: 1, child: Text('Unknown Type I')),
-                            DropdownMenuItem(
-                                value: 2, child: Text('Unknown Type II')),
-                            DropdownMenuItem(
-                                value: 3, child: Text('Unknown Type III')),
-                            DropdownMenuItem(
-                                value: 4, child: Text('Unknown Type IV')),
-                            DropdownMenuItem(value: 5, child: Text('Earbud')),
-                            DropdownMenuItem(value: 6, child: Text('In-Ear')),
-                            DropdownMenuItem(value: 7, child: Text('Over-Ear')),
-                            DropdownMenuItem(
-                                value: 8, child: Text('Extreme Headphone')),
+                              fontWeight: FontWeight.w600,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                          ),
+                          dropdownStyle: M3EDropdownPanelStyle(
+                            backgroundColor: surfaceDarkColor,
+                            elevation: 4,
+                          ),
+                          itemStyle: M3EDropdownItemStyle(
+                            textColor: Colors.white,
+                            selectedTextColor: primaryColor,
+                            selectedBackgroundColor:
+                                primaryColor.withValues(alpha: 0.15),
+                          ),
+                          items: [
+                            M3EDropdownItem(
+                                label: 'Custom',
+                                value: 0,
+                                selected: _dynPreset == 0),
+                            M3EDropdownItem(
+                                label: 'Unknown Type I',
+                                value: 1,
+                                selected: _dynPreset == 1),
+                            M3EDropdownItem(
+                                label: 'Unknown Type II',
+                                value: 2,
+                                selected: _dynPreset == 2),
+                            M3EDropdownItem(
+                                label: 'Unknown Type III',
+                                value: 3,
+                                selected: _dynPreset == 3),
+                            M3EDropdownItem(
+                                label: 'Unknown Type IV',
+                                value: 4,
+                                selected: _dynPreset == 4),
+                            M3EDropdownItem(
+                                label: 'Earbud',
+                                value: 5,
+                                selected: _dynPreset == 5),
+                            M3EDropdownItem(
+                                label: 'In-Ear',
+                                value: 6,
+                                selected: _dynPreset == 6),
+                            M3EDropdownItem(
+                                label: 'Over-Ear',
+                                value: 7,
+                                selected: _dynPreset == 7),
+                            M3EDropdownItem(
+                                label: 'Extreme Headphone',
+                                value: 8,
+                                selected: _dynPreset == 8),
                           ],
+                          onSelectionChanged: (selectedList) {
+                            if (selectedList.isNotEmpty &&
+                                _viperEnabled &&
+                                _dynamicSystemEnabled) {
+                              final newValue = selectedList.first.value;
+                              setState(() {
+                                _dynPreset = newValue;
+                                switch (newValue) {
+                                  case 1:
+                                    _dynXLow = 30;
+                                    _dynXHigh = 50;
+                                    _dynYLow = 80;
+                                    _dynYHigh = 120;
+                                    _dynSideGainLow = 1.2;
+                                    _dynSideGainHigh = 1.0;
+                                    break;
+                                  case 2:
+                                    _dynXLow = 40;
+                                    _dynXHigh = 60;
+                                    _dynYLow = 100;
+                                    _dynYHigh = 150;
+                                    _dynSideGainLow = 1.3;
+                                    _dynSideGainHigh = 1.1;
+                                    break;
+                                  case 3:
+                                    _dynXLow = 50;
+                                    _dynXHigh = 70;
+                                    _dynYLow = 120;
+                                    _dynYHigh = 170;
+                                    _dynSideGainLow = 1.4;
+                                    _dynSideGainHigh = 1.2;
+                                    break;
+                                  case 4:
+                                    _dynXLow = 60;
+                                    _dynXHigh = 80;
+                                    _dynYLow = 140;
+                                    _dynYHigh = 190;
+                                    _dynSideGainLow = 1.5;
+                                    _dynSideGainHigh = 1.3;
+                                    break;
+                                  case 5:
+                                    _dynXLow = 60;
+                                    _dynXHigh = 100;
+                                    _dynYLow = 150;
+                                    _dynYHigh = 200;
+                                    _dynSideGainLow = 1.8;
+                                    _dynSideGainHigh = 1.5;
+                                    break;
+                                  case 6:
+                                    _dynXLow = 40;
+                                    _dynXHigh = 70;
+                                    _dynYLow = 100;
+                                    _dynYHigh = 150;
+                                    _dynSideGainLow = 1.5;
+                                    _dynSideGainHigh = 1.2;
+                                    break;
+                                  case 7:
+                                    _dynXLow = 30;
+                                    _dynXHigh = 50;
+                                    _dynYLow = 80;
+                                    _dynYHigh = 120;
+                                    _dynSideGainLow = 1.2;
+                                    _dynSideGainHigh = 1.0;
+                                    break;
+                                  case 8:
+                                    _dynXLow = 20;
+                                    _dynXHigh = 40;
+                                    _dynYLow = 60;
+                                    _dynYHigh = 100;
+                                    _dynSideGainLow = 2.0;
+                                    _dynSideGainHigh = 1.5;
+                                    break;
+                                }
+                              });
+                              _updateEngine();
+                            }
+                          },
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
+                      const SizedBox(height: 16),
+                      Wrap(
                         spacing: 16,
                         runSpacing: 16,
                         alignment: WrapAlignment.center,
@@ -1903,8 +2012,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   onChanged: _viperEnabled &&
                                           _dynamicSystemEnabled
                                       ? (v) {
-                                          setState(
-                                              () => _dynamicSystemStrength = v);
+                                          setState(() =>
+                                              _dynamicSystemStrength = v);
                                           _updateEngine();
                                         }
                                       : (_) {})),
@@ -1918,13 +2027,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 200.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged:
-                                        _viperEnabled && _dynamicSystemEnabled
-                                            ? (v) {
-                                                setState(() => _dynXLow = v);
-                                                _updateEngine();
-                                              }
-                                            : (_) {})),
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() => _dynXLow = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -1934,13 +2043,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 200.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged:
-                                        _viperEnabled && _dynamicSystemEnabled
-                                            ? (v) {
-                                                setState(() => _dynXHigh = v);
-                                                _updateEngine();
-                                              }
-                                            : (_) {})),
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() => _dynXHigh = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -1950,13 +2059,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 500.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged:
-                                        _viperEnabled && _dynamicSystemEnabled
-                                            ? (v) {
-                                                setState(() => _dynYLow = v);
-                                                _updateEngine();
-                                              }
-                                            : (_) {})),
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() => _dynYLow = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -1966,13 +2075,13 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     max: 500.0,
                                     activeColor: primaryColor,
                                     valueFormatter: (v) => '${v.round()}Hz',
-                                    onChanged:
-                                        _viperEnabled && _dynamicSystemEnabled
-                                            ? (v) {
-                                                setState(() => _dynYHigh = v);
-                                                _updateEngine();
-                                              }
-                                            : (_) {})),
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() => _dynYHigh = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
                             SizedBox(
                                 width: 75,
                                 child: ModernAudioKnob(
@@ -1986,7 +2095,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     onChanged: _viperEnabled &&
                                             _dynamicSystemEnabled
                                         ? (v) {
-                                            setState(() => _dynSideGainLow = v);
+                                            setState(() =>
+                                                _dynSideGainLow = v);
                                             _updateEngine();
                                           }
                                         : (_) {})),
@@ -2000,359 +2110,405 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                     activeColor: primaryColor,
                                     valueFormatter: (v) =>
                                         '${v.toStringAsFixed(1)}x',
-                                    onChanged:
-                                        _viperEnabled && _dynamicSystemEnabled
-                                            ? (v) {
-                                                setState(
-                                                    () => _dynSideGainHigh = v);
-                                                _updateEngine();
-                                              }
-                                            : (_) {})),
+                                    onChanged: _viperEnabled &&
+                                            _dynamicSystemEnabled
+                                        ? (v) {
+                                            setState(() =>
+                                                _dynSideGainHigh = v);
+                                            _updateEngine();
+                                          }
+                                        : (_) {})),
                           ]
-                        ]),
-                  ]))),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
 
         // Deck 2: Dynamics & Compression
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('Multiband Compressor', '5-band dynamics',
-                  _multibandCompressorEnabled, (v) {
-                setState(() => _multibandCompressorEnabled = v);
-                _updateEngine();
-              },
-                  child: Column(children: [
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_multibandCompressorEnabled) 0,
+              if (_fetCompressorEnabled) 1,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'Multiband Compressor',
+                subtitle: '5-band dynamics',
+                leading: Icon(Icons.tune, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _multibandCompressorEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _multibandCompressorEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Column(
+                  children: [
                     _buildMbcCrossovers(),
                     const SizedBox(height: 12),
                     _buildCompressorBands(),
-                  ])),
-              const SizedBox(height: 12),
-              _buildCard('FET Compressor', 'Vintage dynamics processing',
-                  _fetCompressorEnabled, (v) {
-                setState(() => _fetCompressorEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'THRESH',
-                                      value: _fetThreshold,
-                                      min: -60.0,
-                                      max: 0.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${v.toStringAsFixed(1)}dB',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetThreshold = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'RATIO',
-                                      value: _fetRatio,
-                                      min: 1.0,
-                                      max: 20.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${v.toStringAsFixed(1)}:1',
-                                      onChanged:
-                                          _viperEnabled && _fetCompressorEnabled
-                                              ? (v) {
-                                                  setState(() => _fetRatio = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'KNEE',
-                                      value: _fetKnee,
-                                      min: 0.0,
-                                      max: 60.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled &&
-                                              !_fetKneeAuto
-                                          ? (v) {
-                                              setState(() => _fetKnee = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'GAIN',
-                                      value: _fetGain,
-                                      min: -60.0,
-                                      max: 60.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${v.toStringAsFixed(1)}dB',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled &&
-                                              !_fetGainAuto
-                                          ? (v) {
-                                              setState(() => _fetGain = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'ATTACK',
-                                      value: _fetAttack,
-                                      min: 0.0,
-                                      max: 100.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}ms',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled &&
-                                              !_fetAttackAuto
-                                          ? (v) {
-                                              setState(() => _fetAttack = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'RELEASE',
-                                      value: _fetRelease,
-                                      min: 10.0,
-                                      max: 1000.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}ms',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled &&
-                                              !_fetReleaseAuto
-                                          ? (v) {
-                                              setState(() => _fetRelease = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'KNEE MULT',
-                                      value: _fetKneeMulti,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetKneeMulti = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'MAX ATK',
-                                      value: _fetMaxAttack,
-                                      min: 0.0,
-                                      max: 100.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}ms',
-                                      onChanged: _viperEnabled &&
-                                              _fetCompressorEnabled
-                                          ? (v) {
-                                              setState(() => _fetMaxAttack = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'MAX REL',
-                                      value: _fetMaxRelease,
-                                      min: 10.0,
-                                      max: 1000.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}ms',
-                                      onChanged:
-                                          _viperEnabled && _fetCompressorEnabled
-                                              ? (v) {
-                                                  setState(
-                                                      () => _fetMaxRelease = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'CREST',
-                                      value: _fetCrest,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged:
-                                          _viperEnabled && _fetCompressorEnabled
-                                              ? (v) {
-                                                  setState(() => _fetCrest = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'ADAPT',
-                                      value: _fetAdapt,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) =>
-                                          '${(v * 100).round()}%',
-                                      onChanged:
-                                          _viperEnabled && _fetCompressorEnabled
-                                              ? (v) {
-                                                  setState(() => _fetAdapt = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                            ]),
-                        const SizedBox(height: 16),
-                        Wrap(
-                            spacing: 8,
-                            runSpacing: 0,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 150,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Auto Knee',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      M3ESwitch(
-                                        value: _fetKneeAuto,
-                                        onChanged: _viperEnabled &&
-                                                _fetCompressorEnabled
-                                            ? (v) {
-                                                setState(
-                                                    () => _fetKneeAuto = v);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                      ),
-                                    ],
-                                  )),
-                              SizedBox(
-                                  width: 150,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Auto Gain',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      M3ESwitch(
-                                        value: _fetGainAuto,
-                                        onChanged: _viperEnabled &&
-                                                _fetCompressorEnabled
-                                            ? (v) {
-                                                setState(
-                                                    () => _fetGainAuto = v);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                      ),
-                                    ],
-                                  )),
-                              SizedBox(
-                                  width: 150,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Auto Attack',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      M3ESwitch(
-                                        value: _fetAttackAuto,
-                                        onChanged: _viperEnabled &&
-                                                _fetCompressorEnabled
-                                            ? (v) {
-                                                setState(
-                                                    () => _fetAttackAuto = v);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                      ),
-                                    ],
-                                  )),
-                              SizedBox(
-                                  width: 150,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Auto Release',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      M3ESwitch(
-                                        value: _fetReleaseAuto,
-                                        onChanged: _viperEnabled &&
-                                                _fetCompressorEnabled
-                                            ? (v) {
-                                                setState(
-                                                    () => _fetReleaseAuto = v);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                      ),
-                                    ],
-                                  )),
-                              SizedBox(
-                                  width: 150,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('No Clip',
-                                          style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11)),
-                                      M3ESwitch(
-                                        value: _fetNoClip,
-                                        onChanged: _viperEnabled &&
-                                                _fetCompressorEnabled
-                                            ? (v) {
-                                                setState(() => _fetNoClip = v);
-                                                _updateEngine();
-                                              }
-                                            : null,
-                                      ),
-                                    ],
-                                  )),
-                            ])
-                      ]))),
+                  ],
+                ),
+              ),
+              M3EExpandableData(
+                title: 'FET Compressor',
+                subtitle: 'Vintage dynamics processing',
+                leading: Icon(Icons.compress, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _fetCompressorEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _fetCompressorEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'THRESH',
+                                  value: _fetThreshold,
+                                  min: -60.0,
+                                  max: 0.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}dB',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetThreshold = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'RATIO',
+                                  value: _fetRatio,
+                                  min: 1.0,
+                                  max: 20.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}:1',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetRatio = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'KNEE',
+                                  value: _fetKnee,
+                                  min: 0.0,
+                                  max: 60.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled &&
+                                          !_fetKneeAuto
+                                      ? (v) {
+                                          setState(() => _fetKnee = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'GAIN',
+                                  value: _fetGain,
+                                  min: -60.0,
+                                  max: 60.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${v.toStringAsFixed(1)}dB',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled &&
+                                          !_fetGainAuto
+                                      ? (v) {
+                                          setState(() => _fetGain = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'ATTACK',
+                                  value: _fetAttack,
+                                  min: 0.0,
+                                  max: 100.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}ms',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled &&
+                                          !_fetAttackAuto
+                                      ? (v) {
+                                          setState(() => _fetAttack = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'RELEASE',
+                                  value: _fetRelease,
+                                  min: 10.0,
+                                  max: 1000.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}ms',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled &&
+                                          !_fetReleaseAuto
+                                      ? (v) {
+                                          setState(() => _fetRelease = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'KNEE MULT',
+                                  value: _fetKneeMulti,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetKneeMulti = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'MAX ATK',
+                                  value: _fetMaxAttack,
+                                  min: 0.0,
+                                  max: 100.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}ms',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetMaxAttack = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'MAX REL',
+                                  value: _fetMaxRelease,
+                                  min: 10.0,
+                                  max: 1000.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}ms',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _fetMaxRelease = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'CREST',
+                                  value: _fetCrest,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetCrest = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'ADAPT',
+                                  value: _fetAdapt,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _fetCompressorEnabled
+                                      ? (v) {
+                                          setState(() => _fetAdapt = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 0,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 150,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Auto Knee',
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11)),
+                                  M3ESwitch(
+                                    selectedIcon: Icon(Icons.check,
+                                        color: primaryColor),
+                                    value: _fetKneeAuto,
+                                    onChanged: _viperEnabled &&
+                                            _fetCompressorEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _fetKneeAuto = v);
+                                            _updateEngine();
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              )),
+                          SizedBox(
+                              width: 150,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Auto Gain',
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11)),
+                                  M3ESwitch(
+                                    selectedIcon: Icon(Icons.check,
+                                        color: primaryColor),
+                                    value: _fetGainAuto,
+                                    onChanged: _viperEnabled &&
+                                            _fetCompressorEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _fetGainAuto = v);
+                                            _updateEngine();
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              )),
+                          SizedBox(
+                              width: 150,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Auto Attack',
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11)),
+                                  M3ESwitch(
+                                    value: _fetAttackAuto,
+                                    onChanged: _viperEnabled &&
+                                            _fetCompressorEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _fetAttackAuto = v);
+                                            _updateEngine();
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              )),
+                          SizedBox(
+                              width: 150,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Auto Release',
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11)),
+                                  M3ESwitch(
+                                    selectedIcon: Icon(Icons.check,
+                                        color: primaryColor),
+                                    value: _fetReleaseAuto,
+                                    onChanged: _viperEnabled &&
+                                            _fetCompressorEnabled
+                                        ? (v) {
+                                            setState(
+                                                () => _fetReleaseAuto = v);
+                                            _updateEngine();
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              )),
+                          SizedBox(
+                              width: 150,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('No Clip',
+                                      style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11)),
+                                  M3ESwitch(
+                                    selectedIcon: Icon(Icons.check,
+                                        color: primaryColor),
+                                    value: _fetNoClip,
+                                    onChanged: _viperEnabled &&
+                                            _fetCompressorEnabled
+                                        ? (v) {
+                                            setState(() => _fetNoClip = v);
+                                            _updateEngine();
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              )),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -2361,368 +2517,450 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('ViPER Bass', 'Stereo bass boost', _bassEnabled, (v) {
-                setState(() => _bassEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        const Text('Mode',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Natural'),
-                            M3ESegment(value: 1, label: 'Pure'),
-                            M3ESegment(value: 2, label: 'Subwoofer'),
-                          ],
-                          selected: {_bassMode},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _bassEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _bassMode = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'FREQ',
-                                      value: _bassFreq,
-                                      min: 20.0,
-                                      max: 120.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}Hz',
-                                      onChanged: _viperEnabled && _bassEnabled
-                                          ? (v) {
-                                              setState(() => _bassFreq = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'GAIN',
-                                      value: _bassGain,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      isPercentage: true,
-                                      onChanged: _viperEnabled && _bassEnabled
-                                          ? (v) {
-                                              setState(() => _bassGain = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                            ]),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Anti-Pop',
-                                style: TextStyle(
-                                    color: Colors.white70, fontSize: 11)),
-                            M3ESwitch(
-                              value: _bassAntiPop,
-                              onChanged: _viperEnabled && _bassEnabled
-                                  ? (v) {
-                                      setState(() => _bassAntiPop = v);
-                                      _updateEngine();
-                                    }
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ]))),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'ViPER Bass Mono', 'Sub-bass reinforcement', _bassMonoEnabled,
-                  (v) {
-                setState(() => _bassMonoEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        const Text('Mode',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Natural'),
-                            M3ESegment(value: 1, label: 'Pure'),
-                            M3ESegment(value: 2, label: 'Subwoofer'),
-                          ],
-                          selected: {_bassMonoMode},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _bassMonoEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(
-                                  () => _bassMonoMode = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'FREQ',
-                                      value: _bassMonoFreq,
-                                      min: 20.0,
-                                      max: 120.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}Hz',
-                                      onChanged: _viperEnabled &&
-                                              _bassMonoEnabled
-                                          ? (v) {
-                                              setState(() => _bassMonoFreq = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'GAIN',
-                                      value: _bassMonoGain,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      isPercentage: true,
-                                      onChanged: _viperEnabled &&
-                                              _bassMonoEnabled
-                                          ? (v) {
-                                              setState(() => _bassMonoGain = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                            ]),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Anti-Pop',
-                                style: TextStyle(
-                                    color: Colors.white70, fontSize: 11)),
-                            M3ESwitch(
-                              value: _bassMonoAntiPop,
-                              onChanged: _viperEnabled && _bassMonoEnabled
-                                  ? (v) {
-                                      setState(() => _bassMonoAntiPop = v);
-                                      _updateEngine();
-                                    }
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ]))),
-              const SizedBox(height: 12),
-              _buildCard('Psychoacoustic Bass', 'Harmonic synthesis',
-                  _psychoBassEnabled, (v) {
-                setState(() => _psychoBassEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        const Text('Harmonic Order',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 2, label: '2nd'),
-                            M3ESegment(value: 3, label: '3rd'),
-                            M3ESegment(value: 4, label: '4th'),
-                            M3ESegment(value: 5, label: '5th'),
-                          ],
-                          selected: {_psychoHarmonicOrder},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _psychoBassEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() =>
-                                  _psychoHarmonicOrder = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'CUTOFF',
-                                      value: _psychoCutoff,
-                                      min: 30.0,
-                                      max: 150.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}Hz',
-                                      onChanged: _viperEnabled &&
-                                              _psychoBassEnabled
-                                          ? (v) {
-                                              setState(() => _psychoCutoff = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'INTENS',
-                                      value: _psychoIntensity,
-                                      min: 0.0,
-                                      max: 100.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}%',
-                                      onChanged: _viperEnabled &&
-                                              _psychoBassEnabled
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_bassEnabled) 0,
+              if (_bassMonoEnabled) 1,
+              if (_psychoBassEnabled) 2,
+              if (_clarityEnabled) 3,
+              if (_spectrumEnabled) 4,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'ViPER Bass',
+                subtitle: 'Stereo bass boost',
+                leading: Icon(Icons.speaker, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _bassEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _bassEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Mode',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Natural'),
+                          M3ESegment(value: 1, label: 'Pure'),
+                          M3ESegment(value: 2, label: 'Subwoofer'),
+                        ],
+                        selected: {_bassMode},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _bassEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _bassMode = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'FREQ',
+                                  value: _bassFreq,
+                                  min: 20.0,
+                                  max: 120.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}Hz',
+                                  onChanged: _viperEnabled && _bassEnabled
+                                      ? (v) {
+                                          setState(() => _bassFreq = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'GAIN',
+                                  value: _bassGain,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  isPercentage: true,
+                                  onChanged: _viperEnabled && _bassEnabled
+                                      ? (v) {
+                                          setState(() => _bassGain = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Anti-Pop',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 11)),
+                          M3ESwitch(
+                            selectedIcon:
+                                Icon(Icons.check, color: primaryColor),
+                            value: _bassAntiPop,
+                            onChanged: _viperEnabled && _bassEnabled
+                                ? (v) {
+                                    setState(() => _bassAntiPop = v);
+                                    _updateEngine();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'ViPER Bass Mono',
+                subtitle: 'Sub-bass reinforcement',
+                leading:
+                    Icon(Icons.speaker_group, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _bassMonoEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _bassMonoEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Mode',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Natural'),
+                          M3ESegment(value: 1, label: 'Pure'),
+                          M3ESegment(value: 2, label: 'Subwoofer'),
+                        ],
+                        selected: {_bassMonoMode},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _bassMonoEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(
+                                () => _bassMonoMode = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'FREQ',
+                                  value: _bassMonoFreq,
+                                  min: 20.0,
+                                  max: 120.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}Hz',
+                                  onChanged:
+                                      _viperEnabled && _bassMonoEnabled
                                           ? (v) {
                                               setState(
-                                                  () => _psychoIntensity = v);
+                                                  () => _bassMonoFreq = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'ORIG BASS',
-                                      value: _psychoOriginalLevel,
-                                      min: 0.0,
-                                      max: 100.0,
-                                      activeColor: primaryColor,
-                                      valueFormatter: (v) => '${v.round()}%',
-                                      onChanged:
-                                          _viperEnabled && _psychoBassEnabled
-                                              ? (v) {
-                                                  setState(() =>
-                                                      _psychoOriginalLevel = v);
-                                                  _updateEngine();
-                                                }
-                                              : (_) {})),
-                            ]),
-                      ]))),
-              const SizedBox(height: 12),
-              _buildCard('ViPER Clarity', 'Vocal and treble extraction',
-                  _clarityEnabled, (v) {
-                setState(() => _clarityEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        const Text('Mode',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Natural'),
-                            M3ESegment(value: 1, label: 'Ozone+'),
-                            M3ESegment(value: 2, label: 'XHiFi'),
-                          ],
-                          selected: {_clarityMode},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _clarityEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _clarityMode = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                            spacing: 16,
-                            runSpacing: 16,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              SizedBox(
-                                  width: 75,
-                                  child: ModernAudioKnob(
-                                      label: 'GAIN',
-                                      value: _clarityGain,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      activeColor: primaryColor,
-                                      isPercentage: true,
-                                      onChanged: _viperEnabled &&
-                                              _clarityEnabled
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'GAIN',
+                                  value: _bassMonoGain,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  isPercentage: true,
+                                  onChanged:
+                                      _viperEnabled && _bassMonoEnabled
                                           ? (v) {
-                                              setState(() => _clarityGain = v);
+                                              setState(
+                                                  () => _bassMonoGain = v);
                                               _updateEngine();
                                             }
                                           : (_) {})),
-                            ]),
-                      ]))),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'Spectrum Extension', 'High-frequency air', _spectrumEnabled,
-                  (v) {
-                setState(() => _spectrumEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          alignment: WrapAlignment.center,
-                          children: [
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'STRENGTH',
-                                    value: _spectrumStrength,
-                                    min: 0.0,
-                                    max: 100.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) => '${v.round()}%',
-                                    onChanged: _viperEnabled && _spectrumEnabled
-                                        ? (v) {
-                                            setState(
-                                                () => _spectrumStrength = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'EXCITER',
-                                    value: _spectrumExciter,
-                                    min: 0.0,
-                                    max: 1.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${(v * 100).round()}%',
-                                    onChanged: _viperEnabled && _spectrumEnabled
-                                        ? (v) {
-                                            setState(
-                                                () => _spectrumExciter = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                          ]))),
+                        ],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Anti-Pop',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 11)),
+                          M3ESwitch(
+                            selectedIcon:
+                                Icon(Icons.check, color: primaryColor),
+                            value: _bassMonoAntiPop,
+                            onChanged: _viperEnabled && _bassMonoEnabled
+                                ? (v) {
+                                    setState(() => _bassMonoAntiPop = v);
+                                    _updateEngine();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Psychoacoustic Bass',
+                subtitle: 'Harmonic synthesis',
+                leading: Icon(Icons.waves, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _psychoBassEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _psychoBassEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Harmonic Order',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 2, label: '2nd'),
+                          M3ESegment(value: 3, label: '3rd'),
+                          M3ESegment(value: 4, label: '4th'),
+                          M3ESegment(value: 5, label: '5th'),
+                        ],
+                        selected: {_psychoHarmonicOrder},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _psychoBassEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _psychoHarmonicOrder =
+                                newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'CUTOFF',
+                                  value: _psychoCutoff,
+                                  min: 30.0,
+                                  max: 150.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}Hz',
+                                  onChanged: _viperEnabled &&
+                                          _psychoBassEnabled
+                                      ? (v) {
+                                          setState(() => _psychoCutoff = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'INTENS',
+                                  value: _psychoIntensity,
+                                  min: 0.0,
+                                  max: 100.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _psychoBassEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _psychoIntensity = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'ORIG BASS',
+                                  value: _psychoOriginalLevel,
+                                  min: 0.0,
+                                  max: 100.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) => '${v.round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _psychoBassEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _psychoOriginalLevel = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'ViPER Clarity',
+                subtitle: 'Vocal and treble extraction',
+                leading:
+                    Icon(Icons.auto_awesome, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _clarityEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _clarityEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Mode',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Natural'),
+                          M3ESegment(value: 1, label: 'Ozone+'),
+                          M3ESegment(value: 2, label: 'XHiFi'),
+                        ],
+                        selected: {_clarityMode},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _clarityEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(
+                                () => _clarityMode = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'GAIN',
+                                  value: _clarityGain,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  isPercentage: true,
+                                  onChanged: _viperEnabled && _clarityEnabled
+                                      ? (v) {
+                                          setState(() => _clarityGain = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Spectrum Extension',
+                subtitle: 'High-frequency air',
+                leading: Icon(Icons.blur_on, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _spectrumEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _spectrumEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'STRENGTH',
+                              value: _spectrumStrength,
+                              min: 0.0,
+                              max: 100.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${v.round()}%',
+                              onChanged:
+                                  _viperEnabled && _spectrumEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _spectrumStrength = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'EXCITER',
+                              value: _spectrumExciter,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged:
+                                  _viperEnabled && _spectrumEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _spectrumExciter = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -2731,256 +2969,328 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('Stereo Imager', 'Multiband width & crossover control',
-                  _stereoImagerEnabled, (v) {
-                setState(() => _stereoImagerEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'LOW',
-                                value: _stereoLowWidth,
-                                min: 0.0,
-                                max: 200.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${v.round()}%',
-                                onChanged: _viperEnabled && _stereoImagerEnabled
-                                    ? (v) {
-                                        setState(() => _stereoLowWidth = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'MID',
-                                value: _stereoMidWidth,
-                                min: 0.0,
-                                max: 200.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${v.round()}%',
-                                onChanged: _viperEnabled && _stereoImagerEnabled
-                                    ? (v) {
-                                        setState(() => _stereoMidWidth = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'HIGH',
-                                value: _stereoHighWidth,
-                                min: 0.0,
-                                max: 200.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${v.round()}%',
-                                onChanged: _viperEnabled && _stereoImagerEnabled
-                                    ? (v) {
-                                        setState(() => _stereoHighWidth = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'LOW X-OVER',
-                                value: _stereoLowCrossover,
-                                min: 50.0,
-                                max: 1000.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) => '${v.round()}Hz',
-                                onChanged: _viperEnabled && _stereoImagerEnabled
-                                    ? (v) {
-                                        setState(() => _stereoLowCrossover = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                        SizedBox(
-                            width: 75,
-                            child: ModernAudioKnob(
-                                label: 'HIGH X-OVER',
-                                value: _stereoHighCrossover,
-                                min: 1000.0,
-                                max: 10000.0,
-                                activeColor: primaryColor,
-                                valueFormatter: (v) =>
-                                    '${(v / 1000).toStringAsFixed(1)}kHz',
-                                onChanged: _viperEnabled && _stereoImagerEnabled
-                                    ? (v) {
-                                        setState(
-                                            () => _stereoHighCrossover = v);
-                                        _updateEngine();
-                                      }
-                                    : (_) {})),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard('Auditory System Protection',
-                  'Cure Tech+ binaural crossfeed', _cureEnabled, (v) {
-                setState(() => _cureEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        const Text('Binaural Level',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Off'),
-                            M3ESegment(value: 1, label: 'Slight'),
-                            M3ESegment(value: 2, label: 'Extreme'),
-                          ],
-                          selected: {_curePreset},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _cureEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _curePreset = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard('Headphone Surround+', 'Eliminates in-head fatigue',
-                  _headphoneSurroundEnabled, (v) {
-                setState(() => _headphoneSurroundEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        const Text('Quality',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Low'),
-                            M3ESegment(value: 1, label: 'Mid'),
-                            M3ESegment(value: 2, label: 'High'),
-                          ],
-                          selected: {_headphoneSurroundQuality},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _headphoneSurroundEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _headphoneSurroundQuality =
-                                  newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard('Field Surround', 'ColorfulMusic field expansion',
-                  _fieldSurroundEnabled, (v) {
-                setState(() => _fieldSurroundEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        const Text('Surround Depth Level',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Lvl 1'),
-                            M3ESegment(value: 1, label: 'Lvl 2'),
-                            M3ESegment(value: 2, label: 'Lvl 3'),
-                            M3ESegment(value: 3, label: 'Lvl 4'),
-                            M3ESegment(value: 4, label: 'Lvl 5'),
-                          ],
-                          selected: {_fieldDepth},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _fieldSurroundEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _fieldDepth = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          alignment: WrapAlignment.center,
-                          children: [
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'WIDENING',
-                                    value: _fieldWidening,
-                                    min: 0.0,
-                                    max: 1.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${(v * 100).round()}%',
-                                    onChanged: _viperEnabled &&
-                                            _fieldSurroundEnabled
-                                        ? (v) {
-                                            setState(() => _fieldWidening = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                            SizedBox(
-                                width: 75,
-                                child: ModernAudioKnob(
-                                    label: 'MID IMG',
-                                    value: _fieldMidImage,
-                                    min: 0.0,
-                                    max: 1.0,
-                                    activeColor: primaryColor,
-                                    valueFormatter: (v) =>
-                                        '${(v * 100).round()}%',
-                                    onChanged: _viperEnabled &&
-                                            _fieldSurroundEnabled
-                                        ? (v) {
-                                            setState(() => _fieldMidImage = v);
-                                            _updateEngine();
-                                          }
-                                        : (_) {})),
-                          ],
-                        ),
-                      ],
-                    ),
-                  )),
-              const SizedBox(height: 12),
-              _buildCard('Differential Surround', 'Haas effect delay panning',
-                  _diffSurroundEnabled, (v) {
-                setState(() => _diffSurroundEnabled = v);
-                _updateEngine();
-              },
-                  child: Column(children: [
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_stereoImagerEnabled) 0,
+              if (_cureEnabled) 1,
+              if (_headphoneSurroundEnabled) 2,
+              if (_fieldSurroundEnabled) 3,
+              if (_diffSurroundEnabled) 4,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'Stereo Imager',
+                subtitle: 'Multiband width & crossover control',
+                leading: Icon(Icons.surround_sound,
+                    color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _stereoImagerEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _stereoImagerEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'LOW',
+                              value: _stereoLowWidth,
+                              min: 0.0,
+                              max: 200.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${v.round()}%',
+                              onChanged:
+                                  _viperEnabled && _stereoImagerEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _stereoLowWidth = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'MID',
+                              value: _stereoMidWidth,
+                              min: 0.0,
+                              max: 200.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${v.round()}%',
+                              onChanged:
+                                  _viperEnabled && _stereoImagerEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _stereoMidWidth = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'HIGH',
+                              value: _stereoHighWidth,
+                              min: 0.0,
+                              max: 200.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${v.round()}%',
+                              onChanged:
+                                  _viperEnabled && _stereoImagerEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _stereoHighWidth = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'LOW X-OVER',
+                              value: _stereoLowCrossover,
+                              min: 50.0,
+                              max: 1000.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) => '${v.round()}Hz',
+                              onChanged:
+                                  _viperEnabled && _stereoImagerEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _stereoLowCrossover = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'HIGH X-OVER',
+                              value: _stereoHighCrossover,
+                              min: 1000.0,
+                              max: 10000.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v / 1000).toStringAsFixed(1)}kHz',
+                              onChanged:
+                                  _viperEnabled && _stereoImagerEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _stereoHighCrossover = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Auditory System Protection',
+                subtitle: 'Cure Tech+ binaural crossfeed',
+                leading: Icon(Icons.hearing, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _cureEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _cureEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Binaural Level',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Off'),
+                          M3ESegment(value: 1, label: 'Slight'),
+                          M3ESegment(value: 2, label: 'Extreme'),
+                        ],
+                        selected: {_curePreset},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _cureEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _curePreset = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Headphone Surround+',
+                subtitle: 'Eliminates in-head fatigue',
+                leading:
+                    Icon(Icons.headphones, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _headphoneSurroundEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _headphoneSurroundEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Quality',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Low'),
+                          M3ESegment(value: 1, label: 'Mid'),
+                          M3ESegment(value: 2, label: 'High'),
+                        ],
+                        selected: {_headphoneSurroundQuality},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _headphoneSurroundEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _headphoneSurroundQuality =
+                                newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Field Surround',
+                subtitle: 'ColorfulMusic field expansion',
+                leading:
+                    Icon(Icons.spatial_audio, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _fieldSurroundEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _fieldSurroundEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Surround Depth Level',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Lvl 1'),
+                          M3ESegment(value: 1, label: 'Lvl 2'),
+                          M3ESegment(value: 2, label: 'Lvl 3'),
+                          M3ESegment(value: 3, label: 'Lvl 4'),
+                          M3ESegment(value: 4, label: 'Lvl 5'),
+                        ],
+                        selected: {_fieldDepth},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _fieldSurroundEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(
+                                () => _fieldDepth = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'WIDENING',
+                                  value: _fieldWidening,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _fieldSurroundEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _fieldWidening = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                          SizedBox(
+                              width: 75,
+                              child: ModernAudioKnob(
+                                  label: 'MID IMG',
+                                  value: _fieldMidImage,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: primaryColor,
+                                  valueFormatter: (v) =>
+                                      '${(v * 100).round()}%',
+                                  onChanged: _viperEnabled &&
+                                          _fieldSurroundEnabled
+                                      ? (v) {
+                                          setState(() =>
+                                              _fieldMidImage = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Differential Surround',
+                subtitle: 'Haas effect delay panning',
+                leading: Icon(Icons.compare_arrows,
+                    color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _diffSurroundEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _diffSurroundEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Column(
+                  children: [
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Wrap(
                         spacing: 16,
                         runSpacing: 16,
+                        alignment: WrapAlignment.center,
                         children: [
                           SizedBox(
                               width: 75,
@@ -2992,13 +3302,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${v.toStringAsFixed(1)}ms',
-                                  onChanged:
-                                      _viperEnabled && _diffSurroundEnabled
-                                          ? (v) {
-                                              setState(() => _diffDelay = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
+                                  onChanged: _viperEnabled &&
+                                          _diffSurroundEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _diffDelay = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -3009,13 +3320,14 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   activeColor: primaryColor,
                                   valueFormatter: (v) =>
                                       '${(v * 100).round()}%',
-                                  onChanged:
-                                      _viperEnabled && _diffSurroundEnabled
-                                          ? (v) {
-                                              setState(() => _diffWetDry = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
+                                  onChanged: _viperEnabled &&
+                                          _diffSurroundEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _diffWetDry = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
                           SizedBox(
                               width: 75,
                               child: ModernAudioKnob(
@@ -3024,14 +3336,16 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                                   min: 20.0,
                                   max: 20000.0,
                                   activeColor: primaryColor,
-                                  valueFormatter: (v) => '${v.round()}Hz',
-                                  onChanged:
-                                      _viperEnabled && _diffSurroundEnabled
-                                          ? (v) {
-                                              setState(() => _diffLpCutoff = v);
-                                              _updateEngine();
-                                            }
-                                          : (_) {})),
+                                  valueFormatter: (v) =>
+                                      '${v.round()}Hz',
+                                  onChanged: _viperEnabled &&
+                                          _diffSurroundEnabled
+                                      ? (v) {
+                                          setState(
+                                              () => _diffLpCutoff = v);
+                                          _updateEngine();
+                                        }
+                                      : (_) {})),
                         ],
                       ),
                     ),
@@ -3042,6 +3356,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                             style: TextStyle(
                                 color: Colors.white70, fontSize: 11)),
                         M3ESwitch(
+                          selectedIcon:
+                              Icon(Icons.check, color: primaryColor),
                           value: _diffReverse,
                           onChanged: _viperEnabled && _diffSurroundEnabled
                               ? (v) {
@@ -3052,7 +3368,9 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                         ),
                       ],
                     ),
-                  ])),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -3061,121 +3379,187 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: _buildCard('Reverberation', 'Room simulation', _reverbEnabled,
-              (v) {
-            setState(() => _reverbEnabled = v);
-            _updateEngine();
-          },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  children: [
-                    SizedBox(
-                        width: 75,
-                        child: ModernAudioKnob(
-                            label: 'ROOM',
-                            value: _reverbRoom,
-                            min: 0.0,
-                            max: 1.0,
-                            activeColor: primaryColor,
-                            valueFormatter: (v) => '${(v * 100).round()}%',
-                            onChanged: _viperEnabled && _reverbEnabled
-                                ? (v) {
-                                    setState(() => _reverbRoom = v);
-                                    _updateEngine();
-                                  }
-                                : (_) {})),
-                    SizedBox(
-                        width: 75,
-                        child: ModernAudioKnob(
-                            label: 'WIDTH',
-                            value: _reverbWidth,
-                            min: 0.0,
-                            max: 1.0,
-                            activeColor: primaryColor,
-                            valueFormatter: (v) => '${(v * 100).round()}%',
-                            onChanged: _viperEnabled && _reverbEnabled
-                                ? (v) {
-                                    setState(() => _reverbWidth = v);
-                                    _updateEngine();
-                                  }
-                                : (_) {})),
-                    SizedBox(
-                        width: 75,
-                        child: ModernAudioKnob(
-                            label: 'DAMP',
-                            value: _reverbDamp,
-                            min: 0.0,
-                            max: 1.0,
-                            activeColor: primaryColor,
-                            valueFormatter: (v) => '${(v * 100).round()}%',
-                            onChanged: _viperEnabled && _reverbEnabled
-                                ? (v) {
-                                    setState(() => _reverbDamp = v);
-                                    _updateEngine();
-                                  }
-                                : (_) {})),
-                    SizedBox(
-                        width: 75,
-                        child: ModernAudioKnob(
-                            label: 'WET',
-                            value: _reverbWet,
-                            min: 0.0,
-                            max: 1.0,
-                            activeColor: primaryColor,
-                            valueFormatter: (v) => '${(v * 100).round()}%',
-                            onChanged: _viperEnabled && _reverbEnabled
-                                ? (v) {
-                                    setState(() => _reverbWet = v);
-                                    _updateEngine();
-                                  }
-                                : (_) {})),
-                    SizedBox(
-                        width: 75,
-                        child: ModernAudioKnob(
-                            label: 'DRY',
-                            value: _reverbDry,
-                            min: 0.0,
-                            max: 1.0,
-                            activeColor: primaryColor,
-                            valueFormatter: (v) => '${(v * 100).round()}%',
-                            onChanged: _viperEnabled && _reverbEnabled
-                                ? (v) {
-                                    setState(() => _reverbDry = v);
-                                    _updateEngine();
-                                  }
-                                : (_) {})),
-                  ],
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_reverbEnabled) 0,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'Reverberation',
+                subtitle: 'Room simulation',
+                leading:
+                    Icon(Icons.meeting_room, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _reverbEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _reverbEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
                 ),
-              )),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'ROOM',
+                              value: _reverbRoom,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _reverbEnabled
+                                  ? (v) {
+                                      setState(() => _reverbRoom = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'WIDTH',
+                              value: _reverbWidth,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _reverbEnabled
+                                  ? (v) {
+                                      setState(() => _reverbWidth = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'DAMP',
+                              value: _reverbDamp,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _reverbEnabled
+                                  ? (v) {
+                                      setState(() => _reverbDamp = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'WET',
+                              value: _reverbWet,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _reverbEnabled
+                                  ? (v) {
+                                      setState(() => _reverbWet = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                      SizedBox(
+                          width: 75,
+                          child: ModernAudioKnob(
+                              label: 'DRY',
+                              value: _reverbDry,
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: primaryColor,
+                              valueFormatter: (v) =>
+                                  '${(v * 100).round()}%',
+                              onChanged: _viperEnabled && _reverbEnabled
+                                  ? (v) {
+                                      setState(() => _reverbDry = v);
+                                      _updateEngine();
+                                    }
+                                  : (_) {})),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
 
         // Deck 6: Dynamic EQ & FIR
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('FIR Equalizer', 'FIR bands processing', _firEqEnabled,
-                  (v) {
-                setState(() => _firEqEnabled = v);
-                _updateEngine();
-              }, child: _buildEqBands(_firEqFreqs, _firEqGains, _firEqEnabled)),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'Dynamic EQ', 'Adaptive frequency scaling', _dynamicEqEnabled,
-                  (v) {
-                setState(() => _dynamicEqEnabled = v);
-                _updateEngine();
-              }, child: _buildDynamicEqBands()),
-              const SizedBox(height: 12),
-              _buildCard('IIR Order EQ', 'IIR bands processing', _iirEqEnabled,
-                  (v) {
-                setState(() => _iirEqEnabled = v);
-                _updateEngine();
-              }, child: _buildEqBands(_iirEqFreqs, _iirEqGains, _iirEqEnabled)),
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_firEqEnabled) 0,
+              if (_dynamicEqEnabled) 1,
+              if (_iirEqEnabled) 2,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'FIR Equalizer',
+                subtitle: 'FIR bands processing',
+                leading:
+                    Icon(Icons.graphic_eq, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _firEqEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _firEqEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: _buildEqBands(
+                    _firEqFreqs, _firEqGains, _firEqEnabled),
+              ),
+              M3EExpandableData(
+                title: 'Dynamic EQ',
+                subtitle: 'Adaptive frequency scaling',
+                leading: Icon(Icons.equalizer, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _dynamicEqEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _dynamicEqEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: _buildDynamicEqBands(),
+              ),
+              M3EExpandableData(
+                title: 'IIR Order EQ',
+                subtitle: 'IIR bands processing',
+                leading: Icon(Icons.tune, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _iirEqEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _iirEqEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: _buildEqBands(
+                    _iirEqFreqs, _iirEqGains, _iirEqEnabled),
+              ),
             ],
           ),
         ),
@@ -3185,21 +3569,54 @@ class _ViperFxScreenState extends State<ViperFxScreen>
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildAutoEqImporter(),
               const SizedBox(height: 12),
-              _buildCard(
-                  'Convolver', 'IRS Convolver processing', _convolverEnabled,
-                  (v) {
-                setState(() => _convolverEnabled = v);
-                _updateEngine();
-              }, child: _buildConvolverSelector()),
-              const SizedBox(height: 12),
-              _buildCard(
-                  'Viper DDC', 'Device-Dependent Correction', _ddcEnabled, (v) {
-                setState(() => _ddcEnabled = v);
-                _updateEngine();
-              }, child: _buildDdcSelector()),
+              M3EExpandableList(
+                allowMultipleExpanded: true,
+                style: _deckExpandableStyle,
+                initiallyExpanded: {
+                  if (_convolverEnabled) 0,
+                  if (_ddcEnabled) 1,
+                },
+                data: [
+                  M3EExpandableData(
+                    title: 'Convolver',
+                    subtitle: 'IRS Convolver processing',
+                    leading:
+                        Icon(Icons.audiotrack, color: primaryColor, size: 20),
+                    trailing: M3ESwitch(
+                      selectedIcon: Icon(Icons.check, color: primaryColor),
+                      value: _convolverEnabled,
+                      onChanged: _viperEnabled
+                          ? (v) {
+                              setState(() => _convolverEnabled = v);
+                              _updateEngine();
+                            }
+                          : null,
+                    ),
+                    body: _buildConvolverSelector(),
+                  ),
+                  M3EExpandableData(
+                    title: 'Viper DDC',
+                    subtitle: 'Device-Dependent Correction',
+                    leading:
+                        Icon(Icons.headset, color: primaryColor, size: 20),
+                    trailing: M3ESwitch(
+                      selectedIcon: Icon(Icons.check, color: primaryColor),
+                      value: _ddcEnabled,
+                      onChanged: _viperEnabled
+                          ? (v) {
+                              setState(() => _ddcEnabled = v);
+                              _updateEngine();
+                            }
+                          : null,
+                    ),
+                    body: _buildDdcSelector(),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -3208,49 +3625,101 @@ class _ViperFxScreenState extends State<ViperFxScreen>
         SingleChildScrollView(
           primary: false,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-          child: Column(
-            children: [
-              _buildCard('Tube Simulator', '6N1J analog warmth', _tubeEnabled,
-                  (v) {
-                setState(() => _tubeEnabled = v);
-                _updateEngine();
-              }),
-              const SizedBox(height: 12),
-              _buildCard('AnalogX', 'Analog sound signature', _analogXEnabled,
-                  (v) {
-                setState(() => _analogXEnabled = v);
-                _updateEngine();
-              },
-                  child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(children: [
-                        const Text('Mode',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 11)),
-                        const SizedBox(height: 4),
-                        M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment(value: 0, label: 'Mild'),
-                            M3ESegment(value: 1, label: 'Moderate'),
-                            M3ESegment(value: 2, label: 'Aggressive'),
-                          ],
-                          selected: {_analogXMode},
-                          onSelectionChanged: (Set<int> newSelection) {
-                            if (_viperEnabled &&
-                                _analogXEnabled &&
-                                newSelection.isNotEmpty) {
-                              setState(() => _analogXMode = newSelection.first);
-                              _updateEngine();
-                            }
-                          },
-                        ),
-                      ]))),
-              const SizedBox(height: 12),
-              _buildCard('Speaker Correction', 'Impulse response correction',
-                  _speakerCorrectionEnabled, (v) {
-                setState(() => _speakerCorrectionEnabled = v);
-                _updateEngine();
-              }),
+          child: M3EExpandableList(
+            allowMultipleExpanded: true,
+            style: _deckExpandableStyle,
+            initiallyExpanded: {
+              if (_tubeEnabled) 0,
+              if (_analogXEnabled) 1,
+              if (_speakerCorrectionEnabled) 2,
+            },
+            data: [
+              M3EExpandableData(
+                title: 'Tube Simulator',
+                subtitle: '6N1J analog warmth',
+                leading: Icon(Icons.radio, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _tubeEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _tubeEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Emulates a 6N1J dual-triode vacuum tube for harmonic richness and warmth.',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'AnalogX',
+                subtitle: 'Analog sound signature',
+                leading: Icon(Icons.album, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _analogXEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _analogXEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text('Mode',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      M3ESegmentedButton<int>(
+                        segments: const [
+                          M3ESegment(value: 0, label: 'Mild'),
+                          M3ESegment(value: 1, label: 'Moderate'),
+                          M3ESegment(value: 2, label: 'Aggressive'),
+                        ],
+                        selected: {_analogXMode},
+                        onSelectionChanged: (Set<int> newSelection) {
+                          if (_viperEnabled &&
+                              _analogXEnabled &&
+                              newSelection.isNotEmpty) {
+                            setState(() => _analogXMode = newSelection.first);
+                            _updateEngine();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              M3EExpandableData(
+                title: 'Speaker Correction',
+                subtitle: 'Impulse response correction',
+                leading: Icon(Icons.speaker, color: primaryColor, size: 20),
+                trailing: M3ESwitch(
+                  selectedIcon: Icon(Icons.check, color: primaryColor),
+                  value: _speakerCorrectionEnabled,
+                  onChanged: _viperEnabled
+                      ? (v) {
+                          setState(() => _speakerCorrectionEnabled = v);
+                          _updateEngine();
+                        }
+                      : null,
+                ),
+                body: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Calibrates speaker non-linear frequency response curve.',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -3297,6 +3766,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                     ),
                   ),
                   M3ESwitch(
+                    selectedIcon: Icon(Icons.check, color: primaryColor),
                     value: enabled,
                     onChanged: _viperEnabled ? onEnableChanged : null,
                   ),
@@ -3304,7 +3774,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               ),
               if (enabled && child != null) ...[
                 const SizedBox(height: 14),
-                const Divider(color: Colors.white12, height: 1),
+                const M3EDivider(),
                 const SizedBox(height: 14),
                 child,
               ],
@@ -3886,40 +4356,58 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             Text('Folder: ${p.basename(_convolverFolder!)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 8),
-            M3EContainer(
+            /*M3EContainer(
               Shapes.pill,
               color: surfaceDarkColor,
               border: BorderSide(
                 color: primaryColor.withValues(alpha: 0.35),
               ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    dropdownColor: surfaceDarkColor,
-                    value: _selectedConvolverFile,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    hint: const Text('Select Impulse Response',
-                        style: TextStyle(color: Colors.white54, fontSize: 13)),
-                    items: _convolverFiles.map((file) {
-                      return DropdownMenuItem<String>(
-                        value: file,
-                        child: Text(file,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
-                      );
-                    }).toList(),
-                    onChanged: _viperEnabled && _convolverEnabled
-                        ? (val) {
-                            setState(() => _selectedConvolverFile = val);
-                            _updateEngine();
-                          }
-                        : null,
+              child: */
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: M3EDropdownMenu<String>(
+                key: ValueKey(
+                    'convolver_${_selectedConvolverFile}_${_convolverFiles.length}'),
+                singleSelect: true,
+                searchEnabled: _convolverFiles.length > 5,
+                enabled: _viperEnabled && _convolverEnabled,
+                fieldStyle: M3EDropdownFieldStyle(
+                  hintText: 'Select Impulse Response',
+                  backgroundColor: surfaceDarkColor,
+                  foregroundColor: Colors.white,
+                  selectedTextStyle: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 ),
+                dropdownStyle: M3EDropdownPanelStyle(
+                  backgroundColor: surfaceDarkColor,
+                  elevation: 4,
+                ),
+                itemStyle: M3EDropdownItemStyle(
+                  textColor: Colors.white,
+                  selectedTextColor: primaryColor,
+                  selectedBackgroundColor: primaryColor.withValues(alpha: 0.15),
+                ),
+                items: _convolverFiles
+                    .map((file) => M3EDropdownItem<String>(
+                          label: file,
+                          value: file,
+                          selected: file == _selectedConvolverFile,
+                        ))
+                    .toList(),
+                onSelectionChanged: (selectedList) {
+                  if (selectedList.isNotEmpty &&
+                      _viperEnabled &&
+                      _convolverEnabled) {
+                    setState(
+                        () => _selectedConvolverFile = selectedList.first.value);
+                    _updateEngine();
+                  }
+                },
               ),
             ),
             const SizedBox(height: 12),
@@ -3976,40 +4464,47 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             Text('Folder: ${p.basename(_ddcFolder!)}',
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 8),
-            M3EContainer(
-              Shapes.pill,
-              color: surfaceDarkColor,
-              border: BorderSide(
-                color: primaryColor.withValues(alpha: 0.35),
-              ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    dropdownColor: surfaceDarkColor,
-                    value: _selectedDdcFile,
-                    icon: Icon(Icons.arrow_drop_down_rounded,
-                        color: primaryColor),
-                    hint: const Text('Select DDC Profile',
-                        style: TextStyle(color: Colors.white54, fontSize: 13)),
-                    items: _ddcFiles.map((file) {
-                      return DropdownMenuItem<String>(
-                        value: file,
-                        child: Text(file,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13)),
-                      );
-                    }).toList(),
-                    onChanged: _viperEnabled && _ddcEnabled
-                        ? (val) {
-                            setState(() => _selectedDdcFile = val);
-                            _updateEngine();
-                          }
-                        : null,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: M3EDropdownMenu<String>(
+                key: ValueKey('ddc_${_selectedDdcFile}_${_ddcFiles.length}'),
+                singleSelect: true,
+                searchEnabled: _ddcFiles.length > 5,
+                enabled: _viperEnabled && _ddcEnabled,
+                fieldStyle: M3EDropdownFieldStyle(
+                  hintText: 'Select DDC Profile',
+                  backgroundColor: surfaceDarkColor,
+                  foregroundColor: Colors.white,
+                  selectedTextStyle: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 ),
+                dropdownStyle: M3EDropdownPanelStyle(
+                  backgroundColor: surfaceDarkColor,
+                  elevation: 4,
+                ),
+                itemStyle: M3EDropdownItemStyle(
+                  textColor: Colors.white,
+                  selectedTextColor: primaryColor,
+                  selectedBackgroundColor: primaryColor.withValues(alpha: 0.15),
+                ),
+                items: _ddcFiles
+                    .map((file) => M3EDropdownItem<String>(
+                          label: file,
+                          value: file,
+                          selected: file == _selectedDdcFile,
+                        ))
+                    .toList(),
+                onSelectionChanged: (selectedList) {
+                  if (selectedList.isNotEmpty && _viperEnabled && _ddcEnabled) {
+                    setState(() => _selectedDdcFile = selectedList.first.value);
+                    _updateEngine();
+                  }
+                },
               ),
             ),
           ],
@@ -4030,7 +4525,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
             children: [
               Row(
                 children: [
-                  M3EContainer(
+                  /*  M3EContainer(
                     Shapes.burst,
                     width: 32,
                     height: 32,
@@ -4039,11 +4534,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       color: primaryColor.withValues(alpha: 0.4),
                       width: 1,
                     ),
-                    child: Center(
-                      child: Icon(Icons.auto_awesome,
-                          color: primaryColor, size: 16),
-                    ),
+                    child: */
+                  Center(
+                    child:
+                        Icon(Icons.auto_awesome, color: primaryColor, size: 16),
                   ),
+                  //  ),
                   const SizedBox(width: 10),
                   const Text('AutoEQ & Presets Importer',
                       style: TextStyle(

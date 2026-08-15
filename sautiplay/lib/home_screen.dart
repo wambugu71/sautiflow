@@ -7,7 +7,6 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
-import 'widgets/app_m3e_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?

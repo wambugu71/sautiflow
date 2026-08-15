@@ -725,7 +725,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final accent = appTheme.primary;
         final mutedText = appTheme.textDark;
         final isDarkTheme = appTheme.bgDark.computeLuminance() < 0.15;
-        final textPrimaryColor = isDarkTheme ? Colors.white : const Color(0xFF1A1A2E);
+        final textPrimaryColor =
+            isDarkTheme ? Colors.white : const Color(0xFF1A1A2E);
 
         return _buildSubScreenLayout(
           title: 'Look & Feel',
@@ -789,7 +790,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       itemBuilder: (context, index) {
                         final theme = AppThemeService.themes[index];
                         final isActive = _activeThemeId == theme.id;
-                        final isItemDark = theme.bgDark.computeLuminance() < 0.15;
+                        final isItemDark =
+                            theme.bgDark.computeLuminance() < 0.15;
                         return GestureDetector(
                           onTap: () {
                             AppThemeService.instance.saveTheme(theme.id);
@@ -1059,7 +1061,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               final isWavy = newSelection.first;
                               setState(() => _useWavySlider = isWavy);
                               setSubState(() {});
-                              AppStateService.instance.saveUseWavySlider(isWavy);
+                              AppStateService.instance
+                                  .saveUseWavySlider(isWavy);
                             }
                           },
                         ),
@@ -1414,8 +1417,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)',
-                                  style: TextStyle(
-                                      color: _textDark, fontSize: 12),
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -2226,7 +2229,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0, vertical: 12.0),
                   child: widget.analyzerEnabled
                       ? Column(
                           children: [
@@ -2236,25 +2240,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 analyzerStream: widget.player.analyzerStream,
                                 isPlaying: _isPlaying,
                                 bandCount: 36,
-                                style: _getSpectrumVisualStyle(widget.spectrumStyle),
+                                style: _getSpectrumVisualStyle(
+                                    widget.spectrumStyle),
                                 showPeakHold: true,
-                                barRadius: isArea ? 1.0 : (widget.spectrumStyle == 'pill' ? 8.0 : 3.0),
+                                barRadius: isArea
+                                    ? 1.0
+                                    : (widget.spectrumStyle == 'pill'
+                                        ? 8.0
+                                        : 3.0),
                                 height: 120,
                               ),
                             ),
                             const SizedBox(height: 8),
                             // Frequency Legend Ticks
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4.0),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('20 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
-                                  Text('100 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
-                                  Text('500 Hz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
-                                  Text('1 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
-                                  Text('5 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
-                                  Text('20 kHz', style: TextStyle(color: _textDark.withValues(alpha: 0.7), fontSize: 10, fontWeight: FontWeight.w500)),
+                                  Text('20 Hz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
+                                  Text('100 Hz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
+                                  Text('500 Hz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
+                                  Text('1 kHz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
+                                  Text('5 kHz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
+                                  Text('20 kHz',
+                                      style: TextStyle(
+                                          color:
+                                              _textDark.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500)),
                                 ],
                               ),
                             ),
@@ -2311,7 +2352,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (widget.analyzerEnabled) ...[
                   Divider(color: context.outlineColor, height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -2332,7 +2374,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   'Discrete frequency bars or continuous area curve',
-                                  style: TextStyle(color: _textDark, fontSize: 12),
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -2368,7 +2411,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   Divider(color: context.outlineColor, height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -2393,17 +2437,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               M3ESegment(
                                 value: 'neon',
                                 label: 'Neon',
-                                icon: Icon(Icons.auto_awesome_rounded, size: 16),
+                                icon:
+                                    Icon(Icons.auto_awesome_rounded, size: 16),
                               ),
                               M3ESegment(
                                 value: 'fire',
                                 label: 'Fire',
-                                icon: Icon(Icons.local_fire_department_rounded, size: 16),
+                                icon: Icon(Icons.local_fire_department_rounded,
+                                    size: 16),
                               ),
                               M3ESegment(
                                 value: 'minimal',
                                 label: 'Minimal',
-                                icon: Icon(Icons.horizontal_rule_rounded, size: 16),
+                                icon: Icon(Icons.horizontal_rule_rounded,
+                                    size: 16),
                               ),
                               M3ESegment(
                                 value: 'pill',
@@ -2412,7 +2459,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ],
                             selected: {
-                              ['neon', 'fire', 'minimal', 'pill'].contains(activeStyleName)
+                              ['neon', 'fire', 'minimal', 'pill']
+                                      .contains(activeStyleName)
                                   ? activeStyleName
                                   : 'neon'
                             },
@@ -2429,7 +2477,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   Divider(color: context.outlineColor, height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 14.0),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 14.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -2454,7 +2503,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         M3EMenu(
                           anchorBuilder: (context, open) => M3EButton.icon(
                             onPressed: open,
-                            icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                            icon: const Icon(Icons.auto_fix_high_rounded,
+                                size: 16),
                             label: const Text('Presets'),
                           ),
                           children: [
@@ -2462,23 +2512,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               entries: [
                                 M3EMenuEntry(
                                   label: 'Balanced (Bar • Neon • 1024)',
-                                  leading: const Icon(Icons.bar_chart_rounded, size: 18),
-                                  onPressed: () => _applyVisualizerPreset('balanced', setSubState),
+                                  leading: const Icon(Icons.bar_chart_rounded,
+                                      size: 18),
+                                  onPressed: () => _applyVisualizerPreset(
+                                      'balanced', setSubState),
                                 ),
                                 M3EMenuEntry(
                                   label: 'Smooth Curve (Area • Fire • 2048)',
-                                  leading: const Icon(Icons.show_chart_rounded, size: 18),
-                                  onPressed: () => _applyVisualizerPreset('smooth_curve', setSubState),
+                                  leading: const Icon(Icons.show_chart_rounded,
+                                      size: 18),
+                                  onPressed: () => _applyVisualizerPreset(
+                                      'smooth_curve', setSubState),
                                 ),
                                 M3EMenuEntry(
                                   label: 'Audiophile (Bar • Pill • 4096)',
-                                  leading: const Icon(Icons.lens_blur_rounded, size: 18),
-                                  onPressed: () => _applyVisualizerPreset('audiophile_precision', setSubState),
+                                  leading: const Icon(Icons.lens_blur_rounded,
+                                      size: 18),
+                                  onPressed: () => _applyVisualizerPreset(
+                                      'audiophile_precision', setSubState),
                                 ),
                                 M3EMenuEntry(
                                   label: 'Minimalist (Area • Minimal • 512)',
-                                  leading: const Icon(Icons.horizontal_rule_rounded, size: 18),
-                                  onPressed: () => _applyVisualizerPreset('minimalist', setSubState),
+                                  leading: const Icon(
+                                      Icons.horizontal_rule_rounded,
+                                      size: 18),
+                                  onPressed: () => _applyVisualizerPreset(
+                                      'minimalist', setSubState),
                                 ),
                               ],
                             ),
@@ -2501,7 +2560,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   _buildM3ESwitchTile(
                     title: 'Auto Peak Headroom',
-                    subtitle: 'Dynamically adapts Y-axis ceiling to track loudness',
+                    subtitle:
+                        'Dynamically adapts Y-axis ceiling to track loudness',
                     secondary: _buildLeadingIcon(Icons.fit_screen_rounded),
                     value: widget.analyzerAutoFit,
                     onChanged: (v) {
@@ -2512,7 +2572,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(color: context.outlineColor, height: 1),
                   _buildM3ESwitchTile(
                     title: 'Show Grids & Decibels',
-                    subtitle: 'Display amplitude level grid and frequency axis ticks',
+                    subtitle:
+                        'Display amplitude level grid and frequency axis ticks',
                     secondary: _buildLeadingIcon(Icons.grid_4x4_rounded),
                     value: widget.analyzerShowGrids,
                     onChanged: (v) {
@@ -2523,7 +2584,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(color: context.outlineColor, height: 1),
                   _buildM3ESwitchTile(
                     title: 'Logarithmic Decibel Scale',
-                    subtitle: 'Logarithmic response curve matching human hearing',
+                    subtitle:
+                        'Logarithmic response curve matching human hearing',
                     secondary: _buildLeadingIcon(Icons.tune_rounded),
                     value: widget.analyzerLogScale,
                     onChanged: (v) {
@@ -2563,8 +2625,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    _getFftSampleSizeDescription(widget.analyzerSampleSize),
-                                    style: TextStyle(color: _textDark, fontSize: 12),
+                                    _getFftSampleSizeDescription(
+                                        widget.analyzerSampleSize),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -2588,14 +2652,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               M3ESegment(value: 4096, label: '4096 (Ultra)'),
                             ],
                             selected: {
-                              [512, 1024, 2048, 4096].contains(widget.analyzerSampleSize)
+                              [512, 1024, 2048, 4096]
+                                      .contains(widget.analyzerSampleSize)
                                   ? widget.analyzerSampleSize
                                   : 1024
                             },
                             onSelectionChanged: (val) {
                               if (val.isNotEmpty) {
                                 widget.onAnalyzerSampleSizeChanged(val.first);
-                                widget.player.configureAnalyzer(frameSize: val.first);
+                                widget.player
+                                    .configureAnalyzer(frameSize: val.first);
                                 setSubState(() {});
                               }
                             },
@@ -2607,7 +2673,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(color: context.outlineColor, height: 1),
                   M3EListItem(
                     headline: 'All Sample Sizes (256 - 8192)',
-                    supportingText: 'Inspect full latency and resolution breakdown',
+                    supportingText:
+                        'Inspect full latency and resolution breakdown',
                     leading: _buildLeadingIcon(Icons.tune_rounded),
                     trailing: const Icon(Icons.chevron_right_rounded, size: 22),
                     onTap: () => _showAnalyzerSampleSizeDialog(
@@ -3265,7 +3332,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20.0, vertical: 12.0),
                 child: Column(
                   children: [
                     Text('Resampling Quality Tier',
@@ -3441,13 +3509,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: size,
                       groupValue: widget.analyzerSampleSize,
                       onChanged: (v) {
-                        if (v != null) {
-                          setDlgState(() {});
-                          widget.onAnalyzerSampleSizeChanged(v);
-                          widget.player.configureAnalyzer(frameSize: v);
-                          onDone?.call();
-                          Navigator.pop(ctx);
-                        }
+                        setDlgState(() {});
+                        widget.onAnalyzerSampleSizeChanged(v);
+                        widget.player.configureAnalyzer(frameSize: v);
+                        onDone?.call();
+                        Navigator.pop(ctx);
                       },
                     ),
                   );
