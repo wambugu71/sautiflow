@@ -263,6 +263,8 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
               CachedNetworkImage(
                 imageUrl: _headerImageUrl!,
                 fit: BoxFit.cover,
+                memCacheWidth: 800,
+                memCacheHeight: 600,
                 placeholder: (context, url) => Container(color: _surfaceDark),
                 errorWidget: (context, url, error) =>
                     Container(color: _surfaceDark),
@@ -577,6 +579,8 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
                   ? CachedNetworkImage(
                       imageUrl: thumb,
                       fit: BoxFit.cover,
+                      memCacheWidth: 280,
+                      memCacheHeight: 280,
                       placeholder: (context, url) => Center(
                           child: Icon(Icons.album,
                               color: Colors.white24, size: 40)),

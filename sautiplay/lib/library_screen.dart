@@ -1702,7 +1702,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         Padding(
           padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32.0 : 16.0),
           child: RepaintBoundary(
-            child: M3ECardList.builder(
+            child: ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: 1 + _m3uPlaylists.length + _folders.length,
@@ -2099,27 +2099,16 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
 
     if (_trackViewMode == TrackViewMode.compact) {
-      return SingleChildScrollView(
-        primary: false,
+      return ListView.builder(
         padding: EdgeInsets.symmetric(
           horizontal: isDesktop ? 32 : 16,
           vertical: 8,
         ).copyWith(bottom: 140),
-        child: RepaintBoundary(
-          child: M3ECardList.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredSongs.length,
-            onTap: (index) {
-              final paths = _filteredSongs.map((e) => e.path).toList();
-              widget.onPlayFolder(paths, initialIndex: index);
-            },
-            itemBuilder: (context, index) {
-              final song = _filteredSongs[index];
-              return _buildCompactSongItem(song, index, isDesktop: isDesktop);
-            },
-          ),
-        ),
+        itemCount: _filteredSongs.length,
+        itemBuilder: (context, index) {
+          final song = _filteredSongs[index];
+          return _buildCompactSongItem(song, index, isDesktop: isDesktop);
+        },
       );
     } else if (_trackViewMode == TrackViewMode.grid) {
       return GridView.builder(
@@ -2143,43 +2132,32 @@ class _LibraryScreenState extends State<LibraryScreen>
         },
       );
     } else {
-      // Material 3 Expressive Card List
-      return SingleChildScrollView(
-        primary: false,
+      // Standard Virtualized ListView with zero UI thread overhead
+      return ListView.builder(
         padding: EdgeInsets.symmetric(
           horizontal: isDesktop ? 32 : 16,
           vertical: 8,
         ).copyWith(bottom: 140),
-        child: RepaintBoundary(
-          child: M3ECardList.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredSongs.length,
-            onTap: (index) {
+        itemCount: _filteredSongs.length,
+        itemBuilder: (context, index) {
+          final song = _filteredSongs[index];
+          return _buildLibraryItem(
+            title: song.title,
+            subtitle:
+                '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+            customIcon: LocalAlbumArt(
+                path: song.path,
+                size: isDesktop ? 60 : 48,
+                shape: Shapes.pill),
+            onTap: () {
               final paths = _filteredSongs.map((e) => e.path).toList();
               widget.onPlayFolder(paths, initialIndex: index);
             },
-            itemBuilder: (context, index) {
-              final song = _filteredSongs[index];
-              return _buildLibraryItem(
-                title: song.title,
-                subtitle:
-                    '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
-                customIcon: LocalAlbumArt(
-                    path: song.path,
-                    size: isDesktop ? 64 : 48,
-                    shape: Shapes.pill),
-                onTap: () {
-                  final paths = _filteredSongs.map((e) => e.path).toList();
-                  widget.onPlayFolder(paths, initialIndex: index);
-                },
-                onOptionSelected: (option) => _handleSongOption(song, option),
-                context: context,
-                isDesktop: isDesktop,
-              );
-            },
-          ),
-        ),
+            onOptionSelected: (option) => _handleSongOption(song, option),
+            context: context,
+            isDesktop: isDesktop,
+          );
+        },
       );
     }
   }
@@ -2188,22 +2166,65 @@ class _LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     final artistName =
         song.artist != 'Unknown Artist' ? song.artist : 'Local File';
-    return M3EListItem(
-      headline: song.title,
-      supportingText: artistName,
-      leading: LocalAlbumArt(
-        path: song.path,
-        size: isDesktop ? 44 : 36,
-        shape: Shapes.pill,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2.0),
+      child: Material(
+        color: _surfaceDark,
+        borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            final paths = _filteredSongs.map((e) => e.path).toList();
+            widget.onPlayFolder(paths, initialIndex: index);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                LocalAlbumArt(
+                  path: song.path,
+                  size: isDesktop ? 40 : 34,
+                  borderRadius: 6,
+                  shape: Shapes.pill,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 14 : 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        artistName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 12 : 11,
+                          color: _textDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SongOptionsMenuButton(
+                  iconSize: isDesktop ? 18 : 16,
+                  onOptionSelected: (option) => _handleSongOption(song, option),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      trailing: SongOptionsMenuButton(
-        iconSize: isDesktop ? 20 : 18,
-        onOptionSelected: (option) => _handleSongOption(song, option),
-      ),
-      onTap: () {
-        final paths = _filteredSongs.map((e) => e.path).toList();
-        widget.onPlayFolder(paths, initialIndex: index);
-      },
     );
   }
 
@@ -2419,20 +2440,32 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view artists here.',
                   isDesktop: isDesktop,
                 )
-              : SingleChildScrollView(
-                  primary: false,
+              : ListView.builder(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
                     vertical: 8,
                   ).copyWith(bottom: 140),
-                  child: RepaintBoundary(
-                    child: M3ECardList.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: artistKeys.length,
-                      onTap: (index) {
-                        final artistName = artistKeys[index];
-                        final songs = artistMap[artistName] ?? [];
+                  itemCount: artistKeys.length,
+                  itemBuilder: (context, index) {
+                    final artistName = artistKeys[index];
+                    final songs = artistMap[artistName] ?? [];
+                    final sampleSongPath =
+                        songs.isNotEmpty ? songs.first.path : null;
+
+                    return _buildLibraryItem(
+                      title: artistName,
+                      subtitle:
+                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
+                      iconData: Icons.person_rounded,
+                      isArtist: true,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 60 : 48,
+                              shape: Shapes.circle,
+                            )
+                          : null,
+                      onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2450,31 +2483,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      itemBuilder: (context, index) {
-                        final artistName = artistKeys[index];
-                        final songs = artistMap[artistName] ?? [];
-                        final sampleSongPath =
-                            songs.isNotEmpty ? songs.first.path : null;
-
-                        return _buildLibraryItem(
-                          title: artistName,
-                          subtitle:
-                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
-                          iconData: Icons.person_rounded,
-                          isArtist: true,
-                          customIcon: sampleSongPath != null
-                              ? LocalAlbumArt(
-                                  path: sampleSongPath,
-                                  size: isDesktop ? 80 : 56,
-                                  shape: Shapes.circle,
-                                )
-                              : null,
-                          context: context,
-                          isDesktop: isDesktop,
-                        );
-                      },
-                    ),
-                  ),
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
                 ),
         ),
       ],
@@ -2553,20 +2565,34 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view albums here.',
                   isDesktop: isDesktop,
                 )
-              : SingleChildScrollView(
-                  primary: false,
+              : ListView.builder(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
                     vertical: 8,
                   ).copyWith(bottom: 140),
-                  child: RepaintBoundary(
-                    child: M3ECardList.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: albumKeys.length,
-                      onTap: (index) {
-                        final albumName = albumKeys[index];
-                        final songs = albumMap[albumName] ?? [];
+                  itemCount: albumKeys.length,
+                  itemBuilder: (context, index) {
+                    final albumName = albumKeys[index];
+                    final songs = albumMap[albumName] ?? [];
+                    final sampleSongPath =
+                        songs.isNotEmpty ? songs.first.path : null;
+                    final artistName = songs.isNotEmpty
+                        ? songs.first.artist
+                        : 'Unknown Artist';
+
+                    return _buildLibraryItem(
+                      title: albumName,
+                      subtitle:
+                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
+                      iconData: Icons.album_rounded,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 60 : 48,
+                              shape: Shapes.pill,
+                            )
+                          : null,
+                      onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2584,33 +2610,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      itemBuilder: (context, index) {
-                        final albumName = albumKeys[index];
-                        final songs = albumMap[albumName] ?? [];
-                        final sampleSongPath =
-                            songs.isNotEmpty ? songs.first.path : null;
-                        final artistName = songs.isNotEmpty
-                            ? songs.first.artist
-                            : 'Unknown Artist';
-
-                        return _buildLibraryItem(
-                          title: albumName,
-                          subtitle:
-                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
-                          iconData: Icons.album_rounded,
-                          customIcon: sampleSongPath != null
-                              ? LocalAlbumArt(
-                                  path: sampleSongPath,
-                                  size: isDesktop ? 80 : 56,
-                                  shape: Shapes.pill,
-                                )
-                              : null,
-                          context: context,
-                          isDesktop: isDesktop,
-                        );
-                      },
-                    ),
-                  ),
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
                 ),
         ),
       ],
@@ -2671,20 +2674,31 @@ class _LibraryScreenState extends State<LibraryScreen>
                       : 'Add local folders in Playlists to view genres here.',
                   isDesktop: isDesktop,
                 )
-              : SingleChildScrollView(
-                  primary: false,
+              : ListView.builder(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
                     vertical: 8,
                   ).copyWith(bottom: 140),
-                  child: RepaintBoundary(
-                    child: M3ECardList.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: genreKeys.length,
-                      onTap: (index) {
-                        final genreName = genreKeys[index];
-                        final songs = genreMap[genreName] ?? [];
+                  itemCount: genreKeys.length,
+                  itemBuilder: (context, index) {
+                    final genreName = genreKeys[index];
+                    final songs = genreMap[genreName] ?? [];
+                    final sampleSongPath =
+                        songs.isNotEmpty ? songs.first.path : null;
+
+                    return _buildLibraryItem(
+                      title: genreName,
+                      subtitle:
+                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
+                      iconData: Icons.style_rounded,
+                      customIcon: sampleSongPath != null
+                          ? LocalAlbumArt(
+                              path: sampleSongPath,
+                              size: isDesktop ? 60 : 48,
+                              shape: Shapes.pill,
+                            )
+                          : null,
+                      onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => LocalGroupDetailScreen(
@@ -2702,30 +2716,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                           ),
                         );
                       },
-                      itemBuilder: (context, index) {
-                        final genreName = genreKeys[index];
-                        final songs = genreMap[genreName] ?? [];
-                        final sampleSongPath =
-                            songs.isNotEmpty ? songs.first.path : null;
-
-                        return _buildLibraryItem(
-                          title: genreName,
-                          subtitle:
-                              '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
-                          iconData: Icons.style_rounded,
-                          customIcon: sampleSongPath != null
-                              ? LocalAlbumArt(
-                                  path: sampleSongPath,
-                                  size: isDesktop ? 80 : 56,
-                                  shape: Shapes.pill,
-                                )
-                              : null,
-                          context: context,
-                          isDesktop: isDesktop,
-                        );
-                      },
-                    ),
-                  ),
+                      context: context,
+                      isDesktop: isDesktop,
+                    );
+                  },
                 ),
         ),
       ],
@@ -2779,41 +2773,88 @@ class _LibraryScreenState extends State<LibraryScreen>
     bool isDesktop = false,
     bool isArtist = false,
   }) {
-    final thumbSize = isDesktop ? 68.0 : 52.0;
+    final thumbSize = isDesktop ? 60.0 : 48.0;
 
     final leadingWidget = customIcon ??
-        (imageAsset == null && iconData != null
-            ? Center(
-                child: Icon(iconData,
-                    color: Colors.white.withValues(alpha: 0.6),
-                    size: isDesktop ? 32 : 24))
-            : null);
-
-    final item = M3EListItem(
-      headline: title,
-      supportingText: subtitle,
-      leading: leadingWidget,
-      trailing: onOptionSelected != null
-          ? SongOptionsMenuButton(
-              iconSize: isDesktop ? 24 : 20,
-              onOptionSelected: onOptionSelected,
-            )
-          : Icon(
-              Icons.chevron_right_rounded,
-              color: const Color(0xFF64748B),
-              size: isDesktop ? 22 : 18,
+        Container(
+          width: thumbSize,
+          height: thumbSize,
+          decoration: BoxDecoration(
+            gradient: iconGradient,
+            color: iconGradient == null ? _surfaceDark : null,
+            shape: isArtist ? BoxShape.circle : BoxShape.rectangle,
+            borderRadius: isArtist ? null : BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: Icon(
+              iconData ?? Icons.music_note_rounded,
+              color: Colors.white.withValues(alpha: 0.7),
+              size: isDesktop ? 28 : 22,
             ),
-      onTap: onTap,
-    );
+          ),
+        );
 
-    if (onLongPress != null) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPress: onLongPress,
-        child: item,
-      );
-    }
-    return item;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: Material(
+        color: _surfaceDark,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                leadingWidget,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 15 : 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 13 : 11.5,
+                          color: _textDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (onOptionSelected != null)
+                  SongOptionsMenuButton(
+                    iconSize: isDesktop ? 22 : 18,
+                    onOptionSelected: onOptionSelected,
+                  )
+                else
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: const Color(0xFF64748B),
+                    size: isDesktop ? 20 : 18,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -2984,39 +3025,77 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                         style: TextStyle(color: textDark),
                       ),
                     )
-                  : SingleChildScrollView(
-                      primary: false,
+                  : ListView.builder(
                       padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8)
                           .copyWith(bottom: 120),
-                      child: RepaintBoundary(
-                        child: M3ECardList.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _groupSongs.length,
-                          onTap: (index) {
-                            final paths =
-                                _groupSongs.map((e) => e.path).toList();
-                            widget.onPlayFolder(paths, initialIndex: index);
-                          },
-                          itemBuilder: (context, index) {
-                            final song = _groupSongs[index];
-                            return M3EListItem(
-                              headline: song.title,
-                              supportingText: '${song.artist} • ${song.album}',
-                              leading: LocalAlbumArt(
-                                  path: song.path,
-                                  size: 48,
-                                  shape: Shapes.pill),
-                              trailing: SongOptionsMenuButton(
-                                iconSize: 20,
-                                onOptionSelected: (option) =>
-                                    _handleDetailSongOption(song, option),
+                      itemCount: _groupSongs.length,
+                      itemBuilder: (context, index) {
+                        final song = _groupSongs[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4.0),
+                          child: Material(
+                            color: surfaceColor,
+                            borderRadius: BorderRadius.circular(12),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () {
+                                final paths =
+                                    _groupSongs.map((e) => e.path).toList();
+                                widget.onPlayFolder(paths, initialIndex: index);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    LocalAlbumArt(
+                                      path: song.path,
+                                      size: 48,
+                                      shape: Shapes.pill,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            song.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${song.artist} • ${song.album}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: textDark,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SongOptionsMenuButton(
+                                      iconSize: 20,
+                                      onOptionSelected: (option) =>
+                                          _handleDetailSongOption(song, option),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          },
-                        ),
-                      ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
             ),
           ],

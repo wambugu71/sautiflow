@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'dart:ui';
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +7,8 @@ import 'package:mini_music_visualizer/mini_music_visualizer.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'services/app_theme_service.dart';
-import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/local_album_art.dart';
+import 'widgets/music_info_dialog.dart';
 
 class QueueScreen extends StatefulWidget {
   final List<TrackInfo> queue;
@@ -19,6 +17,8 @@ class QueueScreen extends StatefulWidget {
   final void Function(int) onPlayQueueIndex;
   final void Function(int, int) onReorderQueue;
   final void Function(int)? onRemoveFromQueue;
+  final VoidCallback? onClearQueue;
+  final VoidCallback? onShuffleQueue;
   final ValueNotifier<PlayerStatus>? statusNotifier;
   final VoidCallback? onClose;
 
@@ -30,6 +30,8 @@ class QueueScreen extends StatefulWidget {
     required this.onPlayQueueIndex,
     required this.onReorderQueue,
     this.onRemoveFromQueue,
+    this.onClearQueue,
+    this.onShuffleQueue,
     this.statusNotifier,
     this.onClose,
   });
@@ -45,6 +47,18 @@ class _QueueScreenState extends State<QueueScreen>
   late ScrollController _scrollController;
   int? _lastPlayingIndex;
   bool _hasInitialScrolled = false;
+  bool _showUpcomingOnly = false;
+
+  int _lastTapTimeMs = 0;
+
+  void _handleTrackTap(int actualIndex) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastTapTimeMs < 300) {
+      return; // Debounce rapid taps during scrolling
+    }
+    _lastTapTimeMs = now;
+    widget.onPlayQueueIndex(actualIndex);
+  }
 
   @override
   void initState() {
@@ -104,67 +118,94 @@ class _QueueScreenState extends State<QueueScreen>
 
   int _getPlayingIndex(PlayerStatus? status) {
     if (widget.queue.isEmpty) return -1;
-
-    final currentVideoId = widget.videoId;
-    if (currentVideoId != null && currentVideoId.isNotEmpty) {
-      final idx = widget.queue.indexWhere((t) => t.videoId == currentVideoId);
-      if (idx != -1) return idx;
+    if (status != null && status.currentIndex >= 0) {
+      if (status.currentIndex < widget.queue.length) {
+        return status.currentIndex;
+      }
     }
-
-    if (status != null &&
-        status.currentIndex >= 0 &&
-        status.currentIndex < widget.queue.length) {
-      return status.currentIndex;
+    if (widget.videoId != null) {
+      final index =
+          widget.queue.indexWhere((track) => track.videoId == widget.videoId);
+      if (index >= 0) return index;
     }
-
     return -1;
   }
 
   void _scrollToPlayingItem({bool animate = true}) {
     if (!_scrollController.hasClients || widget.queue.isEmpty) return;
 
-    final status = widget.statusNotifier?.value;
-    final index = _getPlayingIndex(status);
-    if (index < 0) return;
+    final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
+    if (playingIndex < 0) return;
 
-    const double itemHeight = 76.0;
-    final double screenHeight = _scrollController.position.viewportDimension;
-    double targetOffset =
-        (index * itemHeight) - (screenHeight / 2.0) + (itemHeight / 2.0);
+    // Approximate item height (card list row height ~64.0 + 8.0 margin)
+    const itemHeight = 72.0;
+    if (!_scrollController.position.hasContentDimensions) return;
 
-    final double maxScroll = _scrollController.position.maxScrollExtent;
-    targetOffset = targetOffset.clamp(0.0, maxScroll);
+    final targetOffset = (playingIndex * itemHeight).clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
 
     if (animate) {
       _scrollController.animateTo(
         targetOffset,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
       );
     } else {
       _scrollController.jumpTo(targetOffset);
     }
   }
 
-  String _calculateTotalDuration() {
-    int totalSec = 0;
-    int count = 0;
-    for (final track in widget.queue) {
-      if (track.durationSeconds != null && track.durationSeconds! > 0) {
-        totalSec += track.durationSeconds!;
-        count++;
-      }
-    }
-    if (count == 0 || totalSec == 0) {
-      return '${widget.queue.length} tracks';
-    }
+  String _formatDuration(int? durationSeconds) {
+    if (durationSeconds == null || durationSeconds <= 0) return '';
+    final minutes = durationSeconds ~/ 60;
+    final seconds = durationSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
 
-    final hours = totalSec ~/ 3600;
-    final mins = (totalSec % 3600) ~/ 60;
+  void _confirmClearQueue(BuildContext context) {
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Clear Playback Queue',
+        content: const Text(
+          'Are you sure you want to clear all tracks from your current playback queue?',
+        ),
+        actions: [
+          M3EButton.text(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              if (widget.onClearQueue != null) {
+                widget.onClearQueue!();
+              }
+            },
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    final durationStr = hours > 0 ? '${hours}h ${mins}m' : '$mins min';
+  void _showTrackInfo(BuildContext context, TrackInfo track) {
+    final isLocal = track.videoId.contains('/') ||
+        track.videoId.contains('\\') ||
+        track.videoId.endsWith('.mp3') ||
+        track.videoId.endsWith('.flac') ||
+        track.videoId.endsWith('.m4a');
 
-    return '${widget.queue.length} tracks • $durationStr';
+    MusicInfoDialog.show(
+      context,
+      title: track.title,
+      artist: track.artist,
+      sourceType: isLocal ? 'local' : 'online',
+      videoId: track.videoId,
+      duration: Duration(seconds: track.durationSeconds ?? 0),
+    );
   }
 
   @override
@@ -174,379 +215,408 @@ class _QueueScreenState extends State<QueueScreen>
     final Color bgColor = context.bgDark;
     final Color textPrimary = context.textPrimary;
     final Color textDark = context.textMuted;
-    final Color surfaceDark = context.cardDark;
     final Color outlineColor = context.outlineColor;
 
     final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
+    final itemCount = _showUpcomingOnly && playingIndex >= 0
+        ? (widget.queue.length - playingIndex)
+        : widget.queue.length;
 
     return Scaffold(
       backgroundColor: bgColor,
-      body: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600.0),
-            child: Column(
+      body: Column(
+        children: [
+          // Expressive Material 3 Top Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: BoxDecoration(
+              color: bgColor,
+              border: Border(
+                bottom: BorderSide(
+                  color: outlineColor.withValues(alpha: 0.15),
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Row(
               children: [
-                const SizedBox(height: 12),
-                // ── Top Header matching M3E Design ──
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12.0, vertical: 4.0),
-                  child: Row(
+                if (widget.onClose != null)
+                  M3EIconButton(
+                    icon:
+                        const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+                    variant: M3EIconButtonVariant.standard,
+                    tooltip: 'Minimize Queue',
+                    onPressed: widget.onClose,
+                  )
+                else
+                  const Icon(Icons.queue_music_rounded, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      M3EIconButton(
-                        icon: const Icon(Icons.keyboard_arrow_down, size: 28),
-                        variant: M3EIconButtonVariant.standard,
-                        onPressed:
-                            widget.onClose ?? () => Navigator.of(context).pop(),
-                      ),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Center drag handle pill for sheet representation
-                            Container(
-                              width: 38,
-                              height: 4,
-                              margin: const EdgeInsets.only(bottom: 6),
-                              decoration: BoxDecoration(
-                                color: outlineColor,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Up Next',
-                                  style: TextStyle(
-                                    color: textPrimary,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: -0.3,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: primaryColor.withValues(alpha: 0.18),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color:
-                                          primaryColor.withValues(alpha: 0.35),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    'QUEUE',
-                                    style: TextStyle(
-                                      color: primaryColor,
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 1.0,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              _calculateTotalDuration(),
-                              style: TextStyle(
-                                color: textDark,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w400,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                      Text(
+                        'Up Next Queue',
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.3,
                         ),
                       ),
-                      if (widget.queue.isNotEmpty)
-                        M3EIconButton(
-                          icon: const Icon(Icons.my_location_rounded, size: 20),
-                          variant: M3EIconButtonVariant.tonal,
-                          tooltip: 'Center playing track',
-                          onPressed: () => _scrollToPlayingItem(animate: true),
-                        )
-                      else
-                        const SizedBox(width: 44),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${widget.queue.length} ${widget.queue.length == 1 ? 'track' : 'tracks'}',
+                        style: TextStyle(
+                          color: textDark,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                // ── Main Queue Content ──
-                Expanded(
-                  child: widget.queue.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              M3EContainer(
-                                Shapes.c4SidedCookie,
-                                width: 88,
-                                height: 88,
-                                color: primaryColor.withValues(alpha: 0.12),
-                                border: BorderSide(
-                                  color: primaryColor.withValues(alpha: 0.3),
-                                  width: 1.5,
-                                ),
-                                child: Center(
-                                  child: Icon(Icons.queue_music_rounded,
-                                      color: primaryColor, size: 40),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                'Queue is empty',
-                                style: TextStyle(
-                                  color: textPrimary,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Play a track or album to populate the playback queue',
-                                style: TextStyle(
-                                  color: textDark,
-                                  fontSize: 13.5,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        )
-                      : Theme(
-                          data: Theme.of(context).copyWith(
-                            canvasColor: Colors.transparent,
-                          ),
-                          child: ReorderableListView.builder(
-                            scrollController: _scrollController,
-                            physics: const BouncingScrollPhysics(
-                                parent: AlwaysScrollableScrollPhysics()),
-                            itemCount: widget.queue.length,
-                            onReorder: widget.onReorderQueue,
-                            proxyDecorator:
-                                (Widget child, int index, Animation<double> animation) {
-                              return AnimatedBuilder(
-                                animation: animation,
-                                builder: (BuildContext context, Widget? child) {
-                                  final double animValue =
-                                      Curves.easeInOut.transform(animation.value);
-                                  final double scale =
-                                      lerpDouble(1.0, 1.025, animValue)!;
-                                  return Transform.scale(
-                                    scale: scale,
-                                    child: Material(
-                                      elevation: 10,
-                                      shadowColor:
-                                          primaryColor.withValues(alpha: 0.4),
-                                      color: Colors.transparent,
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: child,
-                                    ),
-                                  );
-                                },
-                                child: child,
-                              );
-                            },
-                            itemBuilder: (context, index) {
-                              final track = widget.queue[index];
-                              final isPlaying = (playingIndex == index) ||
-                                  (widget.videoId != null &&
-                                      track.videoId == widget.videoId);
-
-                              return RepaintBoundary(
-                                key: ValueKey('${track.videoId}_$index'),
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(
-                                      vertical: 3.5, horizontal: 12),
-                                  decoration: BoxDecoration(
-                                    color: isPlaying
-                                        ? primaryColor.withValues(alpha: 0.16)
-                                        : surfaceDark,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: isPlaying
-                                        ? Border.all(
-                                            color: primaryColor.withValues(
-                                                alpha: 0.6),
-                                            width: 1.5,
-                                          )
-                                        : Border.all(
-                                            color: outlineColor.withValues(alpha: 0.3)),
-                                    boxShadow: isPlaying
-                                        ? [
-                                            BoxShadow(
-                                              color: primaryColor.withValues(
-                                                  alpha: 0.22),
-                                              blurRadius: 14,
-                                              spreadRadius: 0,
-                                              offset: const Offset(0, 3),
-                                            ),
-                                          ]
-                                        : null,
-                                  ),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.only(
-                                        left: 10, right: 12, top: 3, bottom: 3),
-                                    leading: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // Track index number or playing icon indicator
-                                        SizedBox(
-                                          width: 24,
-                                          child: isPlaying
-                                              ? Icon(
-                                                  Icons.volume_up_rounded,
-                                                  color: primaryColor,
-                                                  size: 17)
-                                              : Text(
-                                                  '${index + 1}',
-                                                  textAlign: TextAlign.center,
-                                                  style: TextStyle(
-                                                    color: textDark,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        _QueueTrackArtwork(
-                                          track: track,
-                                          isPlaying: isPlaying,
-                                          albumArt: widget.albumArt,
-                                          primaryColor: primaryColor,
-                                        ),
-                                      ],
-                                    ),
-                                    title: isPlaying
-                                        ? AdaptiveMarqueeText(
-                                            text: track.title,
-                                            style: TextStyle(
-                                              color: primaryColor,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 15,
-                                            ),
-                                            blankSpace: 30.0,
-                                            velocity: 30.0,
-                                          )
-                                        : Text(
-                                            track.title,
-                                            style: TextStyle(
-                                              color: textPrimary,
-                                              fontWeight: FontWeight.w500,
-                                              fontSize: 15,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                    subtitle: Row(
-                                      children: [
-                                        if (isPlaying) ...[
-                                          RepaintBoundary(
-                                            child: MiniMusicVisualizer(
-                                              color: primaryColor,
-                                              width: 3,
-                                              height: 12,
-                                              animate: true,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                        ],
-                                        Expanded(
-                                          child: Text(
-                                            track.artist,
-                                            style: TextStyle(
-                                              color: isPlaying
-                                                  ? primaryColor.withValues(
-                                                      alpha: 0.88)
-                                                  : Colors.white
-                                                      .withValues(alpha: 0.5),
-                                              fontWeight: isPlaying
-                                                  ? FontWeight.w600
-                                                  : FontWeight.normal,
-                                              fontSize: 13,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (track.durationSeconds != null &&
-                                            track.durationSeconds! > 0)
-                                          Text(
-                                            _formatDuration(
-                                                track.durationSeconds),
-                                            style: TextStyle(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.35),
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (widget.onRemoveFromQueue != null)
-                                          M3EIconButton(
-                                            icon: const Icon(
-                                                Icons.close_rounded,
-                                                size: 18),
-                                            variant: M3EIconButtonVariant.standard,
-                                            visualSize: const Size(32, 32),
-                                            tooltip: 'Remove from queue',
-                                            onPressed: () =>
-                                                widget.onRemoveFromQueue!(
-                                                    index),
-                                          ),
-                                        const SizedBox(width: 4),
-                                        ReorderableDragStartListener(
-                                          index: index,
-                                          child: const Padding(
-                                            padding: EdgeInsets.all(6.0),
-                                            child: Icon(
-                                              Icons.drag_handle_rounded,
-                                              color: Colors.white38,
-                                              size: 22,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    onTap: () {
-                                      widget.onPlayQueueIndex(index);
-                                    },
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
                 ),
               ],
             ),
           ),
-        ),
+
+          // Expressive Filter / Action Toolbar
+          if (widget.queue.isNotEmpty)
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              child: Row(
+                children: [
+                  M3EChip(
+                    label: _showUpcomingOnly ? 'Upcoming Only' : 'Show All',
+                    leading: Icon(
+                      _showUpcomingOnly
+                          ? Icons.filter_list_rounded
+                          : Icons.format_list_bulleted_rounded,
+                      size: 16,
+                    ),
+                    selected: _showUpcomingOnly,
+                    onPressed: () {
+                      setState(() => _showUpcomingOnly = !_showUpcomingOnly);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  if (widget.onShuffleQueue != null)
+                    M3EChip(
+                      label: 'Shuffle',
+                      leading: const Icon(Icons.shuffle_rounded, size: 16),
+                      onPressed: widget.onShuffleQueue,
+                    ),
+                  const Spacer(),
+                  if (widget.onClearQueue != null ||
+                      widget.onRemoveFromQueue != null) ...[
+                    M3EChip(
+                      label: 'Clear',
+                      leading: const Icon(Icons.clear_all_rounded, size: 16),
+                      onPressed: () => _confirmClearQueue(context),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+          // Main Playback Queue Content
+          Expanded(
+            child: widget.queue.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 96,
+                            height: 96,
+                            decoration: BoxDecoration(
+                              color: primaryColor.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: primaryColor.withValues(alpha: 0.3),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Center(
+                              child: Icon(Icons.queue_music_rounded,
+                                  color: primaryColor, size: 44),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Queue is empty',
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Play a track or album to populate the playback queue',
+                            style: TextStyle(
+                              color: textDark,
+                              fontSize: 13.5,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics()),
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0)
+                        .copyWith(bottom: 140),
+                    itemCount: itemCount,
+                    itemBuilder: (context, index) {
+                      final actualIndex = _showUpcomingOnly && playingIndex >= 0
+                          ? index + playingIndex
+                          : index;
+                      final track = widget.queue[actualIndex];
+                      final isPlaying = (playingIndex == actualIndex) ||
+                          (widget.videoId != null &&
+                              track.videoId == widget.videoId);
+
+                      final isFirst = index == 0;
+                      final isLast = index == itemCount - 1;
+
+                      final borderRadius = BorderRadius.only(
+                        topLeft: Radius.circular(isFirst ? 20 : 6),
+                        topRight: Radius.circular(isFirst ? 20 : 6),
+                        bottomLeft: Radius.circular(isLast ? 20 : 6),
+                        bottomRight: Radius.circular(isLast ? 20 : 6),
+                      );
+
+                      final itemKey = ValueKey(
+                          '${track.videoId}_${actualIndex}_${widget.queue.length}');
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 3.0),
+                        child: Dismissible(
+                          key: itemKey,
+                          direction: widget.onRemoveFromQueue != null
+                              ? DismissDirection.horizontal
+                              : DismissDirection.none,
+                          onDismissed: (_) {
+                            if (widget.onRemoveFromQueue != null) {
+                              widget.onRemoveFromQueue!(actualIndex);
+                            }
+                          },
+                          background: Container(
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color:
+                                  Theme.of(context).colorScheme.errorContainer,
+                              borderRadius: borderRadius,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.delete_outline_rounded,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Remove',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          secondaryBackground: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color:
+                                  Theme.of(context).colorScheme.errorContainer,
+                              borderRadius: borderRadius,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Remove',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Icon(Icons.delete_outline_rounded,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer),
+                              ],
+                            ),
+                          ),
+                          child: Material(
+                            color: isPlaying
+                                ? primaryColor.withValues(alpha: 0.14)
+                                : context.cardDark,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: borderRadius,
+                              side: BorderSide(
+                                color: isPlaying
+                                    ? primaryColor.withValues(alpha: 0.45)
+                                    : outlineColor.withValues(alpha: 0.12),
+                                width: isPlaying ? 1.5 : 1.0,
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () => _handleTrackTap(actualIndex),
+                              onLongPress: () => _showTrackInfo(context, track),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 22,
+                                      child: Text(
+                                        '${actualIndex + 1}',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: isPlaying
+                                              ? primaryColor
+                                              : textDark,
+                                          fontSize: 12,
+                                          fontWeight: isPlaying
+                                              ? FontWeight.bold
+                                              : FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    _QueueTrackArtwork(
+                                      track: track,
+                                      isPlaying: isPlaying,
+                                      albumArt: widget.albumArt,
+                                      primaryColor: primaryColor,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            track.title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: isPlaying
+                                                  ? primaryColor
+                                                  : textPrimary,
+                                              fontSize: 14,
+                                              fontWeight: isPlaying
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w500,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            track.artist,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: textDark,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    if (track.durationSeconds != null &&
+                                        track.durationSeconds! > 0)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(right: 6.0),
+                                        child: Text(
+                                          _formatDuration(
+                                              track.durationSeconds),
+                                          style: TextStyle(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.35),
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.vertical_align_top_rounded,
+                                            size: 18,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.all(4),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 28,
+                                            minHeight: 28,
+                                          ),
+                                          color: textDark,
+                                          tooltip: 'Move to Top',
+                                          onPressed: () => widget.onReorderQueue(
+                                              actualIndex, 0),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.vertical_align_bottom_rounded,
+                                            size: 18,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.all(4),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 28,
+                                            minHeight: 28,
+                                          ),
+                                          color: textDark,
+                                          tooltip: 'Move to Bottom',
+                                          onPressed: () => widget.onReorderQueue(
+                                            actualIndex,
+                                            widget.queue.length,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
-
-  static String _formatDuration(int? seconds) {
-    if (seconds == null || seconds <= 0) return '';
-    final m = seconds ~/ 60;
-    final s = (seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
 }
 
-/// Memoized track artwork component wrapped in RepaintBoundary to eliminate synchronous disk/render repaints.
 class _QueueTrackArtwork extends StatelessWidget {
   final TrackInfo track;
   final bool isPlaying;
@@ -562,96 +632,78 @@ class _QueueTrackArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: ClipRRect(
+    final isLocal = track.videoId.contains('/') ||
+        track.videoId.contains('\\') ||
+        track.videoId.endsWith('.mp3') ||
+        track.videoId.endsWith('.flac') ||
+        track.videoId.endsWith('.m4a');
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: context.cardDark,
         borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: _buildArtworkContent(),
-              ),
-              if (isPlaying)
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      child: Center(
-                        child: MiniMusicVisualizer(
-                          color: primaryColor,
-                          width: 4,
-                          height: 16,
-                        ),
-                      ),
-                    ),
-                  ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          if (albumArt != null && isPlaying)
+            Image.memory(
+              albumArt!,
+              width: 44,
+              height: 44,
+              cacheWidth: 100,
+              cacheHeight: 100,
+              fit: BoxFit.cover,
+            )
+          else if (isLocal)
+            LocalAlbumArt(
+              path: track.videoId,
+              size: 44,
+              shape: Shapes.pill,
+              useM3Shape: false,
+            )
+          else if (track.thumbnailUrl != null && track.thumbnailUrl!.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: track.thumbnailUrl!,
+              width: 44,
+              height: 44,
+              memCacheWidth: 100,
+              memCacheHeight: 100,
+              fit: BoxFit.cover,
+              errorWidget: (_, __, ___) => _fallbackIcon(),
+            )
+          else
+            _fallbackIcon(),
+          if (isPlaying)
+            Container(
+              color: Colors.black.withValues(alpha: 0.45),
+              child: Center(
+                child: MiniMusicVisualizer(
+                  color: primaryColor,
+                  width: 4,
+                  height: 15,
+                  radius: 2,
+                  animate: true,
                 ),
-            ],
-          ),
-        ),
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildArtworkContent() {
-    if (isPlaying && albumArt != null && albumArt!.isNotEmpty) {
-      return Image.memory(
-        albumArt!,
-        fit: BoxFit.cover,
-      );
-    }
-
-    final thumb = track.thumbnailUrl;
-    if (thumb != null &&
-        (thumb.startsWith('http://') || thumb.startsWith('https://'))) {
-      return CachedNetworkImage(
-        imageUrl: thumb,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => Container(
-          color: Colors.white.withValues(alpha: 0.05),
-          child: const Icon(Icons.music_note, color: Colors.white24, size: 20),
-        ),
-        errorWidget: (_, __, ___) => _buildFallbackArt(),
-      );
-    }
-
-    // Local file artwork check without synchronous File.existsSync() blocking
-    if (thumb != null && thumb.isNotEmpty && !thumb.startsWith('http')) {
-      return Image.file(
-        File(thumb),
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _buildFallbackArt(),
-      );
-    }
-
-    // Fallback to local audio extractor if track.videoId looks like a file path
-    if (track.videoId.contains('/') ||
-        track.videoId.contains('\\') ||
-        track.videoId.endsWith('.mp3') ||
-        track.videoId.endsWith('.flac') ||
-        track.videoId.endsWith('.m4a')) {
-      return LocalAlbumArt(
-        path: track.videoId,
-        size: 48,
-        borderRadius: 10,
-        fallbackIcon: Icons.music_note,
-      );
-    }
-
-    return _buildFallbackArt();
-  }
-
-  Widget _buildFallbackArt() {
+  Widget _fallbackIcon() {
     return Container(
-      decoration: const BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage('assets/icon/splash.png'),
-          fit: BoxFit.cover,
+      color: Colors.white.withValues(alpha: 0.06),
+      child: const Center(
+        child: Icon(
+          Icons.music_note_rounded,
+          color: Colors.white38,
+          size: 22,
         ),
       ),
     );
   }
 }
-

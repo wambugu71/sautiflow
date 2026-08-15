@@ -651,11 +651,9 @@ packages:
   material_3_expressive:
     dependency: "direct main"
     description:
-      path: "."
-      ref: main
-      resolved-ref: d48133fee357522a51cdd478f3ec7f4789190efe
-      url: "https://github.com/wambugu71/material_3_expressive.git"
-    source: git
+      path: "../material_3_expressive"
+      relative: true
+    source: path
     version: "1.0.5"
   material_color_utilities:
     dependency: "direct main"

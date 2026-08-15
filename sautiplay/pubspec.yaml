@@ -39,9 +39,7 @@ dependencies:
   showcaseview: ^3.0.0
   package_info_plus: ^9.0.1
   material_3_expressive:
-    git:
-      url: https://github.com/wambugu71/material_3_expressive.git
-      ref: main
+    path: ../material_3_expressive
   flutter_m3shapes_extended: ^1.2.0
 
   # Desktop Media Controls & Notifications

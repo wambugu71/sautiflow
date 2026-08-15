@@ -471,6 +471,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       ? CachedNetworkImage(
                           imageUrl: thumb,
                           fit: BoxFit.cover,
+                          memCacheWidth: 200,
+                          memCacheHeight: 200,
                           placeholder: (_, __) => Container(
                             color: _surfaceDark,
                             child: Icon(Icons.music_note_rounded,
@@ -587,6 +589,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       ? CachedNetworkImage(
                           imageUrl: thumb,
                           fit: BoxFit.cover,
+                          memCacheWidth: 160,
+                          memCacheHeight: 160,
                           placeholder: (_, __) => Container(
                             color: _surfaceDark,
                             child: Icon(

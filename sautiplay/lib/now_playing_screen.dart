@@ -47,6 +47,9 @@ class NowPlayingScreen extends StatefulWidget {
   final List<TrackInfo> queue;
   final void Function(int) onPlayQueueIndex;
   final void Function(int, int) onReorderQueue;
+  final void Function(int)? onRemoveFromQueue;
+  final VoidCallback? onClearQueue;
+  final VoidCallback? onShuffleQueue;
   final String sourceType;
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
       onPlayTracks;
@@ -72,6 +75,9 @@ class NowPlayingScreen extends StatefulWidget {
     this.queue = const [],
     required this.onPlayQueueIndex,
     required this.onReorderQueue,
+    this.onRemoveFromQueue,
+    this.onClearQueue,
+    this.onShuffleQueue,
     required this.sourceType,
     this.onPlayTracks,
     required this.analyzerEnabled,
@@ -629,8 +635,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             AppThemeService.instance.albumArtShape,
                             width: 38,
                             height: 38,
-                            color: AppThemeService
-                                .instance.currentData.primary
+                            color: AppThemeService.instance.currentData.primary
                                 .withAlpha(35),
                             border: BorderSide(
                               color: AppThemeService
@@ -1559,11 +1564,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         ? RepaintBoundary(
                                                             child: M3EContainer(
                                                               albumArtShape,
-                                                              clipBehavior:
-                                                                  Clip.antiAlias,
-                                                              child: Image.memory(
-                                                                widget.albumArt!,
-                                                                fit: BoxFit.cover,
+                                                              clipBehavior: Clip
+                                                                  .antiAlias,
+                                                              child:
+                                                                  Image.memory(
+                                                                widget
+                                                                    .albumArt!,
+                                                                fit: BoxFit
+                                                                    .cover,
                                                               ),
                                                             ),
                                                           )
@@ -2606,40 +2614,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             left: 0,
                             right: 0,
                             child: Center(
-                              child: GestureDetector(
-                                onTap: () => _showQueueSheet(context),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.15),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(Icons.keyboard_arrow_up_rounded,
-                                          size: 16, color: Colors.white70),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'UP NEXT',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 1.0,
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
+                                child: M3EChip(
+                              leading: Icon(Icons.keyboard_arrow_up),
+                              label: "UP NEXT",
+                              onPressed: () => _showQueueSheet(context),
+                            )),
                           ),
                         ],
                       );
@@ -2660,6 +2639,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               albumArt: widget.albumArt,
                               onPlayQueueIndex: widget.onPlayQueueIndex,
                               onReorderQueue: widget.onReorderQueue,
+                              onRemoveFromQueue: widget.onRemoveFromQueue,
+                              onClearQueue: widget.onClearQueue,
+                              onShuffleQueue: widget.onShuffleQueue,
                               statusNotifier: widget.statusNotifier,
                               onClose: () {
                                 if (_pageController.hasClients) {

@@ -1,42 +1,128 @@
+import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/components/loading_indicator/m3e_loading_indicator.dart';
 import '../services/app_theme_service.dart';
 
-// Global cache to prevent re-reading files on scroll
+// Bounded in-memory cache to prevent memory ballooning
+const int _maxAlbumArtCacheSize = 120;
+const int _maxAlbumArtAttemptedSize = 500;
+
 final Map<String, Uint8List?> _albumArtCache = {};
 final Map<String, bool> _albumArtAttempted = {};
+final Map<String, Uint8List?> _directoryArtCache = {};
+final Map<String, bool> _directoryArtAttempted = {};
+
+// Worker queue management
+const int _maxConcurrentExtractions = 2;
+int _activeExtractions = 0;
+final List<_ArtRequest> _queue = [];
+final Map<String, List<Completer<Uint8List?>>> _waitingCompleters = {};
+
+class _ArtRequest {
+  final String path;
+  final Completer<Uint8List?> completer;
+  bool isCancelled = false;
+
+  _ArtRequest(this.path, this.completer);
+}
+
+void _cacheAlbumArt(String path, Uint8List? bytes) {
+  if (_albumArtCache.length >= _maxAlbumArtCacheSize) {
+    _albumArtCache.remove(_albumArtCache.keys.first);
+  }
+  _albumArtCache[path] = bytes;
+
+  if (_albumArtAttempted.length >= _maxAlbumArtAttemptedSize) {
+    _albumArtAttempted.remove(_albumArtAttempted.keys.first);
+  }
+  _albumArtAttempted[path] = true;
+}
 
 Future<Uint8List?> _extractArtTask(String path) async {
   try {
-    final metadata = readMetadata(File(path), getImage: true);
-    if (metadata.pictures.isNotEmpty) {
-      return metadata.pictures.first.bytes;
+    final file = File(path);
+    if (!file.existsSync()) return null;
+
+    // 1. Try reading embedded ID3 / FLAC / MP4 image
+    try {
+      final metadata = readMetadata(file, getImage: true);
+      if (metadata.pictures.isNotEmpty) {
+        return metadata.pictures.first.bytes;
+      }
+    } catch (_) {}
+
+    // 2. Check parent directory cache
+    final dirPath = file.parent.path;
+    if (_directoryArtAttempted.containsKey(dirPath)) {
+      return _directoryArtCache[dirPath];
     }
 
-    // Fallback to directory
-    final dir = File(path).parent;
-    if (dir.existsSync()) {
-      final files = dir.listSync();
-      for (final f in files) {
-        if (f is File) {
-          final lowerPath = f.path.toLowerCase();
-          if (lowerPath.endsWith('.jpg') ||
-              lowerPath.endsWith('.jpeg') ||
-              lowerPath.endsWith('.png') ||
-              lowerPath.endsWith('.webp')) {
-            return f.readAsBytesSync();
+    _directoryArtAttempted[dirPath] = true;
+    final parentDir = file.parent;
+    if (parentDir.existsSync()) {
+      try {
+        final files = parentDir.listSync(followLinks: false);
+        for (final f in files) {
+          if (f is File) {
+            final lowerPath = f.path.toLowerCase();
+            if (lowerPath.endsWith('.jpg') ||
+                lowerPath.endsWith('.jpeg') ||
+                lowerPath.endsWith('.png') ||
+                lowerPath.endsWith('.webp')) {
+              final bytes = f.readAsBytesSync();
+              _directoryArtCache[dirPath] = bytes;
+              return bytes;
+            }
           }
         }
-      }
+      } catch (_) {}
     }
+    _directoryArtCache[dirPath] = null;
   } catch (e) {
     debugPrint('[LocalAlbumArt] Failed to read art for $path: $e');
   }
   return null;
+}
+
+void _drainQueue() {
+  while (_activeExtractions < _maxConcurrentExtractions && _queue.isNotEmpty) {
+    final request = _queue.removeAt(0);
+    if (request.isCancelled) {
+      continue;
+    }
+
+    _activeExtractions++;
+    _extractArtTask(request.path).then((bytes) {
+      _cacheAlbumArt(request.path, bytes);
+
+      if (!request.completer.isCompleted) {
+        request.completer.complete(bytes);
+      }
+
+      final waiting = _waitingCompleters.remove(request.path);
+      if (waiting != null) {
+        for (final c in waiting) {
+          if (!c.isCompleted) c.complete(bytes);
+        }
+      }
+    }).catchError((e) {
+      if (!request.completer.isCompleted) {
+        request.completer.complete(null);
+      }
+      final waiting = _waitingCompleters.remove(request.path);
+      if (waiting != null) {
+        for (final c in waiting) {
+          if (!c.isCompleted) c.complete(null);
+        }
+      }
+    }).whenComplete(() {
+      _activeExtractions--;
+      _drainQueue();
+    });
+  }
 }
 
 class LocalAlbumArt extends StatefulWidget {
@@ -54,7 +140,7 @@ class LocalAlbumArt extends StatefulWidget {
     this.borderRadius = 12.0,
     this.fallbackIcon = Icons.music_note,
     this.shape = Shapes.pill,
-    this.useM3Shape = true,
+    this.useM3Shape = false,
   });
 
   @override
@@ -65,6 +151,7 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
   Uint8List? _imageData;
   bool _isLoading = true;
   bool _hasError = false;
+  _ArtRequest? _activeRequest;
 
   @override
   void initState() {
@@ -76,18 +163,33 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
   void didUpdateWidget(LocalAlbumArt oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.path != widget.path) {
+      _cancelPendingRequest();
       _loadAlbumArt();
     }
   }
 
-  Future<void> _loadAlbumArt() async {
+  @override
+  void dispose() {
+    _cancelPendingRequest();
+    super.dispose();
+  }
+
+  void _cancelPendingRequest() {
+    if (_activeRequest != null) {
+      _activeRequest!.isCancelled = true;
+      _activeRequest = null;
+    }
+  }
+
+  void _loadAlbumArt() {
     if (!mounted) return;
 
-    if (_albumArtAttempted[widget.path] == true) {
+    if (_albumArtAttempted.containsKey(widget.path)) {
+      final cachedBytes = _albumArtCache[widget.path];
       setState(() {
-        _imageData = _albumArtCache[widget.path];
+        _imageData = cachedBytes;
         _isLoading = false;
-        _hasError = _imageData == null;
+        _hasError = cachedBytes == null;
       });
       return;
     }
@@ -98,115 +200,84 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
       _imageData = null;
     });
 
-    try {
-      final bytes = await compute(_extractArtTask, widget.path);
+    final completer = Completer<Uint8List?>();
+    final request = _ArtRequest(widget.path, completer);
+    _activeRequest = request;
 
-      _albumArtAttempted[widget.path] = true;
-      _albumArtCache[widget.path] = bytes;
-
-      if (mounted) {
-        setState(() {
-          _imageData = bytes;
-          _isLoading = false;
-          _hasError = bytes == null;
-        });
-      }
-    } catch (e) {
-      debugPrint('[LocalAlbumArt] Compute error for ${widget.path}: $e');
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _isLoading = false;
-        });
-      }
+    if (_waitingCompleters.containsKey(widget.path)) {
+      _waitingCompleters[widget.path]!.add(completer);
+    } else {
+      _waitingCompleters[widget.path] = [];
+      _queue.add(request);
+      _drainQueue();
     }
+
+    completer.future.then((bytes) {
+      if (!mounted || _activeRequest != request) return;
+      setState(() {
+        _imageData = bytes;
+        _isLoading = false;
+        _hasError = bytes == null;
+      });
+    }).catchError((_) {
+      if (!mounted || _activeRequest != request) return;
+      setState(() {
+        _hasError = true;
+        _isLoading = false;
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final themeData = AppThemeProvider.of(context);
     final cardColor = themeData.cardDark;
-    final double? containerWidth = widget.size.isFinite ? widget.size : null;
-    final double? containerHeight = widget.size.isFinite ? widget.size : null;
+    final double side = widget.size > 0 ? widget.size : 48.0;
+    final double iconSize = (side * 0.5).clamp(14.0, 48.0);
 
-    final Widget innerContent = LayoutBuilder(
-      builder: (context, constraints) {
-        double side = 48.0;
-        if (constraints.maxWidth.isFinite && constraints.maxWidth > 0) {
-          side = constraints.maxWidth;
-        } else if (widget.size.isFinite && widget.size > 0) {
-          side = widget.size;
-        }
-        final double iconSize = (side * 0.5).clamp(12.0, 120.0);
-        final double progressSize = (side * 0.4).clamp(12.0, 48.0);
-
-        if (_isLoading) {
-          return Center(
-            child: SizedBox(
-                width: progressSize,
-                height: progressSize,
-                child: M3ELoadingIndicator(
-                  color: themeData.primary.withAlpha(180),
-                  containerColor: themeData.primary.withAlpha(100),
-                  variant: M3ELoadingIndicatorVariant.contained,
-                ) // CircularProgressIndicator(
-                //strokeWidth: 2.0,
-                //valueColor: AlwaysStoppedAnimation<Color>(themeData.primary.withAlpha(180)),
-                //),
-                ),
-          );
-        }
-
-        if (_imageData != null && !_hasError) {
-          return Image.memory(
-            _imageData!,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              debugPrint(
-                  '[LocalAlbumArt] Image.memory decode error for ${widget.path}: $error');
-              return _buildFallback(iconSize, themeData.textDark);
-            },
-          );
-        }
-
-        return _buildFallback(iconSize, themeData.textDark);
-      },
-    );
+    Widget innerContent;
+    if (_isLoading) {
+      innerContent = Center(
+        child: Icon(
+          widget.fallbackIcon,
+          color: themeData.textDark.withAlpha(60),
+          size: iconSize,
+        ),
+      );
+    } else if (_imageData != null && !_hasError) {
+      innerContent = Image.memory(
+        _imageData!,
+        fit: BoxFit.cover,
+        cacheWidth: (side * 2).toInt().clamp(48, 200),
+        cacheHeight: (side * 2).toInt().clamp(48, 200),
+        errorBuilder: (_, __, ___) => _buildFallback(iconSize, themeData.textDark),
+      );
+    } else {
+      innerContent = _buildFallback(iconSize, themeData.textDark);
+    }
 
     if (widget.useM3Shape) {
       return RepaintBoundary(
         child: M3EContainer(
           widget.shape,
-          width: containerWidth,
-          height: containerHeight,
+          width: side,
+          height: side,
           color: cardColor,
           clipBehavior: Clip.antiAlias,
-          /*boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(51),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],*/
           child: innerContent,
         ),
       );
     }
 
+    final isCircle = widget.shape == Shapes.circle;
     return RepaintBoundary(
       child: Container(
-        width: containerWidth,
-        height: containerHeight,
+        width: side,
+        height: side,
         decoration: BoxDecoration(
           color: cardColor,
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          /*boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(51),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],*/
+          shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+          borderRadius: isCircle ? null : BorderRadius.circular(widget.borderRadius),
         ),
         clipBehavior: Clip.antiAlias,
         child: innerContent,
@@ -218,8 +289,8 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
     return Center(
       child: Icon(
         widget.fallbackIcon,
-        color: iconColor,
-        size: iconSize.isFinite ? iconSize : 24.0,
+        color: iconColor.withAlpha(90),
+        size: iconSize,
       ),
     );
   }

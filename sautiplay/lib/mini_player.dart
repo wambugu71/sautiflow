@@ -140,6 +140,8 @@ class _MiniPlayerState extends State<MiniPlayer>
           child: Column(
             children: [
               M3EProgressIndicator.linearWavy(
+                  wavelength: 60,
+                  waveSpeed: 25,
                   strokeWidth: 4,
                   value: widget.progress.clamp(0.0, 1.0),
                   linearSize: M3EProgressIndicatorSize.s,
@@ -172,6 +174,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                             ? Image.memory(
                                 widget.albumArt!,
                                 fit: BoxFit.contain,
+                                cacheWidth: 120,
+                                cacheHeight: 120,
                               )
                             : RotationTransition(
                                 turns: _rotationController,
@@ -232,6 +236,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                     ),
                     // Controls
                     M3EIconButton(
+                      // isSelected: true,
+                      //variant: M3EIconButtonVariant.tonal,
                       onPressed: widget.onPlayPause,
                       icon: Icon(
                         widget.isPlaying
@@ -242,6 +248,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                       ),
                     ),
                     M3EIconButton(
+                      //isSelected: true,
+                      // variant: M3EIconButtonVariant.tonal,
                       onPressed: widget.onNext,
                       icon: const Icon(
                         Icons.skip_next,

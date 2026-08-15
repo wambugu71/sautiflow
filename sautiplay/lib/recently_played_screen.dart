@@ -91,15 +91,11 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
             ),
           ),
         ),
-        ListView.builder(
-          padding: EdgeInsets.zero,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: tracks.length,
-          itemBuilder: (context, index) {
-            final track = tracks[index];
-            return _buildTrackItem(track, tracks, index);
-          },
+        Column(
+          children: [
+            for (int i = 0; i < tracks.length; i++)
+              _buildTrackItem(tracks[i], tracks, i),
+          ],
         ),
         const SizedBox(height: 16),
       ],
@@ -142,6 +138,8 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                     ? CachedNetworkImage(
                         imageUrl: track.thumbnailUrl!,
                         fit: BoxFit.cover,
+                        memCacheWidth: 150,
+                        memCacheHeight: 150,
                         errorWidget: (context, url, error) =>
                             const Icon(Icons.music_note, color: Colors.white54),
                       )

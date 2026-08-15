@@ -346,6 +346,8 @@ class _HomeScreenState extends State<HomeScreen>
                           ? CachedNetworkImage(
                               imageUrl: thumb,
                               fit: BoxFit.cover,
+                              memCacheWidth: 200,
+                              memCacheHeight: 200,
                               placeholder: (_, __) => Container(
                                 color: _surfaceBorder,
                                 child: const Icon(Icons.music_note_rounded,
@@ -571,6 +573,8 @@ class _HomeScreenState extends State<HomeScreen>
                           ? CachedNetworkImage(
                               imageUrl: thumb,
                               fit: BoxFit.cover,
+                              memCacheWidth: 200,
+                              memCacheHeight: 200,
                               placeholder: (_, __) => Container(
                                 color: _surfaceDark,
                                 child: const Center(

@@ -1236,68 +1236,69 @@ class _PlayerShellState extends State<PlayerShell> {
     setState(() {});
   }
 
+  bool _isSwitchingQueueTrack = false;
+
   /// Prioritizes resolving and playing a track from the _currentUiQueue.
   Future<void> _playQueueIndex(int queueIndex) async {
     _isFtpDownloading = false;
+    if (_isSwitchingQueueTrack) return;
     if (queueIndex < 0 || queueIndex >= _currentUiQueue.length) return;
 
-    final targetTrack = _currentUiQueue[queueIndex];
-    _logs.insert(0, '[queue] Prioritizing: ${targetTrack.title}');
-
-    // If it's already in the playlist, just jump to it
-    // We assume the playlist order roughly matches the queue order of resolved tracks
-    final existingIndex = _playlist.indexWhere((src) {
-      if (_onlineTrackMetadata.containsKey(src.uri)) {
-        return _onlineTrackMetadata[src.uri]?.videoId == targetTrack.videoId;
-      } else if (src.uri.scheme == 'file') {
-        final path = _safeFilePathFromUri(src.uri);
-        return path != null && path == targetTrack.videoId;
-      }
-      return false;
-    });
-
-    if (existingIndex != -1) {
-      // Track is already resolved and in the playlist. Just seek to it.
-      // Wait, IsolateAudioPlayer handles continuous play. We can fake jumping by
-      // clearing and re-setting the playlist from this index if needed, OR
-      // just set the sources with the new initial index.
-      _player.setAudioSources(
-        _playlist,
-        initialIndex: existingIndex,
-        initialPosition: Duration.zero,
-        useLazyPreparation: true,
-      );
-      return;
-    }
-
-    // It's unresolved. Resolve immediately and play.
+    _isSwitchingQueueTrack = true;
     try {
-      final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
-      if (url != null) {
-        final src = await _materializeSource(Uri.parse(url));
-        if (src != null && mounted) {
-          _onlineTrackMetadata[src.uri] = targetTrack;
+      final targetTrack = _currentUiQueue[queueIndex];
+      _logs.insert(0, '[queue] Prioritizing: ${targetTrack.title}');
 
-          // Insert it into the playlist at the correct relative position if possible,
-          // but for simplicity, let's append it or reset the playlist to play it now.
-          // Since we want the queue to continue, we can reset the audio engine's playlist
-          // from this point forward, or simply append and jump.
-          setState(() {
-            _playlist.add(src);
-          });
-
-          _player.setAudioSources(
-            _playlist,
-            initialIndex: _playlist.length - 1,
-            initialPosition: Duration.zero,
-            useLazyPreparation: true,
-          );
+      // If it's already in the playlist, just jump to it
+      // We assume the playlist order roughly matches the queue order of resolved tracks
+      final existingIndex = _playlist.indexWhere((src) {
+        if (_onlineTrackMetadata.containsKey(src.uri)) {
+          return _onlineTrackMetadata[src.uri]?.videoId == targetTrack.videoId;
+        } else if (src.uri.scheme == 'file') {
+          final path = _safeFilePathFromUri(src.uri);
+          return path != null && path == targetTrack.videoId;
         }
-      } else {
-        _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
+        return false;
+      });
+
+      if (existingIndex != -1) {
+        // Track is already resolved and in the playlist. Just seek to it.
+        _player.setAudioSources(
+          _playlist,
+          initialIndex: existingIndex,
+          initialPosition: Duration.zero,
+          useLazyPreparation: true,
+        );
+        return;
       }
-    } catch (e) {
-      _logs.insert(0, '[queue] Error resolving ${targetTrack.title}: $e');
+
+      // It's unresolved. Resolve immediately and play.
+      try {
+        final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
+        if (url != null) {
+          final src = await _materializeSource(Uri.parse(url));
+          if (src != null && mounted) {
+            _onlineTrackMetadata[src.uri] = targetTrack;
+
+            setState(() {
+              _playlist.add(src);
+            });
+
+            _player.setAudioSources(
+              _playlist,
+              initialIndex: _playlist.length - 1,
+              initialPosition: Duration.zero,
+              useLazyPreparation: true,
+            );
+          }
+        } else {
+          _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
+        }
+      } catch (e) {
+        _logs.insert(0, '[queue] Error resolving ${targetTrack.title}: $e');
+      }
+    } finally {
+      _isSwitchingQueueTrack = false;
     }
   }
 
@@ -1360,6 +1361,122 @@ class _PlayerShellState extends State<PlayerShell> {
         );
       }
     });
+  }
+
+  void _removeFromQueue(int index) {
+    if (index < 0 || index >= _currentUiQueue.length) return;
+    setState(() {
+      final removedTrack = _currentUiQueue.removeAt(index);
+
+      int playlistIndex = _playlist.indexWhere((src) {
+        if (_onlineTrackMetadata.containsKey(src.uri)) {
+          return _onlineTrackMetadata[src.uri]?.videoId == removedTrack.videoId;
+        } else if (src.uri.scheme == 'file') {
+          final path = _safeFilePathFromUri(src.uri);
+          return path != null && path == removedTrack.videoId;
+        }
+        return false;
+      });
+
+      if (playlistIndex != -1) {
+        _playlist.removeAt(playlistIndex);
+      } else if (index < _playlist.length) {
+        _playlist.removeAt(index);
+      }
+
+      final currentIndex = _status.value.currentIndex;
+      if (_playlist.isNotEmpty) {
+        int newIndex = currentIndex;
+        if (playlistIndex != -1 && playlistIndex < currentIndex) {
+          newIndex = (currentIndex - 1).clamp(0, _playlist.length - 1);
+        } else if (newIndex >= _playlist.length) {
+          newIndex = _playlist.length - 1;
+        }
+
+        _player.setAudioSources(
+          _playlist,
+          initialIndex: newIndex,
+          initialPosition:
+              Duration(seconds: _status.value.positionSeconds.toInt()),
+          useLazyPreparation: true,
+        );
+      } else {
+        _player.stop();
+      }
+    });
+    _saveQueue();
+    _logs.insert(0, '[queue] Removed track from queue at index $index');
+  }
+
+  void _clearQueue() {
+    setState(() {
+      _currentUiQueue.clear();
+      _playlist.clear();
+      _player.stop();
+    });
+    _saveQueue();
+    _logs.insert(0, '[queue] Queue cleared.');
+  }
+
+  void _shuffleQueue() {
+    if (_currentUiQueue.length <= 1) return;
+    setState(() {
+      final currentIndex = _status.value.currentIndex;
+      TrackInfo? currentTrack;
+      AudioSource? currentSource;
+
+      if (currentIndex >= 0 && currentIndex < _currentUiQueue.length) {
+        currentTrack = _currentUiQueue[currentIndex];
+      }
+      if (currentIndex >= 0 && currentIndex < _playlist.length) {
+        currentSource = _playlist[currentIndex];
+      }
+
+      final remainingTracks = List<TrackInfo>.from(_currentUiQueue);
+      if (currentTrack != null) {
+        remainingTracks.remove(currentTrack);
+      }
+      remainingTracks.shuffle();
+
+      _currentUiQueue.clear();
+      if (currentTrack != null) {
+        _currentUiQueue.add(currentTrack);
+      }
+      _currentUiQueue.addAll(remainingTracks);
+
+      final newPlaylist = <AudioSource>[];
+      if (currentSource != null) {
+        newPlaylist.add(currentSource);
+      }
+      for (final track in remainingTracks) {
+        final existingSrc = _playlist.firstWhere((src) {
+          if (_onlineTrackMetadata.containsKey(src.uri)) {
+            return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
+          } else if (src.uri.scheme == 'file') {
+            final path = _safeFilePathFromUri(src.uri);
+            return path != null && path == track.videoId;
+          }
+          return false;
+        }, orElse: () => AudioSource.uri(Uri()));
+        if (existingSrc.uri.toString().isNotEmpty) {
+          newPlaylist.add(existingSrc);
+        }
+      }
+
+      _playlist
+        ..clear()
+        ..addAll(newPlaylist);
+
+      _player.setAudioSources(
+        _playlist,
+        initialIndex: 0,
+        initialPosition:
+            Duration(seconds: _status.value.positionSeconds.toInt()),
+        useLazyPreparation: true,
+      );
+    });
+    _saveQueue();
+    _logs.insert(0, '[queue] Queue shuffled.');
   }
 
   Future<void> _queueNextTrack(TrackInfo track) async {
@@ -1723,6 +1840,9 @@ class _PlayerShellState extends State<PlayerShell> {
                   queue: _currentUiQueue,
                   onPlayQueueIndex: _playQueueIndex,
                   onReorderQueue: _reorderQueue,
+                  onRemoveFromQueue: _removeFromQueue,
+                  onClearQueue: _clearQueue,
+                  onShuffleQueue: _shuffleQueue,
                   sourceType: currentSourceType,
                   onPlayTracks: _playOnlineTracks,
                   analyzerEnabled: _analyzerEnabled,

@@ -153,6 +153,8 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                     ? CachedNetworkImage(
                         imageUrl: track.thumbnailUrl!,
                         fit: BoxFit.cover,
+                        memCacheWidth: 160,
+                        memCacheHeight: 160,
                         errorWidget: (context, url, error) => Icon(
                             Icons.music_note,
                             color: Colors.white54,

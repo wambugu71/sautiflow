@@ -374,6 +374,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ? CachedNetworkImage(
                   imageUrl: _thumbnailUrl!,
                   fit: BoxFit.cover,
+                  memCacheWidth: 600,
+                  memCacheHeight: 600,
                   placeholder: (_, __) => Container(
                     color: _surfaceDark,
                     child: Center(
@@ -660,6 +662,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                       child: CachedNetworkImage(
                         imageUrl: track.thumbnailUrl!,
                         fit: BoxFit.cover,
+                        memCacheWidth: 120,
+                        memCacheHeight: 120,
                         placeholder: (_, __) => Container(
                           color: _surfaceDark,
                         ),
