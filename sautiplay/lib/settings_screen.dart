@@ -161,8 +161,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _lookaheadLimiterEnabled = true;
   double _lookaheadLimiterCeilingDBTP = -1.0;
 
-  // Waveform Seek Bar UI Setting
+  // Waveform & Slider Seek Bar UI Settings
   bool _useWaveformSeekBar = false;
+  bool _useWavySlider = true;
+  double _previewSliderValue = 42.0;
 
   // App version state
   String _appVersion = 'v0.6.20';
@@ -231,6 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
         await AppStateService.instance.loadUseWaveformSeekBar();
+    final wavySaved = await AppStateService.instance.loadUseWavySlider();
     final engineSettings = await AppStateService.instance.loadEngineSettings();
     final loudnessCf = engineSettings.loudnessCrossfadeEnabled;
 
@@ -267,6 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoBitPerfectEnabled = autoBp;
       _loudnessCrossfadeEnabled = loudnessCf;
       _useWaveformSeekBar = waveformSaved;
+      _useWavySlider = wavySaved;
     });
 
     final loudnessNorm =
@@ -908,7 +912,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             const SizedBox(height: 20),
-            // ── SEEK BAR SECTION ──────────────────────────────────────────
+            // ── SEEK BAR & SLIDER SECTION ─────────────────────────────────
             _buildSectionHeader('INTERFACE & SEEK BAR'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -932,6 +936,136 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setSubState(() {});
                     AppStateService.instance.saveUseWaveformSeekBar(val);
                   },
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Divider(
+                    color: context.outlineColor.withAlpha(50),
+                    height: 1,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          M3EContainer(
+                            Shapes.pill,
+                            width: 40,
+                            height: 40,
+                            color: _primary.withAlpha(25),
+                            child: Center(
+                              child: Icon(
+                                _useWavySlider
+                                    ? Icons.waves_rounded
+                                    : Icons.linear_scale_rounded,
+                                color: _primary,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Slider Style',
+                                  style: TextStyle(
+                                    color: textPrimaryColor,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _useWavySlider
+                                      ? 'M3E Linear Wavy travelling sine-wave'
+                                      : 'M3E Linear Regular straight track',
+                                  style: TextStyle(
+                                    color: mutedText,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      // Live interactive preview of the selected M3E Slider
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDarkTheme
+                              ? Colors.black.withAlpha(50)
+                              : Colors.black.withAlpha(10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: context.outlineColor.withAlpha(40),
+                          ),
+                        ),
+                        child: _useWavySlider
+                            ? M3ESlider.wavy(
+                                value: _previewSliderValue,
+                                min: 0.0,
+                                max: 100.0,
+                                trackThickness: 8.0,
+                                cornerRadius: 8,
+                                thumbLength: 24.0,
+                                showValueIndicator: false,
+                                onChanged: (v) {
+                                  setState(() => _previewSliderValue = v);
+                                  setSubState(() {});
+                                },
+                              )
+                            : M3ESlider(
+                                value: _previewSliderValue,
+                                min: 0.0,
+                                max: 100.0,
+                                trackThickness: 8.0,
+                                cornerRadius: 8,
+                                thumbLength: 24.0,
+                                showValueIndicator: false,
+                                onChanged: (v) {
+                                  setState(() => _previewSliderValue = v);
+                                  setSubState(() {});
+                                },
+                              ),
+                      ),
+                      const SizedBox(height: 14),
+                      // M3E Segmented button selection
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3ESegmentedButton<bool>(
+                          segments: const [
+                            M3ESegment<bool>(
+                              value: true,
+                              label: 'Linear Wavy',
+                              icon: Icon(Icons.waves_rounded, size: 18),
+                            ),
+                            M3ESegment<bool>(
+                              value: false,
+                              label: 'Linear Regular',
+                              icon: Icon(Icons.linear_scale_rounded, size: 18),
+                            ),
+                          ],
+                          selected: {_useWavySlider},
+                          onSelectionChanged: (newSelection) {
+                            if (newSelection.isNotEmpty) {
+                              final isWavy = newSelection.first;
+                              setState(() => _useWavySlider = isWavy);
+                              setSubState(() {});
+                              AppStateService.instance.saveUseWavySlider(isWavy);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

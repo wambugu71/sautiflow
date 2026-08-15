@@ -1707,6 +1707,10 @@ class _LibraryScreenState extends State<LibraryScreen>
               physics: const NeverScrollableScrollPhysics(),
               itemCount: 1 + _m3uPlaylists.length + _folders.length,
               itemBuilder: (context, index) {
+                final totalCount = 1 + _m3uPlaylists.length + _folders.length;
+                final isFirst = index == 0;
+                final isLast = index == totalCount - 1;
+
                 if (index == 0) {
                   return _buildLibraryItem(
                     title: 'Network Stream (FTP & DLNA)',
@@ -1720,6 +1724,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     onTap: _navigateToNetworkSources,
                     context: context,
                     isDesktop: isDesktop,
+                    isFirst: isFirst,
+                    isLast: isLast,
                   );
                 } else if (index <= _m3uPlaylists.length) {
                   final pl = _m3uPlaylists[index - 1];
@@ -1745,6 +1751,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     onLongPress: () => _showM3uPlaylistOptions(pl),
                     context: context,
                     isDesktop: isDesktop,
+                    isFirst: isFirst,
+                    isLast: isLast,
                   );
                 } else {
                   final folderIdx = index - 1 - _m3uPlaylists.length;
@@ -1757,6 +1765,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     onLongPress: () => _removeFolder(folderIdx),
                     context: context,
                     isDesktop: isDesktop,
+                    isFirst: isFirst,
+                    isLast: isLast,
                   );
                 }
               },
@@ -2072,7 +2082,11 @@ class _LibraryScreenState extends State<LibraryScreen>
               ),
 
               // Group Tracks
-              ...songs.map((song) {
+              ...List.generate(songs.length, (i) {
+                final song = songs[i];
+                final isFirst = i == 0;
+                final isLast = i == songs.length - 1;
+
                 return _buildLibraryItem(
                   title: song.title,
                   subtitle:
@@ -2081,10 +2095,11 @@ class _LibraryScreenState extends State<LibraryScreen>
                       path: song.path,
                       size: isDesktop ? 80 : 56,
                       shape: Shapes.pill),
+                  isFirst: isFirst,
+                  isLast: isLast,
                   onTap: () {
                     final paths = songs.map((e) => e.path).toList();
-                    final songIdx = songs.indexOf(song);
-                    widget.onPlayFolder(paths, initialIndex: songIdx);
+                    widget.onPlayFolder(paths, initialIndex: i);
                   },
                   onOptionSelected: (option) => _handleSongOption(song, option),
                   context: context,
@@ -2107,7 +2122,15 @@ class _LibraryScreenState extends State<LibraryScreen>
         itemCount: _filteredSongs.length,
         itemBuilder: (context, index) {
           final song = _filteredSongs[index];
-          return _buildCompactSongItem(song, index, isDesktop: isDesktop);
+          final isFirst = index == 0;
+          final isLast = index == _filteredSongs.length - 1;
+          return _buildCompactSongItem(
+            song,
+            index,
+            isDesktop: isDesktop,
+            isFirst: isFirst,
+            isLast: isLast,
+          );
         },
       );
     } else if (_trackViewMode == TrackViewMode.grid) {
@@ -2132,7 +2155,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         },
       );
     } else {
-      // Standard Virtualized ListView with zero UI thread overhead
+      // Standard Virtualized ListView with connected M3E rounded card style
       return ListView.builder(
         padding: EdgeInsets.symmetric(
           horizontal: isDesktop ? 32 : 16,
@@ -2141,6 +2164,9 @@ class _LibraryScreenState extends State<LibraryScreen>
         itemCount: _filteredSongs.length,
         itemBuilder: (context, index) {
           final song = _filteredSongs[index];
+          final isFirst = index == 0;
+          final isLast = index == _filteredSongs.length - 1;
+
           return _buildLibraryItem(
             title: song.title,
             subtitle:
@@ -2149,6 +2175,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                 path: song.path,
                 size: isDesktop ? 60 : 48,
                 shape: Shapes.pill),
+            isFirst: isFirst,
+            isLast: isLast,
             onTap: () {
               final paths = _filteredSongs.map((e) => e.path).toList();
               widget.onPlayFolder(paths, initialIndex: index);
@@ -2162,15 +2190,33 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildCompactSongItem(LocalSongItem song, int index,
-      {bool isDesktop = false}) {
+  Widget _buildCompactSongItem(
+    LocalSongItem song,
+    int index, {
+    bool isDesktop = false,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
     final artistName =
         song.artist != 'Unknown Artist' ? song.artist : 'Local File';
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2.0),
+      padding: const EdgeInsets.only(bottom: 3.0),
       child: Material(
         color: _surfaceDark,
-        borderRadius: BorderRadius.circular(10),
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(
+            color: _outline.withValues(alpha: 0.12),
+            width: 1.0,
+          ),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
@@ -2178,7 +2224,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             widget.onPlayFolder(paths, initialIndex: index);
           },
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             child: Row(
               children: [
                 LocalAlbumArt(
@@ -2187,7 +2233,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   borderRadius: 6,
                   shape: Shapes.pill,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2451,6 +2497,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     final songs = artistMap[artistName] ?? [];
                     final sampleSongPath =
                         songs.isNotEmpty ? songs.first.path : null;
+                    final isFirst = index == 0;
+                    final isLast = index == artistKeys.length - 1;
 
                     return _buildLibraryItem(
                       title: artistName,
@@ -2458,6 +2506,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                           '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
                       iconData: Icons.person_rounded,
                       isArtist: true,
+                      isFirst: isFirst,
+                      isLast: isLast,
                       customIcon: sampleSongPath != null
                           ? LocalAlbumArt(
                               path: sampleSongPath,
@@ -2579,12 +2629,16 @@ class _LibraryScreenState extends State<LibraryScreen>
                     final artistName = songs.isNotEmpty
                         ? songs.first.artist
                         : 'Unknown Artist';
+                    final isFirst = index == 0;
+                    final isLast = index == albumKeys.length - 1;
 
                     return _buildLibraryItem(
                       title: albumName,
                       subtitle:
                           '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
                       iconData: Icons.album_rounded,
+                      isFirst: isFirst,
+                      isLast: isLast,
                       customIcon: sampleSongPath != null
                           ? LocalAlbumArt(
                               path: sampleSongPath,
@@ -2685,12 +2739,16 @@ class _LibraryScreenState extends State<LibraryScreen>
                     final songs = genreMap[genreName] ?? [];
                     final sampleSongPath =
                         songs.isNotEmpty ? songs.first.path : null;
+                    final isFirst = index == 0;
+                    final isLast = index == genreKeys.length - 1;
 
                     return _buildLibraryItem(
                       title: genreName,
                       subtitle:
                           '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
                       iconData: Icons.style_rounded,
+                      isFirst: isFirst,
+                      isLast: isLast,
                       customIcon: sampleSongPath != null
                           ? LocalAlbumArt(
                               path: sampleSongPath,
@@ -2772,8 +2830,16 @@ class _LibraryScreenState extends State<LibraryScreen>
     ValueChanged<SongOption>? onOptionSelected,
     bool isDesktop = false,
     bool isArtist = false,
+    bool isFirst = false,
+    bool isLast = false,
   }) {
     final thumbSize = isDesktop ? 60.0 : 48.0;
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
 
     final leadingWidget = customIcon ??
         Container(
@@ -2795,16 +2861,22 @@ class _LibraryScreenState extends State<LibraryScreen>
         );
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
+      padding: const EdgeInsets.only(bottom: 3.0),
       child: Material(
         color: _surfaceDark,
-        borderRadius: BorderRadius.circular(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(
+            color: _outline.withValues(alpha: 0.12),
+            width: 1.0,
+          ),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
                 leadingWidget,
@@ -3032,11 +3104,26 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                       itemCount: _groupSongs.length,
                       itemBuilder: (context, index) {
                         final song = _groupSongs[index];
+                        final isFirst = index == 0;
+                        final isLast = index == _groupSongs.length - 1;
+                        final borderRadius = BorderRadius.only(
+                          topLeft: Radius.circular(isFirst ? 20 : 6),
+                          topRight: Radius.circular(isFirst ? 20 : 6),
+                          bottomLeft: Radius.circular(isLast ? 20 : 6),
+                          bottomRight: Radius.circular(isLast ? 20 : 6),
+                        );
+
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 4.0),
+                          padding: const EdgeInsets.only(bottom: 3.0),
                           child: Material(
                             color: surfaceColor,
-                            borderRadius: BorderRadius.circular(12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: borderRadius,
+                              side: BorderSide(
+                                color: outlineColor.withValues(alpha: 0.12),
+                                width: 1.0,
+                              ),
+                            ),
                             clipBehavior: Clip.antiAlias,
                             child: InkWell(
                               onTap: () {
@@ -3046,7 +3133,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                               },
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 8),
+                                    horizontal: 14, vertical: 10),
                                 child: Row(
                                   children: [
                                     LocalAlbumArt(

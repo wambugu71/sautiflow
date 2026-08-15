@@ -31,6 +31,10 @@ class AppStateService {
   final StreamController<bool> useWaveformSeekBarChanged =
       StreamController<bool>.broadcast();
 
+  // Stream to notify listeners of Wavy / Linear Seek Bar slider setting changes
+  final StreamController<bool> useWavySliderChanged =
+      StreamController<bool>.broadcast();
+
   // ─── Playback ───────────────────────────────────────────────────────────────
   static const _kQueueJson = 'sp_queue_json';
   static const _kQueueIndex = 'sp_queue_index';
@@ -736,8 +740,9 @@ class AppStateService {
     );
   }
 
-  // ─── Waveform Seek Bar Preference ───────────────────────────────────────
+  // ─── Waveform & Slider Preferences ───────────────────────────────────────
   static const _kUseWaveformSeekBar = 'sp_use_waveform_seek_bar';
+  static const _kUseWavySlider = 'sp_use_wavy_slider';
 
   Future<void> saveUseWaveformSeekBar(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
@@ -748,6 +753,17 @@ class AppStateService {
   Future<bool> loadUseWaveformSeekBar() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_kUseWaveformSeekBar) ?? false;
+  }
+
+  Future<void> saveUseWavySlider(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUseWavySlider, enabled);
+    useWavySliderChanged.add(enabled);
+  }
+
+  Future<bool> loadUseWavySlider() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kUseWavySlider) ?? true;
   }
 
   // ─── ViPER DSP Settings ───────────────────────────────────────────────────

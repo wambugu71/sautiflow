@@ -64,12 +64,13 @@ class _WaveformSeekBarWidgetState extends State<WaveformSeekBarWidget> {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onHorizontalDragStart: (details) {
+            final ms = _calculateMsFromX(details.localPosition.dx, totalWidth, maxDuration);
             setState(() {
               _isDragging = true;
-              _dragPositionMs = _calculateMsFromX(details.localPosition.dx, totalWidth, maxDuration);
+              _dragPositionMs = ms;
             });
             widget.onDragStateChanged?.call(true);
-            if (_dragPositionMs != null) widget.onDragUpdate?.call(_dragPositionMs!);
+            widget.onDragUpdate?.call(ms);
           },
           onHorizontalDragUpdate: (details) {
             final ms = _calculateMsFromX(details.localPosition.dx, totalWidth, maxDuration);
@@ -86,9 +87,40 @@ class _WaveformSeekBarWidgetState extends State<WaveformSeekBarWidget> {
             });
             widget.onDragStateChanged?.call(false);
           },
+          onHorizontalDragCancel: () {
+            setState(() {
+              _isDragging = false;
+              _dragPositionMs = null;
+            });
+            widget.onDragStateChanged?.call(false);
+          },
           onTapDown: (details) {
             final ms = _calculateMsFromX(details.localPosition.dx, totalWidth, maxDuration);
-            widget.onSeekEnd(ms);
+            setState(() {
+              _isDragging = true;
+              _dragPositionMs = ms;
+            });
+            widget.onDragStateChanged?.call(true);
+            widget.onDragUpdate?.call(ms);
+          },
+          onTapUp: (details) {
+            if (_dragPositionMs != null) {
+              widget.onSeekEnd(_dragPositionMs!);
+            }
+            setState(() {
+              _isDragging = false;
+              _dragPositionMs = null;
+            });
+            widget.onDragStateChanged?.call(false);
+          },
+          onTapCancel: () {
+            if (!_isDragging) {
+              setState(() {
+                _isDragging = false;
+                _dragPositionMs = null;
+              });
+              widget.onDragStateChanged?.call(false);
+            }
           },
           child: SizedBox(
             height: widget.height,

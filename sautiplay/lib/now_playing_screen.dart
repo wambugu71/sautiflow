@@ -142,10 +142,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double? _abPointAMs;
   double? _abPointBMs;
 
-  // ── Waveform Seek Bar ──────────────────────────────────────────────────────
+  // ── Waveform & Slider Seek Bar ─────────────────────────────────────────────
   bool _useWaveformSeekBar = false;
+  bool _useWavySlider = true;
   List<double>? _currentWaveformPeaks;
   StreamSubscription<bool>? _waveformSub;
+  StreamSubscription<bool>? _sliderStyleSub;
   StreamSubscription<Shapes>? _albumArtShapeSub;
   int _lastKnownTrackIndex = -1;
 
@@ -178,8 +180,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadWaveformSetting() async {
     final enabled = await AppStateService.instance.loadUseWaveformSeekBar();
+    final wavy = await AppStateService.instance.loadUseWavySlider();
     if (mounted) {
-      setState(() => _useWaveformSeekBar = enabled);
+      setState(() {
+        _useWaveformSeekBar = enabled;
+        _useWavySlider = wavy;
+      });
       if (enabled) _updateCurrentTrackWaveform();
     }
     _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream
@@ -189,6 +195,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (enabled && _currentWaveformPeaks == null) {
           _updateCurrentTrackWaveform();
         }
+      }
+    });
+    _sliderStyleSub = AppStateService.instance.useWavySliderChanged.stream
+        .listen((wavy) {
+      if (mounted) {
+        setState(() => _useWavySlider = wavy);
       }
     });
   }
@@ -255,8 +267,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final target = _pendingSeekMs;
     if (target == null) return;
     final enginePosMs = status.positionSeconds * 1000.0;
-    if ((enginePosMs - target).abs() < 4000 ||
-        (enginePosMs < 2000 && target > 5000)) {
+    if ((enginePosMs - target).abs() < 1500) {
       _seekTimeoutTimer?.cancel();
       if (mounted) setState(() => _pendingSeekMs = null);
     }
@@ -289,6 +300,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _analyzerSub?.cancel();
     _hardwareSub?.cancel();
     _waveformSub?.cancel();
+    _sliderStyleSub?.cancel();
     _albumArtShapeSub?.cancel();
     _analyzerValuesNotifier.dispose();
     _rotationController.dispose();
@@ -2065,13 +2077,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 ),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            Center(
+                              child: M3EChip(
+                                leading:
+                                    const Icon(Icons.keyboard_arrow_up_rounded),
+                                label: "UP NEXT",
+                                onPressed: () => _showQueueSheet(context),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                           ],
                         );
                       } else {
                         // Mobile Layout (< 800px)
                         content = Column(
                           children: [
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 20),
                             // Mobile Header Bar
                             Padding(
                               padding: const EdgeInsets.symmetric(
@@ -2351,7 +2373,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               ),
                             ),
 
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
 
                             // Mobile Playback Controls wrapped in RepaintBoundary
                             RepaintBoundary(
@@ -2428,7 +2450,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               ),
                             ),
 
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
 
                             // Mobile Seekbar & Format Chip wrapped in RepaintBoundary
                             Padding(
@@ -2470,8 +2492,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 horizontal: 4.0),
                                             child: M3EChip(
                                               leading: Icon(
-                                                  Icons.equalizer_rounded,
-                                                  size: 11,
+                                                  Icons.info_outline_rounded,
+                                                  size: 10,
                                                   color: primaryColor),
                                               label: _buildAudioInfoBadgeText(
                                                   trackPosition),
@@ -2484,7 +2506,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         Text(
                                           _fmt(duration),
                                           style: const TextStyle(
-                                              fontSize: 12,
+                                              fontSize: 8,
                                               color: Colors.white,
                                               fontWeight: FontWeight.bold),
                                         ),
@@ -2495,7 +2517,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               ),
                             ),
 
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 12),
 
                             // Mobile Action Toolbar (EQ, Speed, Loop, Shuffle, A-B)
                             Padding(
@@ -2508,7 +2530,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceEvenly,
                                     children: [
-                                      M3EIconButton(
+                                      /*  M3EIconButton(
                                         variant: M3EIconButtonVariant.tonal,
                                         icon: const Icon(
                                             Icons.graphic_eq_rounded),
@@ -2531,8 +2553,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                             .outputSampleRate,
                                                       )));
                                         },
-                                      ),
-                                      const SizedBox(width: 8),
+                                      ),*/
+                                      // const SizedBox(width: 8),
                                       M3EIconButton(
                                         variant: M3EIconButtonVariant.tonal,
                                         icon: Icon(
@@ -2588,39 +2610,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               ),
                             ),
 
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 10),
+
+                            // Queue Navigation (Up Next)
+                            Center(
+                              child: M3EChip(
+                                leading:
+                                    const Icon(Icons.keyboard_arrow_up_rounded),
+                                label: "UP NEXT",
+                                onPressed: () => _showQueueSheet(context),
+                              ),
+                            ),
+
+                            const SizedBox(height: 6),
                           ],
                         );
                       }
 
-                      final bottomPadding =
-                          MediaQuery.of(context).padding.bottom;
-
-                      return Stack(
-                        children: [
-                          Align(
-                            alignment: Alignment.topCenter,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                  maxWidth:
-                                      isDesktop ? double.infinity : 600.0),
-                              child: SafeArea(
-                                child: content,
-                              ),
-                            ),
+                      return Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                              maxWidth:
+                                  isDesktop ? double.infinity : 600.0),
+                          child: SafeArea(
+                            child: content,
                           ),
-                          Positioned(
-                            bottom: bottomPadding + 6,
-                            left: 0,
-                            right: 0,
-                            child: Center(
-                                child: M3EChip(
-                              leading: Icon(Icons.keyboard_arrow_up),
-                              label: "UP NEXT",
-                              onPressed: () => _showQueueSheet(context),
-                            )),
-                          ),
-                        ],
+                        ),
                       );
                     }),
                     // Queue Screen Page wrapped in RepaintBoundary
@@ -3060,12 +3076,66 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _pendingSeekMs = v;
           });
           widget.player.seekTo(Duration(milliseconds: v.toInt()));
-          _seekTimeoutTimer = Timer(const Duration(seconds: 45), () {
+          _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
             if (mounted) setState(() => _pendingSeekMs = null);
           });
         },
       );
     }
+
+    final Widget sliderWidget = _useWavySlider
+        ? M3ESlider.wavy(
+            value: displayPosMs.clamp(0.0, maxMs),
+            min: 0.0,
+            max: maxMs,
+            trackThickness: isMobile ? 8.0 : 10.0,
+            cornerRadius: 8,
+            thumbLength: isMobile ? 24.0 : 28.0,
+            showValueIndicator: false,
+            onChanged: (v) {
+              setState(() {
+                _isDragging = true;
+                _dragPositionMs = v;
+              });
+            },
+            onChangeEnd: (v) {
+              _seekTimeoutTimer?.cancel();
+              setState(() {
+                _isDragging = false;
+                _pendingSeekMs = v;
+              });
+              widget.player.seekTo(Duration(milliseconds: v.toInt()));
+              _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+                if (mounted) setState(() => _pendingSeekMs = null);
+              });
+            },
+          )
+        : M3ESlider(
+            value: displayPosMs.clamp(0.0, maxMs),
+            min: 0.0,
+            max: maxMs,
+            trackThickness: isMobile ? 8.0 : 10.0,
+            cornerRadius: 8,
+            thumbLength: isMobile ? 24.0 : 28.0,
+            showValueIndicator: false,
+            onChanged: (v) {
+              setState(() {
+                _isDragging = true;
+                _dragPositionMs = v;
+              });
+            },
+            onChangeEnd: (v) {
+              _seekTimeoutTimer?.cancel();
+              setState(() {
+                _isDragging = false;
+                _pendingSeekMs = v;
+              });
+              widget.player.seekTo(Duration(milliseconds: v.toInt()));
+              _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+                if (mounted) setState(() => _pendingSeekMs = null);
+              });
+            },
+          );
 
     return Stack(
       children: [
@@ -3081,30 +3151,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
           ),
-        M3ESlider.wavy(
-          value: displayPosMs.clamp(0.0, maxMs),
-          min: 0.0,
-          max: maxMs,
-          trackThickness: isMobile ? 8.0 : 10.0,
-          cornerRadius: 8,
-          onChanged: (v) {
-            setState(() {
-              _isDragging = true;
-              _dragPositionMs = v;
-            });
-          },
-          onChangeEnd: (v) {
-            _seekTimeoutTimer?.cancel();
-            setState(() {
-              _isDragging = false;
-              _pendingSeekMs = v;
-            });
-            widget.player.seekTo(Duration(milliseconds: v.toInt()));
-            _seekTimeoutTimer = Timer(const Duration(seconds: 45), () {
-              if (mounted) setState(() => _pendingSeekMs = null);
-            });
-          },
-        ),
+        sliderWidget,
       ],
     );
   }
