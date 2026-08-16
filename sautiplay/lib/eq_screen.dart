@@ -1054,721 +1054,708 @@ class _EqScreenState extends State<EqScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: bgDarkColor,
-      appBar: null,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1000.0),
-              child: Column(
-                children: [
-                  // Top Master Control Bar
-                  Padding(
-                    padding: const EdgeInsets.only(
-                        left: 16.0, right: 16.0, top: 12.0, bottom: 6.0),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14.0, vertical: 8.0),
-                      decoration: BoxDecoration(
-                        color: surfaceDarkColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: _masterEqEnabled
-                              ? primaryColor.withValues(alpha: 0.35)
-                              : Colors.white.withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000.0),
+        child: CustomScrollView(
+          key: const PageStorageKey<String>('eq_screen_scroll'),
+          slivers: [
+            // Top Master Control Bar
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(
+                    left: 16.0, right: 16.0, top: 12.0, bottom: 6.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14.0, vertical: 8.0),
+                  decoration: BoxDecoration(
+                    color: surfaceDarkColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _masterEqEnabled
+                          ? primaryColor.withValues(alpha: 0.35)
+                          : Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              /* M3EContainer(
-                                Shapes.arch,
-                                width: 36,
-                                height: 36,
-                                color: _masterEqEnabled
-                                    ? primaryColor.withValues(alpha: 0.2)
-                                    : Colors.white.withValues(alpha: 0.05),
-                                border: BorderSide(
-                                  color: _masterEqEnabled
-                                      ? primaryColor.withValues(alpha: 0.4)
-                                      : Colors.white.withValues(alpha: 0.1),
-                                  width: 1.0,
-                                ),
-                                child:*/
-                              Center(
-                                child: Icon(
-                                  Icons.equalizer_rounded,
-                                  color: _masterEqEnabled
-                                      ? primaryColor
-                                      : Colors.white60,
-                                  size: 18,
-                                ),
-                              ),
-                              // ),
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Master EQ & DSP',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                  Text(
-                                    _masterEqEnabled
-                                        ? 'Audio engine active'
-                                        : 'DSP bypassed',
-                                    style: TextStyle(
-                                      color: _masterEqEnabled
-                                          ? primaryColor.withValues(alpha: 0.9)
-                                          : Colors.white38,
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                          Center(
+                            child: Icon(
+                              Icons.equalizer_rounded,
+                              color: _masterEqEnabled
+                                  ? primaryColor
+                                  : Colors.white60,
+                              size: 18,
+                            ),
                           ),
-                          Row(
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              /*   M3EIconButton(
-                                icon: const Icon(Icons.info_outline_rounded,
-                                    size: 19),
-                                variant: M3EIconButtonVariant.tonal,
-                                tooltip: 'Audio Pipeline State',
-                                onPressed: _showPipelineInfo,
-                              ),*/
-                              const SizedBox(width: 4),
-                              M3EIconButton(
-                                icon:
-                                    const Icon(Icons.refresh_rounded, size: 19),
-                                variant: M3EIconButtonVariant.tonal,
-                                tooltip: 'Reset All',
-                                onPressed: _resetAll,
+                              const Text(
+                                'Master EQ & DSP',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: -0.2,
+                                ),
                               ),
-                              const SizedBox(width: 6),
-                              M3ESwitch(
-                                selectedIcon:
-                                    Icon(Icons.check, color: primaryColor),
-                                value: _masterEqEnabled,
-                                onChanged: (val) {
-                                  setState(() => _masterEqEnabled = val);
-                                  widget.player.setMultibandEqEnabled(val);
-                                  _saveEqState();
-                                },
+                              Text(
+                                _masterEqEnabled
+                                    ? 'Audio engine active'
+                                    : 'DSP bypassed',
+                                style: TextStyle(
+                                  color: _masterEqEnabled
+                                      ? primaryColor.withValues(alpha: 0.9)
+                                      : Colors.white38,
+                                  fontSize: 11.5,
+                                ),
                               ),
                             ],
                           ),
                         ],
                       ),
-                    ),
-                  ),
-
-                  // Warning Banner (Dismissible)
-                  if (_showWarningBanner)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
-                      child: M3ECard(
-                        variant: M3ECardVariant.filled,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              M3EContainer(
-                                Shapes.triangle,
-                                width: 32,
-                                height: 32,
-                                color: Colors.amber.withValues(alpha: 0.15),
-                                border: BorderSide(
-                                  color: Colors.amber.withValues(alpha: 0.35),
-                                  width: 1.0,
-                                ),
-                                child: const Center(
-                                  child: Icon(Icons.warning_amber_rounded,
-                                      color: Colors.amberAccent, size: 18),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Extreme equalizer or filter boosts can cause clipping. Use limiter or preamp reduction if needed.',
-                                  style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11.5,
-                                      height: 1.3),
-                                ),
-                              ),
-                              M3EIconButton(
-                                onPressed: _dismissWarningBanner,
-                                icon: const Icon(Icons.close_rounded, size: 16),
-                                variant: M3EIconButtonVariant.standard,
-                                tooltip: 'Dismiss',
-                              ),
-                            ],
+                      Row(
+                        children: [
+                          const SizedBox(width: 4),
+                          M3EIconButton(
+                            icon: const Icon(Icons.refresh_rounded, size: 19),
+                            variant: M3EIconButtonVariant.tonal,
+                            tooltip: 'Reset All',
+                            onPressed: _resetAll,
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          M3ESwitch(
+                            selectedIcon:
+                                Icon(Icons.check, color: primaryColor),
+                            value: _masterEqEnabled,
+                            onChanged: (val) {
+                              setState(() => _masterEqEnabled = val);
+                              widget.player.setMultibandEqEnabled(val);
+                              _saveEqState();
+                            },
+                          ),
+                        ],
                       ),
-                    ),
-
-                  // Grouped List View Hub
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.only(bottom: 120),
-                      children: [
-                        // Section 1: Equalization & Tuning
-                        _buildSectionHeader('Equalization & Tuning',
-                            icon: Icons.equalizer_rounded),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          child: M3ECardList(
-                            itemCount: 4,
-                            onTap: (index) {
-                              switch (index) {
-                                case 0:
-                                  _openDetailScreen(
-                                    '${_eqFrequencies.length}-Band Graphic EQ',
-                                    Icons.equalizer_rounded,
-                                    (_) => _buildGraphicEqSection(),
-                                    shape: Shapes.c4SidedCookie,
-                                  );
-                                  break;
-                                case 1:
-                                  _openDetailScreen(
-                                    'Playback Speed & Pitch',
-                                    Icons.speed_rounded,
-                                    (_) => _buildPlaybackSpeedSection(),
-                                    shape: Shapes.sunny,
-                                  );
-                                  break;
-                                case 2:
-                                  _openDetailScreen(
-                                    '3-Band Audio Tuning',
-                                    Icons.tune_rounded,
-                                    (_) => _buildAudioTuningSection(),
-                                    shape: Shapes.pill,
-                                  );
-                                  break;
-                                case 3:
-                                  _openDetailScreen(
-                                    'Parametric EQ',
-                                    Icons.show_chart_rounded,
-                                    (_) => _buildParametricEqSection(),
-                                    shape: Shapes.gem,
-                                  );
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return AppShowcase(
-                                  showcaseKey:
-                                      widget.effectsKnobKey ?? GlobalKey(),
-                                  title: 'Knob Controls',
-                                  description:
-                                      'Drag knobs to adjust EQ. Tip: Long-press any knob to edit values directly with your keyboard!',
-                                  currentStep: 3,
-                                  totalSteps: 4,
-                                  child: _buildEffectTileCard(
-                                    icon: Icons.equalizer_rounded,
-                                    shape: Shapes.c4SidedCookie,
-                                    title:
-                                        '${_eqFrequencies.length}-Band Graphic EQ',
-                                    subtitle: _masterEqEnabled
-                                        ? '${_eqFrequencies.length}-Band ($_activePreset)'
-                                        : 'Disabled',
-                                    isEnabled: _masterEqEnabled,
-                                    onToggle: (v) {
-                                      setState(() => _masterEqEnabled = v);
-                                      widget.player.setMultibandEqEnabled(v);
-                                      _saveEqState();
-                                    },
-                                    onTapDetail: () => _openDetailScreen(
-                                      '${_eqFrequencies.length}-Band Graphic EQ',
-                                      Icons.equalizer_rounded,
-                                      (_) => _buildGraphicEqSection(),
-                                      shape: Shapes.c4SidedCookie,
-                                    ),
-                                  ),
-                                );
-                              }
-                              if (index == 1) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.speed_rounded,
-                                  shape: Shapes.sunny,
-                                  title: 'Playback Speed & Pitch',
-                                  subtitle: (_playbackPitch - 1.0).abs() >= 0.01
-                                      ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
-                                      : 'Normal Speed (1.0x)',
-                                  isEnabled:
-                                      (_playbackPitch - 1.0).abs() >= 0.01,
-                                  onToggle: (v) {
-                                    final newPitch = v ? 1.25 : 1.0;
-                                    setState(() => _playbackPitch = newPitch);
-                                    widget.player.setPitch(newPitch);
-                                    AppStateService.instance
-                                        .savePlaybackSpeed(newPitch);
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Playback Speed & Pitch',
-                                    Icons.speed_rounded,
-                                    (_) => _buildPlaybackSpeedSection(),
-                                    shape: Shapes.sunny,
-                                  ),
-                                );
-                              }
-                              if (index == 2) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.tune_rounded,
-                                  shape: Shapes.pill,
-                                  title: '3-Band Audio Tuning',
-                                  subtitle: _audioTuningEnabled
-                                      ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
-                                      : 'Disabled',
-                                  isEnabled: _audioTuningEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _audioTuningEnabled = v);
-                                    widget.player.setEqEnabled(v);
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    '3-Band Audio Tuning',
-                                    Icons.tune_rounded,
-                                    (_) => _buildAudioTuningSection(),
-                                    shape: Shapes.pill,
-                                  ),
-                                );
-                              }
-                              return _buildEffectTileCard(
-                                icon: Icons.show_chart_rounded,
-                                shape: Shapes.gem,
-                                title: 'Parametric EQ',
-                                subtitle: _parametricEqEnabled
-                                    ? '${_parametricBands.length} Active Bands'
-                                    : 'Disabled',
-                                isEnabled: _parametricEqEnabled,
-                                onToggle: (v) {
-                                  setState(() => _parametricEqEnabled = v);
-                                  widget.player.setMultibandFxEnabled(v);
-                                  _saveEqState();
-                                },
-                                onTapDetail: () => _openDetailScreen(
-                                  'Parametric EQ',
-                                  Icons.show_chart_rounded,
-                                  (_) => _buildParametricEqSection(),
-                                  shape: Shapes.gem,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-
-                        // Section 2: Dynamics & Bass
-                        _buildSectionHeader('Dynamics & Bass',
-                            icon: Icons.waves_rounded),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          child: M3ECardList(
-                            itemCount: 3,
-                            onTap: (index) {
-                              switch (index) {
-                                case 0:
-                                  _openDetailScreen(
-                                    'Dynamic Bass',
-                                    Icons.waves_rounded,
-                                    (_) => _buildDynamicBassSection(),
-                                    shape: Shapes.boom,
-                                  );
-                                  break;
-                                case 1:
-                                  _openDetailScreen(
-                                    'Crystalizer',
-                                    Icons.auto_fix_high_rounded,
-                                    (_) => _buildCrystalizerSection(),
-                                    shape: Shapes.burst,
-                                  );
-                                  break;
-                                case 2:
-                                  _openDetailScreen(
-                                    'Soft Limiter',
-                                    Icons.compress_rounded,
-                                    (_) => _buildLimiterSection(),
-                                    shape: Shapes.square,
-                                  );
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.waves_rounded,
-                                  shape: Shapes.boom,
-                                  title: 'Dynamic Bass',
-                                  subtitle: _dynamicBassEnabled
-                                      ? 'Gain: ${_dynamicBassGain.toInt()}%'
-                                      : 'Disabled',
-                                  isEnabled: _dynamicBassEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _dynamicBassEnabled = v);
-                                    if (v) {
-                                      _updateDynamicBass();
-                                    } else {
-                                      widget.player.setDynamicBass(
-                                          enabled: false,
-                                          preset: _dynamicBassPreset,
-                                          gain: _dynamicBassGain);
-                                    }
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Dynamic Bass',
-                                    Icons.waves_rounded,
-                                    (_) => _buildDynamicBassSection(),
-                                    shape: Shapes.boom,
-                                  ),
-                                );
-                              }
-                              if (index == 1) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.auto_fix_high_rounded,
-                                  shape: Shapes.burst,
-                                  title: 'Crystalizer',
-                                  subtitle: _crystalizerEnabled
-                                      ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
-                                      : 'Disabled',
-                                  isEnabled: _crystalizerEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _crystalizerEnabled = v);
-                                    _updateCrystalizer();
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Crystalizer',
-                                    Icons.auto_fix_high_rounded,
-                                    (_) => _buildCrystalizerSection(),
-                                    shape: Shapes.burst,
-                                  ),
-                                );
-                              }
-                              return _buildEffectTileCard(
-                                icon: Icons.compress_rounded,
-                                shape: Shapes.square,
-                                title: 'Soft Limiter',
-                                subtitle: _limiterEnabled
-                                    ? 'Threshold: ${(_limiterThreshold * 100).toInt()}%'
-                                    : 'Disabled',
-                                isEnabled: _limiterEnabled,
-                                onToggle: (v) {
-                                  setState(() => _limiterEnabled = v);
-                                  if (v) {
-                                    _applyLimiter();
-                                  } else {
-                                    widget.player.setLimiterEnabled(false);
-                                  }
-                                  _saveEqState();
-                                },
-                                onTapDetail: () => _openDetailScreen(
-                                  'Soft Limiter',
-                                  Icons.compress_rounded,
-                                  (_) => _buildLimiterSection(),
-                                  shape: Shapes.square,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-
-                        // Section 3: Spatial & Headphones
-                        _buildSectionHeader('Spatial & Headphones',
-                            icon: Icons.headphones_rounded),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          child: M3ECardList(
-                            itemCount: 5,
-                            onTap: (index) {
-                              switch (index) {
-                                case 0:
-                                  _openDetailScreen(
-                                    'Crossfeed',
-                                    Icons.headphones_rounded,
-                                    (_) => _buildCrossfeedSection(),
-                                    shape: Shapes.arch,
-                                  );
-                                  break;
-                                case 1:
-                                  _openDetailScreen(
-                                    'Stereo Widener',
-                                    Icons.swap_horiz_rounded,
-                                    (_) => _buildStereoWidenSection(),
-                                    shape: Shapes.slanted,
-                                  );
-                                  break;
-                                case 2:
-                                  _openDetailScreen(
-                                    'Stereo Enhancement',
-                                    Icons.surround_sound_rounded,
-                                    (_) => _buildStereoEnhancementSection(),
-                                    shape: Shapes.puffyDiamond,
-                                  );
-                                  break;
-                                case 3:
-                                  _openDetailScreen(
-                                    '3D Audio',
-                                    Icons.spatial_audio_off_outlined,
-                                    (_) => _buildSpatialAudioSection(),
-                                    shape: Shapes.softBoom,
-                                  );
-                                  break;
-                                case 4:
-                                  _openDetailScreen(
-                                    'True 3D Spatial Audio',
-                                    Icons.threed_rotation_rounded,
-                                    (_) => _buildTrue3dSection(),
-                                    shape: Shapes.circle,
-                                  );
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.headphones_rounded,
-                                  shape: Shapes.arch,
-                                  title: 'Crossfeed',
-                                  subtitle: _crossfeedEnabled
-                                      ? (_crossfeedPreset == 1
-                                          ? 'BS2B Weak'
-                                          : _crossfeedPreset == 2
-                                              ? 'BS2B Strong'
-                                              : _crossfeedPreset == 3
-                                                  ? 'Joe0bloggs'
-                                                  : 'Ambiophonics')
-                                      : 'Disabled',
-                                  isEnabled: _crossfeedEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _crossfeedEnabled = v);
-                                    if (v) {
-                                      _updateCrossfeed();
-                                    } else {
-                                      widget.player.setCrossfeed(
-                                          enabled: false,
-                                          preset: _crossfeedPreset);
-                                    }
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Crossfeed',
-                                    Icons.headphones_rounded,
-                                    (_) => _buildCrossfeedSection(),
-                                    shape: Shapes.arch,
-                                  ),
-                                );
-                              }
-                              if (index == 1) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.swap_horiz_rounded,
-                                  shape: Shapes.slanted,
-                                  title: 'Stereo Widener',
-                                  subtitle: _stereoWidenEnabled
-                                      ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
-                                      : 'Disabled',
-                                  isEnabled: _stereoWidenEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _stereoWidenEnabled = v);
-                                    if (v) {
-                                      _updateStereoWiden();
-                                    } else {
-                                      widget.player.setStereoWiden(
-                                          enabled: false,
-                                          width: _stereoWidenWidth,
-                                          delayMs: _stereoWidenDelayMs * 100.0);
-                                    }
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Stereo Widener',
-                                    Icons.swap_horiz_rounded,
-                                    (_) => _buildStereoWidenSection(),
-                                    shape: Shapes.slanted,
-                                  ),
-                                );
-                              }
-                              if (index == 2) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.surround_sound_rounded,
-                                  shape: Shapes.puffyDiamond,
-                                  title: 'Stereo Enhancement',
-                                  subtitle: _stereoEnhancementEnabled
-                                      ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
-                                      : 'Disabled',
-                                  isEnabled: _stereoEnhancementEnabled,
-                                  onToggle: (v) {
-                                    setState(
-                                        () => _stereoEnhancementEnabled = v);
-                                    _updateStereoEnhancement();
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Stereo Enhancement',
-                                    Icons.surround_sound_rounded,
-                                    (_) => _buildStereoEnhancementSection(),
-                                    shape: Shapes.puffyDiamond,
-                                  ),
-                                );
-                              }
-                              if (index == 3) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.spatial_audio_off_outlined,
-                                  shape: Shapes.softBoom,
-                                  title: '3D Audio',
-                                  subtitle: _spatialAudioEnabled
-                                      ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
-                                      : 'Disabled',
-                                  isEnabled: _spatialAudioEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _spatialAudioEnabled = v);
-                                    widget.player.setReverbEnabled(v);
-                                    if (v) _updateSpatialAudio();
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    '3D Audio',
-                                    Icons.spatial_audio_off_outlined,
-                                    (_) => _buildSpatialAudioSection(),
-                                    shape: Shapes.softBoom,
-                                  ),
-                                );
-                              }
-                              return _buildEffectTileCard(
-                                icon: Icons.threed_rotation_rounded,
-                                shape: Shapes.circle,
-                                title: 'True 3D Spatial Audio',
-                                subtitle: _true3dEnabled
-                                    ? 'XYZ Vector Coordinates Active'
-                                    : 'Disabled',
-                                isEnabled: _true3dEnabled,
-                                onToggle: (v) {
-                                  setState(() => _true3dEnabled = v);
-                                  widget.player.setSpatializationEnabled(v);
-                                  if (v) _updateTrue3dPositions();
-                                  _saveEqState();
-                                },
-                                onTapDetail: () => _openDetailScreen(
-                                  'True 3D Spatial Audio',
-                                  Icons.threed_rotation_rounded,
-                                  (_) => _buildTrue3dSection(),
-                                  shape: Shapes.circle,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-
-                        // Section 4: Filters & Custom DSP
-                        _buildSectionHeader('Advanced Audio Filters',
-                            icon: Icons.filter_alt_rounded),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          child: M3ECardList(
-                            itemCount: 2,
-                            onTap: (index) {
-                              switch (index) {
-                                case 0:
-                                  _openDetailScreen(
-                                    'Delay / Echo',
-                                    Icons.repeat_rounded,
-                                    (_) => _buildDelaySection(),
-                                    shape: Shapes.l4LeafClover,
-                                  );
-                                  break;
-                                case 1:
-                                  _openDetailScreen(
-                                    'Advanced Filters',
-                                    Icons.filter_alt_outlined,
-                                    (_) => _buildCustomFiltersSection(),
-                                    shape: Shapes.diamond,
-                                  );
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return _buildEffectTileCard(
-                                  icon: Icons.repeat_rounded,
-                                  shape: Shapes.l4LeafClover,
-                                  title: 'Delay / Echo',
-                                  subtitle: _delayEnabled
-                                      ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
-                                      : 'Disabled',
-                                  isEnabled: _delayEnabled,
-                                  onToggle: (v) {
-                                    setState(() => _delayEnabled = v);
-                                    widget.player.setDelay(enabled: v);
-                                    if (v) _updateDelay();
-                                    _saveEqState();
-                                  },
-                                  onTapDetail: () => _openDetailScreen(
-                                    'Delay / Echo',
-                                    Icons.repeat_rounded,
-                                    (_) => _buildDelaySection(),
-                                    shape: Shapes.l4LeafClover,
-                                  ),
-                                );
-                              }
-                              return _buildEffectTileCard(
-                                icon: Icons.filter_alt_outlined,
-                                shape: Shapes.diamond,
-                                title: 'Advanced Filters',
-                                subtitle: (_customLpfEnabled ||
-                                        _customHpfEnabled ||
-                                        _customBpfEnabled ||
-                                        _customNotchEnabled ||
-                                        _customPeakEnabled ||
-                                        _customLoshelfEnabled ||
-                                        _customHishelfEnabled ||
-                                        _customBiquadEnabled)
-                                    ? 'Active Filters Configured'
-                                    : 'Disabled',
-                                isEnabled: _customLpfEnabled ||
-                                    _customHpfEnabled ||
-                                    _customBpfEnabled ||
-                                    _customNotchEnabled ||
-                                    _customPeakEnabled ||
-                                    _customLoshelfEnabled ||
-                                    _customHishelfEnabled ||
-                                    _customBiquadEnabled,
-                                onTapDetail: () => _openDetailScreen(
-                                  'Advanced Filters',
-                                  Icons.filter_alt_outlined,
-                                  (_) => _buildCustomFiltersSection(),
-                                  shape: Shapes.diamond,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          );
-        },
+
+            // Warning Banner (Dismissible)
+            if (_showWarningBanner)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: M3ECard(
+                    variant: M3ECardVariant.filled,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          M3EContainer(
+                            Shapes.triangle,
+                            width: 32,
+                            height: 32,
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            border: BorderSide(
+                              color: Colors.amber.withValues(alpha: 0.35),
+                              width: 1.0,
+                            ),
+                            child: const Center(
+                              child: Icon(Icons.warning_amber_rounded,
+                                  color: Colors.amberAccent, size: 18),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Extreme equalizer or filter boosts can cause clipping. Use limiter or preamp reduction if needed.',
+                              style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11.5,
+                                  height: 1.3),
+                            ),
+                          ),
+                          M3EIconButton(
+                            onPressed: _dismissWarningBanner,
+                            icon: const Icon(Icons.close_rounded, size: 16),
+                            variant: M3EIconButtonVariant.standard,
+                            tooltip: 'Dismiss',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Section 1: Equalization & Tuning
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Equalization & Tuning',
+                  icon: Icons.equalizer_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 4,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          '${_eqFrequencies.length}-Band Graphic EQ',
+                          Icons.equalizer_rounded,
+                          (_) => _buildGraphicEqSection(),
+                          shape: Shapes.c4SidedCookie,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Playback Speed & Pitch',
+                          Icons.speed_rounded,
+                          (_) => _buildPlaybackSpeedSection(),
+                          shape: Shapes.sunny,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          '3-Band Audio Tuning',
+                          Icons.tune_rounded,
+                          (_) => _buildAudioTuningSection(),
+                          shape: Shapes.pill,
+                        );
+                        break;
+                      case 3:
+                        _openDetailScreen(
+                          'Parametric EQ',
+                          Icons.show_chart_rounded,
+                          (_) => _buildParametricEqSection(),
+                          shape: Shapes.gem,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return AppShowcase(
+                        showcaseKey:
+                            widget.effectsKnobKey ?? GlobalKey(),
+                        title: 'Knob Controls',
+                        description:
+                            'Drag knobs to adjust EQ. Tip: Long-press any knob to edit values directly with your keyboard!',
+                        currentStep: 3,
+                        totalSteps: 4,
+                        child: _buildEffectTileCard(
+                          icon: Icons.equalizer_rounded,
+                          shape: Shapes.c4SidedCookie,
+                          title:
+                              '${_eqFrequencies.length}-Band Graphic EQ',
+                          subtitle: _masterEqEnabled
+                              ? '${_eqFrequencies.length}-Band ($_activePreset)'
+                              : 'Disabled',
+                          isEnabled: _masterEqEnabled,
+                          onToggle: (v) {
+                            setState(() => _masterEqEnabled = v);
+                            widget.player.setMultibandEqEnabled(v);
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            '${_eqFrequencies.length}-Band Graphic EQ',
+                            Icons.equalizer_rounded,
+                            (_) => _buildGraphicEqSection(),
+                            shape: Shapes.c4SidedCookie,
+                          ),
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.speed_rounded,
+                        shape: Shapes.sunny,
+                        title: 'Playback Speed & Pitch',
+                        subtitle: (_playbackPitch - 1.0).abs() >= 0.01
+                            ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
+                            : 'Normal Speed (1.0x)',
+                        isEnabled:
+                            (_playbackPitch - 1.0).abs() >= 0.01,
+                        onToggle: (v) {
+                          final newPitch = v ? 1.25 : 1.0;
+                          setState(() => _playbackPitch = newPitch);
+                          widget.player.setPitch(newPitch);
+                          AppStateService.instance
+                              .savePlaybackSpeed(newPitch);
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Playback Speed & Pitch',
+                          Icons.speed_rounded,
+                          (_) => _buildPlaybackSpeedSection(),
+                          shape: Shapes.sunny,
+                        ),
+                      );
+                    }
+                    if (index == 2) {
+                      return _buildEffectTileCard(
+                        icon: Icons.tune_rounded,
+                        shape: Shapes.pill,
+                        title: '3-Band Audio Tuning',
+                        subtitle: _audioTuningEnabled
+                            ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
+                            : 'Disabled',
+                        isEnabled: _audioTuningEnabled,
+                        onToggle: (v) {
+                          setState(() => _audioTuningEnabled = v);
+                          widget.player.setEqEnabled(v);
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          '3-Band Audio Tuning',
+                          Icons.tune_rounded,
+                          (_) => _buildAudioTuningSection(),
+                          shape: Shapes.pill,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.show_chart_rounded,
+                      shape: Shapes.gem,
+                      title: 'Parametric EQ',
+                      subtitle: _parametricEqEnabled
+                          ? '${_parametricBands.length} Active Bands'
+                          : 'Disabled',
+                      isEnabled: _parametricEqEnabled,
+                      onToggle: (v) {
+                        setState(() => _parametricEqEnabled = v);
+                        widget.player.setMultibandFxEnabled(v);
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Parametric EQ',
+                        Icons.show_chart_rounded,
+                        (_) => _buildParametricEqSection(),
+                        shape: Shapes.gem,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 2: Dynamics & Bass
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Dynamics & Bass',
+                  icon: Icons.waves_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 3,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Dynamic Bass',
+                          Icons.waves_rounded,
+                          (_) => _buildDynamicBassSection(),
+                          shape: Shapes.boom,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Crystalizer',
+                          Icons.auto_fix_high_rounded,
+                          (_) => _buildCrystalizerSection(),
+                          shape: Shapes.burst,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          'Soft Limiter',
+                          Icons.compress_rounded,
+                          (_) => _buildLimiterSection(),
+                          shape: Shapes.square,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.waves_rounded,
+                        shape: Shapes.boom,
+                        title: 'Dynamic Bass',
+                        subtitle: _dynamicBassEnabled
+                            ? 'Gain: ${_dynamicBassGain.toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _dynamicBassEnabled,
+                        onToggle: (v) {
+                          setState(() => _dynamicBassEnabled = v);
+                          if (v) {
+                            _updateDynamicBass();
+                          } else {
+                            widget.player.setDynamicBass(
+                                enabled: false,
+                                preset: _dynamicBassPreset,
+                                gain: _dynamicBassGain);
+                          }
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Dynamic Bass',
+                          Icons.waves_rounded,
+                          (_) => _buildDynamicBassSection(),
+                          shape: Shapes.boom,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.auto_fix_high_rounded,
+                        shape: Shapes.burst,
+                        title: 'Crystalizer',
+                        subtitle: _crystalizerEnabled
+                            ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _crystalizerEnabled,
+                        onToggle: (v) {
+                          setState(() => _crystalizerEnabled = v);
+                          _updateCrystalizer();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Crystalizer',
+                          Icons.auto_fix_high_rounded,
+                          (_) => _buildCrystalizerSection(),
+                          shape: Shapes.burst,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.compress_rounded,
+                      shape: Shapes.square,
+                      title: 'Soft Limiter',
+                      subtitle: _limiterEnabled
+                          ? 'Threshold: ${_limiterThreshold.toInt()}dB'
+                          : 'Disabled',
+                      isEnabled: _limiterEnabled,
+                      onToggle: (v) {
+                        setState(() => _limiterEnabled = v);
+                        if (v) {
+                          _applyLimiter();
+                        } else {
+                          widget.player.setLimiterEnabled(false);
+                        }
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Soft Limiter',
+                        Icons.compress_rounded,
+                        (_) => _buildLimiterSection(),
+                        shape: Shapes.square,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 3: Spatial & Headphones
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Spatial & Headphones',
+                  icon: Icons.headphones_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 5,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Crossfeed',
+                          Icons.headphones_rounded,
+                          (_) => _buildCrossfeedSection(),
+                          shape: Shapes.arch,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Stereo Widener',
+                          Icons.swap_horiz_rounded,
+                          (_) => _buildStereoWidenSection(),
+                          shape: Shapes.slanted,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          'Stereo Enhancement',
+                          Icons.surround_sound_rounded,
+                          (_) => _buildStereoEnhancementSection(),
+                          shape: Shapes.puffyDiamond,
+                        );
+                        break;
+                      case 3:
+                        _openDetailScreen(
+                          '3D Audio',
+                          Icons.spatial_audio_off_outlined,
+                          (_) => _buildSpatialAudioSection(),
+                          shape: Shapes.softBoom,
+                        );
+                        break;
+                      case 4:
+                        _openDetailScreen(
+                          'True 3D Spatial Audio',
+                          Icons.threed_rotation_rounded,
+                          (_) => _buildTrue3dSection(),
+                          shape: Shapes.circle,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.headphones_rounded,
+                        shape: Shapes.arch,
+                        title: 'Crossfeed',
+                        subtitle: _crossfeedEnabled
+                            ? (_crossfeedPreset == 1
+                                ? 'BS2B Weak'
+                                : _crossfeedPreset == 2
+                                    ? 'BS2B Strong'
+                                    : _crossfeedPreset == 3
+                                        ? 'Joe0bloggs'
+                                        : 'Ambiophonics')
+                            : 'Disabled',
+                        isEnabled: _crossfeedEnabled,
+                        onToggle: (v) {
+                          setState(() => _crossfeedEnabled = v);
+                          if (v) {
+                            _updateCrossfeed();
+                          } else {
+                            widget.player.setCrossfeed(
+                                enabled: false,
+                                preset: _crossfeedPreset);
+                          }
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Crossfeed',
+                          Icons.headphones_rounded,
+                          (_) => _buildCrossfeedSection(),
+                          shape: Shapes.arch,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.swap_horiz_rounded,
+                        shape: Shapes.slanted,
+                        title: 'Stereo Widener',
+                        subtitle: _stereoWidenEnabled
+                            ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
+                            : 'Disabled',
+                        isEnabled: _stereoWidenEnabled,
+                        onToggle: (v) {
+                          setState(() => _stereoWidenEnabled = v);
+                          if (v) {
+                            _updateStereoWiden();
+                          } else {
+                            widget.player.setStereoWiden(
+                                enabled: false,
+                                width: _stereoWidenWidth,
+                                delayMs: _stereoWidenDelayMs * 100.0);
+                          }
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Stereo Widener',
+                          Icons.swap_horiz_rounded,
+                          (_) => _buildStereoWidenSection(),
+                          shape: Shapes.slanted,
+                        ),
+                      );
+                    }
+                    if (index == 2) {
+                      return _buildEffectTileCard(
+                        icon: Icons.surround_sound_rounded,
+                        shape: Shapes.puffyDiamond,
+                        title: 'Stereo Enhancement',
+                        subtitle: _stereoEnhancementEnabled
+                            ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _stereoEnhancementEnabled,
+                        onToggle: (v) {
+                          setState(
+                              () => _stereoEnhancementEnabled = v);
+                          _updateStereoEnhancement();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Stereo Enhancement',
+                          Icons.surround_sound_rounded,
+                          (_) => _buildStereoEnhancementSection(),
+                          shape: Shapes.puffyDiamond,
+                        ),
+                      );
+                    }
+                    if (index == 3) {
+                      return _buildEffectTileCard(
+                        icon: Icons.spatial_audio_off_outlined,
+                        shape: Shapes.softBoom,
+                        title: '3D Audio',
+                        subtitle: _spatialAudioEnabled
+                            ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _spatialAudioEnabled,
+                        onToggle: (v) {
+                          setState(() => _spatialAudioEnabled = v);
+                          widget.player.setReverbEnabled(v);
+                          if (v) _updateSpatialAudio();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          '3D Audio',
+                          Icons.spatial_audio_off_outlined,
+                          (_) => _buildSpatialAudioSection(),
+                          shape: Shapes.softBoom,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.threed_rotation_rounded,
+                      shape: Shapes.circle,
+                      title: 'True 3D Spatial Audio',
+                      subtitle: _true3dEnabled
+                          ? 'XYZ Vector Coordinates Active'
+                          : 'Disabled',
+                      isEnabled: _true3dEnabled,
+                      onToggle: (v) {
+                        setState(() => _true3dEnabled = v);
+                        widget.player.setSpatializationEnabled(v);
+                        if (v) _updateTrue3dPositions();
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'True 3D Spatial Audio',
+                        Icons.threed_rotation_rounded,
+                        (_) => _buildTrue3dSection(),
+                        shape: Shapes.circle,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 4: Advanced Audio Filters
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Advanced Audio Filters',
+                  icon: Icons.filter_alt_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 2,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Delay / Echo',
+                          Icons.repeat_rounded,
+                          (_) => _buildDelaySection(),
+                          shape: Shapes.l4LeafClover,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Advanced Filters',
+                          Icons.filter_alt_outlined,
+                          (_) => _buildCustomFiltersSection(),
+                          shape: Shapes.diamond,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.repeat_rounded,
+                        shape: Shapes.l4LeafClover,
+                        title: 'Delay / Echo',
+                        subtitle: _delayEnabled
+                            ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _delayEnabled,
+                        onToggle: (v) {
+                          setState(() => _delayEnabled = v);
+                          widget.player.setDelay(enabled: v);
+                          if (v) _updateDelay();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Delay / Echo',
+                          Icons.repeat_rounded,
+                          (_) => _buildDelaySection(),
+                          shape: Shapes.l4LeafClover,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.filter_alt_outlined,
+                      shape: Shapes.diamond,
+                      title: 'Advanced Filters',
+                      subtitle: (_customLpfEnabled ||
+                              _customHpfEnabled ||
+                              _customBpfEnabled ||
+                              _customNotchEnabled ||
+                              _customPeakEnabled ||
+                              _customLoshelfEnabled ||
+                              _customHishelfEnabled ||
+                              _customBiquadEnabled)
+                          ? 'Active Filters Configured'
+                          : 'Disabled',
+                      isEnabled: _customLpfEnabled ||
+                          _customHpfEnabled ||
+                          _customBpfEnabled ||
+                          _customNotchEnabled ||
+                          _customPeakEnabled ||
+                          _customLoshelfEnabled ||
+                          _customHishelfEnabled ||
+                          _customBiquadEnabled,
+                      onTapDetail: () => _openDetailScreen(
+                        'Advanced Filters',
+                        Icons.filter_alt_outlined,
+                        (_) => _buildCustomFiltersSection(),
+                        shape: Shapes.diamond,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Bottom Spacing for floating player / nav
+            const SliverToBoxAdapter(
+              child: SizedBox(height: 120),
+            ),
+          ],
+        ),
       ),
     );
   }

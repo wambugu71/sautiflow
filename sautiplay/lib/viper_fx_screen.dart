@@ -1116,383 +1116,406 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: bgDarkColor,
-      appBar: null,
-      body: Column(
-        children: [
-          // Top Master Enable Switch
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: M3ECard(
-              variant: M3ECardVariant.filled,
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000.0),
+        child: CustomScrollView(
+          key: const PageStorageKey<String>('viper_screen_scroll'),
+          slivers: [
+            // Top Master Enable Switch
+            SliverToBoxAdapter(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: M3ECard(
+                  variant: M3ECardVariant.filled,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        /* M3EContainer(
-                          Shapes.c4SidedCookie,
-                          width: 44,
-                          height: 44,
-                          color: primaryColor.withValues(alpha: 0.18),
-                          border: BorderSide(
-                            color: primaryColor.withValues(alpha: 0.4),
-                            width: 1.0,
-                          ),
-                          child:*/
-                        Center(
-                          child: Icon(Icons.graphic_eq_rounded,
-                              color: primaryColor, size: 22),
-                        ),
-                        //),
-                        const SizedBox(width: 14),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Row(
                           children: [
-                            const Text(
-                              'ViPER4Android DSP',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16.5,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: -0.2,
+                            /* M3EContainer(
+                              Shapes.c4SidedCookie,
+                              width: 44,
+                              height: 44,
+                              color: primaryColor.withValues(alpha: 0.18),
+                              border: BorderSide(
+                                color: primaryColor.withValues(alpha: 0.4),
+                                width: 1.0,
                               ),
+                              child:*/
+                            Center(
+                              child: Icon(Icons.graphic_eq_rounded,
+                                  color: primaryColor, size: 22),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _viperEnabled
-                                  ? 'DSP Pipeline Active'
-                                  : 'Master Bypassed',
-                              style: TextStyle(
-                                color: _viperEnabled
-                                    ? primaryColor.withValues(alpha: 0.9)
-                                    : Colors.white38,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            //),
+                            const SizedBox(width: 14),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'ViPER4Android DSP',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _viperEnabled
+                                      ? 'DSP Pipeline Active'
+                                      : 'Master Bypassed',
+                                  style: TextStyle(
+                                    color: _viperEnabled
+                                        ? primaryColor.withValues(alpha: 0.9)
+                                        : Colors.white38,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                        M3ESwitch(
+                          selectedIcon: Icon(Icons.check, color: primaryColor),
+                          value: _viperEnabled,
+                          onChanged: _toggleMaster,
+                        ),
                       ],
                     ),
-                    M3ESwitch(
-                      selectedIcon: Icon(Icons.check, color: primaryColor),
-                      value: _viperEnabled,
-                      onChanged: _toggleMaster,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-          // Grouped List View Hub
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 120),
-              children: [
-                // Section 1: Core Output & Gain Controls
-                _buildSectionHeader('Core Output & Gain'),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
-                    itemCount: 1,
-                    onTap: (index) {
-                      _openDetailScreen(
-                        'Core & Limits',
-                        Shapes.gem,
-                        Icons.tune,
-                        (_) => _buildDeckViews()[0],
-                      );
-                    },
-                    itemBuilder: (context, index) {
-                      return _buildEffectTileCard(
-                        shape: Shapes.gem,
-                        icon: Icons.tune,
-                        title: 'Core & Limits',
-                        subtitle: _viperEnabled
-                            ? 'Master Limiter, AGC & LUFS'
-                            : 'Disabled',
-                        isEnabled: _viperEnabled,
-                        onToggle: _toggleMaster,
-                        onTapDetail: () => _openDetailScreen(
-                            'Core & Limits',
-                            Shapes.gem,
-                            Icons.tune,
-                            (_) => _buildDeckViews()[0]),
-                      );
-                    },
-                  ),
-                ),
 
-                // Section 2: VIPRR System & Dynamics
-                _buildSectionHeader('VIPRR System & Dynamics'),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
-                    itemCount: 2,
-                    onTap: (index) {
-                      switch (index) {
-                        case 0:
-                          _openDetailScreen('VIPRR Dynamic System', Shapes.boom,
-                              Icons.bolt, (_) => _buildDeckViews()[1]);
-                          break;
-                        case 1:
-                          _openDetailScreen(
-                              'Dynamics & Compressors',
-                              Shapes.diamond,
-                              Icons.compress,
-                              (_) => _buildDeckViews()[2]);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return _buildEffectTileCard(
-                          shape: Shapes.boom,
-                          icon: Icons.bolt,
-                          title: 'VIPRR Dynamic System',
-                          subtitle: _dynamicSystemEnabled
-                              ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%'
-                              : 'Disabled',
-                          isEnabled: _dynamicSystemEnabled,
-                          onToggle: (v) {
-                            setState(() => _dynamicSystemEnabled = v);
-                            _updateEngine();
-                          },
-                          onTapDetail: () => _openDetailScreen(
-                              'VIPRR Dynamic System',
-                              Shapes.boom,
-                              Icons.bolt,
-                              (_) => _buildDeckViews()[1]),
-                        );
-                      }
-                      return _buildEffectTileCard(
-                        shape: Shapes.diamond,
-                        icon: Icons.compress,
-                        title: 'Dynamics & Compressors',
-                        subtitle: (_multibandCompressorEnabled ||
-                                _fetCompressorEnabled)
-                            ? '5-Band & FET Active'
-                            : 'Disabled',
-                        isEnabled: _multibandCompressorEnabled ||
-                            _fetCompressorEnabled,
-                        onTapDetail: () => _openDetailScreen(
+            // Section 1: Core Output & Gain Controls
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Core Output & Gain'),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 1,
+                  onTap: (index) {
+                    _openDetailScreen(
+                      'Core & Limits',
+                      Shapes.gem,
+                      Icons.tune,
+                      (_) => _buildDeckViews()[0],
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    return _buildEffectTileCard(
+                      shape: Shapes.gem,
+                      icon: Icons.tune,
+                      title: 'Core & Limits',
+                      subtitle: _viperEnabled
+                          ? 'Master Limiter, AGC & LUFS'
+                          : 'Disabled',
+                      isEnabled: _viperEnabled,
+                      onToggle: _toggleMaster,
+                      onTapDetail: () => _openDetailScreen(
+                          'Core & Limits',
+                          Shapes.gem,
+                          Icons.tune,
+                          (_) => _buildDeckViews()[0]),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 2: VIPRR System & Dynamics
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('VIPRR System & Dynamics'),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 2,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen('VIPRR Dynamic System', Shapes.boom,
+                            Icons.bolt, (_) => _buildDeckViews()[1]);
+                        break;
+                      case 1:
+                        _openDetailScreen(
                             'Dynamics & Compressors',
                             Shapes.diamond,
                             Icons.compress,
-                            (_) => _buildDeckViews()[2]),
-                      );
-                    },
-                  ),
-                ),
-
-                // Section 3: Bass & Clarity Enhancement
-                _buildSectionHeader('Bass & Clarity Enhancement'),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
-                    itemCount: 1,
-                    onTap: (index) {
-                      _openDetailScreen('Bass & Clarity Engine', Shapes.burst,
-                          Icons.equalizer, (_) => _buildDeckViews()[3]);
-                    },
-                    itemBuilder: (context, index) {
+                            (_) => _buildDeckViews()[2]);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
                       return _buildEffectTileCard(
-                        shape: Shapes.burst,
-                        icon: Icons.equalizer,
-                        title: 'Bass & Clarity Engine',
-                        subtitle: (_bassEnabled ||
-                                _bassMonoEnabled ||
-                                _psychoBassEnabled ||
-                                _clarityEnabled ||
-                                _spectrumEnabled)
-                            ? 'Active'
+                        shape: Shapes.boom,
+                        icon: Icons.bolt,
+                        title: 'VIPRR Dynamic System',
+                        subtitle: _dynamicSystemEnabled
+                            ? 'Strength: ${(_dynamicSystemStrength * 100).toInt()}%'
                             : 'Disabled',
-                        isEnabled: _bassEnabled ||
-                            _bassMonoEnabled ||
-                            _psychoBassEnabled ||
-                            _clarityEnabled ||
-                            _spectrumEnabled,
-                        onTapDetail: () => _openDetailScreen(
-                            'Bass & Clarity Engine',
-                            Shapes.burst,
-                            Icons.equalizer,
-                            (_) => _buildDeckViews()[3]),
-                      );
-                    },
-                  ),
-                ),
-
-                // Section 4: Spatial & Surround Sound
-                _buildSectionHeader('Spatial & Surround Sound'),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
-                    itemCount: 2,
-                    onTap: (index) {
-                      switch (index) {
-                        case 0:
-                          _openDetailScreen(
-                              'Spatial & Surround Engine',
-                              Shapes.softBoom,
-                              Icons.surround_sound,
-                              (_) => _buildDeckViews()[4]);
-                          break;
-                        case 1:
-                          _openDetailScreen('ViPER Reverb', Shapes.arch,
-                              Icons.meeting_room, (_) => _buildDeckViews()[5]);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return _buildEffectTileCard(
-                          shape: Shapes.softBoom,
-                          icon: Icons.surround_sound,
-                          title: 'Spatial & Surround Engine',
-                          subtitle: (_stereoImagerEnabled ||
-                                  _cureEnabled ||
-                                  _headphoneSurroundEnabled ||
-                                  _fieldSurroundEnabled ||
-                                  _diffSurroundEnabled)
-                              ? 'Active'
-                              : 'Disabled',
-                          isEnabled: _stereoImagerEnabled ||
-                              _cureEnabled ||
-                              _headphoneSurroundEnabled ||
-                              _fieldSurroundEnabled ||
-                              _diffSurroundEnabled,
-                          onTapDetail: () => _openDetailScreen(
-                              'Spatial & Surround Engine',
-                              Shapes.softBoom,
-                              Icons.surround_sound,
-                              (_) => _buildDeckViews()[4]),
-                        );
-                      }
-                      return _buildEffectTileCard(
-                        shape: Shapes.arch,
-                        icon: Icons.meeting_room,
-                        title: 'ViPER Reverb',
-                        subtitle: _reverbEnabled
-                            ? 'Room: ${(_reverbRoom * 100).toInt()}%'
-                            : 'Disabled',
-                        isEnabled: _reverbEnabled,
+                        isEnabled: _dynamicSystemEnabled,
                         onToggle: (v) {
-                          setState(() => _reverbEnabled = v);
+                          setState(() => _dynamicSystemEnabled = v);
                           _updateEngine();
                         },
                         onTapDetail: () => _openDetailScreen(
-                            'ViPER Reverb',
-                            Shapes.arch,
-                            Icons.meeting_room,
-                            (_) => _buildDeckViews()[5]),
+                            'VIPRR Dynamic System',
+                            Shapes.boom,
+                            Icons.bolt,
+                            (_) => _buildDeckViews()[1]),
                       );
-                    },
-                  ),
+                    }
+                    return _buildEffectTileCard(
+                      shape: Shapes.diamond,
+                      icon: Icons.compress,
+                      title: 'Dynamics & Compressors',
+                      subtitle: (_multibandCompressorEnabled ||
+                              _fetCompressorEnabled)
+                          ? '5-Band & FET Active'
+                          : 'Disabled',
+                      isEnabled: _multibandCompressorEnabled ||
+                          _fetCompressorEnabled,
+                      onTapDetail: () => _openDetailScreen(
+                          'Dynamics & Compressors',
+                          Shapes.diamond,
+                          Icons.compress,
+                          (_) => _buildDeckViews()[2]),
+                    );
+                  },
                 ),
+              ),
+            ),
 
-                // Section 5: Equalization, Impulse & Emulation
-                _buildSectionHeader('EQ, Impulse & Emulation'),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
-                    itemCount: 3,
-                    onTap: (index) {
-                      switch (index) {
-                        case 0:
-                          _openDetailScreen(
-                              'Dynamic EQ & FIR Filter',
-                              Shapes.slanted,
-                              Icons.show_chart,
-                              (_) => _buildDeckViews()[6]);
-                          break;
-                        case 1:
-                          _openDetailScreen(
-                              'Convolver & DDC Loader',
-                              Shapes.l4LeafClover,
-                              Icons.graphic_eq,
-                              (_) => _buildDeckViews()[7]);
-                          break;
-                        case 2:
-                          _openDetailScreen(
-                              'AnalogX & Tube Simulator',
-                              Shapes.circle,
-                              Icons.album,
-                              (_) => _buildDeckViews()[8]);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return _buildEffectTileCard(
-                          shape: Shapes.slanted,
-                          icon: Icons.show_chart,
-                          title: 'Dynamic EQ & FIR Filter',
-                          subtitle: (_firEqEnabled ||
-                                  _dynamicEqEnabled ||
-                                  _iirEqEnabled)
-                              ? 'Active'
-                              : 'Disabled',
-                          isEnabled: _firEqEnabled ||
-                              _dynamicEqEnabled ||
-                              _iirEqEnabled,
-                          onTapDetail: () => _openDetailScreen(
-                              'Dynamic EQ & FIR Filter',
-                              Shapes.slanted,
-                              Icons.show_chart,
-                              (_) => _buildDeckViews()[6]),
-                        );
-                      }
-                      if (index == 1) {
-                        return _buildEffectTileCard(
-                          shape: Shapes.l4LeafClover,
-                          icon: Icons.graphic_eq,
-                          title: 'Convolver & DDC Loader',
-                          subtitle: (_convolverEnabled || _ddcEnabled)
-                              ? 'Impulse / DDC Active'
-                              : 'Disabled',
-                          isEnabled: _convolverEnabled || _ddcEnabled,
-                          onTapDetail: () => _openDetailScreen(
-                              'Convolver & DDC Loader',
-                              Shapes.l4LeafClover,
-                              Icons.graphic_eq,
-                              (_) => _buildDeckViews()[7]),
-                        );
-                      }
+            // Section 3: Bass & Clarity Enhancement
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Bass & Clarity Enhancement'),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 1,
+                  onTap: (index) {
+                    _openDetailScreen('Bass & Clarity Engine', Shapes.burst,
+                        Icons.equalizer, (_) => _buildDeckViews()[3]);
+                  },
+                  itemBuilder: (context, index) {
+                    return _buildEffectTileCard(
+                      shape: Shapes.burst,
+                      icon: Icons.equalizer,
+                      title: 'Bass & Clarity Engine',
+                      subtitle: (_bassEnabled ||
+                              _bassMonoEnabled ||
+                              _psychoBassEnabled ||
+                              _clarityEnabled ||
+                              _spectrumEnabled)
+                          ? 'Active'
+                          : 'Disabled',
+                      isEnabled: _bassEnabled ||
+                          _bassMonoEnabled ||
+                          _psychoBassEnabled ||
+                          _clarityEnabled ||
+                          _spectrumEnabled,
+                      onTapDetail: () => _openDetailScreen(
+                          'Bass & Clarity Engine',
+                          Shapes.burst,
+                          Icons.equalizer,
+                          (_) => _buildDeckViews()[3]),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 4: Spatial & Surround Sound
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Spatial & Surround Sound'),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 2,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                            'Spatial & Surround Engine',
+                            Shapes.softBoom,
+                            Icons.surround_sound,
+                            (_) => _buildDeckViews()[4]);
+                        break;
+                      case 1:
+                        _openDetailScreen('ViPER Reverb', Shapes.arch,
+                            Icons.meeting_room, (_) => _buildDeckViews()[5]);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
                       return _buildEffectTileCard(
-                        shape: Shapes.circle,
-                        icon: Icons.album,
-                        title: 'AnalogX & Tube Simulator',
-                        subtitle: (_tubeEnabled ||
-                                _analogXEnabled ||
-                                _speakerCorrectionEnabled)
-                            ? 'Tube/AnalogX Active'
+                        shape: Shapes.softBoom,
+                        icon: Icons.surround_sound,
+                        title: 'Spatial & Surround Engine',
+                        subtitle: (_stereoImagerEnabled ||
+                                _cureEnabled ||
+                                _headphoneSurroundEnabled ||
+                                _fieldSurroundEnabled ||
+                                _diffSurroundEnabled)
+                            ? 'Active'
                             : 'Disabled',
-                        isEnabled: _tubeEnabled ||
-                            _analogXEnabled ||
-                            _speakerCorrectionEnabled,
+                        isEnabled: _stereoImagerEnabled ||
+                            _cureEnabled ||
+                            _headphoneSurroundEnabled ||
+                            _fieldSurroundEnabled ||
+                            _diffSurroundEnabled,
                         onTapDetail: () => _openDetailScreen(
+                            'Spatial & Surround Engine',
+                            Shapes.softBoom,
+                            Icons.surround_sound,
+                            (_) => _buildDeckViews()[4]),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      shape: Shapes.arch,
+                      icon: Icons.meeting_room,
+                      title: 'ViPER Reverb',
+                      subtitle: _reverbEnabled
+                          ? 'Room: ${(_reverbRoom * 100).toInt()}%'
+                          : 'Disabled',
+                      isEnabled: _reverbEnabled,
+                      onToggle: (v) {
+                        setState(() => _reverbEnabled = v);
+                        _updateEngine();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                          'ViPER Reverb',
+                          Shapes.arch,
+                          Icons.meeting_room,
+                          (_) => _buildDeckViews()[5]),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 5: Equalization, Impulse & Emulation
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('EQ, Impulse & Emulation'),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 3,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                            'Dynamic EQ & FIR Filter',
+                            Shapes.slanted,
+                            Icons.show_chart,
+                            (_) => _buildDeckViews()[6]);
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                            'Convolver & DDC Loader',
+                            Shapes.l4LeafClover,
+                            Icons.graphic_eq,
+                            (_) => _buildDeckViews()[7]);
+                        break;
+                      case 2:
+                        _openDetailScreen(
                             'AnalogX & Tube Simulator',
                             Shapes.circle,
                             Icons.album,
-                            (_) => _buildDeckViews()[8]),
+                            (_) => _buildDeckViews()[8]);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        shape: Shapes.slanted,
+                        icon: Icons.show_chart,
+                        title: 'Dynamic EQ & FIR Filter',
+                        subtitle: (_firEqEnabled ||
+                                _dynamicEqEnabled ||
+                                _iirEqEnabled)
+                            ? 'Active'
+                            : 'Disabled',
+                        isEnabled: _firEqEnabled ||
+                            _dynamicEqEnabled ||
+                            _iirEqEnabled,
+                        onTapDetail: () => _openDetailScreen(
+                            'Dynamic EQ & FIR Filter',
+                            Shapes.slanted,
+                            Icons.show_chart,
+                            (_) => _buildDeckViews()[6]),
                       );
-                    },
-                  ),
+                    }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        shape: Shapes.l4LeafClover,
+                        icon: Icons.graphic_eq,
+                        title: 'Convolver & DDC Loader',
+                        subtitle: (_convolverEnabled || _ddcEnabled)
+                            ? 'Impulse / DDC Active'
+                            : 'Disabled',
+                        isEnabled: _convolverEnabled || _ddcEnabled,
+                        onTapDetail: () => _openDetailScreen(
+                            'Convolver & DDC Loader',
+                            Shapes.l4LeafClover,
+                            Icons.graphic_eq,
+                            (_) => _buildDeckViews()[7]),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      shape: Shapes.circle,
+                      icon: Icons.album,
+                      title: 'AnalogX & Tube Simulator',
+                      subtitle: (_tubeEnabled ||
+                              _analogXEnabled ||
+                              _speakerCorrectionEnabled)
+                          ? 'Tube/AnalogX Active'
+                          : 'Disabled',
+                      isEnabled: _tubeEnabled ||
+                          _analogXEnabled ||
+                          _speakerCorrectionEnabled,
+                      onTapDetail: () => _openDetailScreen(
+                          'AnalogX & Tube Simulator',
+                          Shapes.circle,
+                          Icons.album,
+                          (_) => _buildDeckViews()[8]),
+                    );
+                  },
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+
+            // Bottom Spacing for floating player / nav
+            const SliverToBoxAdapter(
+              child: SizedBox(height: 120),
+            ),
+          ],
+        ),
       ),
     );
   }

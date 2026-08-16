@@ -670,18 +670,16 @@ class _EffectsScreenState extends State<EffectsScreen> {
               ),
             ];
           },
-          body: PrimaryScrollController.none(
-            child: TabBarView(
-              children: [
-                EqScreen(
-                  effectsKnobKey: widget.effectsKnobKey,
-                  player: widget.player,
-                  analyzerEnabled: widget.analyzerEnabled,
-                  analyzerType: widget.analyzerType,
-                ),
-                ViperFxScreen(player: widget.player),
-              ],
-            ),
+          body: TabBarView(
+            children: [
+              EqScreen(
+                effectsKnobKey: widget.effectsKnobKey,
+                player: widget.player,
+                analyzerEnabled: widget.analyzerEnabled,
+                analyzerType: widget.analyzerType,
+              ),
+              ViperFxScreen(player: widget.player),
+            ],
           ),
         ),
       ),
