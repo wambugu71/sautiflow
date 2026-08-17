@@ -3183,7 +3183,8 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         sampleRate,
         clampf(e->bandpassCutoffHz, 20.0f, (float)sampleRate * 0.45f),
         clampf(e->bandpassQ, 0.1f, 18.0f));
-    (void)ma_bpf2_reinit(&bpfConfig, &e->bandpass);
+    ma_bpf2_uninit(&e->bandpass, nullptr);
+    (void)ma_bpf2_init(&bpfConfig, nullptr, &e->bandpass);
 
     ma_peak2_config peakConfig = ma_peak2_config_init(
         ma_format_f32,
@@ -3192,7 +3193,8 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->peakGainDb, -24.0f, 24.0f),
         clampf(e->peakQ, 0.1f, 18.0f),
         clampf(e->peakFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_peak2_reinit(&peakConfig, &e->peakEq);
+    ma_peak2_uninit(&e->peakEq, nullptr);
+    (void)ma_peak2_init(&peakConfig, nullptr, &e->peakEq);
 
     ma_notch2_config notchConfig = ma_notch2_config_init(
         ma_format_f32,
@@ -3200,7 +3202,8 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         sampleRate,
         clampf(e->notchQ, 0.1f, 18.0f),
         clampf(e->notchFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_notch2_reinit(&notchConfig, &e->notch);
+    ma_notch2_uninit(&e->notch, nullptr);
+    (void)ma_notch2_init(&notchConfig, nullptr, &e->notch);
 
     ma_loshelf2_config lowshelfConfig = ma_loshelf2_config_init(
         ma_format_f32,
@@ -3209,7 +3212,8 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->lowshelfGainDb, -24.0f, 24.0f),
         clampf(e->lowshelfSlope, 0.1f, 2.0f),
         clampf(e->lowshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_loshelf2_reinit(&lowshelfConfig, &e->lowshelf);
+    ma_loshelf2_uninit(&e->lowshelf, nullptr);
+    (void)ma_loshelf2_init(&lowshelfConfig, nullptr, &e->lowshelf);
 
     ma_hishelf2_config highshelfConfig = ma_hishelf2_config_init(
         ma_format_f32,
@@ -3218,16 +3222,49 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         clampf(e->highshelfGainDb, -24.0f, 24.0f),
         clampf(e->highshelfSlope, 0.1f, 2.0f),
         clampf(e->highshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    (void)ma_hishelf2_reinit(&highshelfConfig, &e->highshelf);
+    ma_hishelf2_uninit(&e->highshelf, nullptr);
+    (void)ma_hishelf2_init(&highshelfConfig, nullptr, &e->highshelf);
 
-    ma_lpf1_config lpf1Cfg = ma_lpf1_config_init(ma_format_f32, channels, sampleRate, e->customLpf1Cutoff);
-    (void)ma_lpf1_reinit(&lpf1Cfg, &e->customLpf1);
+    // LPF1 – clamp cutoff and use init (not reinit) so pR1 is always heap-allocated.
+    {
+        const double lpfCutoff = clampd(e->customLpf1Cutoff, 1.0, (double)sampleRate * 0.45);
+        ma_lpf1_config lpf1Cfg = ma_lpf1_config_init(ma_format_f32, channels, sampleRate, lpfCutoff);
+        ma_lpf1_uninit(&e->customLpf1, nullptr);
+        if (ma_lpf1_init(&lpf1Cfg, nullptr, &e->customLpf1) != MA_SUCCESS)
+        {
+            MA_ZERO_OBJECT(&e->customLpf1);
+            e->customLpf1Enabled = false;
+        }
+    }
 
-    ma_hpf1_config hpf1Cfg = ma_hpf1_config_init(ma_format_f32, channels, sampleRate, e->customHpf1Cutoff);
-    (void)ma_hpf1_reinit(&hpf1Cfg, &e->customHpf1);
+    // HPF1 – same issue as LPF1.
+    {
+        const double hpfCutoff = clampd(e->customHpf1Cutoff, 1.0, (double)sampleRate * 0.45);
+        ma_hpf1_config hpf1Cfg = ma_hpf1_config_init(ma_format_f32, channels, sampleRate, hpfCutoff);
+        ma_hpf1_uninit(&e->customHpf1, nullptr);
+        if (ma_hpf1_init(&hpf1Cfg, nullptr, &e->customHpf1) != MA_SUCCESS)
+        {
+            MA_ZERO_OBJECT(&e->customHpf1);
+            e->customHpf1Enabled = false;
+        }
+    }
 
-    ma_biquad_config bqCfg = ma_biquad_config_init(ma_format_f32, channels, e->bq_b0, e->bq_b1, e->bq_b2, e->bq_a0, e->bq_a1, e->bq_a2);
-    (void)ma_biquad_reinit(&bqCfg, &e->customBiquad);
+    // Custom biquad – pR1/pR2 are heap-allocated by init(), NOT reinit().
+    // On a zero-initialized struct pR1==nullptr; reinit() would not allocate it,
+    // causing a NULL-deref crash when processing audio. Use uninit+init every time.
+    {
+        // Guard against a0==0 which causes MA_INVALID_ARGS inside biquad_init.
+        const double safe_a0 = (e->bq_a0 != 0.0) ? e->bq_a0 : 1.0;
+        ma_biquad_config bqCfg = ma_biquad_config_init(
+            ma_format_f32, channels,
+            e->bq_b0, e->bq_b1, e->bq_b2, safe_a0, e->bq_a1, e->bq_a2);
+        ma_biquad_uninit(&e->customBiquad, nullptr);
+        if (ma_biquad_init(&bqCfg, nullptr, &e->customBiquad) != MA_SUCCESS)
+        {
+            MA_ZERO_OBJECT(&e->customBiquad);
+            e->customBiquadEnabled = false;
+        }
+    }
 
     e->stereoEnhancement.refresh((int)sampleRate);
     e->crystalizer.init((int)sampleRate);
@@ -5150,6 +5187,22 @@ extern "C"
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
             ma_device_uninit(&e->device);
         }
+
+        // Uninit all heap-allocated filter states to prevent memory leaks.
+        // These filters use internal heap via ma_xxx_init(); without uninit the
+        // per-channel coefficient arrays are leaked every time the engine is destroyed.
+        {
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+            ma_bpf2_uninit(&e->bandpass, nullptr);
+            ma_peak2_uninit(&e->peakEq, nullptr);
+            ma_notch2_uninit(&e->notch, nullptr);
+            ma_loshelf2_uninit(&e->lowshelf, nullptr);
+            ma_hishelf2_uninit(&e->highshelf, nullptr);
+            ma_lpf1_uninit(&e->customLpf1, nullptr);
+            ma_hpf1_uninit(&e->customHpf1, nullptr);
+            ma_biquad_uninit(&e->customBiquad, nullptr);
+        }
+
         e->garbageQueue.drain();
         engine_log("destroy_engine end");
         delete e;
