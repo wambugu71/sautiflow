@@ -168,6 +168,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // App version state
   String _appVersion = 'v0.6.20';
 
+  // Changelog loaded from assets/CHANGELOG.md
+  List<Map<String, dynamic>> _changelog = [];
+
   // Active theme ID (always synced with AppThemeProvider)
   AppThemeId get _activeThemeId => context.appTheme.id;
 
@@ -179,6 +182,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadUiSettings();
+    _loadChangelog();
     _audioSettingsSub = AppStateService
         .instance.audioProcessingSettingsChanged.stream
         .listen((_) {
@@ -191,6 +195,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() => _isPlaying = status.isPlaying);
       }
     });
+  }
+
+  /// Parses assets/CHANGELOG.md into a list of version entries.
+  Future<void> _loadChangelog() async {
+    try {
+      final raw =
+          await rootBundle.loadString('assets/CHANGELOG.md');
+      final entries = <Map<String, dynamic>>[];
+      Map<String, dynamic>? current;
+      for (final line in raw.split('\n')) {
+        final trimmed = line.trim();
+        if (trimmed.startsWith('## ')) {
+          if (current != null) entries.add(current);
+          // Parse "## vX.Y.Z — YYYY-MM-DD" or "## vX.Y.Z — YYYY-MM"
+          final header = trimmed.substring(3).trim();
+          final parts = header.split(RegExp(r'\s*[–—-]\s*'));
+          current = {
+            'version': parts.isNotEmpty ? parts[0].trim() : header,
+            'date': parts.length > 1 ? parts[1].trim() : '',
+            'changes': <String>[],
+          };
+        } else if (trimmed.startsWith('- ') && current != null) {
+          (current['changes'] as List<String>).add(trimmed.substring(2).trim());
+        }
+      }
+      if (current != null) entries.add(current);
+      if (mounted) setState(() => _changelog = entries);
+    } catch (_) {}
   }
 
   @override
@@ -2967,22 +2999,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // Changelog data
-  static const List<Map<String, dynamic>> _changelog = [
-    {
-      'version': 'v0.6.20',
-      'date': '2026-08-18',
-      'changes': [
-        'Add developer info to Misc & System about section',
-        'File extension sorting in library browser',
-        'Cached stream library implementation',
-        'ViperFX UI expansion fixes',
-      ],
-    },
-    // Paste additional entries above this line
-  ];
-
   Widget _buildChangelogSection() {
+    if (_changelog.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
     return M3EExpandableList(
       style: M3EExpandableStyle(
         color: Colors.transparent,
