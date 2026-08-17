@@ -2986,6 +2986,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 M3EListItem(
+                  headline: 'Developer',
+                  leading: _buildLeadingIcon(Icons.person_outline),
+                  trailing: Text('Wambugu Kinyua',
+                      style: TextStyle(color: _textDark, fontSize: 14)),
+                ),
+                const M3EDivider(),
+                M3EListItem(
+                  headline: 'Copyright',
+                  leading: _buildLeadingIcon(Icons.copyright_outlined),
+                  trailing: Text(
+                      '© ${DateTime.now().year} Wambugu Kinyua',
+                      style: TextStyle(color: _textDark, fontSize: 14)),
+                ),
+                const M3EDivider(),
+                M3EListItem(
                   headline: 'Open Source Licenses',
                   leading: _buildLeadingIcon(Icons.policy_outlined),
                   trailing:
