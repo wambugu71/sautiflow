@@ -3,7 +3,7 @@ import 'package:sautiflow/sautiflow.dart';
 
 void main() {
   test('Auto Bit-Perfect Toggle and Sample Rate Recovery Test', () {
-    final player = MiniAudioPlayer(libraryPath: 'build/windows/audio_engine.dll');
+    final player = MiniAudioPlayer(libraryPath: 'sautiflow.dll');
     final ok = player.init(sampleRate: 48000);
     expect(ok, isTrue, reason: 'Engine should initialize successfully');
 

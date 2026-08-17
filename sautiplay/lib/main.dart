@@ -1891,6 +1891,7 @@ class _PlayerShellState extends State<PlayerShell> {
       builder: (showContext) {
         _showcaseContext = showContext;
         return Scaffold(
+          backgroundColor: context.bgDark,
           // appBar: AppBar(title: const Text('MiniAudio Playlist Demo')),
           body: IndexedStack(
             index: _tabIndex,
@@ -2024,68 +2025,67 @@ class _PlayerShellState extends State<PlayerShell> {
                   }),
             ],
           ),
-          bottomNavigationBar: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ValueListenableBuilder<PlayerStatus>(
-                valueListenable: _status,
-                builder: (context, status, _) {
-                  if (_isLoading) {
-                    return const ShimmerMiniPlayer();
-                  }
+          bottomNavigationBar: Container(
+            color: context.bgDark,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ValueListenableBuilder<PlayerStatus>(
+                  valueListenable: _status,
+                  builder: (context, status, _) {
+                    if (_isLoading) {
+                      return const ShimmerMiniPlayer();
+                    }
 
-                  final idx = status.currentIndex;
-                  if (_playlist.isEmpty || idx < 0 || idx >= _playlist.length) {
-                    return const SizedBox.shrink();
-                  }
-                  final src = _playlist[idx];
-                  final overrideDuration = _durationFromSource(src);
-                  final finalDurationSecs =
-                      (overrideDuration != null && overrideDuration > 0)
-                          ? overrideDuration.toDouble()
-                          : status.durationSeconds;
+                    final idx = status.currentIndex;
+                    if (_playlist.isEmpty || idx < 0 || idx >= _playlist.length) {
+                      return const SizedBox.shrink();
+                    }
+                    final src = _playlist[idx];
+                    final overrideDuration = _durationFromSource(src);
+                    final finalDurationSecs =
+                        (overrideDuration != null && overrideDuration > 0)
+                            ? overrideDuration.toDouble()
+                            : status.durationSeconds;
 
-                  final progress = finalDurationSecs > 0
-                      ? (status.positionSeconds / finalDurationSecs)
-                          .clamp(0.0, 1.0)
-                      : 0.0;
+                    final progress = finalDurationSecs > 0
+                        ? (status.positionSeconds / finalDurationSecs)
+                            .clamp(0.0, 1.0)
+                        : 0.0;
 
-                  if (_isLoading) {
-                    return const ShimmerMiniPlayer();
-                  }
-                  return ValueListenableBuilder<TrackMetadata>(
-                    valueListenable: _metadata,
-                    builder: (context, meta, _) {
-                      return AppShowcase(
-                        showcaseKey: _miniPlayerKey,
-                        title: 'Interactive Playback',
-                        description:
-                            'Tap to expand full controls, or swipe left/right to skip to next/previous song.',
-                        currentStep: 4,
-                        totalSteps: 5,
-                        child: MiniPlayer(
-                          title: _nameFromSource(src),
-                          artist: meta.artist,
-                          albumArt: meta.albumArt,
-                          progress: progress,
-                          isPlaying: status.isPlaying,
-                          onPlayPause: () {
-                            if (status.isPlaying) {
-                              _player.pause();
-                            } else {
-                              _player.play();
-                            }
-                          },
-                          onNext: () => _player.next(),
-                          onPrevious: () => _player.previous(),
-                          onTap: _showNowPlayingScreen,
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              M3ENavigationBar(
+                    return ValueListenableBuilder<TrackMetadata>(
+                      valueListenable: _metadata,
+                      builder: (context, meta, _) {
+                        return AppShowcase(
+                          showcaseKey: _miniPlayerKey,
+                          title: 'Interactive Playback',
+                          description:
+                              'Tap to expand full controls, or swipe left/right to skip to next/previous song.',
+                          currentStep: 4,
+                          totalSteps: 5,
+                          child: MiniPlayer(
+                            title: _nameFromSource(src),
+                            artist: meta.artist,
+                            albumArt: meta.albumArt,
+                            progress: progress,
+                            isPlaying: status.isPlaying,
+                            onPlayPause: () {
+                              if (status.isPlaying) {
+                                _player.pause();
+                              } else {
+                                _player.play();
+                              }
+                            },
+                            onNext: () => _player.next(),
+                            onPrevious: () => _player.previous(),
+                            onTap: _showNowPlayingScreen,
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+                M3ENavigationBar(
                 selectedIndex: _tabIndex,
                 onDestinationSelected: (i) => setState(() => _tabIndex = i),
                 indicatorStyle: M3ENavBarIndicatorStyle.pill,
@@ -2132,8 +2132,9 @@ class _PlayerShellState extends State<PlayerShell> {
               ),
             ],
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 }

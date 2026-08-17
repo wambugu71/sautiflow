@@ -114,6 +114,13 @@ class _MiniPlayerState extends State<MiniPlayer>
     final screenWidth = MediaQuery.of(context).size.width;
     final slideFraction =
         screenWidth > 0 ? (_dragOffsetX / screenWidth).clamp(-0.25, 0.25) : 0.0;
+    final cardColor = context.cardDark;
+    final primaryColor = context.primaryColor;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+    final outlineColor = context.outlineColor;
+    final isDark = context.isDark;
+    final artShape = context.albumArtShape;
 
     return GestureDetector(
       onTap: widget.onTap,
@@ -130,18 +137,17 @@ class _MiniPlayerState extends State<MiniPlayer>
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: AppThemeService
-                .instance.currentData.cardDark, // surfaceDarkColor
+            color: cardColor,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
+                color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
             ],
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: outlineColor,
               width: 1,
             ),
           ),
@@ -158,25 +164,17 @@ class _MiniPlayerState extends State<MiniPlayer>
                       value: widget.progress.clamp(0.0, 1.0),
                       linearSize: M3EProgressIndicatorSize.s,
                       trackColor: Colors.transparent,
-                      color: AppThemeService.instance.currentData.primary,
+                      color: primaryColor,
                     );
                   }
                   return M3EProgressIndicator.linear(
                     value: widget.progress.clamp(0.0, 1.0),
                     linearSize: M3EProgressIndicatorSize.s,
                     trackColor: Colors.transparent,
-                    color: AppThemeService.instance.currentData.primary,
+                    color: primaryColor,
                   );
                 },
               ),
-              // Top Progress Bar
-              /*    LinearProgressIndicator(
-              value: widget.progress.clamp(0.0, 1.0),
-              minHeight: 2,
-              backgroundColor: Colors.transparent,
-              valueColor:
-                  AlwaysStoppedAnimation<Color>(AppThemeService.instance.currentData.primary),
-            ),*/
               // Main content
               Expanded(
                 child: Row(
@@ -185,24 +183,23 @@ class _MiniPlayerState extends State<MiniPlayer>
                     Padding(
                       padding: const EdgeInsets.only(
                           left: 8, right: 0, top: 0, bottom: 4),
-                      child: M3EContainer.c6SidedCookie(
+                      child: M3EContainer(
+                        artShape,
                         width: 48,
                         height: 48,
                         child: (widget.albumArt != null &&
                                 widget.albumArt!.isNotEmpty)
                             ? Image.memory(
                                 widget.albumArt!,
-                                fit: BoxFit.contain,
+                                fit: BoxFit.cover,
                                 cacheWidth: 120,
                                 cacheHeight: 120,
                               )
                             : RotationTransition(
                                 turns: _rotationController,
                                 child: M3EContainer(
-                                  Shapes.c6SidedCookie,
-                                  color: AppThemeService
-                                      .instance.currentData.primary
-                                      .withValues(alpha: 0.2),
+                                  artShape,
+                                  color: primaryColor.withValues(alpha: 0.2),
                                   padding: const EdgeInsets.all(6.0),
                                   child: Image.asset(
                                     'assets/icon/splash.png',
@@ -212,16 +209,6 @@ class _MiniPlayerState extends State<MiniPlayer>
                               ),
                       ),
                     ),
-                    /*  Container(
-                      width: 48,
-                      height: 48,
-                      margin: const EdgeInsets.only(left: 8),
-                      decoration: BoxDecoration(
-                        color: AppThemeService.instance.currentData.primary
-                            .withValues(alpha: 0.2), // primaryColor
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child:  ),*/
                     const SizedBox(width: 16),
                     // Track Info
                     Expanded(
@@ -231,8 +218,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                         children: [
                           AdaptiveMarqueeText(
                             text: widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: textPrimary,
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
@@ -246,7 +233,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.5),
+                              color: textMuted,
                               fontSize: 12,
                             ),
                           ),
@@ -255,25 +242,21 @@ class _MiniPlayerState extends State<MiniPlayer>
                     ),
                     // Controls
                     M3EIconButton(
-                      // isSelected: true,
-                      //variant: M3EIconButtonVariant.tonal,
                       onPressed: widget.onPlayPause,
                       icon: Icon(
                         widget.isPlaying
                             ? Icons.pause_circle_filled
                             : Icons.play_circle_filled,
                         size: 32,
-                        color: Colors.white,
+                        color: textPrimary,
                       ),
                     ),
                     M3EIconButton(
-                      //isSelected: true,
-                      // variant: M3EIconButtonVariant.tonal,
                       onPressed: widget.onNext,
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.skip_next,
                         size: 28,
-                        color: Colors.white,
+                        color: textPrimary,
                       ),
                     ),
                     const SizedBox(width: 8),

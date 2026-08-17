@@ -26,9 +26,10 @@ class AppShowcase extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = AppThemeService.instance.currentData;
-    final primary = theme.primary;
-    final cardDark = theme.cardDark;
+    final primary = context.primaryColor;
+    final cardDark = context.cardDark;
+    final textMuted = context.textMuted;
+    final isDark = context.isDark;
 
     return Showcase.withWidget(
       key: showcaseKey,
@@ -47,6 +48,13 @@ class AppShowcase extends StatelessWidget {
             color: primary.withValues(alpha: 0.5),
             width: 1.5,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -90,8 +98,8 @@ class AppShowcase extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               description,
-              style: const TextStyle(
-                color: Colors.white70,
+              style: TextStyle(
+                color: textMuted,
                 fontSize: 12.5,
                 height: 1.35,
               ),
@@ -109,7 +117,7 @@ class AppShowcase extends StatelessWidget {
                     icon: const Icon(Icons.arrow_back_rounded, size: 14),
                     label: const Text('Prev', style: TextStyle(fontSize: 12)),
                     style: TextButton.styleFrom(
-                      foregroundColor: Colors.white70,
+                      foregroundColor: textMuted,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
                       minimumSize: Size.zero,
@@ -127,9 +135,10 @@ class AppShowcase extends StatelessWidget {
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    child: const Text('Skip',
-                        style:
-                            TextStyle(color: Colors.white38, fontSize: 12)),
+                    child: Text('Skip',
+                        style: TextStyle(
+                            color: textMuted.withValues(alpha: 0.6),
+                            fontSize: 12)),
                   ),
                 ElevatedButton.icon(
                   onPressed: () {
@@ -153,7 +162,7 @@ class AppShowcase extends StatelessWidget {
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primary,
-                    foregroundColor: Colors.white,
+                    foregroundColor: isDark ? Colors.black : Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 6),

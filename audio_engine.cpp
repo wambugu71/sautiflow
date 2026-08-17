@@ -3299,8 +3299,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         }
     }
 
-    e->update_eq_filters();
-    e->update_multiband_fx_filters();
+    {
+        std::lock_guard<std::mutex> eqLock(e->eqMutex);
+        e->update_eq_filters();
+        e->update_multiband_fx_filters();
+    }
 
     {
         std::lock_guard<std::mutex> fx(e->fxMutex);
@@ -3516,23 +3519,9 @@ static bool load_decoder_for_path(
         (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
 
         uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
-        if (!isPreload)
-        {
-            AudioRatePlan plan = calculateRatePlan(
-                srcRate,
-                (uint32_t)e->deviceSampleRate,
-                (uint32_t)e->userOutputSampleRate,
-                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
-            );
-            applyRatePlan(e, plan);
-        }
-        else
-        {
-            engine_log("PRELOAD DECODER READY: path=%s | Native Rate=%u Hz | Assigned Engine Target Rate=%u Hz (Active Rate Plan Unchanged)", path.c_str(), srcRate, targetRate);
-        }
+        engine_log("decoder_init(stream) success: %s | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
+                   path.c_str(), srcRate, targetRate, isPreload ? "true" : "false");
         clear_last_error(e);
-        engine_log("decoder_init(stream) success: %s", path.c_str());
         return true;
     }
 #else
@@ -3577,21 +3566,8 @@ static bool load_decoder_for_path(
     (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
 
     uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
-    if (!isPreload)
-    {
-        AudioRatePlan plan = calculateRatePlan(
-            srcRate,
-            (uint32_t)e->deviceSampleRate,
-            (uint32_t)e->userOutputSampleRate,
-            e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-            e->exclusiveModeEnabled.load(std::memory_order_relaxed)
-        );
-        applyRatePlan(e, plan);
-    }
-    else
-    {
-        engine_log("PRELOAD DECODER READY: path=%s | Native Rate=%u Hz | Assigned Engine Target Rate=%u Hz (Active Rate Plan Unchanged)", path.c_str(), srcRate, targetRate);
-    }
+    engine_log("decoder_init_file success: %s | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
+               path.c_str(), srcRate, targetRate, isPreload ? "true" : "false");
     clear_last_error(e);
     return true;
 }
@@ -3835,6 +3811,23 @@ static void worker_loop(AudioEngineHandle *e)
 #endif
                         );
                     }
+                }
+
+                if (newCurrent != nullptr)
+                {
+                    ma_format nativeFmt = ma_format_unknown;
+                    ma_uint32 nativeCh = 0;
+                    ma_uint32 nativeRate = 0;
+                    (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+                    uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
+                    AudioRatePlan plan = calculateRatePlan(
+                        srcRate,
+                        (uint32_t)e->deviceSampleRate,
+                        (uint32_t)e->userOutputSampleRate,
+                        e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                        e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                    );
+                    applyRatePlan(e, plan);
                 }
 
                 e->currentDecoder = newCurrent;
@@ -4370,16 +4363,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     if (e == nullptr)
         return;
 
-#ifndef NDEBUG
-    assert(e->engineSampleRate > 0);
-    assert(e->deviceSampleRate > 0);
-    assert(e->currentDecoder == nullptr || e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
-    assert(e->fadingOutDecoder == nullptr || e->fadingOutDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
-    assert((int)pDevice->sampleRate == e->deviceSampleRate);
-    if (e->engineSampleRate != e->deviceSampleRate)
+    if (e->rateTransitionInProgress.load(std::memory_order_acquire))
     {
-        assert(e->deviceResamplerInRate == e->engineSampleRate);
-        assert(e->deviceResamplerOutRate == e->deviceSampleRate);
+        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+        std::memset(pOutput, 0, outBytes);
+        return;
+    }
+
+#ifndef NDEBUG
+    if (!e->rateTransitionInProgress.load(std::memory_order_relaxed))
+    {
+        assert(e->engineSampleRate > 0);
+        assert(e->deviceSampleRate > 0);
+        assert(e->currentDecoder == nullptr || e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
+        assert(e->fadingOutDecoder == nullptr || e->fadingOutDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
+        assert((int)pDevice->sampleRate == e->deviceSampleRate);
+        if (e->engineSampleRate != e->deviceSampleRate)
+        {
+            assert(e->deviceResamplerInRate == e->engineSampleRate);
+            assert(e->deviceResamplerOutRate == e->deviceSampleRate);
+        }
     }
 #endif
 
@@ -4470,58 +4473,59 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
         
         // MIXING FADEOUT DECODER (if active)
-        if (e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr) {
+        if (e->isCrossfading.load(std::memory_order_acquire)) {
             std::lock_guard<std::mutex> d(e->decoderMutex);
-            
-            // Read from the old track using pre-allocated mix buffer
-            size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
-            if (e->crossfadeMixBuffer.size() < neededMixSamples)
-            {
-                neededMixSamples = e->crossfadeMixBuffer.size();
-            }
-            std::fill(e->crossfadeMixBuffer.begin(), e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
-            float *mixBuf = e->crossfadeMixBuffer.data();
-            ma_uint64 oldFramesRead = 0;
-            ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
-            
-            const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
-            const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
-            const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
-
-            const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
-            constexpr float halfPi = 1.57079632679f;
-            for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
-            {
-                const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
-                const float tIn = std::sin(t * halfPi);
-                const float tOut = std::cos(t * halfPi);
-
-                const size_t base = (size_t)i * (size_t)e->channels;
-                for (int c = 0; c < e->channels; ++c)
+            if (e->fadingOutDecoder != nullptr) {
+                // Read from the old track using pre-allocated mix buffer
+                size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
+                if (e->crossfadeMixBuffer.size() < neededMixSamples)
                 {
-                    // If we successfully read frames from the old track, add them with loudness gain alignment
-                    float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
-                    float inSample  = processBuffer[base + (size_t)c] * inGain;
-                    processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * tOut);
+                    neededMixSamples = e->crossfadeMixBuffer.size();
                 }
-                fadeRemaining -= 1;
-            }
-            e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
-            
-            if (fadeRemaining == 0 || oldFramesRead == 0 || mixResult == MA_AT_END) {
-                // Crossfade complete
-                uninit_decoder_slot(
-                    e,
-                    e->fadingOutDecoder
+                std::fill(e->crossfadeMixBuffer.begin(), e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
+                float *mixBuf = e->crossfadeMixBuffer.data();
+                ma_uint64 oldFramesRead = 0;
+                ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
+                
+                const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
+                const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
+                const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
+
+                const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
+                constexpr float halfPi = 1.57079632679f;
+                for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
+                {
+                    const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
+                    const float tIn = std::sin(t * halfPi);
+                    const float tOut = std::cos(t * halfPi);
+
+                    const size_t base = (size_t)i * (size_t)e->channels;
+                    for (int c = 0; c < e->channels; ++c)
+                    {
+                        // If we successfully read frames from the old track, add them with loudness gain alignment
+                        float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                        float inSample  = processBuffer[base + (size_t)c] * inGain;
+                        processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * tOut);
+                    }
+                    fadeRemaining -= 1;
+                }
+                e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
+                
+                if (fadeRemaining == 0 || oldFramesRead == 0 || mixResult == MA_AT_END) {
+                    // Crossfade complete
+                    uninit_decoder_slot(
+                        e,
+                        e->fadingOutDecoder
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    , e->fadingOutStream
+                        , e->fadingOutStream
 #endif
-                );
-                e->fadingOutDecoder = nullptr;
+                    );
+                    e->fadingOutDecoder = nullptr;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                e->fadingOutStream = nullptr;
+                    e->fadingOutStream = nullptr;
 #endif
-                e->isCrossfading.store(false, std::memory_order_release);
+                    e->isCrossfading.store(false, std::memory_order_release);
+                }
             }
         } 
         else if (fadeRemaining > 0 && fadeTotal > 0)
@@ -5452,11 +5456,14 @@ extern "C"
             request_jump(e, idx);
         }
 
-        if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
-            if (ma_device_start(&e->device) != MA_SUCCESS)
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
             {
-                engine_log("Failed to start device in ae_play");
+                if (ma_device_start(&e->device) != MA_SUCCESS)
+                {
+                    engine_log("Failed to start device in ae_play");
+                }
             }
         }
 
@@ -5599,6 +5606,23 @@ extern "C"
             }
         }
 
+        if (newCurrent != nullptr)
+        {
+            ma_format nativeFmt = ma_format_unknown;
+            ma_uint32 nativeCh = 0;
+            ma_uint32 nativeRate = 0;
+            (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+            uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
+            AudioRatePlan plan = calculateRatePlan(
+                srcRate,
+                (uint32_t)e->deviceSampleRate,
+                (uint32_t)e->userOutputSampleRate,
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
+        }
+
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
             if (e->hasCurrent)
@@ -5635,7 +5659,7 @@ extern "C"
 #endif
             e->currentLengthFrames = newCurrentLen;
             e->currentIndex = jumpIndex;
-            e->hasCurrent = true;
+            e->hasCurrent = (newCurrent != nullptr);
             arm_transition_fade_in(e);
 
             ma_uint64 startFrame = 0;
@@ -5643,7 +5667,10 @@ extern "C"
                 e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
             {
                 startFrame = e->pendingSeekFrame.load(std::memory_order_acquire);
-                (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
+                if (e->currentDecoder != nullptr)
+                {
+                    (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
+                }
                 e->pendingSeekValid.store(false, std::memory_order_release);
                 e->pendingSeekIndex.store(-1, std::memory_order_release);
             }
@@ -5710,11 +5737,14 @@ extern "C"
             request_jump(e, idx);
         }
 
-        if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
-            if (ma_device_start(&e->device) != MA_SUCCESS)
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
             {
-                engine_log("Failed to start device in ae_next");
+                if (ma_device_start(&e->device) != MA_SUCCESS)
+                {
+                    engine_log("Failed to start device in ae_next");
+                }
             }
         }
 
@@ -5758,11 +5788,14 @@ extern "C"
             request_jump(e, idx);
         }
 
-        if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
-            if (ma_device_start(&e->device) != MA_SUCCESS)
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
             {
-                engine_log("Failed to start device in ae_prev");
+                if (ma_device_start(&e->device) != MA_SUCCESS)
+                {
+                    engine_log("Failed to start device in ae_prev");
+                }
             }
         }
 
@@ -5802,11 +5835,14 @@ extern "C"
             request_jump(e, index);
         }
 
-        if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
-            if (ma_device_start(&e->device) != MA_SUCCESS)
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
             {
-                engine_log("Failed to start device in ae_jump_to");
+                if (ma_device_start(&e->device) != MA_SUCCESS)
+                {
+                    engine_log("Failed to start device in ae_jump_to");
+                }
             }
         }
 
@@ -5851,11 +5887,14 @@ extern "C"
             request_jump(e, index);
         }
 
-        if (ma_device_get_state(&e->device) != ma_device_state_started)
         {
-            if (ma_device_start(&e->device) != MA_SUCCESS)
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            if (ma_device_get_state(&e->device) != ma_device_state_started)
             {
-                engine_log("Failed to start device in ae_jump_to_with_position");
+                if (ma_device_start(&e->device) != MA_SUCCESS)
+                {
+                    engine_log("Failed to start device in ae_jump_to_with_position");
+                }
             }
         }
 
