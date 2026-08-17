@@ -19,8 +19,11 @@ import 'services/m3u_playlist_service.dart';
 
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
+import 'cached_streams_screen.dart';
 import 'isolate_player.dart';
+import 'models/cached_stream_item.dart';
 import 'services/app_theme_service.dart';
+import 'services/cached_stream_service.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
@@ -35,6 +38,8 @@ class LibraryScreen extends StatefulWidget {
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs; // NEW
+  final Future<void> Function(List<CachedStreamItem> tracks, {int initialIndex})?
+      onPlayCachedStreams;
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
       onPlayTracks;
   final Function(TrackInfo track)? onQueueTrack;
@@ -51,6 +56,7 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.onPlayCachedStreams,
     this.onPlayTracks,
     this.onQueueTrack,
     this.onDeleteTrack,
@@ -127,6 +133,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     _tabIndex = widget.initialTabIndex;
     _loadSavedFolders();
     _loadSavedM3uPlaylists();
+    CachedStreamService.instance.init();
   }
 
   @override
@@ -1552,11 +1559,12 @@ class _LibraryScreenState extends State<LibraryScreen>
         // Featured Quick Action Cards
         Padding(
           padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32.0 : 16.0),
-          child: Row(
-            children: [
-              // Liked Songs Card
-              Expanded(
-                child: InkWell(
+          child: LayoutBuilder(
+            builder: (context, cardConstraints) {
+              final isWide = cardConstraints.maxWidth >= 600;
+              final cards = [
+                // Liked Songs Card
+                InkWell(
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -1587,17 +1595,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: const Row(
                       children: [
                         Icon(Icons.favorite_rounded,
-                            color: Colors.white, size: 28),
-                        SizedBox(width: 12),
+                            color: Colors.white, size: 26),
+                        SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
                                 'Liked Songs',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -1616,11 +1625,88 @@ class _LibraryScreenState extends State<LibraryScreen>
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Shuffle Play Card
-              Expanded(
-                child: InkWell(
+
+                // Cached Streams Card
+                InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CachedStreamsScreen(
+                          onPlayTracks: widget.onPlayCachedStreams ??
+                              (tracks, {initialIndex = 0}) async {},
+                          onQueueTrack: widget.onQueueTrack,
+                        ),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF00796B), Color(0xFF004D40)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00796B).withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cloud_done_rounded,
+                            color: Colors.tealAccent, size: 26),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'Cached Streams',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              ValueListenableBuilder<List<CachedStreamItem>>(
+                                valueListenable: CachedStreamService
+                                    .instance.cachedStreamsNotifier,
+                                builder: (context, cached, _) {
+                                  return ValueListenableBuilder<int>(
+                                    valueListenable: CachedStreamService
+                                        .instance.totalSizeBytesNotifier,
+                                    builder: (context, totalBytes, _) {
+                                      return Text(
+                                        '${cached.length} Tracks • ${CachedStreamService.formatBytes(totalBytes)}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11,
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Shuffle Play Card
+                InkWell(
                   onTap: _shufflePlayAll,
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
@@ -1643,17 +1729,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: Row(
                       children: [
                         const Icon(Icons.shuffle_rounded,
-                            color: Colors.white, size: 28),
-                        const SizedBox(width: 12),
+                            color: Colors.white, size: 26),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const Text(
-                                'Shuffle Library',
+                                'Shuffle All',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -1672,8 +1759,34 @@ class _LibraryScreenState extends State<LibraryScreen>
                     ),
                   ),
                 ),
-              ),
-            ],
+              ];
+
+              if (isWide) {
+                return Row(
+                  children: [
+                    Expanded(child: cards[0]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[1]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[2]),
+                  ],
+                );
+              } else {
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: cards[0]),
+                        const SizedBox(width: 12),
+                        Expanded(child: cards[2]),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    cards[1],
+                  ],
+                );
+              }
+            },
           ),
         ),
         SizedBox(height: isDesktop ? 24 : 16),
@@ -1699,9 +1812,9 @@ class _LibraryScreenState extends State<LibraryScreen>
             child: ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: 1 + _m3uPlaylists.length + _folders.length,
+              itemCount: 2 + _m3uPlaylists.length + _folders.length,
               itemBuilder: (context, index) {
-                final totalCount = 1 + _m3uPlaylists.length + _folders.length;
+                final totalCount = 2 + _m3uPlaylists.length + _folders.length;
                 final isFirst = index == 0;
                 final isLast = index == totalCount - 1;
 
@@ -1721,8 +1834,47 @@ class _LibraryScreenState extends State<LibraryScreen>
                     isFirst: isFirst,
                     isLast: isLast,
                   );
-                } else if (index <= _m3uPlaylists.length) {
-                  final pl = _m3uPlaylists[index - 1];
+                } else if (index == 1) {
+                  return ValueListenableBuilder<List<CachedStreamItem>>(
+                    valueListenable:
+                        CachedStreamService.instance.cachedStreamsNotifier,
+                    builder: (context, cachedItems, _) {
+                      return ValueListenableBuilder<int>(
+                        valueListenable:
+                            CachedStreamService.instance.totalSizeBytesNotifier,
+                        builder: (context, totalBytes, _) {
+                          return _buildLibraryItem(
+                            title: 'Cached Online Streams',
+                            subtitle:
+                                '${cachedItems.length} Tracks • ${CachedStreamService.formatBytes(totalBytes)} Cached Offline',
+                            iconData: Icons.cloud_done_rounded,
+                            iconGradient: const LinearGradient(
+                              colors: [Color(0xFF00796B), Color(0xFF004D40)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => CachedStreamsScreen(
+                                    onPlayTracks: widget.onPlayCachedStreams ??
+                                        (tracks, {initialIndex = 0}) async {},
+                                    onQueueTrack: widget.onQueueTrack,
+                                  ),
+                                ),
+                              );
+                            },
+                            context: context,
+                            isDesktop: isDesktop,
+                            isFirst: isFirst,
+                            isLast: isLast,
+                          );
+                        },
+                      );
+                    },
+                  );
+                } else if (index <= 1 + _m3uPlaylists.length) {
+                  final pl = _m3uPlaylists[index - 2];
                   return _buildLibraryItem(
                     title: pl.name,
                     subtitle:
@@ -1749,7 +1901,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                     isLast: isLast,
                   );
                 } else {
-                  final folderIdx = index - 1 - _m3uPlaylists.length;
+                  final folderIdx = index - 2 - _m3uPlaylists.length;
                   final f = _folders[folderIdx];
                   return _buildLibraryItem(
                     title: f['name'] as String,

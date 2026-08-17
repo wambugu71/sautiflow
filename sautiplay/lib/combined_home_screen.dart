@@ -4,6 +4,7 @@ import 'album_detail_screen.dart'; // For TrackInfo
 import 'home_screen.dart';
 import 'isolate_player.dart';
 import 'library_screen.dart';
+import 'models/cached_stream_item.dart';
 import 'models/liked_song.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
@@ -16,6 +17,8 @@ class CombinedHomeScreen extends StatefulWidget {
       onPlayFolder;
   final Future<void> Function(List<LikedSong> tracks, {int initialIndex})
       onPlayLikedSongs;
+  final Future<void> Function(List<CachedStreamItem> tracks, {int initialIndex})?
+      onPlayCachedStreams;
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
   final IsolateAudioPlayer? player;
@@ -28,6 +31,7 @@ class CombinedHomeScreen extends StatefulWidget {
     this.onGoToDownloads,
     required this.onPlayFolder,
     required this.onPlayLikedSongs,
+    this.onPlayCachedStreams,
     this.onQueueTrack,
     this.onDeleteTrack,
     this.player,
@@ -217,6 +221,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                       LibraryScreen(
                         onPlayFolder: widget.onPlayFolder,
                         onPlayLikedSongs: widget.onPlayLikedSongs,
+                        onPlayCachedStreams: widget.onPlayCachedStreams,
                         onPlayTracks: widget.onPlayTracks,
                         onQueueTrack: widget.onQueueTrack,
                         onDeleteTrack: widget.onDeleteTrack,

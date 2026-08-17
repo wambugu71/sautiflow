@@ -25,11 +25,13 @@ import 'combined_home_screen.dart';
 import 'effects_screen.dart';
 import 'isolate_player.dart';
 import 'mini_player.dart';
+import 'models/cached_stream_item.dart';
 import 'models/liked_song.dart';
 import 'models/recently_played_track.dart';
 import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
 import 'services/app_state_service.dart';
+import 'services/cached_stream_service.dart';
 import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
@@ -296,6 +298,7 @@ class _PlayerShellState extends State<PlayerShell> {
 
     // Load persisted app state (settings, queue, etc.)
     _loadAppState();
+    CachedStreamService.instance.init();
 
     _metadata.addListener(_applyReplayGain);
     _metadata.addListener(_extractArtworkTheme);
@@ -1140,6 +1143,28 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
+  void _registerCachedStreamMeta(
+    AudioSource src,
+    TrackInfo track, {
+    String? streamUrl,
+  }) {
+    if (src.uri.scheme == 'file') {
+      final filePath = _safeFilePathFromUri(src.uri);
+      if (filePath != null && filePath.isNotEmpty && File(filePath).existsSync()) {
+        CachedStreamService.instance.registerCachedStream(
+          videoId: track.videoId,
+          title: track.title,
+          artist: track.artist,
+          thumbnailUrl: track.thumbnailUrl,
+          durationSeconds: track.durationSeconds,
+          filePath: filePath,
+          streamUrl: streamUrl,
+          fileSizeBytes: File(filePath).lengthSync(),
+        );
+      }
+    }
+  }
+
   Future<void> _resolveAndAppendTracks(List<TrackInfo> tracks) async {
     final videoIds = tracks.map((t) => t.videoId).toList();
     final urls = await StreamingService.resolveBatchStreamUrls(videoIds);
@@ -1151,6 +1176,7 @@ class _PlayerShellState extends State<PlayerShell> {
         final src = await _materializeSource(Uri.parse(url));
         if (src != null && mounted) {
           _onlineTrackMetadata[src.uri] = tracks[i];
+          _registerCachedStreamMeta(src, tracks[i], streamUrl: url);
           setState(() {
             _playlist.add(src);
           });
@@ -1202,6 +1228,7 @@ class _PlayerShellState extends State<PlayerShell> {
     }
 
     _onlineTrackMetadata[firstSource.uri] = tappedTrack;
+    _registerCachedStreamMeta(firstSource, tappedTrack, streamUrl: firstUrl);
 
     // Populate UI queue immediately
     setState(() {
@@ -1257,6 +1284,7 @@ class _PlayerShellState extends State<PlayerShell> {
           final src = await _materializeSource(Uri.parse(url));
           if (src != null && mounted) {
             _onlineTrackMetadata[src.uri] = remainingTracks[i];
+            _registerCachedStreamMeta(src, remainingTracks[i], streamUrl: url);
             setState(() => _playlist.add(src));
             _player.addAudioSource(src);
           }
@@ -1315,6 +1343,7 @@ class _PlayerShellState extends State<PlayerShell> {
           final src = await _materializeSource(Uri.parse(url));
           if (src != null && mounted) {
             _onlineTrackMetadata[src.uri] = targetTrack;
+            _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
 
             setState(() {
               _playlist.add(src);
@@ -1614,6 +1643,77 @@ class _PlayerShellState extends State<PlayerShell> {
         .toList();
 
     await _playOnlineTracks(trackInfos, initialIndex: initialIndex);
+  }
+
+  /// Plays tracks selected from the Cached Streams list as an offline playlist queue.
+  Future<void> _playCachedStreams(
+    List<CachedStreamItem> tracks, {
+    int initialIndex = 0,
+  }) async {
+    _isFtpDownloading = false;
+    if (tracks.isEmpty) return;
+
+    final sources = <AudioSource>[];
+    final uiQueue = <TrackInfo>[];
+    int resolvedIndex = 0;
+
+    for (int i = 0; i < tracks.length; i++) {
+      final t = tracks[i];
+      final file = File(t.filePath);
+      if (file.existsSync()) {
+        final src = AudioSource.uri(file.uri);
+        sources.add(src);
+        final trackInfo = TrackInfo(
+          videoId: t.videoId.isNotEmpty ? t.videoId : t.filePath,
+          title: t.title,
+          artist: t.artist,
+          thumbnailUrl: t.thumbnailUrl,
+          durationSeconds: t.durationSeconds,
+        );
+        _onlineTrackMetadata[src.uri] = trackInfo;
+        uiQueue.add(trackInfo);
+        if (i == initialIndex) {
+          resolvedIndex = sources.length - 1;
+        }
+      } else if (t.videoId.isNotEmpty &&
+          !t.videoId.contains(Platform.pathSeparator)) {
+        // Cached file missing (evicted by OS temp cleaning), queue online stream
+        uiQueue.add(TrackInfo(
+          videoId: t.videoId,
+          title: t.title,
+          artist: t.artist,
+          thumbnailUrl: t.thumbnailUrl,
+          durationSeconds: t.durationSeconds,
+        ));
+      }
+    }
+
+    if (sources.isEmpty) {
+      if (uiQueue.isNotEmpty) {
+        await _playOnlineTracks(uiQueue, initialIndex: initialIndex);
+      }
+      return;
+    }
+
+    setState(() {
+      _currentUiQueue
+        ..clear()
+        ..addAll(uiQueue);
+
+      _playlist
+        ..clear()
+        ..addAll(sources);
+    });
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: resolvedIndex.clamp(0, _playlist.length - 1),
+      initialPosition: Duration.zero,
+      useLazyPreparation: true,
+    );
+
+    _saveQueue();
+    _showNowPlayingScreen();
   }
 
   String _nameFromSource(AudioSource source) {
@@ -1943,6 +2043,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 },
                 onPlayFolder: _playFolder,
                 onPlayLikedSongs: _playLikedSongs,
+                onPlayCachedStreams: _playCachedStreams,
                 onQueueTrack: _queueNextTrack,
                 onDeleteTrack: _handleDeletedTrack,
                 player: _player,
