@@ -327,7 +327,7 @@ class _AudioEngineDiagnosticPanelState
                       letterSpacing: 1.5,
                     ),
                   ),
-                  Container(
+                  /*  Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -347,7 +347,7 @@ class _AudioEngineDiagnosticPanelState
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
+                  ), */
                 ],
               ),
               const SizedBox(height: 12),
@@ -875,7 +875,7 @@ class _AudioEngineDiagnosticPanelState
       const double attackMs = 2.0;
       final double samples = attackMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'Software Limiter (Lookahead)', attackMs, samples));
+          '${step++}.', 'Software Limiter', attackMs, samples));
     } else {
       list.add(_NodeLatencyInfo('${step++}.', 'Software Limiter', 0.0, 0.0));
     }
@@ -891,7 +891,7 @@ class _AudioEngineDiagnosticPanelState
     // 8. Hardware Output DAC
     final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
     final hwLabel = deviceType != null && deviceType.isNotEmpty
-        ? 'Hardware Output ($deviceType)'
+        ? 'Hardware Output'
         : 'Hardware Output DAC';
     list.add(_NodeLatencyInfo('${step++}.', hwLabel, hwLatencyMs, hwSamples));
 

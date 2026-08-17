@@ -57,7 +57,7 @@ class AppCardContainer extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: borderRadius ?? BorderRadius.circular(20),
+        borderRadius: borderRadius ?? BorderRadius.circular(12),
         border: border ?? Border.all(color: context.outlineColor),
       ),
       padding: padding,

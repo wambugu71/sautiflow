@@ -18,11 +18,13 @@ class AudioHardwareSpecs {
   final int periodCount; // Total periods
   final double latencyMs; // Hardware buffer latency in milliseconds
   final bool isExclusiveMode; // True if exclusive mode (Bit-Perfect)
-  final String deviceType; // "Speakers", "3.5mm Headphone Jack", "Bluetooth", "USB DAC"
+  final String
+      deviceType; // "Speakers", "3.5mm Headphone Jack", "Bluetooth", "USB DAC"
 
   // ── Bluetooth-specific fields ─────────────────────────────────────────────
   final String? bluetoothCodec; // e.g. "LDAC", "aptX HD", "AAC", "SBC", "LC3"
-  final String? bluetoothDeviceName; // Actual BT device name (e.g. "Sony WH-1000XM5")
+  final String?
+      bluetoothDeviceName; // Actual BT device name (e.g. "Sony WH-1000XM5")
   final int? btSampleRate; // BT codec negotiated sample rate
   final int? btBitDepth; // BT codec bit depth
 
@@ -104,8 +106,9 @@ class AudioHardwareSpecs {
     return AudioHardwareSpecs(
       backendName:
           native.backendName.isNotEmpty ? native.backendName : 'Audio Backend',
-      deviceName:
-          native.deviceName.isNotEmpty ? native.deviceName : 'Default Soundcard',
+      deviceName: native.deviceName.isNotEmpty
+          ? native.deviceName
+          : 'Default Soundcard',
       sampleRate: native.sampleRate > 0 ? native.sampleRate : 48000,
       bitDepth: native.bitDepth > 0 ? native.bitDepth : 32,
       isFloat: native.isFloat,
@@ -150,13 +153,13 @@ class AudioHardwareSpecs {
     if (bluetoothCodec == null) return null;
     final codec = bluetoothCodec!;
     if (btSampleRate != null && btBitDepth != null) {
-      final kHz = (btSampleRate! / 1000.0).toStringAsFixed(btSampleRate! % 1000 == 0 ? 0 : 1);
+      final kHz = (btSampleRate! / 1000.0)
+          .toStringAsFixed(btSampleRate! % 1000 == 0 ? 0 : 1);
       return '$codec ${kHz}kHz / $btBitDepth-bit';
     }
     return codec;
   }
 
-  /// Poweramp-style 5-stage signal chain generator.
   /// Node 1: Track Source File / Stream
   /// Node 2: miniaudio DSP / Resampler
   /// Node 3: Audio Engine / HAL Driver
@@ -172,8 +175,11 @@ class AudioHardwareSpecs {
     final nodes = <SignalChainNode>[];
 
     // Node 1: Source File / Track Info
-    final codec = (sourceCodec?.isNotEmpty ?? false) ? sourceCodec!.toUpperCase() : 'AUDIO';
-    final srcRate = sourceSampleRate ?? '${(sampleRate / 1000.0).toStringAsFixed(1)} kHz';
+    final codec = (sourceCodec?.isNotEmpty ?? false)
+        ? sourceCodec!.toUpperCase()
+        : 'AUDIO';
+    final srcRate =
+        sourceSampleRate ?? '${(sampleRate / 1000.0).toStringAsFixed(1)} kHz';
     final srcDepth = sourceBitDepth ?? '$bitDepth-bit';
     nodes.add(SignalChainNode(
       label: 'Track Source',
@@ -200,8 +206,11 @@ class AudioHardwareSpecs {
         isHighlight: true,
       ));
     } else {
-      final osLabel = androidRelease != null ? 'Android $androidRelease HAL' : 'Shared Mixer';
-      final latLabel = latencyMs > 0 ? '${latencyMs.toStringAsFixed(1)}ms latency' : osLabel;
+      final osLabel = androidRelease != null
+          ? 'Android $androidRelease HAL'
+          : 'Shared Mixer';
+      final latLabel =
+          latencyMs > 0 ? '${latencyMs.toStringAsFixed(1)}ms latency' : osLabel;
       nodes.add(SignalChainNode(
         label: backendName,
         sublabel: latLabel,
@@ -256,7 +265,9 @@ class AudioHardwareSpecs {
 
   SignalChainIcon _iconForDeviceType(String type) {
     if (type.contains('USB')) return SignalChainIcon.usbDac;
-    if (type.contains('3.5mm') || type.contains('Headphone') || type.contains('Headset')) {
+    if (type.contains('3.5mm') ||
+        type.contains('Headphone') ||
+        type.contains('Headset')) {
       return SignalChainIcon.wiredHeadphone;
     }
     if (type.contains('HDMI')) return SignalChainIcon.hdmi;
@@ -387,19 +398,17 @@ class AudioHardwareInspector {
     }
 
     if (Platform.isAndroid && _androidEventSub == null) {
-      _androidEventSub = _eventChannel
-          .receiveBroadcastStream()
-          .listen(
-            (event) {
-              if (event is Map) {
-                _currentSpecs = AudioHardwareSpecs.fromAndroidMap(event);
-                _controller.add(_currentSpecs!);
-              }
-            },
-            onError: (e) {
-              debugPrint('[AudioHardwareInspector] EventChannel error: $e');
-            },
-          );
+      _androidEventSub = _eventChannel.receiveBroadcastStream().listen(
+        (event) {
+          if (event is Map) {
+            _currentSpecs = AudioHardwareSpecs.fromAndroidMap(event);
+            _controller.add(_currentSpecs!);
+          }
+        },
+        onError: (e) {
+          debugPrint('[AudioHardwareInspector] EventChannel error: $e');
+        },
+      );
     }
 
     return _controller.stream;

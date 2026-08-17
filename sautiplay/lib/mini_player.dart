@@ -187,6 +187,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                         artShape,
                         width: 48,
                         height: 48,
+                        clipBehavior: Clip.antiAlias,
+                        color: cardColor,
                         child: (widget.albumArt != null &&
                                 widget.albumArt!.isNotEmpty)
                             ? Image.memory(
@@ -199,6 +201,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                                 turns: _rotationController,
                                 child: M3EContainer(
                                   artShape,
+                                  clipBehavior: Clip.antiAlias,
                                   color: primaryColor.withValues(alpha: 0.2),
                                   padding: const EdgeInsets.all(6.0),
                                   child: Image.asset(

@@ -71,7 +71,7 @@ class DemoApp extends StatefulWidget {
 class _DemoAppState extends State<DemoApp> {
   AppThemeData _themeData =
       AppThemeService.themes.first; // default until loaded
-  Shapes _albumArtShape = Shapes.bun;
+  Shapes _albumArtShape = Shapes.slanted;
   StreamSubscription<AppThemeId>? _themeSub;
   StreamSubscription<Shapes>? _shapeSub;
 

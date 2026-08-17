@@ -325,7 +325,7 @@ class AppThemeService {
   AppThemeId _current = AppThemeId.darkBlue;
   AppThemeId get current => _current;
 
-  Shapes _albumArtShape = Shapes.bun;
+  Shapes _albumArtShape = Shapes.slanted;
   Shapes get albumArtShape => _albumArtShape;
 
   AppThemeData get currentData {
@@ -387,7 +387,7 @@ class AppThemeProvider extends InheritedWidget {
   const AppThemeProvider({
     super.key,
     required this.themeData,
-    this.albumArtShape = Shapes.bun,
+    this.albumArtShape = Shapes.slanted,
     required super.child,
   });
 

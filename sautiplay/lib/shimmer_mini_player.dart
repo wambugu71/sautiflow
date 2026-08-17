@@ -39,6 +39,7 @@ class ShimmerMiniPlayer extends StatelessWidget {
                 artShape,
                 width: 48,
                 height: 48,
+                clipBehavior: Clip.antiAlias,
                 color: placeholderColor,
                 child: const SizedBox.shrink(),
               ),
