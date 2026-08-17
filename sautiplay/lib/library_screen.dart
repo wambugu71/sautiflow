@@ -1956,27 +1956,61 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
   }
 
+  bool _hasValidArtist(String? artist) {
+    if (artist == null) return false;
+    final a = artist.trim().toLowerCase();
+    return a.isNotEmpty &&
+        a != 'unknown' &&
+        a != 'unknown artist' &&
+        a != 'local file' &&
+        a != 'n/a' &&
+        a != 'none';
+  }
+
+  bool _hasValidAlbum(String? album) {
+    if (album == null) return false;
+    final a = album.trim().toLowerCase();
+    return a.isNotEmpty &&
+        a != 'unknown' &&
+        a != 'unknown album' &&
+        a != 'n/a' &&
+        a != 'none';
+  }
+
   Widget _buildTrackView({bool isDesktop = false}) {
     if (_groupByOption != 'None') {
       final Map<String, List<LocalSongItem>> groupedMap = {};
       for (final song in _filteredSongs) {
-        String key = 'Unknown';
+        String? key;
         if (_groupByOption == 'Album') {
-          key = song.album.trim().isNotEmpty
-              ? song.album.trim()
-              : 'Unknown Album';
+          if (_hasValidAlbum(song.album)) {
+            key = song.album.trim();
+          }
         } else if (_groupByOption == 'Artist') {
-          key = song.artist.trim().isNotEmpty
-              ? song.artist.trim()
-              : 'Unknown Artist';
+          if (_hasValidArtist(song.artist)) {
+            key = song.artist.trim();
+          }
         } else if (_groupByOption == 'Folder') {
           key = p.basename(p.dirname(song.path));
         }
-        groupedMap.putIfAbsent(key, () => []).add(song);
+        if (key != null && key.isNotEmpty) {
+          groupedMap.putIfAbsent(key, () => []).add(song);
+        }
       }
 
       final groupKeys = groupedMap.keys.toList()
         ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      if (groupKeys.isEmpty && !_isLoading) {
+        return _buildEmptyState(
+          _textDark,
+          message: 'No grouped tracks found',
+          subMessage: _filteredSongs.isNotEmpty
+              ? 'None of the tracks have valid $_groupByOption tags.'
+              : 'Add local folders in Playlists to view tracks here.',
+          isDesktop: isDesktop,
+        );
+      }
 
       return ListView.builder(
         primary: false,
@@ -2420,9 +2454,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     final Map<String, List<LocalSongItem>> artistMap = {};
     for (final song in _allSongs) {
-      final artist =
-          song.artist.trim().isNotEmpty ? song.artist.trim() : 'Unknown Artist';
-      artistMap.putIfAbsent(artist, () => []).add(song);
+      if (_hasValidArtist(song.artist)) {
+        artistMap.putIfAbsent(song.artist.trim(), () => []).add(song);
+      }
     }
 
     final query = _artistSearchController.text.trim().toLowerCase();
@@ -2549,9 +2583,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     final Map<String, List<LocalSongItem>> albumMap = {};
     for (final song in _allSongs) {
-      final album =
-          song.album.trim().isNotEmpty ? song.album.trim() : 'Unknown Album';
-      albumMap.putIfAbsent(album, () => []).add(song);
+      if (_hasValidAlbum(song.album)) {
+        albumMap.putIfAbsent(song.album.trim(), () => []).add(song);
+      }
     }
 
     final query = _albumSearchController.text.trim().toLowerCase();
@@ -2610,16 +2644,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                     final songs = albumMap[albumName] ?? [];
                     final sampleSongPath =
                         songs.isNotEmpty ? songs.first.path : null;
-                    final artistName = songs.isNotEmpty
-                        ? songs.first.artist
-                        : 'Unknown Artist';
+                    final artistName =
+                        songs.isNotEmpty && _hasValidArtist(songs.first.artist)
+                            ? songs.first.artist
+                            : '';
                     final isFirst = index == 0;
                     final isLast = index == albumKeys.length - 1;
 
                     return _buildLibraryItem(
                       title: albumName,
-                      subtitle:
-                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName',
+                      subtitle: artistName.isNotEmpty
+                          ? '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName'
+                          : '${songs.length} Song${songs.length == 1 ? '' : 's'}',
                       iconData: Icons.album_rounded,
                       isFirst: isFirst,
                       isLast: isLast,

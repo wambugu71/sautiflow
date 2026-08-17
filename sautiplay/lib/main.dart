@@ -902,13 +902,18 @@ class _PlayerShellState extends State<PlayerShell> {
       return AudioSource.uri(uri);
     }
 
-    if (uri.scheme == 'http' || uri.scheme == 'https') {
-      _logs.insert(0, '[source] Streaming network source: $uri');
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      _logs.insert(0, '[source] Unsupported URI scheme: ${uri.scheme}');
+      return null;
+    }
+
+    if (_nativeNetworkStreamingSupported) {
+      _logs.insert(0, '[source] Streaming native network source: $uri');
       return AudioSource.network(uri.toString());
     }
 
     _logs.insert(
-        0, '[source] Downloading URL for playlist compatibility: $uri');
+        0, '[source] Caching network stream: $uri');
 
     final cacheDir = Directory(
       '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_stream_cache',
@@ -928,9 +933,18 @@ class _PlayerShellState extends State<PlayerShell> {
       return '.mp3';
     }();
 
+    // Use a deterministic hash so repeat plays / cached tracks load instantly
+    final safeHash = uri.toString().hashCode.toRadixString(16);
     final file = File(
-      '${cacheDir.path}${Platform.pathSeparator}stream_${DateTime.now().microsecondsSinceEpoch}$ext',
+      '${cacheDir.path}${Platform.pathSeparator}stream_$safeHash$ext',
     );
+
+    if (file.existsSync() && file.lengthSync() > 1024) {
+      _logs.insert(0, '[source] Cache hit for stream: ${file.path}');
+      return AudioSource.uri(file.uri);
+    }
+
+    final tmpFile = File('${file.path}.tmp');
 
     final client = HttpClient();
     if (_allowInvalidTlsForDownloads && uri.scheme == 'https') {
@@ -947,13 +961,28 @@ class _PlayerShellState extends State<PlayerShell> {
         return null;
       }
 
-      final sink = file.openWrite();
+      final sink = tmpFile.openWrite();
       await sink.addStream(res);
       await sink.flush();
       await sink.close();
 
-      return AudioSource.uri(file.uri);
+      if (tmpFile.existsSync() && tmpFile.lengthSync() > 0) {
+        if (file.existsSync()) {
+          try {
+            file.deleteSync();
+          } catch (_) {}
+        }
+        tmpFile.renameSync(file.path);
+        _logs.insert(0, '[source] Stream cached: ${file.path}');
+        return AudioSource.uri(file.uri);
+      }
+      return null;
     } on HandshakeException catch (e) {
+      if (tmpFile.existsSync()) {
+        try {
+          tmpFile.deleteSync();
+        } catch (_) {}
+      }
       final message = e.toString();
       if (message.contains('CERTIFICATE_VERIFY_FAILED') &&
           message.contains('not yet valid')) {
@@ -971,6 +1000,11 @@ class _PlayerShellState extends State<PlayerShell> {
       _logs.insert(0, '[source] Download failed: $e');
       return null;
     } catch (e) {
+      if (tmpFile.existsSync()) {
+        try {
+          tmpFile.deleteSync();
+        } catch (_) {}
+      }
       _logs.insert(0, '[source] Download failed: $e');
       return null;
     } finally {
@@ -1083,6 +1117,11 @@ class _PlayerShellState extends State<PlayerShell> {
       }
 
       if (newTracks.isEmpty) return;
+
+      // Cap at 20 tracks max
+      if (newTracks.length > 20) {
+        newTracks.removeRange(20, newTracks.length);
+      }
 
       _logs.insert(0, '[stream] Adding ${newTracks.length} tracks to queue...');
       // Update UI queue
