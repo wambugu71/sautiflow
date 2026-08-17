@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
@@ -137,11 +138,15 @@ class _QueueScreenState extends State<QueueScreen>
     final playingIndex = _getPlayingIndex(widget.statusNotifier?.value);
     if (playingIndex < 0) return;
 
-    // Approximate item height (card list row height ~64.0 + 8.0 margin)
-    const itemHeight = 72.0;
+    // Fixed item height (card 64.0 + 3.0 margin)
+    const itemHeight = 67.0;
     if (!_scrollController.position.hasContentDimensions) return;
 
-    final targetOffset = (playingIndex * itemHeight).clamp(
+    final viewportHeight = _scrollController.position.viewportDimension;
+    final targetOffset = ((playingIndex * itemHeight) -
+            (viewportHeight / 2) +
+            (itemHeight / 2))
+        .clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
@@ -149,8 +154,8 @@ class _QueueScreenState extends State<QueueScreen>
     if (animate) {
       _scrollController.animateTo(
         targetOffset,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
       );
     } else {
       _scrollController.jumpTo(targetOffset);
@@ -285,38 +290,52 @@ class _QueueScreenState extends State<QueueScreen>
             Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-              child: Row(
-                children: [
-                  M3EChip(
-                    label: _showUpcomingOnly ? 'Upcoming Only' : 'Show All',
-                    leading: Icon(
-                      _showUpcomingOnly
-                          ? Icons.filter_list_rounded
-                          : Icons.format_list_bulleted_rounded,
-                      size: 16,
-                    ),
-                    selected: _showUpcomingOnly,
-                    onPressed: () {
-                      setState(() => _showUpcomingOnly = !_showUpcomingOnly);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  if (widget.onShuffleQueue != null)
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
                     M3EChip(
-                      label: 'Shuffle',
-                      leading: const Icon(Icons.shuffle_rounded, size: 16),
-                      onPressed: widget.onShuffleQueue,
+                      label: _showUpcomingOnly ? 'Upcoming Only' : 'Show All',
+                      leading: Icon(
+                        _showUpcomingOnly
+                            ? Icons.filter_list_rounded
+                            : Icons.format_list_bulleted_rounded,
+                        size: 16,
+                      ),
+                      selected: _showUpcomingOnly,
+                      onPressed: () {
+                        setState(() => _showUpcomingOnly = !_showUpcomingOnly);
+                      },
                     ),
-                  const Spacer(),
-                  if (widget.onClearQueue != null ||
-                      widget.onRemoveFromQueue != null) ...[
-                    M3EChip(
-                      label: 'Clear',
-                      leading: const Icon(Icons.clear_all_rounded, size: 16),
-                      onPressed: () => _confirmClearQueue(context),
-                    ),
+                    if (playingIndex >= 0) ...[
+                      const SizedBox(width: 8),
+                      M3EChip(
+                        label: 'Playing #${playingIndex + 1}',
+                        leading:
+                            const Icon(Icons.my_location_rounded, size: 16),
+                        onPressed: () => _scrollToPlayingItem(animate: true),
+                      ),
+                    ],
+                    if (widget.onShuffleQueue != null) ...[
+                      const SizedBox(width: 8),
+                      M3EChip(
+                        label: 'Shuffle',
+                        leading: const Icon(Icons.shuffle_rounded, size: 16),
+                        onPressed: widget.onShuffleQueue,
+                      ),
+                    ],
+                    if (widget.onClearQueue != null ||
+                        widget.onRemoveFromQueue != null) ...[
+                      const SizedBox(width: 8),
+                      M3EChip(
+                        label: 'Clear',
+                        leading: const Icon(Icons.clear_all_rounded, size: 16),
+                        onPressed: () => _confirmClearQueue(context),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
 
@@ -369,6 +388,10 @@ class _QueueScreenState extends State<QueueScreen>
                   )
                 : ListView.builder(
                     controller: _scrollController,
+                    itemExtent: 67.0,
+                    cacheExtent: 500.0,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: true,
                     physics: const BouncingScrollPhysics(
                         parent: AlwaysScrollableScrollPhysics()),
                     padding: const EdgeInsets.symmetric(horizontal: 12.0)
@@ -403,6 +426,12 @@ class _QueueScreenState extends State<QueueScreen>
                           direction: widget.onRemoveFromQueue != null
                               ? DismissDirection.horizontal
                               : DismissDirection.none,
+                          dragStartBehavior: DragStartBehavior.down,
+                          dismissThresholds: const {
+                            DismissDirection.startToEnd: 0.5,
+                            DismissDirection.endToStart: 0.5,
+                          },
+                          movementDuration: const Duration(milliseconds: 200),
                           onDismissed: (_) {
                             if (widget.onRemoveFromQueue != null) {
                               widget.onRemoveFromQueue!(actualIndex);
@@ -677,15 +706,17 @@ class _QueueTrackArtwork extends StatelessWidget {
           else
             _fallbackIcon(),
           if (isPlaying)
-            Container(
-              color: Colors.black.withValues(alpha: 0.45),
-              child: Center(
-                child: MiniMusicVisualizer(
-                  color: primaryColor,
-                  width: 4,
-                  height: 15,
-                  radius: 2,
-                  animate: true,
+            RepaintBoundary(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.45),
+                child: Center(
+                  child: MiniMusicVisualizer(
+                    color: primaryColor,
+                    width: 4,
+                    height: 15,
+                    radius: 2,
+                    animate: true,
+                  ),
                 ),
               ),
             ),

@@ -16,7 +16,6 @@ import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'widgets/album_art_shape_selector.dart';
-import 'widgets/audio_engine_diagnostic_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -3507,14 +3506,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _applyResampleAlgorithm(0, onDone);
               Navigator.pop(context);
             },
-            child: const Text('Use Linear (Recommended)'),
+            child: const Text('Recommended'),
           ),
           M3EButton(
             onPressed: () {
               _applyResampleAlgorithm(requestedIndex, onDone);
               Navigator.pop(context);
             },
-            child: const Text('Enable Anyway'),
+            child: const Text('Enable'),
           ),
         ],
       ),
