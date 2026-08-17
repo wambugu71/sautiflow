@@ -1532,13 +1532,15 @@ class _EqScreenState extends State<EqScreen>
                         shape: Shapes.arch,
                         title: 'Crossfeed',
                         subtitle: _crossfeedEnabled
-                            ? (_crossfeedPreset == 1
-                                ? 'BS2B Weak'
-                                : _crossfeedPreset == 2
-                                    ? 'BS2B Strong'
-                                    : _crossfeedPreset == 3
-                                        ? 'Joe0bloggs'
-                                        : 'Ambiophonics')
+                            ? (_crossfeedAlgorithmIndex == 1
+                                ? 'Simple Reference'
+                                : _crossfeedAlgorithmIndex == 2
+                                    ? 'Bauer BS2B'
+                                    : _crossfeedAlgorithmIndex == 3
+                                        ? 'Jan Meier'
+                                        : _crossfeedAlgorithmIndex == 4
+                                            ? 'Custom Natural'
+                                            : 'Ambiophonics (RACE)')
                             : 'Disabled',
                         isEnabled: _crossfeedEnabled,
                         onToggle: (v) {
@@ -2482,7 +2484,10 @@ class _EqScreenState extends State<EqScreen>
                   ],
                   onChanged: (val) {
                     if (val != null) {
-                      setState(() => _crossfeedAlgorithmIndex = val);
+                      setState(() {
+                        _crossfeedAlgorithmIndex = val;
+                        _crossfeedEnabled = true;
+                      });
                       _updateCrossfeed();
                       _saveEqState();
                     }
@@ -4717,14 +4722,34 @@ class _CollapsibleSection extends StatefulWidget {
 
 class _CollapsibleSectionState extends State<_CollapsibleSection> {
   Color get primaryColor => context.primaryColor;
+  late bool _isExpanded;
+
+  @override
+  void initState() {
+    super.initState();
+    _isExpanded = widget.isEnabled;
+  }
+
+  @override
+  void didUpdateWidget(_CollapsibleSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isEnabled != oldWidget.isEnabled && widget.isEnabled) {
+      _isExpanded = true;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return M3EExpandableList.builder(
-      key: ValueKey('${widget.title}_${widget.isEnabled}'),
+      key: ValueKey('${widget.title}_${_isExpanded}_${widget.isEnabled}'),
       itemCount: 1,
-      initiallyExpanded: widget.isEnabled ? const {0} : const <int>{},
+      initiallyExpanded: _isExpanded ? const {0} : const <int>{},
       allowMultipleExpanded: true,
+      onExpansionChanged: (index, {required isExpanded}) {
+        setState(() {
+          _isExpanded = isExpanded;
+        });
+      },
       style: const M3EExpandableStyle(
         outerRadius: 16,
         innerRadius: 16,

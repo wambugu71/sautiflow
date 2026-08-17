@@ -158,8 +158,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                 builder: (context, useWavy, _) {
                   if (useWavy) {
                     return M3EProgressIndicator.linearWavy(
-                      wavelength: 60,
-                      waveSpeed: 25,
+                      //wavelength: 60,
+                      //waveSpeed: 25,
                       strokeWidth: 4,
                       value: widget.progress.clamp(0.0, 1.0),
                       linearSize: M3EProgressIndicatorSize.s,
@@ -199,15 +199,9 @@ class _MiniPlayerState extends State<MiniPlayer>
                               )
                             : RotationTransition(
                                 turns: _rotationController,
-                                child: M3EContainer(
-                                  artShape,
-                                  clipBehavior: Clip.antiAlias,
-                                  color: primaryColor.withValues(alpha: 0.2),
-                                  padding: const EdgeInsets.all(6.0),
-                                  child: Image.asset(
-                                    'assets/icon/splash.png',
-                                    fit: BoxFit.contain,
-                                  ),
+                                child: Image.asset(
+                                  'assets/icon/splash.png',
+                                  fit: BoxFit.contain,
                                 ),
                               ),
                       ),

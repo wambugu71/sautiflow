@@ -415,6 +415,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
   String? _selectedDdcFile;
   List<String> _ddcFiles = [];
   bool _ddcEnabled = false;
+  final Set<int> _deck7Expanded = {};
 
   // --- Analog & Emulation ---
   bool _tubeEnabled = false;
@@ -747,6 +748,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
 
     if (_convolverFolder != null) _scanConvolverFolder();
     if (_ddcFolder != null) _scanDdcFolder();
+    if (_convolverEnabled || _convolverFolder != null) _deck7Expanded.add(0);
+    if (_ddcEnabled || _ddcFolder != null) _deck7Expanded.add(1);
   }
 
   void _updateEngine() {
@@ -3544,11 +3547,19 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               _buildAutoEqImporter(),
               const SizedBox(height: 12),
               M3EExpandableList(
+                key: ValueKey(
+                    'deck7_expandable_${_deck7Expanded.join("_")}_${_convolverFolder != null}_${_ddcFolder != null}_${_convolverEnabled}_${_ddcEnabled}'),
                 allowMultipleExpanded: true,
                 style: _deckExpandableStyle,
-                initiallyExpanded: {
-                  if (_convolverEnabled) 0,
-                  if (_ddcEnabled) 1,
+                initiallyExpanded: _deck7Expanded,
+                onExpansionChanged: (index, {required isExpanded}) {
+                  setState(() {
+                    if (isExpanded) {
+                      _deck7Expanded.add(index);
+                    } else {
+                      _deck7Expanded.remove(index);
+                    }
+                  });
                 },
                 data: [
                   M3EExpandableData(
@@ -3561,7 +3572,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       value: _convolverEnabled,
                       onChanged: _viperEnabled
                           ? (v) {
-                              setState(() => _convolverEnabled = v);
+                              setState(() {
+                                _convolverEnabled = v;
+                                if (v) _deck7Expanded.add(0);
+                              });
                               _updateEngine();
                             }
                           : null,
@@ -3577,7 +3591,10 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                       value: _ddcEnabled,
                       onChanged: _viperEnabled
                           ? (v) {
-                              setState(() => _ddcEnabled = v);
+                              setState(() {
+                                _ddcEnabled = v;
+                                if (v) _deck7Expanded.add(1);
+                              });
                               _updateEngine();
                             }
                           : null,
@@ -4181,9 +4198,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
           .toList();
       setState(() {
         _convolverFiles = files;
-        if (_selectedConvolverFile != null &&
+        if (_selectedConvolverFile == null && _convolverFiles.isNotEmpty) {
+          _selectedConvolverFile = _convolverFiles.first;
+        } else if (_selectedConvolverFile != null &&
             !_convolverFiles.contains(_selectedConvolverFile)) {
-          _selectedConvolverFile = null;
+          _selectedConvolverFile =
+              _convolverFiles.isNotEmpty ? _convolverFiles.first : null;
         }
       });
     }
@@ -4201,8 +4221,12 @@ class _ViperFxScreenState extends State<ViperFxScreen>
           .toList();
       setState(() {
         _ddcFiles = files;
-        if (_selectedDdcFile != null && !_ddcFiles.contains(_selectedDdcFile)) {
-          _selectedDdcFile = null;
+        if (_selectedDdcFile == null && _ddcFiles.isNotEmpty) {
+          _selectedDdcFile = _ddcFiles.first;
+        } else if (_selectedDdcFile != null &&
+            !_ddcFiles.contains(_selectedDdcFile)) {
+          _selectedDdcFile =
+              _ddcFiles.isNotEmpty ? _ddcFiles.first : null;
         }
       });
     }
@@ -4249,6 +4273,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               if (selectedDirectory != null) {
                 setState(() {
                   _convolverFolder = selectedDirectory;
+                  _convolverEnabled = true;
+                  _deck7Expanded.add(0);
                   _selectedConvolverFile = null;
                 });
                 _scanConvolverFolder();
@@ -4363,6 +4389,8 @@ class _ViperFxScreenState extends State<ViperFxScreen>
               if (selectedDirectory != null) {
                 setState(() {
                   _ddcFolder = selectedDirectory;
+                  _ddcEnabled = true;
+                  _deck7Expanded.add(1);
                   _selectedDdcFile = null;
                 });
                 _scanDdcFolder();
@@ -4521,6 +4549,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               _convolverFolder = targetDir.path;
                               _selectedConvolverFile = p.basename(path);
                               _convolverEnabled = true;
+                              _deck7Expanded.add(0);
                             });
                             _scanConvolverFolder();
                             _updateEngine();
@@ -4545,6 +4574,7 @@ class _ViperFxScreenState extends State<ViperFxScreen>
                               _ddcFolder = targetDir.path;
                               _selectedDdcFile = p.basename(path);
                               _ddcEnabled = true;
+                              _deck7Expanded.add(1);
                             });
                             _scanDdcFolder();
                             _updateEngine();
