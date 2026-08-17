@@ -105,7 +105,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _artistSearchController = TextEditingController();
   final TextEditingController _albumSearchController = TextEditingController();
-  final TextEditingController _genreSearchController = TextEditingController();
   String _currentSort = 'Name (A-Z)';
   static const List<String> _sortOptions = [
     'Name (A-Z)',
@@ -119,7 +118,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     'None',
     'Album',
     'Artist',
-    'Genre',
     'Folder',
   ];
 
@@ -146,7 +144,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     _searchController.dispose();
     _artistSearchController.dispose();
     _albumSearchController.dispose();
-    _genreSearchController.dispose();
     super.dispose();
   }
 
@@ -1470,9 +1467,6 @@ class _LibraryScreenState extends State<LibraryScreen>
                                       M3ETab(
                                           label: 'Albums',
                                           icon: Icon(Icons.album_outlined)),
-                                      M3ETab(
-                                          label: 'Genres',
-                                          icon: Icon(Icons.style_outlined)),
                                     ],
                                   ),
                                 ),
@@ -1926,9 +1920,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                               ? Icons.album_outlined
                               : (choice == 'Artist'
                                   ? Icons.person_outline_rounded
-                                  : (choice == 'Genre'
-                                      ? Icons.style_outlined
-                                      : Icons.folder_outlined)));
+                                  : Icons.folder_outlined));
                       return M3EMenuEntry(
                         label: choice == 'None' ? 'No Grouping' : 'By $choice',
                         leading: Icon(
@@ -1977,10 +1969,6 @@ class _LibraryScreenState extends State<LibraryScreen>
           key = song.artist.trim().isNotEmpty
               ? song.artist.trim()
               : 'Unknown Artist';
-        } else if (_groupByOption == 'Genre') {
-          key = song.genre.trim().isNotEmpty
-              ? song.genre.trim()
-              : 'Unknown Genre';
         } else if (_groupByOption == 'Folder') {
           key = p.basename(p.dirname(song.path));
         }
@@ -2552,8 +2540,6 @@ class _LibraryScreenState extends State<LibraryScreen>
         return _buildArtistsTab(primaryColor, textDark, isDesktop: isDesktop);
       case 3:
         return _buildAlbumsTab(primaryColor, textDark, isDesktop: isDesktop);
-      case 4:
-        return _buildGenresTab(primaryColor, textDark, isDesktop: isDesktop);
       default:
         return _buildPlaylistsTab(primaryColor, textDark, isDesktop: isDesktop);
     }
@@ -2650,116 +2636,6 @@ class _LibraryScreenState extends State<LibraryScreen>
                             builder: (_) => LocalGroupDetailScreen(
                               groupTitle: albumName,
                               groupType: 'Album',
-                              songs: songs,
-                              onPlayFolder: widget.onPlayFolder,
-                              onPlayTracks: widget.onPlayTracks,
-                              onQueueTrack: widget.onQueueTrack,
-                              onDeleteTrack: (path) {
-                                widget.onDeleteTrack?.call(path);
-                                _updateAllSongs();
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                      context: context,
-                      isDesktop: isDesktop,
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGenresTab(Color primaryColor, Color textDark,
-      {bool isDesktop = false}) {
-    final Map<String, List<LocalSongItem>> genreMap = {};
-    for (final song in _allSongs) {
-      final genre =
-          song.genre.trim().isNotEmpty ? song.genre.trim() : 'Unknown Genre';
-      genreMap.putIfAbsent(genre, () => []).add(song);
-    }
-
-    final query = _genreSearchController.text.trim().toLowerCase();
-    final genreKeys = genreMap.keys.where((g) {
-      if (query.isEmpty) return true;
-      return g.toLowerCase().contains(query);
-    }).toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 32.0 : 16.0,
-            vertical: isDesktop ? 12.0 : 6.0,
-          ),
-          child: TextField(
-            controller: _genreSearchController,
-            style:
-                TextStyle(color: Colors.white, fontSize: isDesktop ? 16 : 14),
-            decoration: InputDecoration(
-              hintText: 'Search genres...',
-              hintStyle:
-                  TextStyle(color: textDark, fontSize: isDesktop ? 16 : 14),
-              prefixIcon: Icon(Icons.search_rounded,
-                  color: textDark, size: isDesktop ? 24 : 20),
-              filled: true,
-              fillColor: AppThemeService.instance.currentData.cardDark,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(isDesktop ? 14 : 12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 0),
-            ),
-            onChanged: (v) => setState(() {}),
-          ),
-        ),
-        Expanded(
-          child: genreKeys.isEmpty && !_isLoading
-              ? _buildEmptyState(
-                  textDark,
-                  message: 'No genres found',
-                  subMessage: _genreSearchController.text.isNotEmpty
-                      ? 'No matches for "${_genreSearchController.text}".'
-                      : 'Add local folders in Playlists to view genres here.',
-                  isDesktop: isDesktop,
-                )
-              : ListView.builder(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 32 : 16,
-                    vertical: 8,
-                  ).copyWith(bottom: 140),
-                  itemCount: genreKeys.length,
-                  itemBuilder: (context, index) {
-                    final genreName = genreKeys[index];
-                    final songs = genreMap[genreName] ?? [];
-                    final sampleSongPath =
-                        songs.isNotEmpty ? songs.first.path : null;
-                    final isFirst = index == 0;
-                    final isLast = index == genreKeys.length - 1;
-
-                    return _buildLibraryItem(
-                      title: genreName,
-                      subtitle:
-                          '${songs.length} Song${songs.length == 1 ? '' : 's'} • Genre',
-                      iconData: Icons.style_rounded,
-                      isFirst: isFirst,
-                      isLast: isLast,
-                      customIcon: sampleSongPath != null
-                          ? LocalAlbumArt(
-                              path: sampleSongPath,
-                              size: isDesktop ? 60 : 48,
-                              shape: Shapes.pill,
-                            )
-                          : null,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => LocalGroupDetailScreen(
-                              groupTitle: genreName,
-                              groupType: 'Genre',
                               songs: songs,
                               onPlayFolder: widget.onPlayFolder,
                               onPlayTracks: widget.onPlayTracks,
@@ -2929,7 +2805,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
 class LocalGroupDetailScreen extends StatefulWidget {
   final String groupTitle;
-  final String groupType; // 'Artist', 'Album', 'Genre', 'Folder'
+  final String groupType; // 'Artist', 'Album', 'Folder'
   final List<LocalSongItem> songs;
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
       onPlayFolder;
@@ -3035,7 +2911,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                                 ? Icons.person
                                 : (widget.groupType == 'Album'
                                     ? Icons.album
-                                    : Icons.style),
+                                    : Icons.folder),
                             color: primaryColor,
                             size: 36),
                   ),
