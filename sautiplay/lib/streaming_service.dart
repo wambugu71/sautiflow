@@ -135,7 +135,7 @@ class StreamingService {
         return null;
       }
 
-      debugPrint('[streaming] ✓ $videoId → $downloadUrl (via $baseUrl)');
+      debugPrint('[streaming] ✓ Resolved $videoId');
       return downloadUrl;
     } catch (e) {
       debugPrint('[streaming] Error from $baseUrl for $videoId: $e');

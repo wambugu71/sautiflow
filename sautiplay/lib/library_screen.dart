@@ -119,6 +119,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     'Date Added (Old-New)',
     'Size (Largest)',
     'Size (Smallest)',
+    'File Extension (A-Z)',
+    'File Extension (Z-A)',
   ];
   static const List<String> _groupByOptions = [
     'None',
@@ -800,6 +802,16 @@ class _LibraryScreenState extends State<LibraryScreen>
         break;
       case 'Size (Smallest)':
         list.sort((a, b) => a.sizeBytes.compareTo(b.sizeBytes));
+        break;
+      case 'File Extension (A-Z)':
+        list.sort((a, b) => p.extension(a.path)
+            .toLowerCase()
+            .compareTo(p.extension(b.path).toLowerCase()));
+        break;
+      case 'File Extension (Z-A)':
+        list.sort((a, b) => p.extension(b.path)
+            .toLowerCase()
+            .compareTo(p.extension(a.path).toLowerCase()));
         break;
     }
 

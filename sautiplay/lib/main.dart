@@ -911,12 +911,12 @@ class _PlayerShellState extends State<PlayerShell> {
     }
 
     if (_nativeNetworkStreamingSupported) {
-      _logs.insert(0, '[source] Streaming native network source: $uri');
+      _logs.insert(0, '[source] Streaming native network source (native mode)');
       return AudioSource.network(uri.toString());
     }
 
     _logs.insert(
-        0, '[source] Caching network stream: $uri');
+        0, '[source] Caching network stream…');
 
     final cacheDir = Directory(
       '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_stream_cache',
@@ -943,7 +943,7 @@ class _PlayerShellState extends State<PlayerShell> {
     );
 
     if (file.existsSync() && file.lengthSync() > 1024) {
-      _logs.insert(0, '[source] Cache hit for stream: ${file.path}');
+      _logs.insert(0, '[source] Cache hit – serving from local cache');
       return AudioSource.uri(file.uri);
     }
 
@@ -960,7 +960,7 @@ class _PlayerShellState extends State<PlayerShell> {
 
       final res = await req.close();
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        _logs.insert(0, '[source] HTTP ${res.statusCode}: $uri');
+        _logs.insert(0, '[source] HTTP ${res.statusCode}: download failed');
         return null;
       }
 
@@ -976,7 +976,7 @@ class _PlayerShellState extends State<PlayerShell> {
           } catch (_) {}
         }
         tmpFile.renameSync(file.path);
-        _logs.insert(0, '[source] Stream cached: ${file.path}');
+        _logs.insert(0, '[source] Stream downloaded and cached ✓');
         return AudioSource.uri(file.uri);
       }
       return null;
@@ -1220,7 +1220,7 @@ class _PlayerShellState extends State<PlayerShell> {
     // Create the initial source and start playback immediately
     final firstSource = await _materializeSource(Uri.parse(firstUrl));
     if (firstSource == null) {
-      _logs.insert(0, '[stream] Failed to materialize: $firstUrl');
+      _logs.insert(0, '[stream] Failed to download: ${tappedTrack.title}');
       setState(() {
         _isLoading = false; // Stop loading on failure
       });
