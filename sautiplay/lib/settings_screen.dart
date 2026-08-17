@@ -2967,6 +2967,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // Changelog data
+  static const List<Map<String, dynamic>> _changelog = [
+    {
+      'version': 'v0.6.20',
+      'date': '2026-08-18',
+      'changes': [
+        'Add developer info to Misc & System about section',
+        'File extension sorting in library browser',
+        'Cached stream library implementation',
+        'ViperFX UI expansion fixes',
+      ],
+    },
+    // Paste additional entries above this line
+  ];
+
+  Widget _buildChangelogSection() {
+    return M3EExpandableList(
+      style: M3EExpandableStyle(
+        color: Colors.transparent,
+        gap: 0,
+        headerPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        bodyPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      ),
+      data: _changelog.map((entry) {
+        final version = entry['version'] as String;
+        final date = entry['date'] as String;
+        final changes = entry['changes'] as List<dynamic>;
+        return M3EExpandableData(
+          title: version,
+          subtitle: date,
+          leading: _buildLeadingIcon(Icons.new_releases_outlined),
+          trailing: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _primary.withAlpha(40),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${changes.length} changes',
+              style: TextStyle(
+                  color: _primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold),
+            ),
+          ),
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: changes.map((c) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5, right: 8),
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: _primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        c as String,
+                        style:
+                            TextStyle(color: _textDark, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   // 7. Misc & System Sub-Screen
   Widget _buildMiscSystemSubScreen() {
     return StatefulBuilder(
@@ -3013,6 +3096,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('CHANGELOG'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildChangelogSection(),
               ],
             ),
             const SizedBox(height: 20),
