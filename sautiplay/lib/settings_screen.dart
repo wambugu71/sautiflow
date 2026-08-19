@@ -3204,73 +3204,234 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildChangelogSection() {
+  void _showChangelogBottomSheet() {
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => _buildModalBottomSheetLayout(
+        title: 'Release Notes & Changelog',
+        subtitle: 'What\'s new and improved in SautiPlay',
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: _buildChangelogView(),
+      ),
+    );
+  }
+
+  Widget _buildChangelogView() {
     if (_changelog.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.all(24),
+        padding: EdgeInsets.all(32),
         child: Center(child: CircularProgressIndicator()),
       );
     }
-    return M3EExpandableList(
-      style: M3EExpandableStyle(
-        color: Colors.transparent,
-        gap: 0,
-        headerPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        bodyPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      ),
-      data: _changelog.map((entry) {
-        final version = entry['version'] as String;
-        final date = entry['date'] as String;
-        final changes = entry['changes'] as List<dynamic>;
-        return M3EExpandableData(
-          title: version,
-          subtitle: date,
-          leading: _buildLeadingIcon(Icons.new_releases_outlined),
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _primary.withAlpha(40),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${changes.length} changes',
-              style: TextStyle(
-                  color: _primary, fontSize: 11, fontWeight: FontWeight.bold),
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      itemCount: _changelog.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 14),
+      itemBuilder: (context, index) {
+        final entry = _changelog[index];
+        final version = (entry['version'] as String?) ?? '';
+        final date = (entry['date'] as String?) ?? '';
+        final changes = (entry['changes'] as List<dynamic>?) ?? [];
+        final isCurrentVersion = version.toLowerCase().contains(_appVersion.toLowerCase().replaceAll('v', '')) ||
+            _appVersion.toLowerCase().contains(version.toLowerCase().replaceAll('v', ''));
+
+        return Container(
+          decoration: BoxDecoration(
+            color: isCurrentVersion
+                ? _primary.withValues(alpha: 0.08)
+                : context.cardDark,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isCurrentVersion
+                  ? _primary.withValues(alpha: 0.45)
+                  : context.outlineColor,
+              width: isCurrentVersion ? 1.5 : 1.0,
             ),
           ),
-          body: Column(
+          padding: const EdgeInsets.all(16),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: changes.map((c) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5, right: 8),
-                      child: Container(
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: _primary,
-                          shape: BoxShape.circle,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border:
+                          Border.all(color: _primary.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.new_releases_rounded,
+                            size: 14, color: _primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          version,
+                          style: TextStyle(
+                            color: _primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isCurrentVersion) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: Colors.green.withValues(alpha: 0.4)),
+                      ),
+                      child: const Text(
+                        'CURRENT',
+                        style: TextStyle(
+                          color: Colors.greenAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: Text(
-                        c as String,
-                        style: TextStyle(color: _textDark, fontSize: 13),
-                      ),
-                    ),
                   ],
-                ),
-              );
-            }).toList(),
+                  const Spacer(),
+                  if (date.isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.calendar_today_outlined,
+                            size: 13, color: _textDark),
+                        const SizedBox(width: 4),
+                        Text(
+                          date,
+                          style: TextStyle(
+                            color: _textDark,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+              if (changes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const M3EDivider(),
+                const SizedBox(height: 10),
+                ...changes.map((c) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          margin: const EdgeInsets.only(top: 7, right: 10),
+                          decoration: BoxDecoration(
+                            color: isCurrentVersion
+                                ? _primary
+                                : _textDark.withValues(alpha: 0.6),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildFormattedMarkdownText(
+                            c as String,
+                            baseStyle: TextStyle(
+                              color: isCurrentVersion
+                                  ? _textPrimary
+                                  : _textDark,
+                              fontSize: 13,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
           ),
         );
-      }).toList(),
+      },
     );
+  }
+
+  Widget _buildFormattedMarkdownText(String text, {TextStyle? baseStyle}) {
+    final style =
+        baseStyle ?? TextStyle(color: _textDark, fontSize: 13, height: 1.45);
+    final spans = <InlineSpan>[];
+    final regex = RegExp(r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)');
+    int lastMatchEnd = 0;
+
+    for (final match in regex.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastMatchEnd, match.start),
+          style: style,
+        ));
+      }
+      final matchedText = match.group(0)!;
+      if (matchedText.startsWith('`') && matchedText.endsWith('`')) {
+        final codeContent = matchedText.substring(1, matchedText.length - 1);
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: _primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: _primary.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                codeContent,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: (style.fontSize ?? 13) * 0.88,
+                  fontWeight: FontWeight.w600,
+                  color: _primary,
+                ),
+              ),
+            ),
+          ),
+        );
+      } else if (matchedText.startsWith('**') && matchedText.endsWith('**')) {
+        final boldContent = matchedText.substring(2, matchedText.length - 2);
+        spans.add(TextSpan(
+          text: boldContent,
+          style: style.copyWith(
+              fontWeight: FontWeight.bold, color: _textPrimary),
+        ));
+      } else if (matchedText.startsWith('*') && matchedText.endsWith('*')) {
+        final italicContent = matchedText.substring(1, matchedText.length - 1);
+        spans.add(TextSpan(
+          text: italicContent,
+          style: style.copyWith(fontStyle: FontStyle.italic),
+        ));
+      }
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastMatchEnd),
+        style: style,
+      ));
+    }
+
+    return Text.rich(TextSpan(children: spans));
   }
 
   // 7. Misc & System Sub-Screen
@@ -3318,14 +3479,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            _buildSectionHeader('CHANGELOG'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                _buildChangelogSection(),
+                const M3EDivider(),
+                M3EListItem(
+                  headline: 'Changelog',
+                  supportingText: 'Release notes and version updates',
+                  leading: _buildLeadingIcon(Icons.history_edu_outlined),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _primary.withAlpha(25),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: _primary.withAlpha(60)),
+                        ),
+                        child: Text(
+                          _appVersion,
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20),
+                    ],
+                  ),
+                  onTap: _showChangelogBottomSheet,
+                ),
               ],
             ),
             const SizedBox(height: 20),

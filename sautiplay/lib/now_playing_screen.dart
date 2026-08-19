@@ -183,6 +183,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _telemetrySub = widget.player.streamTelemetryStream.listen((tel) {
       if (mounted) {
         setState(() => _streamTelemetry = tel);
+        if (_originalBitDepth.isEmpty || _sampleRate == '...') {
+          _fetchAudioProperties();
+        }
       }
     });
 
@@ -470,22 +473,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   String _buildAudioInfoBadgeText(String trackPosition) {
-    if (_streamTelemetry.codecName.isNotEmpty) {
-      final codec = _streamTelemetry.codecName.toUpperCase();
-      final kbps = _streamTelemetry.bitrate > 0 ? ' ${_streamTelemetry.bitrate ~/ 1000} KBPS' : '';
-      final live = _streamTelemetry.isLive ? ' [LIVE]' : '';
-      final speedPart = (_currentPitch - 1.0).abs() > 0.01
-          ? ' ${_currentPitch.toStringAsFixed(2)}X'
-          : '';
-      return '$trackPosition $codec$kbps$live$speedPart'.trim();
-    }
     final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
-    final codecPart = _detectedCodec ?? widget.codec;
     final speedPart = (_currentPitch - 1.0).abs() > 0.01
         ? ' ${_currentPitch.toStringAsFixed(2)}X'
         : '';
-    return '$trackPosition $depthPart$_sampleRate $codecPart$speedPart'
-        .toUpperCase();
+    return '$trackPosition $depthPart$_sampleRate$speedPart'
+        .toUpperCase()
+        .trim();
   }
 
   Future<void> _fetchLyrics() async {
@@ -1878,7 +1872,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           RepaintBoundary(
                                             child: M3EToolbar(
                                               actions: <M3EToolbarItem>[
-                                                M3EToolbarAction(
+                                                /*     M3EToolbarAction(
                                                   icon:
                                                       Icons.graphic_eq_rounded,
                                                   onPressed: () {
@@ -1905,7 +1899,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                           .outputSampleRate,
                                                                 )));
                                                   },
-                                                ),
+                                                ),*/
                                                 M3EToolbarAction(
                                                   icon: (_currentPitch - 1.0)
                                                               .abs() >
@@ -2022,15 +2016,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           ? const SizedBox(
                                                               width: 36,
                                                               height: 36,
-                                                              child:
-                                                                  CircularProgressIndicator(
+                                                              child: M3EProgressIndicator
+                                                                  .circularWavy(
                                                                 strokeWidth:
                                                                     3.5,
-                                                                valueColor:
-                                                                    AlwaysStoppedAnimation<
-                                                                            Color>(
-                                                                        Colors
-                                                                            .white),
+                                                                trackColor:
+                                                                    Colors
+                                                                        .white,
                                                               ),
                                                             )
                                                           : Icon(
@@ -2538,8 +2530,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   strokeWidth: 3.0,
                                                   valueColor:
                                                       AlwaysStoppedAnimation<
-                                                              Color>(
-                                                          Colors.white),
+                                                          Color>(Colors.white),
                                                 ),
                                               )
                                             : Icon(
