@@ -104,9 +104,6 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Color get _bgDark => context.bgDark;
   Color get _surfaceDark => context.cardDark;
   Color get _primary => context.primaryColor;
-  Color get _textPrimary => context.textPrimary;
-  Color get _textDark => context.textMuted;
-  Color get _outline => context.outlineColor;
 
   // Extracted info
   String _title = '';
@@ -175,8 +172,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         }
         if (mounted) setState(() => _loading = false);
       } else if (item is PlaylistDetailed) {
-        String pid = item.playlistId;
-        if (pid.startsWith('VL')) pid = pid.substring(2);
+        final pid = item.playlistId;
 
         try {
           await _ytMusic.initialize();
@@ -191,7 +187,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             });
           }
         } catch (e) {
-          debugPrint('dart_ytmusic_api getPlaylistVideos failed: $e');
+          debugPrint('dart_ytmusic_api getPlaylistVideos failed for $pid: $e');
           if (mounted) {
             setState(() {
               _error = 'Could not load playlist tracks.';

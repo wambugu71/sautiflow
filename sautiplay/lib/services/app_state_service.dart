@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../streaming_service.dart';
+
 /// Centralized service for persisting and restoring all app state across
 /// restarts: playback queue, EQ settings, and user preferences/settings.
 
@@ -1006,8 +1008,53 @@ class AppStateService {
       ceilingDBTP: prefs.getDouble(_kLookaheadLimiterCeiling) ?? -1.0,
     );
   }
+
+  // ─── Online Streaming & Bandwidth Settings ─────────────────────────────────
+  static const _kStreamingQualityPreset = 'sp_streaming_quality_preset_v2';
+  static const _kPreferNativeAac = 'sp_prefer_native_aac';
+  static const _kEnableHostedFallback = 'sp_enable_hosted_fallback';
+
+  final StreamController<void> streamingSettingsChanged =
+      StreamController<void>.broadcast();
+
+  Future<void> saveStreamingQualityPreset(AudioQualityPreset quality) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kStreamingQualityPreset, quality.name);
+    streamingSettingsChanged.add(null);
+  }
+
+  Future<AudioQualityPreset> loadStreamingQualityPreset() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString(_kStreamingQualityPreset);
+    if (name == null) return AudioQualityPreset.audiophile;
+    return AudioQualityPreset.values.firstWhere(
+      (e) => e.name == name,
+      orElse: () => AudioQualityPreset.audiophile,
+    );
+  }
+
+  Future<void> savePreferNativeAac(bool prefer) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPreferNativeAac, prefer);
+    streamingSettingsChanged.add(null);
+  }
+
+  Future<bool> loadPreferNativeAac() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPreferNativeAac) ?? false;
+  }
+
+  Future<void> saveEnableHostedFallback(bool enable) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kEnableHostedFallback, enable);
+    streamingSettingsChanged.add(null);
+  }
+
+  Future<bool> loadEnableHostedFallback() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kEnableHostedFallback) ?? true;
+  }
 }
-// Force Flutter compiler sync
 
 
 

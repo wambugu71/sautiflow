@@ -15,6 +15,8 @@ import 'widgets/app_m3e_widgets.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'services/cached_stream_service.dart';
+import 'streaming_service.dart';
 import 'widgets/album_art_shape_selector.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -115,6 +117,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Local UI settings
   String _streamingQuality = 'High Fidelity';
+  AudioQualityPreset _streamingQualityPreset = AudioQualityPreset.audiophile;
+  bool _preferNativeAac = false;
+  bool _enableHostedFallback = true;
   bool _gaplessPlayback = true;
   bool _normalizeVolume = false;
   bool _streamOverWifi = true;
@@ -200,8 +205,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// Parses assets/CHANGELOG.md into a list of version entries.
   Future<void> _loadChangelog() async {
     try {
-      final raw =
-          await rootBundle.loadString('assets/CHANGELOG.md');
+      final raw = await rootBundle.loadString('assets/CHANGELOG.md');
       final entries = <Map<String, dynamic>>[];
       Map<String, dynamic>? current;
       for (final line in raw.split('\n')) {
@@ -250,6 +254,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return '$depth • $resamplerShort';
   }
 
+  String _getStreamingQualityBadgeText() {
+    switch (_streamingQualityPreset) {
+      case AudioQualityPreset.low:
+        return 'Data Saver (50k)';
+      case AudioQualityPreset.medium:
+        return 'Balanced (70k)';
+      case AudioQualityPreset.high:
+        return 'High AAC (128k)';
+      case AudioQualityPreset.audiophile:
+        return 'Audiophile (160k)';
+    }
+  }
+
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
@@ -267,6 +284,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final wavySaved = await AppStateService.instance.loadUseWavySlider();
     final engineSettings = await AppStateService.instance.loadEngineSettings();
     final loudnessCf = engineSettings.loudnessCrossfadeEnabled;
+    final streamingPreset =
+        await AppStateService.instance.loadStreamingQualityPreset();
+    final preferAac = await AppStateService.instance.loadPreferNativeAac();
+    final fallback = await AppStateService.instance.loadEnableHostedFallback();
 
     String versionStr = 'v0.6.20';
     try {
@@ -277,6 +298,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _appVersion = versionStr;
+      _streamingQualityPreset = streamingPreset;
+      _preferNativeAac = preferAac;
+      _enableHostedFallback = fallback;
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
       _normalizeVolume = saved.normalizeVolume;
@@ -496,7 +520,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 _navigateToSubScreen(_buildPlaybackSubScreen());
                                 break;
                               case 5:
-                                _navigateToSubScreen(_buildStorageSubScreen());
+                                _navigateToSubScreen(
+                                    _buildDataAndStreamingSubScreen());
                                 break;
                               case 6:
                                 Navigator.push(
@@ -581,14 +606,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 );
                               case 5:
                                 return _buildCategoryCard(
-                                  title: 'Library & Storage',
+                                  title: 'Data & Streaming',
                                   subtitle:
-                                      'Wi-Fi streaming preferences & audio cache',
-                                  icon: Icons.storage_rounded,
+                                      'Direct YouTube stream bitrates, AAC, backup fallback & cache',
+                                  icon: Icons.stream_rounded,
                                   accentColor: _primary,
-                                  badgeText: '145 MB Cache',
+                                  badgeText: _getStreamingQualityBadgeText(),
                                   onTap: () => _navigateToSubScreen(
-                                      _buildStorageSubScreen()),
+                                      _buildDataAndStreamingSubScreen()),
                                 );
                               case 6:
                                 return _buildCategoryCard(
@@ -2949,20 +2974,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // 6. Storage Sub-Screen
-  Widget _buildStorageSubScreen() {
+  // 6. Data & Streaming Sub-Screen
+  Widget _buildDataAndStreamingSubScreen() {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Library & Storage',
+          title: 'Data & Streaming',
           children: [
-            _buildSectionHeader('NETWORK & AUDIO CACHE'),
+            // ── AUDIO STREAMING QUALITY ──────────────────────────────────────
+            _buildSectionHeader('STREAMING QUALITY'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildQualityOptionTile(
+                  title: 'Max Quality',
+                  subtitle: 'Highest bitrate, best dynamic range',
+                  preset: AudioQualityPreset.audiophile,
+                  badge: 'Max',
+                  setSubState: setSubState,
+                ),
+                const M3EDivider(),
+                _buildQualityOptionTile(
+                  title: 'High Quality',
+                  subtitle: 'Balanced quality with good hardware decoding',
+                  preset: AudioQualityPreset.high,
+                  badge: 'High',
+                  setSubState: setSubState,
+                ),
+                const M3EDivider(),
+                _buildQualityOptionTile(
+                  title: 'Balanced',
+                  subtitle: 'Good balance of quality and data usage',
+                  preset: AudioQualityPreset.medium,
+                  badge: 'Balanced',
+                  setSubState: setSubState,
+                ),
+                const M3EDivider(),
+                _buildQualityOptionTile(
+                  title: 'Data Saver',
+                  subtitle: 'Minimal bandwidth',
+                  preset: AudioQualityPreset.low,
+                  badge: 'Data Saver',
+                  setSubState: setSubState,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // ── HARDWARE & CONTAINER PREFERENCES ────────────────────────────
+            _buildSectionHeader('HARDWARE & PLAYBACK OPTIMIZATION'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
+                  title: 'Prefer Native AAC',
+                  subtitle:
+                      'Prioritize Native M4A streams over WebM for hardware decoders',
+                  secondary: _buildLeadingIcon(Icons.memory_rounded),
+                  value: _preferNativeAac,
+                  onChanged: (val) {
+                    setState(() => _preferNativeAac = val);
+                    setSubState(() {});
+                    AppStateService.instance.savePreferNativeAac(val);
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Enable Backup Fallback',
+                  subtitle: '(Recommended)',
+                  secondary: _buildLeadingIcon(
+                    Icons.cloud_sync_rounded,
+                    _enableHostedFallback ? _primary : _textDark,
+                  ),
+                  value: _enableHostedFallback,
+                  onChanged: (val) {
+                    setState(() => _enableHostedFallback = val);
+                    setSubState(() {});
+                    AppStateService.instance.saveEnableHostedFallback(val);
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
                   title: 'Stream over Wi-Fi Only',
-                  secondary: _buildLeadingIcon(Icons.wifi),
+                  subtitle: 'Restricts online stream usage over cellular data',
+                  secondary: _buildLeadingIcon(Icons.wifi_rounded),
                   value: _streamOverWifi,
                   onChanged: (v) {
                     setState(() => _streamOverWifi = v);
@@ -2970,32 +3065,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _persistUiSettings();
                   },
                 ),
-                const M3EDivider(),
-                M3EListItem(
-                  headline: 'Audio Cache Storage',
-                  leading: _buildLeadingIcon(Icons.dns),
-                  trailing: Text('145 MB',
-                      style: TextStyle(color: _textDark, fontSize: 14)),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // ── CACHE & STORAGE ─────────────────────────────────────────────
+            _buildSectionHeader('OFFLINE STREAM CACHE'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ValueListenableBuilder<int>(
+                  valueListenable:
+                      CachedStreamService.instance.totalSizeBytesNotifier,
+                  builder: (context, totalBytes, _) {
+                    return M3EListItem(
+                      headline: 'Cached Stream Storage',
+                      supportingText:
+                          'Local cache of previously resolved tracks',
+                      leading: _buildLeadingIcon(Icons.dns_rounded),
+                      trailing: Text(
+                        CachedStreamService.formatBytes(totalBytes),
+                        style: TextStyle(
+                          color: _primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const M3EDivider(),
                 M3EListItem(
-                  headline: 'Clear Audio Cache',
-                  supportingText: 'Free up local temporary audio file cache',
+                  headline: 'Clear Stream Cache',
+                  supportingText:
+                      'Delete temporary audio files & purge cache index',
                   leading: _buildLeadingIcon(
                       Icons.cleaning_services_rounded, Colors.redAccent),
                   trailing: const Icon(Icons.chevron_right_rounded,
                       color: Colors.redAccent, size: 20),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: const Text('Audio cache cleared successfully'),
-                        backgroundColor: _cardDark));
+                  onTap: () async {
+                    await CachedStreamService.instance.clearAllCache();
+                    StreamingService.clearCache();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: const Text('Audio cache purged successfully'),
+                        backgroundColor: _cardDark,
+                      ));
+                    }
                   },
                 ),
               ],
             ),
+            const SizedBox(height: 30),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildQualityOptionTile({
+    required String title,
+    required String subtitle,
+    required AudioQualityPreset preset,
+    required String badge,
+    required StateSetter setSubState,
+  }) {
+    final isSelected = _streamingQualityPreset == preset;
+    return InkWell(
+      onTap: () {
+        setState(() => _streamingQualityPreset = preset);
+        setSubState(() {});
+        AppStateService.instance.saveStreamingQualityPreset(preset);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: isSelected ? _primary : _textDark,
+              size: 22,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: isSelected ? _primary : _textPrimary,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.w500,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? _primary.withValues(alpha: 0.15)
+                              : _cardDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: isSelected
+                                ? _primary.withValues(alpha: 0.3)
+                                : Colors.white10,
+                          ),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(
+                            color: isSelected ? _primary : _textDark,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: _textDark, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -3010,8 +3215,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       style: M3EExpandableStyle(
         color: Colors.transparent,
         gap: 0,
-        headerPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        headerPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         bodyPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       ),
       data: _changelog.map((entry) {
@@ -3023,8 +3227,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: date,
           leading: _buildLeadingIcon(Icons.new_releases_outlined),
           trailing: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: _primary.withAlpha(40),
               borderRadius: BorderRadius.circular(12),
@@ -3032,9 +3235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Text(
               '${changes.length} changes',
               style: TextStyle(
-                  color: _primary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold),
+                  color: _primary, fontSize: 11, fontWeight: FontWeight.bold),
             ),
           ),
           body: Column(
@@ -3059,8 +3260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Expanded(
                       child: Text(
                         c as String,
-                        style:
-                            TextStyle(color: _textDark, fontSize: 13),
+                        style: TextStyle(color: _textDark, fontSize: 13),
                       ),
                     ),
                   ],
@@ -3101,8 +3301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 M3EListItem(
                   headline: 'Copyright',
                   leading: _buildLeadingIcon(Icons.copyright_outlined),
-                  trailing: Text(
-                      '© ${DateTime.now().year} Wambugu Kinyua',
+                  trailing: Text('© ${DateTime.now().year} Wambugu Kinyua',
                       style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
                 const M3EDivider(),

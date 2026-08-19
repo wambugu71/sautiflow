@@ -1,0 +1,14 @@
+name: test_extract_streams
+description: Testing and documenting stream extraction using youtube_explode_dart and dart_ytmusic_api
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  youtube_explode_dart:
+    path: ../youtube_explode_dart
+  dart_ytmusic_api:
+    path: ../dart_ytmusic_api
+  http: ^1.2.0

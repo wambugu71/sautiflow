@@ -18,6 +18,8 @@ class CachedStreamService {
 
   final ValueNotifier<int> totalSizeBytesNotifier = ValueNotifier<int>(0);
 
+  final Set<String> _activeDownloads = <String>{};
+
   bool _isInitialized = false;
 
   Directory get cacheDirectory => Directory(
@@ -29,6 +31,114 @@ class CachedStreamService {
     if (_isInitialized) return;
     _isInitialized = true;
     await refreshCache();
+  }
+
+  /// Looks up whether an audio stream is already downloaded and cached locally.
+  CachedStreamItem? getCachedItem(String videoId) {
+    for (final item in cachedStreamsNotifier.value) {
+      if (item.videoId == videoId && File(item.filePath).existsSync()) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  /// Downloads an online audio stream in the background, saves it to disk cache,
+  /// and automatically registers it for the Library "Cached Online Streams" playlist.
+  Future<void> cacheStreamInBackground({
+    required String videoId,
+    required String streamUrl,
+    required String title,
+    required String artist,
+    String? thumbnailUrl,
+    int? durationSeconds,
+  }) async {
+    if (videoId.isEmpty || streamUrl.isEmpty) return;
+    if (_activeDownloads.contains(videoId)) return;
+    _activeDownloads.add(videoId);
+
+    try {
+      final dir = cacheDirectory;
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+
+      // Determine container extension (.m4a, .webm, or .mp3)
+      String ext = 'm4a';
+      final lowerUrl = streamUrl.toLowerCase();
+      if (lowerUrl.contains('webm') ||
+          lowerUrl.contains('opus') ||
+          lowerUrl.contains('itag=251') ||
+          lowerUrl.contains('itag=250') ||
+          lowerUrl.contains('itag=249')) {
+        ext = 'webm';
+      } else if (lowerUrl.contains('download') || lowerUrl.contains('mp3')) {
+        ext = 'mp3';
+      }
+
+      final targetFile =
+          File('${dir.path}${Platform.pathSeparator}stream_$videoId.$ext');
+
+      // If valid file already exists, just register metadata
+      if (targetFile.existsSync() && targetFile.lengthSync() > 1024) {
+        await registerCachedStream(
+          videoId: videoId,
+          title: title,
+          artist: artist,
+          thumbnailUrl: thumbnailUrl,
+          durationSeconds: durationSeconds,
+          filePath: targetFile.path,
+          streamUrl: streamUrl,
+          fileSizeBytes: targetFile.lengthSync(),
+        );
+        return;
+      }
+
+      final tempFile = File('${targetFile.path}.tmp');
+      final client = HttpClient();
+      try {
+        final req = await client.getUrl(Uri.parse(streamUrl));
+        final res = await req.close();
+
+        if (res.statusCode == 200 || res.statusCode == 206) {
+          final sink = tempFile.openWrite();
+          await res.pipe(sink);
+          await sink.flush();
+          await sink.close();
+
+          if (tempFile.existsSync() && tempFile.lengthSync() > 1024) {
+            if (targetFile.existsSync()) {
+              targetFile.deleteSync();
+            }
+            tempFile.renameSync(targetFile.path);
+
+            await registerCachedStream(
+              videoId: videoId,
+              title: title,
+              artist: artist,
+              thumbnailUrl: thumbnailUrl,
+              durationSeconds: durationSeconds,
+              filePath: targetFile.path,
+              streamUrl: streamUrl,
+              fileSizeBytes: targetFile.lengthSync(),
+            );
+            debugPrint(
+                '[CachedStreamService] Successfully cached offline stream: $title (${formatBytes(targetFile.lengthSync())})');
+          }
+        }
+      } finally {
+        client.close(force: true);
+        if (tempFile.existsSync()) {
+          try {
+            tempFile.deleteSync();
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('[CachedStreamService] Background cache error for $videoId: $e');
+    } finally {
+      _activeDownloads.remove(videoId);
+    }
   }
 
   /// Scans the cache folder and persisted records, pruning non-existent files.
@@ -60,7 +170,11 @@ class CachedStreamService {
               final fileName = file.uri.pathSegments.last;
               loadedItems.add(CachedStreamItem(
                 videoId: fileName,
-                title: fileName.replaceAll('.mp3', '').replaceAll('stream_', ''),
+                title: fileName
+                    .replaceAll('.mp3', '')
+                    .replaceAll('.m4a', '')
+                    .replaceAll('.webm', '')
+                    .replaceAll('stream_', ''),
                 artist: 'Online Stream',
                 thumbnailUrl: null,
                 durationSeconds: 0,

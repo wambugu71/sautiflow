@@ -7,6 +7,7 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
+import 'stream_extraction_test_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -37,7 +38,6 @@ class _HomeScreenState extends State<HomeScreen>
   Color get _primary => context.primaryColor;
   Color get _textPrimary => context.textPrimary;
   Color get _textSecondary => context.textMuted;
-  Color get _outline => context.outlineColor;
   final YTMusic _ytMusic = YTMusic();
   List<HomeSection> _sections = [];
   bool _loading = true;
@@ -260,6 +260,20 @@ class _HomeScreenState extends State<HomeScreen>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              M3EIconButton(
+                icon: const Icon(Icons.stream_rounded, size: 20),
+                variant: M3EIconButtonVariant.tonal,
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => StreamExtractionTestScreen(
+                        onPlayTracks: widget.onPlayTracks,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
               M3EIconButton(
                 icon: const Icon(Icons.search_rounded, size: 20),
                 variant: M3EIconButtonVariant.tonal,
