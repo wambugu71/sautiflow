@@ -569,6 +569,9 @@ class _PlayerShellState extends State<PlayerShell> {
 
       if (!isNewTrack) return; // art is loaded, skip notification re-publish
 
+      // Lookahead: ensure immediate next track in the queue is resolved and ready in the engine
+      _ensureLookaheadForActiveTrack(source);
+
       // Pre-fetch next track's ReplayGain for loudness-aware crossfade
       _prefetchNextTrackReplayGain(idx);
 
@@ -1035,17 +1038,13 @@ class _PlayerShellState extends State<PlayerShell> {
       }
 
       _logs.insert(0, '[stream] Adding ${newTracks.length} tracks to queue...');
-      // Update UI queue
+      // Update UI queue immediately
       setState(() {
         _currentUiQueue.addAll(newTracks);
       });
 
-      // Lazily resolve URLs for these new tracks
-      // We don't block; we just add them to the playlist as they resolve
-      // Or better yet, we can add them to the playlist as unresolved items if our player supported it,
-      // but here we resolve them one by one or in batches.
-      // For now, let's resolve them sequentially in the background.
-      _resolveAndAppendTracks(newTracks);
+      // Lookahead resolution: resolve next track immediately for gapless preload, then rest in background
+      _resolveLookaheadAndAppend(newTracks);
     } catch (e) {
       _logs.insert(0, '[stream] Failed to fetch Up Next: $e');
     }
@@ -1073,29 +1072,100 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
-  Future<void> _resolveAndAppendTracks(List<TrackInfo> tracks) async {
-    final videoIds = tracks.map((t) => t.videoId).toList();
-    final urls = await StreamingService.resolveBatchStreamUrls(videoIds);
+  void _ensureLookaheadForActiveTrack(AudioSource currentSource) {
+    if (_currentUiQueue.isEmpty) return;
 
-    for (int i = 0; i < tracks.length; i++) {
-      final url = urls[i];
-      if (url == null) continue;
-      try {
+    int queueIdx = -1;
+    if (_onlineTrackMetadata.containsKey(currentSource.uri)) {
+      final curTrack = _onlineTrackMetadata[currentSource.uri]!;
+      queueIdx = _currentUiQueue.indexWhere((t) => t.videoId == curTrack.videoId);
+    } else if (currentSource.uri.scheme == 'file') {
+      final path = _safeFilePathFromUri(currentSource.uri);
+      queueIdx = _currentUiQueue.indexWhere((t) => t.videoId == path);
+    }
+
+    if (queueIdx != -1 && queueIdx + 1 < _currentUiQueue.length) {
+      final nextTrack = _currentUiQueue[queueIdx + 1];
+      _ensureTrackInPlaylist(nextTrack);
+    }
+  }
+
+  Future<void> _ensureTrackInPlaylist(TrackInfo track) async {
+    final alreadyInPlaylist = _playlist.any((src) {
+      if (_onlineTrackMetadata.containsKey(src.uri)) {
+        return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
+      } else if (src.uri.scheme == 'file') {
+        final path = _safeFilePathFromUri(src.uri);
+        return path != null && path == track.videoId;
+      }
+      return false;
+    });
+    if (alreadyInPlaylist) return;
+
+    try {
+      final url = await StreamingService.resolveStreamUrl(track.videoId);
+      if (url != null && mounted) {
         final src = await _materializeSource(Uri.parse(url));
         if (src != null && mounted) {
-          _onlineTrackMetadata[src.uri] = tracks[i];
-          _registerCachedStreamMeta(src, tracks[i], streamUrl: url);
+          _onlineTrackMetadata[src.uri] = track;
+          _registerCachedStreamMeta(src, track, streamUrl: url);
           setState(() {
             _playlist.add(src);
           });
           _player.addAudioSource(src);
         }
-      } catch (e) {
-        // Ignore failures for background suggestions
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _resolveLookaheadAndAppend(List<TrackInfo> tracks) async {
+    if (tracks.isEmpty) return;
+
+    // 1. Immediately resolve and add the first lookahead track for gapless preload
+    final firstTrack = tracks.first;
+    try {
+      final firstUrl = await StreamingService.resolveStreamUrl(firstTrack.videoId);
+      if (firstUrl != null && mounted) {
+        final src = await _materializeSource(Uri.parse(firstUrl));
+        if (src != null && mounted) {
+          _onlineTrackMetadata[src.uri] = firstTrack;
+          _registerCachedStreamMeta(src, firstTrack, streamUrl: firstUrl);
+          setState(() {
+            _playlist.add(src);
+          });
+          _player.addAudioSource(src);
+          _logs.insert(0, '[stream] Lookahead preloaded: ${firstTrack.title}');
+        }
+      }
+    } catch (e) {
+      _logs.insert(0, '[stream] Lookahead resolve error for ${firstTrack.title}: $e');
+    }
+
+    // 2. Progressively resolve remaining tracks in background
+    if (tracks.length > 1) {
+      final remaining = tracks.sublist(1);
+      for (final track in remaining) {
+        if (!mounted) break;
+        try {
+          final url = await StreamingService.resolveStreamUrl(track.videoId);
+          if (url != null && mounted) {
+            final src = await _materializeSource(Uri.parse(url));
+            if (src != null && mounted) {
+              final alreadyIn = _playlist.any((s) =>
+                  _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
+              if (!alreadyIn) {
+                _onlineTrackMetadata[src.uri] = track;
+                _registerCachedStreamMeta(src, track, streamUrl: url);
+                setState(() {
+                  _playlist.add(src);
+                });
+                _player.addAudioSource(src);
+              }
+            }
+          }
+        } catch (_) {}
       }
     }
-    _logs.insert(
-        0, '[stream] Up Next tracks added to playlist (batch resolved).');
   }
 
   /// Plays online tracks from album/playlist detail screen.
@@ -1144,7 +1214,7 @@ class _PlayerShellState extends State<PlayerShell> {
       _currentUiQueue.addAll(tracks);
     });
 
-    // Populate playlist with placeholder sources; replace as resolved
+    // Populate playlist with initial source
     setState(() {
       _playlist
         ..clear()
@@ -1168,44 +1238,14 @@ class _PlayerShellState extends State<PlayerShell> {
     // If only one track was selected, fetch "Up Next" suggestions
     if (tracks.length == 1) {
       _fetchAndAppendUpNext(tappedTrack.videoId);
+    } else {
+      // Multiple tracks provided: resolve remaining tracks with lookahead priority
+      final remainingTracks = [
+        for (int i = 0; i < tracks.length; i++)
+          if (i != initialIndex) tracks[i],
+      ];
+      _resolveLookaheadAndAppend(remainingTracks);
     }
-
-    // Lazily resolve remaining tracks in batch (concurrent across both servers)
-    final remainingTracks = [
-      for (int i = 0; i < tracks.length; i++)
-        if (i != initialIndex) tracks[i],
-    ];
-
-    if (remainingTracks.isNotEmpty) {
-      final remainingVideoIds = remainingTracks.map((t) => t.videoId).toList();
-      final urls =
-          await StreamingService.resolveBatchStreamUrls(remainingVideoIds);
-
-      for (int i = 0; i < remainingTracks.length; i++) {
-        final url = urls[i];
-        if (url == null) {
-          _logs.insert(
-              0, '[stream] Skip: ${remainingTracks[i].title} (no URL)');
-          continue;
-        }
-        try {
-          final src = await _materializeSource(Uri.parse(url));
-          if (src != null && mounted) {
-            _onlineTrackMetadata[src.uri] = remainingTracks[i];
-            _registerCachedStreamMeta(src, remainingTracks[i], streamUrl: url);
-            setState(() => _playlist.add(src));
-            _player.addAudioSource(src);
-          }
-        } catch (e) {
-          _logs.insert(0,
-              '[stream] Error materializing ${remainingTracks[i].title}: $e');
-        }
-      }
-    }
-
-    _logs.insert(
-        0, '[stream] ✓ Resolved ${_playlist.length}/${tracks.length} tracks');
-    setState(() {});
   }
 
   bool _isSwitchingQueueTrack = false;
@@ -1241,34 +1281,38 @@ class _PlayerShellState extends State<PlayerShell> {
           initialPosition: Duration.zero,
           useLazyPreparation: true,
         );
-        return;
+      } else {
+        // It's unresolved. Resolve immediately and play.
+        try {
+          final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
+          if (url != null) {
+            final src = await _materializeSource(Uri.parse(url));
+            if (src != null && mounted) {
+              _onlineTrackMetadata[src.uri] = targetTrack;
+              _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
+
+              setState(() {
+                _playlist.add(src);
+              });
+
+              _player.setAudioSources(
+                _playlist,
+                initialIndex: _playlist.length - 1,
+                initialPosition: Duration.zero,
+                useLazyPreparation: true,
+              );
+            }
+          } else {
+            _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
+          }
+        } catch (e) {
+          _logs.insert(0, '[queue] Error resolving ${targetTrack.title}: $e');
+        }
       }
 
-      // It's unresolved. Resolve immediately and play.
-      try {
-        final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
-        if (url != null) {
-          final src = await _materializeSource(Uri.parse(url));
-          if (src != null && mounted) {
-            _onlineTrackMetadata[src.uri] = targetTrack;
-            _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
-
-            setState(() {
-              _playlist.add(src);
-            });
-
-            _player.setAudioSources(
-              _playlist,
-              initialIndex: _playlist.length - 1,
-              initialPosition: Duration.zero,
-              useLazyPreparation: true,
-            );
-          }
-        } else {
-          _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
-        }
-      } catch (e) {
-        _logs.insert(0, '[queue] Error resolving ${targetTrack.title}: $e');
+      // Lookahead window shift: resolve next track in queue if available
+      if (queueIndex + 1 < _currentUiQueue.length) {
+        _ensureTrackInPlaylist(_currentUiQueue[queueIndex + 1]);
       }
     } finally {
       _isSwitchingQueueTrack = false;

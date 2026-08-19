@@ -4355,6 +4355,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
                 {
+                    uninit_decoder_slot(
+                        e,
+                        e->currentDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        , e->currentStream
+#endif
+                    );
+                    e->currentDecoder = nullptr;
+                    e->hasCurrent = false;
                     e->pendingAutoPlay.store(true, std::memory_order_relaxed);
                     request_jump(e, autoNextIndex);
                     continue;
@@ -5281,6 +5290,14 @@ extern "C"
             e->currentIndex = 0;
             request_jump(e, 0);
         }
+        else
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->hasCurrent && !e->hasNext)
+            {
+                request_preload(e);
+            }
+        }
         clear_last_error(e);
         return true;
     }
@@ -5307,6 +5324,16 @@ extern "C"
         if (e->currentIndex < 0)
             e->currentIndex = 0;
         rebuild_play_order_locked(e);
+
+        if (e->currentIndex >= 0)
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->hasCurrent && !e->hasNext)
+            {
+                request_preload(e);
+            }
+        }
+
         clear_last_error(e);
         return true;
     }

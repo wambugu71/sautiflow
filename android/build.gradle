@@ -12,7 +12,7 @@ apply plugin: 'com.android.library'
 
 android {
     namespace 'com.wambugu.sautiflow'
-    compileSdkVersion 34
+    compileSdkVersion 36
     ndkVersion "28.2.13676358"
 
     def mdEnableCurl = (project.findProperty('MINIAUDIODART_ENABLE_CURL') ?: 'ON').toString()
