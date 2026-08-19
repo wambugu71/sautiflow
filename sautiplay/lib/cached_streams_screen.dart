@@ -2,13 +2,27 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'album_detail_screen.dart'; // for TrackInfo
 import 'models/cached_stream_item.dart';
 import 'services/app_theme_service.dart';
 import 'services/cached_stream_service.dart';
+import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
-import 'album_detail_screen.dart'; // for TrackInfo
+import 'widgets/song_options_menu.dart';
+
+enum TrackViewMode {
+  list('Standard List', Icons.view_list_rounded),
+  compact('Compact List', Icons.format_list_bulleted_rounded),
+  grid('Grid View', Icons.grid_view_rounded);
+
+  const TrackViewMode(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
 
 class CachedStreamsScreen extends StatefulWidget {
   final Future<void> Function(List<CachedStreamItem> tracks, {int initialIndex})
@@ -30,6 +44,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   bool _isSearching = false;
   String _searchQuery = '';
   String _sortBy = 'Date Added'; // 'Date Added', 'Name (A-Z)', 'Size (Largest)'
+  TrackViewMode _trackViewMode = TrackViewMode.list;
 
   Color get _bgDark => context.bgDark;
   Color get _surfaceColor => context.cardDark;
@@ -123,6 +138,66 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     );
   }
 
+  void _handleSongOption(CachedStreamItem track, SongOption option) async {
+    switch (option) {
+      case SongOption.queue:
+        if (widget.onQueueTrack != null) {
+          final trackInfo = TrackInfo(
+            videoId: track.filePath,
+            title: track.title,
+            artist: track.artist,
+            thumbnailUrl: track.thumbnailUrl,
+            durationSeconds: track.durationSeconds,
+          );
+          widget.onQueueTrack!(trackInfo);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Added "${track.title}" to queue'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+        break;
+      case SongOption.info:
+        MusicInfoDialog.show(
+          context,
+          title: track.title,
+          artist: track.artist,
+          sourceType: 'online',
+          videoId: track.filePath,
+          codec: 'MP3 / Opus (Cached)',
+          fileSizeBytes: track.fileSizeBytes,
+          duration: Duration(seconds: track.durationSeconds),
+        );
+        break;
+      case SongOption.share:
+        if (File(track.filePath).existsSync()) {
+          try {
+            await Share.shareXFiles(
+              [XFile(track.filePath)],
+              text: '${track.title} - ${track.artist}',
+            );
+          } catch (e) {
+            debugPrint('Error sharing file: $e');
+          }
+        }
+        break;
+      case SongOption.delete:
+        await CachedStreamService.instance.removeCachedStream(track.filePath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Removed "${track.title}" from cache'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        break;
+    }
+  }
+
   void _showTrackOptions(
       BuildContext context, CachedStreamItem track, bool isDesktop) {
     showModalBottomSheet(
@@ -143,27 +218,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 20.0),
                   child: Row(
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          color: _bgDark,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: track.thumbnailUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: track.thumbnailUrl!,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) => const Icon(
-                                      Icons.podcasts_rounded,
-                                      color: Colors.tealAccent),
-                                )
-                              : const Icon(Icons.podcasts_rounded,
-                                  color: Colors.tealAccent),
-                        ),
-                      ),
+                      _buildArtwork(track, 48, isDesktop),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -181,7 +236,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${track.artist} • ${track.formattedSize}',
+                              '${track.artist.isNotEmpty ? track.artist : "Online Stream"} • ${track.formattedSize}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(color: _textDark, fontSize: 13),
@@ -203,14 +258,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                         style: TextStyle(color: _textPrimary)),
                     onTap: () {
                       Navigator.of(ctx).pop();
-                      final trackInfo = TrackInfo(
-                        videoId: track.filePath,
-                        title: track.title,
-                        artist: track.artist,
-                        thumbnailUrl: track.thumbnailUrl,
-                        durationSeconds: track.durationSeconds,
-                      );
-                      widget.onQueueTrack!(trackInfo);
+                      _handleSongOption(track, SongOption.queue);
                     },
                   ),
 
@@ -221,16 +269,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                       style: TextStyle(color: _textPrimary)),
                   onTap: () {
                     Navigator.of(ctx).pop();
-                    MusicInfoDialog.show(
-                      context,
-                      title: track.title,
-                      artist: track.artist,
-                      sourceType: 'online',
-                      videoId: track.filePath,
-                      codec: 'MP3 (Cached)',
-                      fileSizeBytes: track.fileSizeBytes,
-                      duration: Duration(seconds: track.durationSeconds),
-                    );
+                    _handleSongOption(track, SongOption.info);
                   },
                 ),
 
@@ -241,16 +280,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                         Icon(Icons.share_outlined, color: Colors.blueAccent),
                     title: Text('Share Audio File',
                         style: TextStyle(color: _textPrimary)),
-                    onTap: () async {
+                    onTap: () {
                       Navigator.of(ctx).pop();
-                      try {
-                        await Share.shareXFiles(
-                          [XFile(track.filePath)],
-                          text: '${track.title} - ${track.artist}',
-                        );
-                      } catch (e) {
-                        debugPrint('Error sharing file: $e');
-                      }
+                      _handleSongOption(track, SongOption.share);
                     },
                   ),
 
@@ -260,17 +292,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                       color: Colors.redAccent),
                   title: const Text('Delete from Cache',
                       style: TextStyle(color: Colors.redAccent)),
-                  onTap: () async {
+                  onTap: () {
                     Navigator.of(ctx).pop();
-                    await CachedStreamService.instance
-                        .removeCachedStream(track.filePath);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text(
-                                'Removed "${track.title}" from local cache.')),
-                      );
-                    }
+                    _handleSongOption(track, SongOption.delete);
                   },
                 ),
               ],
@@ -325,20 +349,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                             );
                           }
 
-                          return ListView.builder(
-                            padding: const EdgeInsets.only(
-                                top: 8, bottom: 120, left: 16, right: 16),
-                            itemCount: 1 + items.length,
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return _buildActionSummaryCard(
-                                    rawItems, items, isDesktop);
-                              }
-                              final track = items[index - 1];
-                              return _buildTrackCard(
-                                  track, items, index - 1, isDesktop);
-                            },
-                          );
+                          return _buildListContent(items, rawItems, isDesktop);
                         },
                       ),
                     ),
@@ -372,7 +383,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
           Row(
             children: [
               IconButton(
-                icon: Icon(Icons.arrow_back_rounded,
+                icon: Icon(Icons.keyboard_arrow_down,
                     color: _textPrimary, size: isDesktop ? 26 : 22),
                 onPressed: () => Navigator.of(context).pop(),
               ),
@@ -421,6 +432,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   color: _textPrimary,
                   size: isDesktop ? 24 : 22,
                 ),
+                tooltip: _isSearching ? 'Close Search' : 'Search Cached Streams',
                 onPressed: () {
                   setState(() {
                     _isSearching = !_isSearching;
@@ -431,9 +443,46 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   });
                 },
               ),
+              // View Mode Selector
+              PopupMenuButton<TrackViewMode>(
+                icon: Icon(_trackViewMode.icon,
+                    color: _textPrimary, size: isDesktop ? 24 : 22),
+                tooltip: 'View Mode',
+                color: _surfaceColor,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                onSelected: (mode) {
+                  setState(() => _trackViewMode = mode);
+                },
+                itemBuilder: (ctx) => TrackViewMode.values
+                    .map((mode) => PopupMenuItem(
+                          value: mode,
+                          child: Row(
+                            children: [
+                              Icon(mode.icon,
+                                  color: _trackViewMode == mode
+                                      ? _primary
+                                      : _textDark,
+                                  size: 18),
+                              const SizedBox(width: 10),
+                              Text(mode.label,
+                                  style: TextStyle(
+                                    color: _trackViewMode == mode
+                                        ? _primary
+                                        : _textPrimary,
+                                    fontWeight: _trackViewMode == mode
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  )),
+                            ],
+                          ),
+                        ))
+                    .toList(),
+              ),
               PopupMenuButton<String>(
                 icon: Icon(Icons.sort_rounded,
                     color: _textPrimary, size: isDesktop ? 24 : 22),
+                tooltip: 'Sort Options',
                 color: _surfaceColor,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14)),
@@ -511,7 +560,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   Widget _buildActionSummaryCard(List<CachedStreamItem> allItems,
       List<CachedStreamItem> displayedItems, bool isDesktop) {
     return Padding(
-      padding: const EdgeInsets.only(top: 12.0, bottom: 16.0),
+      padding: const EdgeInsets.only(top: 4.0, bottom: 12.0),
       child: Row(
         children: [
           // Play All Button
@@ -545,7 +594,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: _textPrimary,
                 side: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.15), width: 1),
+                    color: _outline.withValues(alpha: 0.25), width: 1),
                 padding: EdgeInsets.symmetric(vertical: isDesktop ? 16 : 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -568,139 +617,459 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     );
   }
 
-  Widget _buildTrackCard(CachedStreamItem track,
-      List<CachedStreamItem> allTracks, int index, bool isDesktop) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: _surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
-      ),
-      child: InkWell(
-        onTap: () {
-          widget.onPlayTracks(allTracks, initialIndex: index);
+  Widget _buildListContent(List<CachedStreamItem> items,
+      List<CachedStreamItem> rawItems, bool isDesktop) {
+    if (_trackViewMode == TrackViewMode.compact) {
+      return ListView.builder(
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32 : 16,
+          vertical: 8,
+        ).copyWith(bottom: 140),
+        itemCount: 1 + items.length,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _buildActionSummaryCard(rawItems, items, isDesktop);
+          }
+          final itemIndex = index - 1;
+          final track = items[itemIndex];
+          final isFirst = itemIndex == 0;
+          final isLast = itemIndex == items.length - 1;
+
+          return _buildCompactTrackItem(
+            track,
+            items,
+            itemIndex,
+            isDesktop: isDesktop,
+            isFirst: isFirst,
+            isLast: isLast,
+          );
         },
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
-          child: Row(
-            children: [
-              // Artwork / Thumbnail
-              Container(
-                width: isDesktop ? 56 : 48,
-                height: isDesktop ? 56 : 48,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: _bgDark,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: track.thumbnailUrl != null &&
-                          track.thumbnailUrl!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: track.thumbnailUrl!,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 140,
-                          memCacheHeight: 140,
-                          errorWidget: (_, __, ___) => const Icon(
-                              Icons.podcasts_rounded,
-                              color: Colors.tealAccent,
-                              size: 24),
-                        )
-                      : Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF00796B), Color(0xFF004D40)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                          child: const Icon(Icons.podcasts_rounded,
-                              color: Colors.white, size: 24),
-                        ),
-                ),
+      );
+    } else if (_trackViewMode == TrackViewMode.grid) {
+      return CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16,
+              vertical: 8,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _buildActionSummaryCard(rawItems, items, isDesktop),
+            ),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              isDesktop ? 32 : 16,
+              0,
+              isDesktop ? 32 : 16,
+              140,
+            ),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: isDesktop ? 4 : 2,
+                childAspectRatio: 0.78,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
               ),
-              const SizedBox(width: 14),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final track = items[index];
+                  return _buildGridTrackItem(track, items, index,
+                      isDesktop: isDesktop);
+                },
+                childCount: items.length,
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      // Standard Virtualized ListView with connected M3E rounded card style matching library tracks screen
+      return ListView.builder(
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 32 : 16,
+          vertical: 8,
+        ).copyWith(bottom: 140),
+        itemCount: 1 + items.length,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _buildActionSummaryCard(rawItems, items, isDesktop);
+          }
+          final itemIndex = index - 1;
+          final track = items[itemIndex];
+          final isFirst = itemIndex == 0;
+          final isLast = itemIndex == items.length - 1;
 
-              // Title and Subtitles
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      track.title,
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: isDesktop ? 16 : 14.5,
-                        fontWeight: FontWeight.w600,
+          return _buildStandardTrackItem(
+            track,
+            items,
+            itemIndex,
+            isDesktop: isDesktop,
+            isFirst: isFirst,
+            isLast: isLast,
+          );
+        },
+      );
+    }
+  }
+
+  /// Standard connected M3E card style
+  Widget _buildStandardTrackItem(
+    CachedStreamItem track,
+    List<CachedStreamItem> allTracks,
+    int index, {
+    bool isDesktop = false,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
+    final thumbSize = isDesktop ? 60.0 : 48.0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3.0),
+      child: Material(
+        color: _surfaceColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(
+            color: _outline.withValues(alpha: 0.12),
+            width: 1.0,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                _buildArtwork(track, thumbSize, isDesktop, shape: Shapes.pill),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 15 : 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: _textPrimary,
+                        ),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            track.artist,
-                            style: TextStyle(
-                              color: _textDark,
-                              fontSize: isDesktop ? 13 : 12,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${track.artist.isNotEmpty ? track.artist : "Online Stream"} • ${track.durationSeconds > 0 ? "${track.formattedDuration} • " : ""}${track.formattedSize}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 13 : 11.5,
+                          color: _textDark,
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '•',
-                          style: TextStyle(color: _textDark, fontSize: 10),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          track.formattedSize,
-                          style: TextStyle(
-                            color: Colors.tealAccent.withValues(alpha: 0.9),
-                            fontSize: isDesktop ? 12 : 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        if (track.durationSeconds > 0) ...[
-                          const SizedBox(width: 6),
-                          Text(
-                            '•',
-                            style: TextStyle(color: _textDark, fontSize: 10),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            track.formattedDuration,
-                            style: TextStyle(
-                              color: _textDark,
-                              fontSize: isDesktop ? 12 : 11,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                SongOptionsMenuButton(
+                  iconSize: isDesktop ? 22 : 18,
+                  onOptionSelected: (option) =>
+                      _handleSongOption(track, option),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-              // Trailing Options
-              IconButton(
-                icon: Icon(Icons.more_vert_rounded,
-                    color: _textDark, size: isDesktop ? 22 : 20),
-                onPressed: () => _showTrackOptions(context, track, isDesktop),
+  /// Compact connected M3E card style
+  Widget _buildCompactTrackItem(
+    CachedStreamItem track,
+    List<CachedStreamItem> allTracks,
+    int index, {
+    bool isDesktop = false,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3.0),
+      child: Material(
+        color: _surfaceColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(
+            color: _outline.withValues(alpha: 0.12),
+            width: 1.0,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              children: [
+                _buildArtwork(track, isDesktop ? 40 : 34, isDesktop,
+                    shape: Shapes.pill),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 14 : 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        '${track.artist.isNotEmpty ? track.artist : "Online Stream"} • ${track.formattedSize}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: isDesktop ? 12 : 11,
+                          color: _textDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SongOptionsMenuButton(
+                  iconSize: isDesktop ? 18 : 16,
+                  onOptionSelected: (option) =>
+                      _handleSongOption(track, option),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// M3E Grid Card with Bento styling
+  Widget _buildGridTrackItem(
+    CachedStreamItem track,
+    List<CachedStreamItem> allTracks,
+    int index, {
+    bool isDesktop = false,
+  }) {
+    const Shapes itemShape = Shapes.slanted;
+
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          child: M3EContainer(
+            Shapes.bun,
+            width: double.infinity,
+            height: double.infinity,
+            color: _surfaceColor.withAlpha(240),
+            border: BorderSide(
+              color: _primary.withValues(alpha: 0.18),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
+            padding: const EdgeInsets.all(10),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: _buildArtwork(
+                          track,
+                          double.infinity,
+                          isDesktop,
+                          shape: itemShape,
+                        ),
+                      ),
+                      // Top-Right Options Badge
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: M3EContainer.circle(
+                          width: 32,
+                          height: 32,
+                          color: Colors.black.withValues(alpha: 0.65),
+                          child: SongOptionsMenuButton(
+                            iconSize: 18,
+                            onOptionSelected: (option) =>
+                                _handleSongOption(track, option),
+                          ),
+                        ),
+                      ),
+                      // Bottom-Right Play Badge
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: M3EContainer.circle(
+                          width: 32,
+                          height: 32,
+                          gradient: LinearGradient(
+                            colors: [
+                              _primary,
+                              _primary.withValues(alpha: 0.8),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          child: const Center(
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              size: 20,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _textPrimary,
+                    fontSize: isDesktop ? 14 : 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        track.artist.isNotEmpty ? track.artist : "Online Stream",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _textDark,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    M3EShape(
+                      itemShape,
+                      width: 12,
+                      height: 12,
+                      color: _primary.withValues(alpha: 0.8),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildArtwork(
+    CachedStreamItem track,
+    double size,
+    bool isDesktop, {
+    Shapes shape = Shapes.pill,
+  }) {
+    if (track.thumbnailUrl != null && track.thumbnailUrl!.isNotEmpty) {
+      return SizedBox(
+        width: size == double.infinity ? null : size,
+        height: size == double.infinity ? null : size,
+        child: M3EContainer(
+          shape,
+          color: _bgDark,
+          clipBehavior: Clip.antiAlias,
+          child: CachedNetworkImage(
+            imageUrl: track.thumbnailUrl!,
+            fit: BoxFit.cover,
+            memCacheWidth: 160,
+            memCacheHeight: 160,
+            errorWidget: (_, __, ___) =>
+                _buildFallbackArtwork(track, size, shape),
+          ),
+        ),
+      );
+    }
+    return _buildFallbackArtwork(track, size, shape);
+  }
+
+  Widget _buildFallbackArtwork(
+      CachedStreamItem track, double size, Shapes shape) {
+    if (File(track.filePath).existsSync()) {
+      return LocalAlbumArt(
+        path: track.filePath,
+        size: size == double.infinity ? 100 : size,
+        shape: shape,
+        useM3Shape: true,
+      );
+    }
+    final isSquareOrInf = size == double.infinity;
+    return SizedBox(
+      width: isSquareOrInf ? null : size,
+      height: isSquareOrInf ? null : size,
+      child: M3EContainer(
+        shape,
+        gradient: LinearGradient(
+          colors: [
+            _primary.withValues(alpha: 0.8),
+            const Color(0xFF004D40),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        child: Center(
+          child: Icon(
+            Icons.podcasts_rounded,
+            color: Colors.white,
+            size: isSquareOrInf ? 32 : (size * 0.45),
           ),
         ),
       ),
