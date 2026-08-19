@@ -1,5 +1,5 @@
 ﻿## v0.6.20 — 2026-08-18
-
+- Reesigned the app with material 3 expressive components for a fresh look. 
 - Add developer info (name, copyright year) to Misc & System About section
 - Add inline changelog viewer to Misc & System screen
 - File extension sorting (A-Z / Z-A) in tracks sort dialog

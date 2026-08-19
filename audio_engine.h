@@ -134,6 +134,17 @@ extern "C"
     AE_API bool ae_jump_to(AudioEngineHandle *engine, int index);
     AE_API bool ae_jump_to_with_position(AudioEngineHandle *engine, int index, double position_seconds);
     AE_API int ae_is_network_streaming_supported(void);
+    AE_API int ae_get_stream_telemetry(AudioEngineHandle *engine,
+                                       int *out_state,
+                                       int *out_error_code,
+                                       double *out_buffered_duration_sec,
+                                       double *out_total_duration_sec,
+                                       double *out_buffer_percent,
+                                       int64_t *out_bitrate,
+                                       char *out_codec_name, int codec_name_len,
+                                       char *out_icy_title, int icy_title_len,
+                                       char *out_icy_artist, int icy_artist_len);
+    AE_API int ae_is_stream_live(AudioEngineHandle *engine);
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *engine, int loop_mode);
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);

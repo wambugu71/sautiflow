@@ -12,6 +12,7 @@ $includes = @(
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
+    "-Ithird_party/ffmpeg/include",
     "-IViPERDSP/include",
     "-IViPERDSP/viper"
 )
@@ -65,6 +66,7 @@ foreach ($f in $cFiles) {
 $cppFiles = @(
     "audio_engine.cpp",
     "mp4_aac_decoder.cpp",
+    "ffmpeg_stream_decoder.cpp",
     "ViPERDSP/viper/ViPER.cpp"
 ) + (Get-ChildItem -Path "ViPERDSP/viper/effects/*.cpp" | Select-Object -ExpandProperty FullName) + `
     (Get-ChildItem -Path "ViPERDSP/viper/utils/*.cpp" | Select-Object -ExpandProperty FullName)
@@ -79,8 +81,17 @@ foreach ($f in $cppFiles) {
 
 Write-Host "Linking sautiflow.dll & audio_engine.dll..."
 $allObjs = Get-ChildItem -Path "$objDir/*.o" | Select-Object -ExpandProperty FullName
-g++ -shared -std=c++20 -O2 -o sautiflow.dll @allObjs -static-libgcc -static-libstdc++ -lwinmm -lm
+g++ -shared -std=c++20 -O2 -o sautiflow.dll @allObjs -Lthird_party/ffmpeg/lib -lavformat -lavcodec -lavutil -lswresample -static-libgcc -static-libstdc++ -lwinmm -lws2_32 -lbcrypt -lsecur32 -lm
 if ($LASTEXITCODE -ne 0) { throw "Linking sautiflow.dll failed" }
 
 Copy-Item sautiflow.dll audio_engine.dll -Force
-Write-Host "DLL build complete! Created sautiflow.dll and audio_engine.dll."
+
+# Copy FFmpeg runtime DLLs to root and build directories
+if (Test-Path "third_party/ffmpeg/bin") {
+    try { Copy-Item third_party/ffmpeg/bin/*.dll . -Force -ErrorAction SilentlyContinue } catch {}
+    if (Test-Path "sautiplay") {
+        try { Copy-Item third_party/ffmpeg/bin/*.dll sautiplay/ -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
+Write-Host "DLL build complete! Created sautiflow.dll and audio_engine.dll with native FFmpeg streaming."

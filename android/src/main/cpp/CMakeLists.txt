@@ -33,6 +33,7 @@ file(GLOB VIPER_EFFECT_SRCS
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
   ../../../../mp4_aac_decoder.cpp
+  ../../../../ffmpeg_stream_decoder.cpp
   ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
@@ -47,6 +48,7 @@ target_include_directories(audio_engine PRIVATE
   ../../../../third_party/libsamplerate/include
   ../../../../third_party/libsoxr/include
   ../../../../third_party/libsoxr/src
+  ../../../../third_party/ffmpeg/include
   ../../../../ViPERDSP/include
   ../../../../ViPERDSP/viper
   ../../../../ViPERDSP/viper/effects
@@ -151,6 +153,23 @@ if(MINIAUDIODART_ENABLE_CURL)
       "To enable, provide MINIAUDIODART_CURL_INCLUDE_DIR and MINIAUDIODART_CURL_LIBRARY "
       "or bundle artifacts under native/android/include and native/android/<ABI>/libcurl.(so|a)."
     )
+# FFmpeg native libraries resolution for Android
+set(_md_ffmpeg_lib_dir "${_md_repo_root}/third_party/ffmpeg/android/${ANDROID_ABI}")
+if(NOT EXISTS "${_md_ffmpeg_lib_dir}")
+  set(_md_ffmpeg_lib_dir "${_md_repo_root}/native/android/${ANDROID_ABI}")
+endif()
+
+if(EXISTS "${_md_ffmpeg_lib_dir}")
+  target_link_directories(audio_engine PRIVATE ${_md_ffmpeg_lib_dir})
+  target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample)
+else()
+  # Attempt direct/system resolution
+  find_library(avformat-lib avformat)
+  find_library(avcodec-lib avcodec)
+  find_library(avutil-lib avutil)
+  find_library(swresample-lib swresample)
+  if(avformat-lib AND avcodec-lib AND avutil-lib AND swresample-lib)
+    target_link_libraries(audio_engine PRIVATE ${avformat-lib} ${avcodec-lib} ${avutil-lib} ${swresample-lib})
   endif()
 endif()
 

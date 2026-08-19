@@ -33,6 +33,7 @@ file(GLOB VIPER_EFFECT_SRCS
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../mp4_aac_decoder.cpp
+  ../ffmpeg_stream_decoder.cpp
   ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
@@ -47,6 +48,7 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/effects
@@ -73,11 +75,19 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
-find_package(CURL QUIET)
-if(CURL_FOUND)
-  target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
-  target_link_libraries(audio_engine PRIVATE ${CURL_LIBRARIES})
-  target_include_directories(audio_engine PRIVATE ${CURL_INCLUDE_DIRS})
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+  pkg_check_modules(FFMPEG QUIET libavformat libavcodec libavutil libswresample)
+  if(FFMPEG_FOUND)
+    target_include_directories(audio_engine PRIVATE ${FFMPEG_INCLUDE_DIRS})
+    target_link_libraries(audio_engine PRIVATE ${FFMPEG_LIBRARIES})
+  else()
+    target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/lib)
+    target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample)
+  endif()
+else()
+  target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/lib)
+  target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample)
 endif()
 
 target_link_libraries(audio_engine PRIVATE

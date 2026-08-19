@@ -22,13 +22,21 @@ class IsolateAudioPlayer {
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
   final _analyzerController = StreamController<Float32List>.broadcast();
+  final _telemetryController = StreamController<StreamTelemetry>.broadcast();
+  final _bufferingController = StreamController<bool>.broadcast();
 
   final List<Map<String, dynamic>> _pendingCommands = [];
   bool _networkStreamingSupported = false;
+  StreamTelemetry _lastTelemetry = const StreamTelemetry();
+  bool _isBuffering = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
+  Stream<StreamTelemetry> get streamTelemetryStream => _telemetryController.stream;
+  Stream<bool> get bufferingStream => _bufferingController.stream;
+  StreamTelemetry get streamTelemetry => _lastTelemetry;
+  bool get isBuffering => _isBuffering;
 
   MiniAudioSystemAudioController? _systemAudio;
   DesktopSystemAudioController? _desktopAudio;
@@ -89,6 +97,9 @@ class IsolateAudioPlayer {
         _statusController.add(message);
       } else if (message is Float32List) {
         _analyzerController.add(message);
+      } else if (message is StreamTelemetry) {
+        _lastTelemetry = message;
+        _telemetryController.add(message);
       } else if (message is Map) {
         if (message['type'] == 'capabilities') {
           final supported = message['networkStreamingSupported'] == true;
@@ -96,6 +107,10 @@ class IsolateAudioPlayer {
           _logController.add(
             '[capabilities] network streaming: ${supported ? 'enabled' : 'disabled'}',
           );
+        } else if (message['type'] == 'buffering') {
+          final buffering = message['isBuffering'] == true;
+          _isBuffering = buffering;
+          _bufferingController.add(buffering);
         } else if (message['type'] == 'clippedCount') {
           _clippedSamplesCount = (message['count'] as int?) ?? 0;
         }
@@ -134,6 +149,8 @@ class IsolateAudioPlayer {
     _statusController.close();
     _logController.close();
     _analyzerController.close();
+    _telemetryController.close();
+    _bufferingController.close();
     _receivePort.close();
   }
 
@@ -926,6 +943,14 @@ void _isolateEntry(_IsolateInitData initData) {
     initData.sendPort.send(status);
   });
 
+  player.streamTelemetryStream.listen((tel) {
+    initData.sendPort.send(tel);
+  });
+
+  player.bufferingStream.listen((buffering) {
+    initData.sendPort.send({'type': 'buffering', 'isBuffering': buffering});
+  });
+
   player.logStream.listen((log) {
     initData.sendPort.send('[log]$log');
   });
@@ -1497,6 +1522,7 @@ void _isolateEntry(_IsolateInitData initData) {
             final crossfeedParams = player.getCrossfeedParams();
             final viperOn = player.viperEnabled;
             final qt = player.getQualityTelemetry();
+            final st = player.getStreamTelemetry();
             int inputRate = ps.inputSampleRate;
             int inputChannels = ps.inputChannels;
             int inputBitDepth = 16;
@@ -1554,6 +1580,17 @@ void _isolateEntry(_IsolateInitData initData) {
               'loudnessRangeLRA': qt.loudnessRangeLRA,
               'limiterGainReductionDB': qt.limiterGainReductionDB,
               'crestFactorDB': qt.crestFactorDB,
+              'streamState': st.state.name,
+              'streamBufferedDurationMs': st.bufferedDuration.inMilliseconds,
+              'streamTotalDurationMs': st.totalDuration.inMilliseconds,
+              'streamBufferPercent': st.bufferPercent,
+              'streamBitrate': st.bitrate,
+              'streamCodecName': st.codecName,
+              'streamIcyTitle': st.icyTitle,
+              'streamIcyArtist': st.icyArtist,
+              'streamIsLive': st.isLive,
+              'streamIsSeekable': st.isSeekable,
+              'streamIsBuffering': st.isBuffering,
             });
           } catch (e) {
             replyTo.send({'error': e.toString()});

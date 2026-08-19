@@ -75,6 +75,57 @@ class EqBandConfig {
   final double slope;
 }
 
+enum StreamPlaybackState {
+  idle,
+  connecting,
+  buffering,
+  ready,
+  playing,
+  ended,
+  error,
+}
+
+class StreamTelemetry {
+  final StreamPlaybackState state;
+  final int errorCode;
+  final Duration bufferedDuration;
+  final Duration totalDuration;
+  final double bufferPercent;
+  final int bitrate;
+  final String codecName;
+  final String icyTitle;
+  final String icyArtist;
+  final bool isLive;
+  final bool isSeekable;
+
+  const StreamTelemetry({
+    this.state = StreamPlaybackState.idle,
+    this.errorCode = 0,
+    this.bufferedDuration = Duration.zero,
+    this.totalDuration = Duration.zero,
+    this.bufferPercent = 0.0,
+    this.bitrate = 0,
+    this.codecName = '',
+    this.icyTitle = '',
+    this.icyArtist = '',
+    this.isLive = false,
+    this.isSeekable = true,
+  });
+
+  bool get isBuffering =>
+      state == StreamPlaybackState.buffering ||
+      state == StreamPlaybackState.connecting;
+  bool get isPlaying => state == StreamPlaybackState.playing;
+  bool get isEnded => state == StreamPlaybackState.ended;
+  bool get hasError => state == StreamPlaybackState.error;
+
+  @override
+  String toString() =>
+      'StreamTelemetry(state: $state, buffered: ${bufferedDuration.inSeconds}s, '
+      'total: ${totalDuration.inSeconds}s, bufferPct: ${bufferPercent.toStringAsFixed(1)}%, '
+      'bitrate: ${bitrate ~/ 1000}kbps, codec: $codecName, icy: "$icyArtist - $icyTitle", isLive: $isLive, isSeekable: $isSeekable)';
+}
+
 class AudioSource {
   final Uri uri;
   final String? title;
@@ -1038,6 +1089,39 @@ typedef _GetPushStreamBufferedBytesDart = int Function(ffi.Pointer<ffi.Void>);
 typedef _GetNetworkStreamingSupportNative = ffi.Int32 Function();
 typedef _GetNetworkStreamingSupportDart = int Function();
 
+typedef _GetStreamTelemetryNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outState,
+    ffi.Pointer<ffi.Int32> outErrorCode,
+    ffi.Pointer<ffi.Double> outBufferedDurationSec,
+    ffi.Pointer<ffi.Double> outTotalDurationSec,
+    ffi.Pointer<ffi.Double> outBufferPercent,
+    ffi.Pointer<ffi.Int64> outBitrate,
+    ffi.Pointer<ffi.Char> outCodecName,
+    ffi.Int32 codecNameLen,
+    ffi.Pointer<ffi.Char> outIcyTitle,
+    ffi.Int32 icyTitleLen,
+    ffi.Pointer<ffi.Char> outIcyArtist,
+    ffi.Int32 icyArtistLen);
+
+typedef _GetStreamTelemetryDart = int Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outState,
+    ffi.Pointer<ffi.Int32> outErrorCode,
+    ffi.Pointer<ffi.Double> outBufferedDurationSec,
+    ffi.Pointer<ffi.Double> outTotalDurationSec,
+    ffi.Pointer<ffi.Double> outBufferPercent,
+    ffi.Pointer<ffi.Int64> outBitrate,
+    ffi.Pointer<ffi.Char> outCodecName,
+    int codecNameLen,
+    ffi.Pointer<ffi.Char> outIcyTitle,
+    int icyTitleLen,
+    ffi.Pointer<ffi.Char> outIcyArtist,
+    int icyArtistLen);
+
+typedef _IsStreamLiveNative = ffi.Int32 Function(ffi.Pointer<ffi.Void> engine);
+typedef _IsStreamLiveDart = int Function(ffi.Pointer<ffi.Void> engine);
+
 typedef _SetAnalyzerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetAnalyzerEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -1799,6 +1883,20 @@ class AudioEngineFFI {
     }
 
     try {
+      _getStreamTelemetry = _lib.lookupFunction<_GetStreamTelemetryNative,
+          _GetStreamTelemetryDart>('ae_get_stream_telemetry');
+    } catch (_) {
+      _getStreamTelemetry = null;
+    }
+
+    try {
+      _isStreamLive = _lib.lookupFunction<_IsStreamLiveNative,
+          _IsStreamLiveDart>('ae_is_stream_live');
+    } catch (_) {
+      _isStreamLive = null;
+    }
+
+    try {
       _inspectFile = _lib.lookupFunction<_InspectFileNative, _InspectFileDart>(
         'ae_inspect_file',
       );
@@ -2000,6 +2098,8 @@ class AudioEngineFFI {
   late final _MallocDart _malloc;
   late final _FreeDart _free;
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
+  _GetStreamTelemetryDart? _getStreamTelemetry;
+  _IsStreamLiveDart? _isStreamLive;
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
   _RegisterAndroidJvmDart? _registerAndroidJvm;
@@ -2106,11 +2206,41 @@ class AudioEngineFFI {
     return _engine != ffi.nullptr;
   }
 
+  ffi.Pointer<ffi.Int32>? _telStatePtr;
+  ffi.Pointer<ffi.Int32>? _telErrorCodePtr;
+  ffi.Pointer<ffi.Double>? _telBufferedPtr;
+  ffi.Pointer<ffi.Double>? _telTotalPtr;
+  ffi.Pointer<ffi.Double>? _telBufferPctPtr;
+  ffi.Pointer<ffi.Int64>? _telBitratePtr;
+  ffi.Pointer<ffi.Char>? _telCodecPtr;
+  ffi.Pointer<ffi.Char>? _telIcyTitlePtr;
+  ffi.Pointer<ffi.Char>? _telIcyArtistPtr;
+
   void dispose() {
     if (_analyzerBufferPtr != null && _analyzerBufferPtr != ffi.nullptr) {
       _freePtr(_analyzerBufferPtr!.cast<ffi.Void>());
       _analyzerBufferPtr = null;
       _analyzerBufferCapacity = 0;
+    }
+    if (_telStatePtr != null) {
+      _freePtr(_telStatePtr!.cast<ffi.Void>());
+      _freePtr(_telErrorCodePtr!.cast<ffi.Void>());
+      _freePtr(_telBufferedPtr!.cast<ffi.Void>());
+      _freePtr(_telTotalPtr!.cast<ffi.Void>());
+      _freePtr(_telBufferPctPtr!.cast<ffi.Void>());
+      _freePtr(_telBitratePtr!.cast<ffi.Void>());
+      _freePtr(_telCodecPtr!.cast<ffi.Void>());
+      _freePtr(_telIcyTitlePtr!.cast<ffi.Void>());
+      _freePtr(_telIcyArtistPtr!.cast<ffi.Void>());
+      _telStatePtr = null;
+      _telErrorCodePtr = null;
+      _telBufferedPtr = null;
+      _telTotalPtr = null;
+      _telBufferPctPtr = null;
+      _telBitratePtr = null;
+      _telCodecPtr = null;
+      _telIcyTitlePtr = null;
+      _telIcyArtistPtr = null;
     }
     if (_engine != ffi.nullptr) {
       _destroyEngine(_engine);
@@ -2122,6 +2252,88 @@ class AudioEngineFFI {
     final getter = _getNetworkStreamingSupport;
     if (getter == null) return false;
     return getter() != 0;
+  }
+
+  StreamTelemetry getStreamTelemetry() {
+    final getter = _getStreamTelemetry;
+    if (getter == null || _engine == ffi.nullptr) {
+      return const StreamTelemetry();
+    }
+
+    const codecLen = 32;
+    const icyLen = 256;
+
+    if (_telStatePtr == null) {
+      _telStatePtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+      _telErrorCodePtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+      _telBufferedPtr = _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
+      _telTotalPtr = _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
+      _telBufferPctPtr = _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
+      _telBitratePtr = _malloc(ffi.sizeOf<ffi.Int64>()).cast<ffi.Int64>();
+      _telCodecPtr = _malloc(codecLen).cast<ffi.Char>();
+      _telIcyTitlePtr = _malloc(icyLen).cast<ffi.Char>();
+      _telIcyArtistPtr = _malloc(icyLen).cast<ffi.Char>();
+    }
+
+    final outState = _telStatePtr!;
+    final outErrorCode = _telErrorCodePtr!;
+    final outBuffered = _telBufferedPtr!;
+    final outTotal = _telTotalPtr!;
+    final outBufferPct = _telBufferPctPtr!;
+    final outBitrate = _telBitratePtr!;
+    final outCodec = _telCodecPtr!;
+    final outIcyTitle = _telIcyTitlePtr!;
+    final outIcyArtist = _telIcyArtistPtr!;
+
+    getter(
+      _engine,
+      outState,
+      outErrorCode,
+      outBuffered,
+      outTotal,
+      outBufferPct,
+      outBitrate,
+      outCodec,
+      codecLen,
+      outIcyTitle,
+      icyLen,
+      outIcyArtist,
+      icyLen,
+    );
+
+    final stateIdx = outState.value;
+    final state = (stateIdx >= 0 && stateIdx < StreamPlaybackState.values.length)
+        ? StreamPlaybackState.values[stateIdx]
+        : StreamPlaybackState.idle;
+
+    final codecStr = outCodec.cast<Utf8>().toDartString();
+    final icyTitleStr = outIcyTitle.cast<Utf8>().toDartString();
+    final icyArtistStr = outIcyArtist.cast<Utf8>().toDartString();
+    final isLive = isCurrentStreamLive();
+
+    return StreamTelemetry(
+      state: state,
+      errorCode: outErrorCode.value,
+      bufferedDuration: Duration(
+        milliseconds: (outBuffered.value * 1000).round(),
+      ),
+      totalDuration: Duration(
+        milliseconds: (outTotal.value * 1000).round(),
+      ),
+      bufferPercent: outBufferPct.value,
+      bitrate: outBitrate.value,
+      codecName: codecStr,
+      icyTitle: icyTitleStr,
+      icyArtist: icyArtistStr,
+      isLive: isLive,
+      isSeekable: !isLive && outTotal.value > 0,
+    );
+  }
+
+  bool isCurrentStreamLive() {
+    final getter = _isStreamLive;
+    if (getter == null || _engine == ffi.nullptr) return false;
+    return getter(_engine) != 0;
   }
 
   bool setPlaylist(List<String> paths) {
@@ -2377,8 +2589,16 @@ class AudioEngineFFI {
     }
 
     final s = getStatus();
-    if (s.durationSeconds <= 0) return false;
-    final percent = (position.inMicroseconds / 1000000.0) / s.durationSeconds;
+    double durationSec = s.durationSeconds;
+    if (durationSec <= 0) {
+      final tel = getStreamTelemetry();
+      if (tel.isSeekable && tel.totalDuration.inMilliseconds > 0) {
+        durationSec = tel.totalDuration.inMicroseconds / 1000000.0;
+      }
+    }
+
+    if (durationSec <= 0) return false;
+    final percent = (position.inMicroseconds / 1000000.0) / durationSec;
     return seek(percent);
   }
 

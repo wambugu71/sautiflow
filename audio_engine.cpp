@@ -22,6 +22,7 @@
 #include <samplerate.h>
 #include <soxr.h>
 #include "mp4_aac_decoder.h"
+#include "ffmpeg_stream_decoder.h"
 #include "ViPERDSP/viper/ViPER.h"
 
 #include <algorithm>
@@ -3505,84 +3506,33 @@ static bool load_decoder_for_path(
                                          : &g_customResamplerVTable;
         cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
     }
-    static ma_decoding_backend_vtable *pCustomDecoders[] = {&g_ma_decoding_backend_vtable_mp4_aac};
+    static ma_decoding_backend_vtable *pCustomDecoders[] = {
+        &g_ma_decoding_backend_vtable_mp4_aac,
+        &g_ma_decoding_backend_vtable_ffmpeg
+    };
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
-    cfg.customBackendCount = 1;
+    cfg.customBackendCount = 2;
     // Build a 200-point seek table for local files so seeking on 1-hour+ mixtapes is instant (<1ms).
     // Keep 0 for network URLs to prevent socket scanning overhead over HTTP.
     cfg.seekPointCount = is_network_url(path) ? 0 : 200;
 
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-    if (is_network_url(path))
-    {
-        auto *st = create_network_stream(path);
-        if (st == nullptr)
-        {
-            set_last_error(e, std::string("Failed to initialize network stream: ") + path);
-            return false;
-        }
-
-        constexpr size_t kInitPrebufferBytes = 32 * 1024;
-        while (!st->stopRequested && !st->networkDone && ma_rb_available_read(&st->encodedRB) < kInitPrebufferBytes)
-        {
-            std::unique_lock<std::mutex> lk(st->mtx);
-            st->cv.wait_for(lk, std::chrono::milliseconds(30));
-        }
-
-        ma_decoder *tmp = new ma_decoder{};
-        engine_log("decoder_init(stream callback): %s (isPreload=%s)", path.c_str(), isPreload ? "true" : "false");
-        ma_result r = ma_decoder_init(stream_on_read, stream_on_seek, st, &cfg, tmp);
-        if (r != MA_SUCCESS)
-        {
-            delete tmp;
-            destroy_network_stream(st);
-            set_last_error(e, std::string("Failed to initialize stream decoder: ") + path);
-            engine_log("decoder_init(stream) failed (ma_result=%d) for: %s", (int)r, path.c_str());
-            return false;
-        }
-
-        ma_uint64 len = 0;
-        (void)ma_decoder_get_length_in_pcm_frames(tmp, &len);
-
-        *outDecoder = tmp;
-        *outLength = len;
-        if (outStream != nullptr)
-            *outStream = st;
-
-        ma_format nativeFmt = ma_format_unknown;
-        ma_uint32 nativeCh = 0;
-        ma_uint32 nativeRate = 0;
-        (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
-
-        uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
-        engine_log("decoder_init(stream) success: %s | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
-                   path.c_str(), srcRate, targetRate, isPreload ? "true" : "false");
-        clear_last_error(e);
-        return true;
-    }
-#else
-    if (is_network_url(path))
-    {
-        set_last_error(e, std::string("Network URL playback not enabled in this build: ") + path);
-        return false;
-    }
-#endif
-
     ma_decoder *tmp = new ma_decoder{};
-    engine_log("decoder_init_file: %s (isPreload=%s)", path.c_str(), isPreload ? "true" : "false");
+    engine_log("decoder_init: %s (isPreload=%s, isNetwork=%s)",
+               path.c_str(), isPreload ? "true" : "false", is_network_url(path) ? "true" : "false");
+
 #if defined(_WIN32) || defined(_WIN64)
-    // Use the wide-character API so that Unicode paths (fullwidth chars, CJK,
-    // emoji, etc.) are opened correctly by the Windows filesystem.
     std::wstring wpath = utf8_to_wstring(path);
-    ma_result r = ma_decoder_init_file_w(wpath.c_str(), &cfg, tmp);
+    ma_result r = is_network_url(path)
+                      ? ma_decoder_init_file(path.c_str(), &cfg, tmp)
+                      : ma_decoder_init_file_w(wpath.c_str(), &cfg, tmp);
 #else
     ma_result r = ma_decoder_init_file(path.c_str(), &cfg, tmp);
 #endif
     if (r != MA_SUCCESS)
     {
-        set_last_error(e, std::string("Failed to decode file: ") + path);
-        engine_log("decoder_init_file failed (ma_result=%d) for: %s", (int)r, path.c_str());
+        set_last_error(e, std::string("Failed to decode source: ") + path);
+        engine_log("decoder_init failed (ma_result=%d) for: %s", (int)r, path.c_str());
         delete tmp;
         return false;
     }
@@ -4317,7 +4267,25 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
-            if (framesRead == 0 || r == MA_AT_END)
+            bool isRealEof = (r == MA_AT_END);
+            if (!isRealEof && framesRead == 0 && e->currentDecoder != nullptr)
+            {
+                sautiflow::StreamTelemetry tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+                if (tel.state == sautiflow::StreamState::Ended)
+                {
+                    isRealEof = true;
+                }
+            }
+
+            if (!isRealEof && framesRead == 0)
+            {
+                // Network stream buffering or transient underrun: wait briefly and retry without stopping playback
+                std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+                e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
+                continue;
+            }
+
+            if (isRealEof)
             {
                 if (e->endCallback != nullptr)
                 {
@@ -4371,6 +4339,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
                     e->seekBasePcmFrame.store(0, std::memory_order_release);
                     e->playedPcmFrames.store(0, std::memory_order_release);
+                    continue;
+                }
+
+                // If next track is not preloaded (e.g. for network streams), check if next track exists in playlist
+                int autoNextIndex = -1;
+                {
+                    std::lock_guard<std::mutex> pl(e->playlistMutex);
+                    if (e->currentIndex >= 0 && e->currentIndex < (int)e->playlist.size())
+                    {
+                        set_order_cursor_for_index_locked(e, e->currentIndex);
+                        autoNextIndex = next_index_locked(e);
+                    }
+                }
+
+                if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
+                {
+                    e->pendingAutoPlay.store(true, std::memory_order_relaxed);
+                    request_jump(e, autoNextIndex);
                     continue;
                 }
 
@@ -5569,9 +5555,18 @@ extern "C"
 
         e->ringBufferFlushing.store(true, std::memory_order_release);
         std::lock_guard<std::mutex> d(e->decoderMutex);
+        if (e->hasCurrent && e->currentLengthFrames == 0 && e->currentDecoder != nullptr)
+        {
+            ma_uint64 len = 0;
+            if (ma_decoder_get_length_in_pcm_frames(e->currentDecoder, &len) == MA_SUCCESS && len > 0)
+            {
+                e->currentLengthFrames = len;
+            }
+        }
+
         if (!e->hasCurrent || e->currentLengthFrames == 0)
         {
-            set_last_error(e, "Seek failed: no active track.");
+            set_last_error(e, "Seek failed: no active track or unseekable live stream.");
             e->ringBufferFlushing.store(false, std::memory_order_release);
             return false;
         }
@@ -5958,11 +5953,57 @@ extern "C"
 
     AE_API int ae_is_network_streaming_supported(void)
     {
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
         return 1;
-#else
-        return 0;
-#endif
+    }
+
+    AE_API int ae_get_stream_telemetry(AudioEngineHandle *e,
+                                       int *out_state,
+                                       int *out_error_code,
+                                       double *out_buffered_duration_sec,
+                                       double *out_total_duration_sec,
+                                       double *out_buffer_percent,
+                                       int64_t *out_bitrate,
+                                       char *out_codec_name, int codec_name_len,
+                                       char *out_icy_title, int icy_title_len,
+                                       char *out_icy_artist, int icy_artist_len)
+    {
+        sautiflow::StreamTelemetry tel;
+        if (e != nullptr && e->currentDecoder != nullptr) {
+            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        } else {
+            tel = sautiflow::get_active_stream_telemetry();
+        }
+
+        if (out_state) *out_state = (int)tel.state;
+        if (out_error_code) *out_error_code = (int)tel.errorCode;
+        if (out_buffered_duration_sec) *out_buffered_duration_sec = tel.bufferedDurationSec;
+        if (out_total_duration_sec) *out_total_duration_sec = tel.totalDurationSec;
+        if (out_buffer_percent) *out_buffer_percent = tel.bufferPercent;
+        if (out_bitrate) *out_bitrate = tel.bitrate;
+        if (out_codec_name && codec_name_len > 0) {
+            std::strncpy(out_codec_name, tel.codecName, codec_name_len - 1);
+            out_codec_name[codec_name_len - 1] = '\0';
+        }
+        if (out_icy_title && icy_title_len > 0) {
+            std::strncpy(out_icy_title, tel.icyTitle, icy_title_len - 1);
+            out_icy_title[icy_title_len - 1] = '\0';
+        }
+        if (out_icy_artist && icy_artist_len > 0) {
+            std::strncpy(out_icy_artist, tel.icyArtist, icy_artist_len - 1);
+            out_icy_artist[icy_artist_len - 1] = '\0';
+        }
+        return 1;
+    }
+
+    AE_API int ae_is_stream_live(AudioEngineHandle *e)
+    {
+        sautiflow::StreamTelemetry tel;
+        if (e != nullptr && e->currentDecoder != nullptr) {
+            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        } else {
+            tel = sautiflow::get_active_stream_telemetry();
+        }
+        return tel.isLiveStream ? 1 : 0;
     }
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *e, int loop_mode)
@@ -6191,6 +6232,13 @@ extern "C"
             if (e->hasCurrent)
             {
                 ma_uint64 len = e->currentLengthFrames;
+                if (len == 0 && e->currentDecoder != nullptr)
+                {
+                    if (ma_decoder_get_length_in_pcm_frames(e->currentDecoder, &len) == MA_SUCCESS && len > 0)
+                    {
+                        e->currentLengthFrames = len;
+                    }
+                }
                 ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
                 ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
                 ma_uint64 currentFrame = baseFrame + played;

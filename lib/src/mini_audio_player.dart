@@ -25,6 +25,8 @@ class MiniAudioPlayer {
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
   final _analyzerController = StreamController<Float32List>.broadcast();
+  final _telemetryController = StreamController<StreamTelemetry>.broadcast();
+  final _bufferingController = StreamController<bool>.broadcast();
   late final MiniAudioSystemAudioController _systemAudio =
       MiniAudioSystemAudioController(
     statusStream: _statusController.stream,
@@ -54,10 +56,13 @@ class MiniAudioPlayer {
   Timer? _analyzerTimer;
   String _lastLog = '';
   bool _analyzerEnabled = false;
+  bool _lastBuffering = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
+  Stream<StreamTelemetry> get streamTelemetryStream => _telemetryController.stream;
+  Stream<bool> get bufferingStream => _bufferingController.stream;
 
   /// Provides direct access to all ViPER DSP features.
   ViperDsp get viper => _viper;
@@ -90,6 +95,8 @@ class MiniAudioPlayer {
     _statusController.close();
     _logController.close();
     _analyzerController.close();
+    _telemetryController.close();
+    _bufferingController.close();
     _engine.dispose();
   }
 
@@ -196,6 +203,11 @@ class MiniAudioPlayer {
       ResampleAlgorithm.values[_engine.getEngineResampleAlgorithm().clamp(0, ResampleAlgorithm.values.length - 1)];
   bool get viperEnabled => _viper.isEnabled;
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
+  StreamTelemetry get streamTelemetry => _engine.getStreamTelemetry();
+  StreamTelemetry getStreamTelemetry() => _engine.getStreamTelemetry();
+  bool isCurrentStreamLive() => _engine.isCurrentStreamLive();
+  bool get isBuffering => _engine.getStreamTelemetry().isBuffering;
+  bool get isLive => _engine.isCurrentStreamLive();
   int getPushStreamBufferedBytes() => _engine.getPushStreamBufferedBytes();
   int getAnalyzerFrameSize() => _engine.getAnalyzerFrameSize();
   int getAnalyzerDroppedFrames() => _engine.getAnalyzerDroppedFrames();
@@ -779,6 +791,15 @@ class MiniAudioPlayer {
     _statusTimer = Timer.periodic(statusPollInterval, (_) {
       if (_statusController.isClosed) return;
       _statusController.add(_engine.getStatus());
+
+      if (!_telemetryController.isClosed) {
+        final tel = _engine.getStreamTelemetry();
+        _telemetryController.add(tel);
+        if (tel.isBuffering != _lastBuffering && !_bufferingController.isClosed) {
+          _lastBuffering = tel.isBuffering;
+          _bufferingController.add(tel.isBuffering);
+        }
+      }
 
       if (!_logController.isClosed) {
         final msg = _engine.getLastError();

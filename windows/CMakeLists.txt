@@ -36,6 +36,7 @@ file(GLOB VIPER_EFFECT_SRCS
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../mp4_aac_decoder.cpp
+  ../ffmpeg_stream_decoder.cpp
   ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
@@ -50,6 +51,7 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper
   ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/effects
@@ -60,6 +62,8 @@ target_compile_definitions(audio_engine PRIVATE
   NOMINMAX
   WIN32_LEAN_AND_MEAN
   _USE_MATH_DEFINES
+  _CRT_SECURE_NO_WARNINGS
+  _CRT_NONSTDC_NO_DEPRECATE
   PACKAGE_VERSION="2.11.1"
   HAVE_INTTYPES_H=1
   HAVE_MEMCPY=1
@@ -85,18 +89,16 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
-# Optional native URL byte-streaming via libcurl (OFF by default on Windows).
-# Enable only when using an MSVC-compatible curl (e.g. vcpkg toolchain).
-option(MINIAUDIODART_ENABLE_CURL "Enable native URL streaming via libcurl" OFF)
-if(MINIAUDIODART_ENABLE_CURL)
-  find_package(CURL REQUIRED)
-  target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
-  target_include_directories(audio_engine PRIVATE ${CURL_INCLUDE_DIRS})
-  target_link_libraries(audio_engine PRIVATE ${CURL_LIBRARIES})
-endif()
-
+target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/lib)
 target_link_libraries(audio_engine PRIVATE
+  avformat
+  avcodec
+  avutil
+  swresample
   winmm
+  ws2_32
+  bcrypt
+  secur32
 )
 
 set_target_properties(audio_engine PROPERTIES

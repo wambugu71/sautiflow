@@ -12,6 +12,7 @@ class MiniPlayer extends StatefulWidget {
   final Uint8List? albumArt;
   final double progress; // 0.0 to 1.0
   final bool isPlaying;
+  final bool isBuffering;
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback? onPrevious;
@@ -24,6 +25,7 @@ class MiniPlayer extends StatefulWidget {
     this.albumArt,
     this.progress = 0.0,
     required this.isPlaying,
+    this.isBuffering = false,
     required this.onPlayPause,
     required this.onNext,
     this.onPrevious,
@@ -240,13 +242,23 @@ class _MiniPlayerState extends State<MiniPlayer>
                     // Controls
                     M3EIconButton(
                       onPressed: widget.onPlayPause,
-                      icon: Icon(
-                        widget.isPlaying
-                            ? Icons.pause_circle_filled
-                            : Icons.play_circle_filled,
-                        size: 32,
-                        color: textPrimary,
-                      ),
+                      icon: widget.isBuffering
+                          ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(textPrimary),
+                              ),
+                            )
+                          : Icon(
+                              widget.isPlaying
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_filled,
+                              size: 32,
+                              color: textPrimary,
+                            ),
                     ),
                     M3EIconButton(
                       onPressed: widget.onNext,

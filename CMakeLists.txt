@@ -33,6 +33,7 @@ file(GLOB VIPER_EFFECT_SRCS
 add_library(audio_engine SHARED
   audio_engine.cpp
   mp4_aac_decoder.cpp
+  ffmpeg_stream_decoder.cpp
   ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
@@ -51,6 +52,7 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsamplerate/include
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsoxr/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/include
   ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/include
   ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper
   ${CMAKE_CURRENT_SOURCE_DIR}/ViPERDSP/viper/effects
@@ -82,27 +84,16 @@ target_compile_definitions(audio_engine PRIVATE
 
 if (WIN32)
   target_compile_definitions(audio_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-  # Disabled by default on Windows because CMake may resolve MSYS2/MinGW curl
-  # headers, which are not MSVC-compatible.
-  target_link_libraries(audio_engine PRIVATE winmm)
+  target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/lib)
+  target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample winmm ws2_32 bcrypt secur32)
 elseif(APPLE)
   find_library(COREAUDIO_FRAMEWORK CoreAudio)
   find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
-  find_package(CURL QUIET)
-  if(CURL_FOUND)
-    target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
-    target_link_libraries(audio_engine PRIVATE ${CURL_LIBRARIES})
-    target_include_directories(audio_engine PRIVATE ${CURL_INCLUDE_DIRS})
-  endif()
-  target_link_libraries(audio_engine PRIVATE ${COREAUDIO_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK})
+  target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/lib)
+  target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample ${COREAUDIO_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK})
 elseif(UNIX)
-  find_package(CURL QUIET)
-  if(CURL_FOUND)
-    target_compile_definitions(audio_engine PRIVATE AE_ENABLE_CURL=1)
-    target_link_libraries(audio_engine PRIVATE ${CURL_LIBRARIES})
-    target_include_directories(audio_engine PRIVATE ${CURL_INCLUDE_DIRS})
-  endif()
-  target_link_libraries(audio_engine PRIVATE pthread dl m)
+  target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/lib)
+  target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample pthread dl m)
 endif()
 
 add_executable(test_cases test/auto_sr_disable_cases_test.cpp)

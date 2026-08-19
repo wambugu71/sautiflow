@@ -23,7 +23,9 @@ dependencies:
   dart_ytmusic_api: ^1.3.7
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
-  youtube_explode_dart: ^3.1.0
+  youtube_explode_dart:
+    git:
+      url: https://github.com/justacalico/youtube_explode_dart.git
   flutter_lyric: ^3.0.2
   shimmer: ^3.0.0
   loading_indicator_m3e: ^0.1.1

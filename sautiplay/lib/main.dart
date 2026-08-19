@@ -194,10 +194,12 @@ class _PlayerShellState extends State<PlayerShell> {
   FtpConfig? _activeFtpConfig;
   bool _isFtpDownloading = false;
   bool _isLoading = false; // Added loading state for miniplayer
+  bool _isPlayerBuffering = false;
 
   StreamSubscription? _statusSubscription;
   StreamSubscription? _logSubscription;
   StreamSubscription? _replayGainSubscription;
+  StreamSubscription? _bufferingSubscription;
 
   final List<double> _eqFrequencies = const [
     31.25,
@@ -290,6 +292,11 @@ class _PlayerShellState extends State<PlayerShell> {
         _logs.removeRange(200, _logs.length);
       }
       _logUpdateCounter.value++;
+    });
+    _bufferingSubscription = _player.bufferingStream.listen((buffering) {
+      if (mounted && _isPlayerBuffering != buffering) {
+        setState(() => _isPlayerBuffering = buffering);
+      }
     });
 
     if (Platform.isAndroid) {
@@ -489,6 +496,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _statusSubscription?.cancel();
     _logSubscription?.cancel();
     _replayGainSubscription?.cancel();
+    _bufferingSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
     _status.dispose();
@@ -910,109 +918,9 @@ class _PlayerShellState extends State<PlayerShell> {
       return null;
     }
 
-    if (_nativeNetworkStreamingSupported) {
-      _logs.insert(0, '[source] Streaming native network source (native mode)');
-      return AudioSource.network(uri.toString());
-    }
-
-    _logs.insert(
-        0, '[source] Caching network stream…');
-
-    final cacheDir = Directory(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_stream_cache',
-    );
-    if (!cacheDir.existsSync()) {
-      cacheDir.createSync(recursive: true);
-    }
-
-    final ext = () {
-      final path = uri.path.toLowerCase();
-      if (path.endsWith('.mp3')) return '.mp3';
-      if (path.endsWith('.aac')) return '.aac';
-      if (path.endsWith('.m4a')) return '.m4a';
-      if (path.endsWith('.wav')) return '.wav';
-      if (path.endsWith('.ogg')) return '.ogg';
-      if (path.endsWith('.flac')) return '.flac';
-      return '.mp3';
-    }();
-
-    // Use a deterministic hash so repeat plays / cached tracks load instantly
-    final safeHash = uri.toString().hashCode.toRadixString(16);
-    final file = File(
-      '${cacheDir.path}${Platform.pathSeparator}stream_$safeHash$ext',
-    );
-
-    if (file.existsSync() && file.lengthSync() > 1024) {
-      _logs.insert(0, '[source] Cache hit – serving from local cache');
-      return AudioSource.uri(file.uri);
-    }
-
-    final tmpFile = File('${file.path}.tmp');
-
-    final client = HttpClient();
-    if (_allowInvalidTlsForDownloads && uri.scheme == 'https') {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
-    try {
-      final req = await client.getUrl(uri);
-      req.headers.set('User-Agent', 'MiniAudioDart/1.0 (Flutter)');
-      req.headers.set('Accept', '*/*');
-
-      final res = await req.close();
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        _logs.insert(0, '[source] HTTP ${res.statusCode}: download failed');
-        return null;
-      }
-
-      final sink = tmpFile.openWrite();
-      await sink.addStream(res);
-      await sink.flush();
-      await sink.close();
-
-      if (tmpFile.existsSync() && tmpFile.lengthSync() > 0) {
-        if (file.existsSync()) {
-          try {
-            file.deleteSync();
-          } catch (_) {}
-        }
-        tmpFile.renameSync(file.path);
-        _logs.insert(0, '[source] Stream downloaded and cached ✓');
-        return AudioSource.uri(file.uri);
-      }
-      return null;
-    } on HandshakeException catch (e) {
-      if (tmpFile.existsSync()) {
-        try {
-          tmpFile.deleteSync();
-        } catch (_) {}
-      }
-      final message = e.toString();
-      if (message.contains('CERTIFICATE_VERIFY_FAILED') &&
-          message.contains('not yet valid')) {
-        _logs.insert(
-          0,
-          '[source] TLS certificate date check failed. Verify device/system clock and timezone, then retry.',
-        );
-        if (!_allowInvalidTlsForDownloads) {
-          _logs.insert(
-            0,
-            '[source] Tip: enable "Allow invalid TLS certs" in Logs tab for testing only.',
-          );
-        }
-      }
-      _logs.insert(0, '[source] Download failed: $e');
-      return null;
-    } catch (e) {
-      if (tmpFile.existsSync()) {
-        try {
-          tmpFile.deleteSync();
-        } catch (_) {}
-      }
-      _logs.insert(0, '[source] Download failed: $e');
-      return null;
-    } finally {
-      client.close(force: true);
-    }
+    // Default to native online streaming via embedded FFmpeg backend (Spotify/ExoPlayer style)
+    _logs.insert(0, '[source] Streaming native online source: $uri');
+    return AudioSource.network(uri.toString());
   }
 
   Future<void> _playFolder(List<String> paths, {int initialIndex = 0}) async {
@@ -2209,6 +2117,7 @@ class _PlayerShellState extends State<PlayerShell> {
                             albumArt: meta.albumArt,
                             progress: progress,
                             isPlaying: status.isPlaying,
+                            isBuffering: _isPlayerBuffering,
                             onPlayPause: () {
                               if (status.isPlaying) {
                                 _player.pause();
