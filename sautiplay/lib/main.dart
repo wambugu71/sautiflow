@@ -1249,7 +1249,6 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   bool _isLocalTrack(TrackInfo track) {
-    if (track.sourceType == 'local') return true;
     if (track.videoId.startsWith('http')) return false;
     return track.videoId.contains(r'\') ||
         track.videoId.contains('/') ||
