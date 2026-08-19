@@ -483,10 +483,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _fetchLyrics() async {
-    if (widget.videoId == null) return;
+    final vId = widget.videoId;
+    if (vId == null ||
+        vId.isEmpty ||
+        widget.sourceType == 'local' ||
+        vId.contains(r'\') ||
+        vId.contains('/') ||
+        vId.contains('.')) {
+      return;
+    }
     try {
       if (mounted) setState(() => _isLoadingLyrics = true);
-      final raw = await _ytMusic.getLyrics(widget.videoId!);
+      final raw = await _ytMusic.getLyrics(vId).timeout(const Duration(seconds: 8));
       if (raw != null && raw.isNotEmpty && mounted) {
         setState(() {
           _lyricsRaw = raw;

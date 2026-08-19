@@ -188,6 +188,7 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _nativeNetworkStreamingSupported = false;
   bool _allowInvalidTlsForDownloads = false;
   int _lastPublishedNowPlayingIndex = -1;
+  int _playbackSessionId = 0;
 
   // FTP Background Downloading State
   List<FtpFileEntry> _pendingFtpDownloads = [];
@@ -235,6 +236,37 @@ class _PlayerShellState extends State<PlayerShell> {
   double _lastPlaybackDuration = 0.0;
   AudioSource? _lastPlaybackSource;
   final Set<String> _cachedTrackIdsThisSession = <String>{};
+  DateTime? _lastOfflineSnackBarTime;
+
+  void _showOfflineSnackBar({String? message}) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    if (_lastOfflineSnackBarTime != null &&
+        now.difference(_lastOfflineSnackBarTime!).inSeconds < 10) {
+      return; // Debounce snackbar
+    }
+    _lastOfflineSnackBarTime = now;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message ?? 'No internet connection. Reconnect to resume streaming.',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   // Showcase Keys for Feature Tour
   final GlobalKey _homeTabKey = GlobalKey();
@@ -431,6 +463,9 @@ class _PlayerShellState extends State<PlayerShell> {
       final tracks =
           queueData.tracks.map((t) => TrackInfo.fromJson(t)).toList();
 
+      _playbackSessionId++;
+      final session = _playbackSessionId;
+
       // Perform restoration - similar to _playOnlineTracks but stay paused
       final sources = <AudioSource>[];
       for (final t in tracks) {
@@ -444,7 +479,7 @@ class _PlayerShellState extends State<PlayerShell> {
         }
       }
 
-      if (sources.isNotEmpty) {
+      if (sources.isNotEmpty && mounted && _playbackSessionId == session) {
         setState(() {
           _currentUiQueue.clear();
           _currentUiQueue.addAll(tracks);
@@ -934,6 +969,10 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Future<void> _playFolder(List<String> paths, {int initialIndex = 0}) async {
+    _isFtpDownloading = false;
+    _playbackSessionId++;
+    final session = _playbackSessionId;
+
     final uniquePaths = <String>[];
     final seenPaths = <String>{};
     for (final path in paths) {
@@ -950,6 +989,8 @@ class _PlayerShellState extends State<PlayerShell> {
       final file = File(uniquePaths[i]);
       final uri = file.absolute.uri;
       final src = await _materializeSource(uri);
+
+      if (!mounted || _playbackSessionId != session) return;
 
       if (src != null) {
         sources.add(src);
@@ -975,6 +1016,8 @@ class _PlayerShellState extends State<PlayerShell> {
     if (initialIndex < 0 || initialIndex >= sources.length) {
       initialIndex = 0;
     }
+
+    if (!mounted || _playbackSessionId != session) return;
 
     setState(() {
       _currentUiQueue.clear();
@@ -1003,12 +1046,16 @@ class _PlayerShellState extends State<PlayerShell> {
     _showNowPlayingScreen();
   }
 
-  Future<void> _fetchAndAppendUpNext(String videoId) async {
+  Future<void> _fetchAndAppendUpNext(String videoId, {int? sessionId}) async {
+    final session = sessionId ?? _playbackSessionId;
     _logs.insert(0, '[stream] Fetching "Up Next" suggestions...');
     try {
       final yt = YTMusic();
       await yt.initialize();
-      final upNexts = await yt.getUpNexts(videoId);
+      if (!mounted || _playbackSessionId != session) return;
+      final upNexts = await yt.getUpNexts(videoId).timeout(const Duration(seconds: 8));
+
+      if (!mounted || _playbackSessionId != session) return;
 
       if (upNexts.isEmpty) {
         _logs.insert(0, '[stream] No recommendations found.');
@@ -1044,6 +1091,8 @@ class _PlayerShellState extends State<PlayerShell> {
         newTracks.removeRange(20, newTracks.length);
       }
 
+      if (!mounted || _playbackSessionId != session) return;
+
       _logs.insert(0, '[stream] Adding ${newTracks.length} tracks to queue...');
       // Update UI queue immediately
       setState(() {
@@ -1051,8 +1100,9 @@ class _PlayerShellState extends State<PlayerShell> {
       });
 
       // Lookahead resolution: resolve next track immediately for gapless preload, then rest in background
-      _resolveLookaheadAndAppend(newTracks);
+      _resolveLookaheadAndAppend(newTracks, sessionId: session);
     } catch (e) {
+      if (!mounted || _playbackSessionId != session) return;
       _logs.insert(0, '[stream] Failed to fetch Up Next: $e');
     }
   }
@@ -1191,6 +1241,11 @@ class _PlayerShellState extends State<PlayerShell> {
         durationSeconds: track.durationSeconds,
       );
     }
+
+    // End-of-loaded-playlist auto-heal: If we completed the last loaded track and more remain in UI queue, resolve the next one!
+    if (trackIndex >= _playlist.length - 1 && _playlist.length < _currentUiQueue.length) {
+      _ensureTrackInPlaylist(_currentUiQueue[_playlist.length]);
+    }
   }
 
   void _ensureLookaheadForActiveTrack(AudioSource currentSource) {
@@ -1207,11 +1262,20 @@ class _PlayerShellState extends State<PlayerShell> {
 
     if (queueIdx != -1 && queueIdx + 1 < _currentUiQueue.length) {
       final nextTrack = _currentUiQueue[queueIdx + 1];
-      _ensureTrackInPlaylist(nextTrack);
+      _ensureTrackInPlaylist(nextTrack).then((success) {
+        // If the immediate next track failed to resolve (e.g. broken/geoblocked/offline),
+        // try to look ahead one more track so the playback pipeline doesn't stall
+        if (!success && queueIdx + 2 < _currentUiQueue.length) {
+          _ensureTrackInPlaylist(_currentUiQueue[queueIdx + 2]);
+        }
+      });
     }
   }
 
-  Future<void> _ensureTrackInPlaylist(TrackInfo track) async {
+  Future<bool> _ensureTrackInPlaylist(TrackInfo track, {int? sessionId}) async {
+    final session = sessionId ?? _playbackSessionId;
+    if (!mounted || _playbackSessionId != session) return false;
+
     final alreadyInPlaylist = _playlist.any((src) {
       if (_onlineTrackMetadata.containsKey(src.uri)) {
         return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
@@ -1221,83 +1285,119 @@ class _PlayerShellState extends State<PlayerShell> {
       }
       return false;
     });
-    if (alreadyInPlaylist) return;
+    if (alreadyInPlaylist) return true;
 
     // Check if track is already cached offline on disk
     final cached = CachedStreamService.instance.getCachedItem(track.videoId);
     if (cached != null && File(cached.filePath).existsSync()) {
+      if (!mounted || _playbackSessionId != session) return false;
       final fileSrc = AudioSource.uri(File(cached.filePath).uri);
       _onlineTrackMetadata[fileSrc.uri] = track;
       setState(() {
         _playlist.add(fileSrc);
       });
       _player.addAudioSource(fileSrc);
-      return;
+      return true;
     }
 
     try {
       final url = await StreamingService.resolveStreamUrl(track.videoId);
-      if (url != null && mounted) {
+      if (!mounted || _playbackSessionId != session) return false;
+      if (url != null) {
         final src = await _materializeSource(Uri.parse(url));
-        if (src != null && mounted) {
+        if (src != null && mounted && _playbackSessionId == session) {
           _onlineTrackMetadata[src.uri] = track;
           _registerCachedStreamMeta(src, track, streamUrl: url);
           setState(() {
             _playlist.add(src);
           });
           _player.addAudioSource(src);
+          return true;
         }
+      } else {
+        _showOfflineSnackBar();
       }
-    } catch (_) {}
+    } catch (e) {
+      if (e is SocketException || e is HandshakeException || e is TimeoutException) {
+        _showOfflineSnackBar();
+      }
+    }
+    return false;
   }
 
-  Future<void> _resolveLookaheadAndAppend(List<TrackInfo> tracks) async {
+  Future<void> _resolveLookaheadAndAppend(List<TrackInfo> tracks, {int? sessionId}) async {
+    final session = sessionId ?? _playbackSessionId;
     if (tracks.isEmpty) return;
+    if (!mounted || _playbackSessionId != session) return;
 
     // 1. Immediately resolve and add the first lookahead track for gapless preload
     final firstTrack = tracks.first;
+    bool isNetworkDown = false;
     try {
       final cachedFirst =
           CachedStreamService.instance.getCachedItem(firstTrack.videoId);
       if (cachedFirst != null && File(cachedFirst.filePath).existsSync()) {
+        if (!mounted || _playbackSessionId != session) return;
         final src = AudioSource.uri(File(cachedFirst.filePath).uri);
-        _onlineTrackMetadata[src.uri] = firstTrack;
-        setState(() {
-          _playlist.add(src);
-        });
-        _player.addAudioSource(src);
-        _logs.insert(
-            0, '[stream] Lookahead loaded from cache: ${firstTrack.title}');
+        final alreadyIn = _playlist.any((s) =>
+            _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
+        if (!alreadyIn) {
+          _onlineTrackMetadata[src.uri] = firstTrack;
+          setState(() {
+            _playlist.add(src);
+          });
+          _player.addAudioSource(src);
+          _logs.insert(
+              0, '[stream] Lookahead loaded from cache: ${firstTrack.title}');
+        }
       } else {
         final firstUrl =
             await StreamingService.resolveStreamUrl(firstTrack.videoId);
-        if (firstUrl != null && mounted) {
+        if (!mounted || _playbackSessionId != session) return;
+        if (firstUrl != null) {
           final src = await _materializeSource(Uri.parse(firstUrl));
-          if (src != null && mounted) {
-            _onlineTrackMetadata[src.uri] = firstTrack;
-            _registerCachedStreamMeta(src, firstTrack, streamUrl: firstUrl);
-            setState(() {
-              _playlist.add(src);
-            });
-            _player.addAudioSource(src);
-            _logs.insert(0, '[stream] Lookahead preloaded: ${firstTrack.title}');
+          if (src != null && mounted && _playbackSessionId == session) {
+            final alreadyIn = _playlist.any((s) =>
+                _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
+            if (!alreadyIn) {
+              _onlineTrackMetadata[src.uri] = firstTrack;
+              _registerCachedStreamMeta(src, firstTrack, streamUrl: firstUrl);
+              setState(() {
+                _playlist.add(src);
+              });
+              _player.addAudioSource(src);
+              _logs.insert(0, '[stream] Lookahead preloaded: ${firstTrack.title}');
+            }
           }
+        } else {
+          isNetworkDown = true;
         }
       }
     } catch (e) {
+      if (!mounted || _playbackSessionId != session) return;
       _logs.insert(
           0, '[stream] Lookahead resolve error for ${firstTrack.title}: $e');
+      if (e is SocketException || e is HandshakeException || e is TimeoutException) {
+        isNetworkDown = true;
+      }
+    }
+
+    if (isNetworkDown) {
+      // If the immediate lookahead failed due to network being down/offline, stop hammering remaining tracks
+      _showOfflineSnackBar();
+      return;
     }
 
     // 2. Progressively resolve remaining tracks in background
     if (tracks.length > 1) {
       final remaining = tracks.sublist(1);
       for (final track in remaining) {
-        if (!mounted) break;
+        if (!mounted || _playbackSessionId != session) break;
         try {
           final cachedRem =
               CachedStreamService.instance.getCachedItem(track.videoId);
           if (cachedRem != null && File(cachedRem.filePath).existsSync()) {
+            if (!mounted || _playbackSessionId != session) break;
             final src = AudioSource.uri(File(cachedRem.filePath).uri);
             final alreadyIn = _playlist.any((s) =>
                 _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
@@ -1310,9 +1410,10 @@ class _PlayerShellState extends State<PlayerShell> {
             }
           } else {
             final url = await StreamingService.resolveStreamUrl(track.videoId);
-            if (url != null && mounted) {
+            if (!mounted || _playbackSessionId != session) break;
+            if (url != null) {
               final src = await _materializeSource(Uri.parse(url));
-              if (src != null && mounted) {
+              if (src != null && mounted && _playbackSessionId == session) {
                 final alreadyIn = _playlist.any((s) =>
                     _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
                 if (!alreadyIn) {
@@ -1324,9 +1425,18 @@ class _PlayerShellState extends State<PlayerShell> {
                   _player.addAudioSource(src);
                 }
               }
+            } else {
+              // Network failed / offline, abort background lookahead loop
+              _showOfflineSnackBar();
+              break;
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          if (e is SocketException || e is HandshakeException || e is TimeoutException) {
+            _showOfflineSnackBar();
+            break;
+          }
+        }
       }
     }
   }
@@ -1339,6 +1449,9 @@ class _PlayerShellState extends State<PlayerShell> {
   }) async {
     _isFtpDownloading = false;
     if (tracks.isEmpty) return;
+
+    _playbackSessionId++;
+    final session = _playbackSessionId;
 
     _logs.insert(0,
         '[stream] Resolving ${tracks.length} tracks (starting at #${initialIndex + 1})...');
@@ -1361,8 +1474,11 @@ class _PlayerShellState extends State<PlayerShell> {
       // Resolve online stream
       final detail =
           await StreamingService.resolveStreamDetailed(tappedTrack.videoId);
+      if (!mounted || _playbackSessionId != session) return;
       if (detail == null) {
         _logs.insert(0, '[stream] Failed to resolve: ${tappedTrack.title}');
+        _showOfflineSnackBar(
+            message: 'Unable to stream "${tappedTrack.title}". Please check your internet connection.');
         setState(() {
           _isLoading = false; // Stop loading on failure
         });
@@ -1378,6 +1494,7 @@ class _PlayerShellState extends State<PlayerShell> {
       );
 
       final materialized = await _materializeSource(Uri.parse(firstUrl));
+      if (!mounted || _playbackSessionId != session) return;
       if (materialized == null) {
         _logs.insert(0, '[stream] Failed to materialize: ${tappedTrack.title}');
         setState(() {
@@ -1390,6 +1507,8 @@ class _PlayerShellState extends State<PlayerShell> {
       _onlineTrackMetadata[firstSource.uri] = tappedTrack;
       _registerCachedStreamMeta(firstSource, tappedTrack, streamUrl: firstUrl);
     }
+
+    if (!mounted || _playbackSessionId != session) return;
 
     // Populate UI queue immediately
     setState(() {
@@ -1420,14 +1539,14 @@ class _PlayerShellState extends State<PlayerShell> {
 
     // If only one track was selected, fetch "Up Next" suggestions
     if (tracks.length == 1) {
-      _fetchAndAppendUpNext(tappedTrack.videoId);
+      _fetchAndAppendUpNext(tappedTrack.videoId, sessionId: session);
     } else {
       // Multiple tracks provided: resolve remaining tracks with lookahead priority
       final remainingTracks = [
         for (int i = 0; i < tracks.length; i++)
           if (i != initialIndex) tracks[i],
       ];
-      _resolveLookaheadAndAppend(remainingTracks);
+      _resolveLookaheadAndAppend(remainingTracks, sessionId: session);
     }
   }
 
@@ -1440,6 +1559,7 @@ class _PlayerShellState extends State<PlayerShell> {
     if (queueIndex < 0 || queueIndex >= _currentUiQueue.length) return;
 
     _isSwitchingQueueTrack = true;
+    final session = _playbackSessionId;
     try {
       final targetTrack = _currentUiQueue[queueIndex];
       _logs.insert(0, '[queue] Prioritizing: ${targetTrack.title}');
@@ -1466,11 +1586,12 @@ class _PlayerShellState extends State<PlayerShell> {
         );
       } else {
         // It's unresolved in playlist. Check if it's cached offline on disk first.
+        bool resolved = false;
         try {
           final cached = CachedStreamService.instance.getCachedItem(targetTrack.videoId);
           if (cached != null && File(cached.filePath).existsSync()) {
             final src = AudioSource.uri(File(cached.filePath).uri);
-            if (mounted) {
+            if (mounted && _playbackSessionId == session) {
               _onlineTrackMetadata[src.uri] = targetTrack;
               setState(() {
                 _playlist.add(src);
@@ -1481,12 +1602,14 @@ class _PlayerShellState extends State<PlayerShell> {
                 initialPosition: Duration.zero,
                 useLazyPreparation: true,
               );
+              resolved = true;
             }
           } else {
             final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
+            if (!mounted || _playbackSessionId != session) return;
             if (url != null) {
               final src = await _materializeSource(Uri.parse(url));
-              if (src != null && mounted) {
+              if (src != null && mounted && _playbackSessionId == session) {
                 _onlineTrackMetadata[src.uri] = targetTrack;
                 _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
 
@@ -1500,19 +1623,30 @@ class _PlayerShellState extends State<PlayerShell> {
                   initialPosition: Duration.zero,
                   useLazyPreparation: true,
                 );
+                resolved = true;
               }
             } else {
               _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
+              _showOfflineSnackBar(
+                  message: 'Unable to stream "${targetTrack.title}". Trying next track...');
             }
           }
         } catch (e) {
           _logs.insert(0, '[queue] Error resolving ${targetTrack.title}: $e');
+          _showOfflineSnackBar();
+        }
+
+        // If this track failed to resolve (e.g. broken / geo-blocked / offline), auto-skip to next track in queue
+        if (!resolved && queueIndex + 1 < _currentUiQueue.length && mounted && _playbackSessionId == session) {
+          _isSwitchingQueueTrack = false;
+          _playQueueIndex(queueIndex + 1);
+          return;
         }
       }
 
       // Lookahead window shift: resolve next track in queue if available
-      if (queueIndex + 1 < _currentUiQueue.length) {
-        _ensureTrackInPlaylist(_currentUiQueue[queueIndex + 1]);
+      if (queueIndex + 1 < _currentUiQueue.length && mounted && _playbackSessionId == session) {
+        _ensureTrackInPlaylist(_currentUiQueue[queueIndex + 1], sessionId: session);
       }
     } finally {
       _isSwitchingQueueTrack = false;
@@ -1626,6 +1760,7 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   void _clearQueue() {
+    _playbackSessionId++;
     setState(() {
       _currentUiQueue.clear();
       _playlist.clear();
@@ -1805,6 +1940,9 @@ class _PlayerShellState extends State<PlayerShell> {
     _isFtpDownloading = false;
     if (tracks.isEmpty) return;
 
+    _playbackSessionId++;
+    final session = _playbackSessionId;
+
     final sources = <AudioSource>[];
     final uiQueue = <TrackInfo>[];
     int resolvedIndex = 0;
@@ -1846,6 +1984,8 @@ class _PlayerShellState extends State<PlayerShell> {
       }
       return;
     }
+
+    if (!mounted || _playbackSessionId != session) return;
 
     setState(() {
       _currentUiQueue
@@ -1930,8 +2070,12 @@ class _PlayerShellState extends State<PlayerShell> {
   Future<void> _playNetworkFile(
       String filePath, String title, String artist) async {
     _isFtpDownloading = false;
+    _playbackSessionId++;
+    final session = _playbackSessionId;
     final file = File(filePath);
     final src = AudioSource.file(filePath, title: title, artist: artist);
+
+    if (!mounted || _playbackSessionId != session) return;
 
     setState(() {
       _currentUiQueue.clear();
@@ -1968,6 +2112,9 @@ class _PlayerShellState extends State<PlayerShell> {
     final entries = dynamicEntries.cast<FtpFileEntry>();
     final ftpConfig = config as FtpConfig;
 
+    _playbackSessionId++;
+    final session = _playbackSessionId;
+
     _activeFtpConfig = ftpConfig;
     _pendingFtpDownloads = List.from(entries);
 
@@ -1986,6 +2133,8 @@ class _PlayerShellState extends State<PlayerShell> {
       if (!await cacheDirFile.exists()) {
         await cacheDirFile.create(recursive: true);
       }
+
+      if (!mounted || _playbackSessionId != session) return;
 
       // Prepare UI queue and AudioSources with predicted cache paths
       _currentUiQueue.clear();
@@ -2019,6 +2168,8 @@ class _PlayerShellState extends State<PlayerShell> {
         await FtpService.downloadFile(
             ftpConfig, initialEntry.path, initialFile);
       }
+
+      if (!mounted || _playbackSessionId != session) return;
 
       _player.setAudioSources(
         _playlist,
@@ -2097,17 +2248,14 @@ class _PlayerShellState extends State<PlayerShell> {
                 _playlist.isNotEmpty && idx >= 0 && idx < _playlist.length;
             final currentSource = hasTrack ? _playlist[idx] : null;
 
-            final currentVideoId = hasTrack
-                ? (_onlineTrackMetadata[currentSource!.uri]?.videoId ??
-                    (currentSource.uri.scheme == 'file'
-                        ? _safeFilePathFromUri(currentSource.uri)
-                        : null))
-                : null;
-
             final currentSourceType = (hasTrack &&
                     !_onlineTrackMetadata.containsKey(currentSource!.uri))
                 ? 'local'
                 : 'online';
+
+            final currentVideoId = (hasTrack && currentSourceType == 'online')
+                ? _onlineTrackMetadata[currentSource!.uri]?.videoId
+                : null;
 
             return ValueListenableBuilder<TrackMetadata>(
               valueListenable: _metadata,

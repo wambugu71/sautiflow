@@ -194,50 +194,66 @@ class StreamingService {
       return cached;
     }
 
-    // 2. Primary: Direct on-device extraction via youtube_explode_dart
-    try {
-      final targetVideoId = VideoId(videoId);
-      final manifest =
-          await _ytExplode.videos.streams.getManifest(targetVideoId);
-      final streamInfo = AudioStreamSelector.selectStream(
-        manifest,
-        quality: activeQuality,
-        preferAac: activePreferAac,
-      );
-
-      final now = DateTime.now();
-      // Direct YouTube URLs typically expire after 6 hours; set safety TTL to 5.5 hours
-      final expiresAt = now.add(const Duration(hours: 5, minutes: 30));
-
-      final result = StreamResolutionResult(
-        videoId: videoId,
-        url: streamInfo.url.toString(),
-        bitrateKbps: streamInfo.bitrate.kiloBitsPerSecond,
-        container: streamInfo.container.name,
-        audioCodec: streamInfo.audioCodec,
-        itag: streamInfo.tag,
-        fromCache: false,
-        isFallback: false,
-        resolvedAt: now,
-        expiresAt: expiresAt,
-      );
-
-      _cache[key] = result;
-      debugPrint(
-          '[StreamingService] ✓ Direct resolved $videoId: Tag ${streamInfo.tag} | ${streamInfo.audioCodec} | ${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps');
-      return result;
-    } catch (e, st) {
-      debugPrint(
-          '[StreamingService] Direct extraction failed for $videoId: $e');
-      if (kDebugMode) {
-        debugPrint(st.toString());
-      }
-
-      // Re-instantiate client if connection or state error occurred
+    // 2. Primary: Direct on-device extraction via youtube_explode_dart (with transient retry)
+    for (int attempt = 1; attempt <= 2; attempt++) {
       try {
-        _ytExplode.close();
-      } catch (_) {}
-      _ytExplode = YoutubeExplode();
+        final targetVideoId = VideoId(videoId);
+        final manifest = await _ytExplode.videos.streams
+            .getManifest(targetVideoId)
+            .timeout(const Duration(seconds: 25));
+        final streamInfo = AudioStreamSelector.selectStream(
+          manifest,
+          quality: activeQuality,
+          preferAac: activePreferAac,
+        );
+
+        final now = DateTime.now();
+        // Direct YouTube URLs typically expire after 6 hours; set safety TTL to 5.5 hours
+        final expiresAt = now.add(const Duration(hours: 5, minutes: 30));
+
+        final result = StreamResolutionResult(
+          videoId: videoId,
+          url: streamInfo.url.toString(),
+          bitrateKbps: streamInfo.bitrate.kiloBitsPerSecond,
+          container: streamInfo.container.name,
+          audioCodec: streamInfo.audioCodec,
+          itag: streamInfo.tag,
+          fromCache: false,
+          isFallback: false,
+          resolvedAt: now,
+          expiresAt: expiresAt,
+        );
+
+        _cache[key] = result;
+        debugPrint(
+            '[StreamingService] ✓ Direct resolved $videoId: Tag ${streamInfo.tag} | ${streamInfo.audioCodec} | ${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps');
+        return result;
+      } catch (e, st) {
+        debugPrint(
+            '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
+        if (kDebugMode &&
+            e is! SocketException &&
+            e is! HandshakeException &&
+            e is! TimeoutException) {
+          debugPrint(st.toString());
+        }
+
+        // Re-instantiate client safely if connection or state error occurred
+        try {
+          _ytExplode.close();
+        } catch (_) {}
+        _ytExplode = YoutubeExplode();
+
+        // If it's the first attempt and looks like a transient network hitch, wait 1.2s and retry
+        if (attempt == 1 &&
+            (e is SocketException ||
+                e is HandshakeException ||
+                e is TimeoutException)) {
+          await Future.delayed(const Duration(milliseconds: 1200));
+        } else {
+          break;
+        }
+      }
     }
 
     // 3. Fallback: Hosted scraping backend if enabled
@@ -356,19 +372,24 @@ class StreamingService {
     final ytUrl = 'https://www.youtube.com/watch?v=$videoId';
     final apiUrl = '$baseUrl?url=${Uri.encodeComponent(ytUrl)}';
     final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 12);
+    client.connectionTimeout = const Duration(seconds: 15);
 
     try {
-      final req = await client.getUrl(Uri.parse(apiUrl));
+      final req = await client
+          .getUrl(Uri.parse(apiUrl))
+          .timeout(const Duration(seconds: 15));
       req.headers.set('User-Agent', 'SautiPlay/1.0');
       req.headers.set('Accept', 'application/json');
 
-      final res = await req.close();
+      final res = await req.close().timeout(const Duration(seconds: 15));
       if (res.statusCode < 200 || res.statusCode >= 300) {
         return null;
       }
 
-      final body = await res.transform(utf8.decoder).join();
+      final body = await res
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 15));
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       if (json['status'] != true) {
