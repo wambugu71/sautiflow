@@ -230,6 +230,12 @@ class _PlayerShellState extends State<PlayerShell> {
   bool _analyzerLogScale = true;
   String _spectrumStyle = 'neon';
 
+  int _lastPlaybackTrackIndex = -1;
+  double _lastPlaybackMaxPosition = 0.0;
+  double _lastPlaybackDuration = 0.0;
+  AudioSource? _lastPlaybackSource;
+  final Set<String> _cachedTrackIdsThisSession = <String>{};
+
   // Showcase Keys for Feature Tour
   final GlobalKey _homeTabKey = GlobalKey();
   final GlobalKey _effectsTabKey = GlobalKey();
@@ -283,6 +289,7 @@ class _PlayerShellState extends State<PlayerShell> {
         );
       }
 
+      _handleTrackPlaybackProgress(s);
       _status.value = s;
       _publishNowPlayingFromStatus(s);
     });
@@ -1071,11 +1078,113 @@ class _PlayerShellState extends State<PlayerShell> {
           fileSizeBytes: File(filePath).lengthSync(),
         );
       }
-    } else if (streamUrl != null && streamUrl.isNotEmpty) {
-      // Automatically cache stream in background for offline library playlist
+    }
+  }
+
+  void _handleTrackPlaybackProgress(PlayerStatus s) {
+    final curIdx = s.currentIndex;
+    if (curIdx < 0 || curIdx >= _playlist.length) return;
+
+    final curSource = _playlist[curIdx];
+
+    // Case 1: Track index changed (track transitioned to next or user switched tracks)
+    if (_lastPlaybackTrackIndex != curIdx) {
+      if (_lastPlaybackTrackIndex != -1 && _lastPlaybackSource != null) {
+        final wasCompleted = _checkIfCompleted(
+          maxPosition: _lastPlaybackMaxPosition,
+          duration: _lastPlaybackDuration,
+        );
+        if (wasCompleted) {
+          _onTrackPlaybackCompleted(_lastPlaybackSource!, _lastPlaybackTrackIndex);
+        }
+      }
+
+      _lastPlaybackTrackIndex = curIdx;
+      _lastPlaybackSource = curSource;
+      _lastPlaybackMaxPosition = s.positionSeconds;
+      _lastPlaybackDuration = s.durationSeconds;
+    } else {
+      // Same track: update maximum playback position reached and duration
+      if (s.positionSeconds > _lastPlaybackMaxPosition) {
+        _lastPlaybackMaxPosition = s.positionSeconds;
+      }
+      if (s.durationSeconds > 0) {
+        _lastPlaybackDuration = s.durationSeconds;
+      }
+
+      // Check single-track repeat / loop wrap-around
+      if (_lastPlaybackDuration > 10 &&
+          _lastPlaybackMaxPosition >= _lastPlaybackDuration - 3.0 &&
+          s.positionSeconds < 3.0) {
+        _onTrackPlaybackCompleted(curSource, curIdx);
+        _lastPlaybackMaxPosition = s.positionSeconds;
+      }
+
+      // Case 2: At end of playlist or stopped near the end of track
+      if (!s.isPlaying ||
+          (s.durationSeconds > 0 &&
+              s.positionSeconds >= s.durationSeconds - 1.5)) {
+        final wasCompleted = _checkIfCompleted(
+          maxPosition: _lastPlaybackMaxPosition,
+          duration: _lastPlaybackDuration,
+        );
+        if (wasCompleted) {
+          _onTrackPlaybackCompleted(curSource, curIdx);
+        }
+      }
+    }
+  }
+
+  bool _checkIfCompleted({
+    required double maxPosition,
+    required double duration,
+  }) {
+    if (duration <= 0) return false;
+    if (duration <= 10) {
+      return maxPosition >= duration - 1.0;
+    }
+    return maxPosition >= (duration - 3.0) || (maxPosition / duration) >= 0.90;
+  }
+
+  void _onTrackPlaybackCompleted(AudioSource source, int trackIndex) {
+    TrackInfo? track = _onlineTrackMetadata[source.uri];
+    if (track == null &&
+        trackIndex >= 0 &&
+        trackIndex < _currentUiQueue.length) {
+      track = _currentUiQueue[trackIndex];
+    }
+    if (track == null) return;
+
+    final videoId = track.videoId;
+    if (videoId.isEmpty) return;
+    if (_cachedTrackIdsThisSession.contains(videoId)) return;
+
+    final cached = CachedStreamService.instance.getCachedItem(videoId);
+    if (cached != null && File(cached.filePath).existsSync()) {
+      return;
+    }
+
+    _cachedTrackIdsThisSession.add(videoId);
+
+    if (source.uri.scheme == 'file') {
+      final filePath = _safeFilePathFromUri(source.uri);
+      if (filePath != null && File(filePath).existsSync()) {
+        CachedStreamService.instance.registerCachedStream(
+          videoId: videoId,
+          title: track.title,
+          artist: track.artist,
+          thumbnailUrl: track.thumbnailUrl,
+          durationSeconds: track.durationSeconds,
+          filePath: filePath,
+          fileSizeBytes: File(filePath).lengthSync(),
+        );
+      }
+    } else if (source.uri.scheme == 'http' || source.uri.scheme == 'https') {
+      _logs.insert(
+          0, '[cache] Completed song playback, caching to disk: ${track.title}');
       CachedStreamService.instance.cacheStreamInBackground(
-        videoId: track.videoId,
-        streamUrl: streamUrl,
+        videoId: videoId,
+        streamUrl: source.uri.toString(),
         title: track.title,
         artist: track.artist,
         thumbnailUrl: track.thumbnailUrl,

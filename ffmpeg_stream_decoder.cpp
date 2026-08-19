@@ -113,6 +113,8 @@ bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int 
     m_targetSampleRate = (targetSampleRate > 0) ? targetSampleRate : 48000;
     m_targetChannels = (targetChannels > 0) ? targetChannels : 2;
     
+    bool isNetwork = is_network_url(m_url.c_str());
+
     // Allocate 10-second circular PCM ring buffer
     const size_t ringBufferDurationSec = 10;
     m_rbCapacityFrames = m_targetSampleRate * ringBufferDurationSec;
@@ -121,26 +123,34 @@ bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int 
     m_rbWritePos.store(0, std::memory_order_relaxed);
     m_rbAvailableFrames.store(0, std::memory_order_relaxed);
 
-    // Initial prebuffer threshold (e.g. 1.5 seconds)
-    size_t prebufferFrames = (m_targetSampleRate * prebufferMs) / 1000;
-    if (prebufferFrames == 0) prebufferFrames = m_targetSampleRate / 2; // minimum 500ms
-    m_prebufferBytes = prebufferFrames;
+    if (isNetwork) {
+        // Initial prebuffer threshold (e.g. 1.5 seconds)
+        size_t prebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs : 1500)) / 1000;
+        if (prebufferFrames == 0) prebufferFrames = m_targetSampleRate / 2; // minimum 500ms
+        m_prebufferBytes = prebufferFrames;
 
-    // Rebuffer threshold (e.g. 3.0 seconds for jitter recovery)
-    size_t rebufferFrames = (m_targetSampleRate * (prebufferMs * 2)) / 1000;
-    if (rebufferFrames > m_rbCapacityFrames / 2) rebufferFrames = m_rbCapacityFrames / 2;
-    m_rebufferBytes = rebufferFrames;
+        // Rebuffer threshold (e.g. 3.0 seconds for jitter recovery)
+        size_t rebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs * 2 : 3000)) / 1000;
+        if (rebufferFrames > m_rbCapacityFrames / 2) rebufferFrames = m_rbCapacityFrames / 2;
+        m_rebufferBytes = rebufferFrames;
+
+        m_isBuffering.store(true, std::memory_order_release);
+    } else {
+        // Local file - instant playback from disk with zero prebuffering delay
+        m_prebufferBytes = 0;
+        m_rebufferBytes = 0;
+        m_isBuffering.store(false, std::memory_order_release);
+    }
 
     m_stopRequested.store(false, std::memory_order_release);
     m_isPaused.store(false, std::memory_order_relaxed);
-    m_isBuffering.store(true, std::memory_order_release);
     m_isEnded.store(false, std::memory_order_relaxed);
     m_seekRequested.store(false, std::memory_order_relaxed);
 
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_telemetry = StreamTelemetry();
-        m_telemetry.state = StreamState::Connecting;
+        m_telemetry.state = isNetwork ? StreamState::Connecting : StreamState::Playing;
         m_telemetry.sampleRate = m_targetSampleRate;
         m_telemetry.channels = m_targetChannels;
     }
@@ -302,33 +312,40 @@ void FFmpegStreamSource::update_icy_metadata() {
 }
 
 void FFmpegStreamSource::demux_and_decode_thread_func() {
+    bool isNetwork = is_network_url(m_url.c_str());
     AVDictionary* opts = nullptr;
-    av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
-    av_dict_set(&opts, "reconnect", "1", 0);
-    av_dict_set(&opts, "reconnect_streamed", "1", 0);
-    av_dict_set(&opts, "reconnect_delay_max", "5", 0);
-    av_dict_set(&opts, "timeout", "10000000", 0);      // 10s socket timeout
-    av_dict_set(&opts, "rw_timeout", "10000000", 0);   // 10s read/write timeout
-    av_dict_set(&opts, "probesize", "32768", 0);       // 32 KB probe for fast startup
-    av_dict_set(&opts, "max_analyze_duration", "500000", 0); // 500ms max analyze duration
-    av_dict_set(&opts, "icy", "1", 0);                 // Enable Shoutcast/Icecast in-band metadata
+
+    if (isNetwork) {
+        av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
+        av_dict_set(&opts, "reconnect", "1", 0);
+        av_dict_set(&opts, "reconnect_streamed", "1", 0);
+        av_dict_set(&opts, "reconnect_delay_max", "5", 0);
+        av_dict_set(&opts, "timeout", "10000000", 0);      // 10s socket timeout
+        av_dict_set(&opts, "rw_timeout", "10000000", 0);   // 10s read/write timeout
+        av_dict_set(&opts, "probesize", "32768", 0);       // 32 KB probe for fast startup
+        av_dict_set(&opts, "max_analyze_duration", "500000", 0); // 500ms max analyze duration
+        av_dict_set(&opts, "icy", "1", 0);                 // Enable Shoutcast/Icecast in-band metadata
+    }
 
     m_fmtCtx = avformat_alloc_context();
     if (!m_fmtCtx) {
+        if (opts) av_dict_free(&opts);
         set_error(StreamErrorCode::OpenFailed, "Failed to allocate AVFormatContext");
         return;
     }
 
-    // Register interrupt callback to abort hanging socket/network calls immediately on close
-    m_fmtCtx->interrupt_callback.callback = ffmpeg_interrupt_callback;
-    m_fmtCtx->interrupt_callback.opaque = this;
+    if (isNetwork) {
+        // Register interrupt callback to abort hanging socket/network calls immediately on close
+        m_fmtCtx->interrupt_callback.callback = ffmpeg_interrupt_callback;
+        m_fmtCtx->interrupt_callback.opaque = this;
+    }
 
-    int ret = avformat_open_input(&m_fmtCtx, m_url.c_str(), nullptr, &opts);
-    av_dict_free(&opts);
+    int ret = avformat_open_input(&m_fmtCtx, m_url.c_str(), nullptr, opts ? &opts : nullptr);
+    if (opts) av_dict_free(&opts);
 
     if (ret < 0) {
         if (!m_stopRequested.load(std::memory_order_acquire)) {
-            set_error(StreamErrorCode::OpenFailed, "Failed to open stream URL: " + av_err2str_cpp(ret));
+            set_error(StreamErrorCode::OpenFailed, "Failed to open " + std::string(isNetwork ? "stream URL: " : "audio file: ") + av_err2str_cpp(ret));
         }
         return;
     }
@@ -392,14 +409,16 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     // Populate initial telemetry
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-        m_telemetry.state = StreamState::Buffering;
+        m_telemetry.state = isNetwork ? StreamState::Buffering : StreamState::Playing;
         m_telemetry.bitrate = m_fmtCtx->bit_rate > 0 ? m_fmtCtx->bit_rate : audioStream->codecpar->bit_rate;
         m_telemetry.isLiveStream = (m_fmtCtx->duration <= 0 || m_fmtCtx->duration == AV_NOPTS_VALUE);
         m_telemetry.totalDurationSec = m_telemetry.isLiveStream ? 0.0 : (double)m_fmtCtx->duration / AV_TIME_BASE;
         m_telemetry.isSeekable = !m_telemetry.isLiveStream;
         std::strncpy(m_telemetry.codecName, decoder->name, sizeof(m_telemetry.codecName) - 1);
     }
-    update_icy_metadata();
+    if (isNetwork) {
+        update_icy_metadata();
+    }
     notify_telemetry();
 
     AVPacket* packet = av_packet_alloc();
@@ -647,20 +666,38 @@ StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder) {
 
 } // namespace sautiflow
 
+#if defined(_WIN32) || defined(_WIN64)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+static std::string wstring_to_utf8_path(const wchar_t* wstr) {
+    if (!wstr || wstr[0] == L'\0') return {};
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 0) return {};
+    std::string utf8(len - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, &utf8[0], len, nullptr, nullptr);
+    return utf8;
+}
+#endif
+
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
     (void)pUserData;
     (void)pConfig;
     (void)pAllocationCallbacks;
 
-    if (pFilePath == nullptr || ppBackend == nullptr || !sautiflow::FFmpegStreamSource::is_network_url(pFilePath)) {
-        return MA_NOT_IMPLEMENTED;
+    if (pFilePath == nullptr || ppBackend == nullptr) {
+        return MA_INVALID_ARGS;
     }
 
+    bool isNetwork = sautiflow::FFmpegStreamSource::is_network_url(pFilePath);
     ma_uint32 outChannels = 2;
     ma_uint32 outSampleRate = 48000;
+    int prebufferMs = isNetwork ? 1500 : 0;
 
     auto* stream = new sautiflow::FFmpegStreamSource();
-    if (!stream->open(pFilePath, outSampleRate, outChannels)) {
+    if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
         delete stream;
         return MA_ERROR;
     }
@@ -691,6 +728,26 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
     return MA_SUCCESS;
 }
 
+static ma_result ma_decoding_backend_init_file_w__ffmpeg(void* pUserData, const wchar_t* pFilePathW, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
+#if defined(_WIN32) || defined(_WIN64)
+    if (pFilePathW == nullptr || ppBackend == nullptr) {
+        return MA_INVALID_ARGS;
+    }
+    std::string pathUtf8 = wstring_to_utf8_path(pFilePathW);
+    if (pathUtf8.empty()) {
+        return MA_INVALID_ARGS;
+    }
+    return ma_decoding_backend_init_file__ffmpeg(pUserData, pathUtf8.c_str(), pConfig, pAllocationCallbacks, ppBackend);
+#else
+    (void)pUserData;
+    (void)pFilePathW;
+    (void)pConfig;
+    (void)pAllocationCallbacks;
+    (void)ppBackend;
+    return MA_NOT_IMPLEMENTED;
+#endif
+}
+
 static void ma_decoding_backend_uninit__ffmpeg(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks) {
     (void)pUserData;
     (void)pAllocationCallbacks;
@@ -711,7 +768,7 @@ extern "C" {
 ma_decoding_backend_vtable g_ma_decoding_backend_vtable_ffmpeg = {
     nullptr, // onInit (stream callbacks)
     ma_decoding_backend_init_file__ffmpeg,
-    nullptr, // onInitFileW
+    ma_decoding_backend_init_file_w__ffmpeg, // onInitFileW
     nullptr, // onInitMemory
     ma_decoding_backend_uninit__ffmpeg
 };

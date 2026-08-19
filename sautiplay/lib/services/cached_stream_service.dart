@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/cached_stream_item.dart';
+import '../streaming_service.dart';
 
 /// Service managing offline cached online audio streams and their metadata.
 class CachedStreamService {
@@ -53,7 +54,7 @@ class CachedStreamService {
     String? thumbnailUrl,
     int? durationSeconds,
   }) async {
-    if (videoId.isEmpty || streamUrl.isEmpty) return;
+    if (videoId.isEmpty) return;
     if (_activeDownloads.contains(videoId)) return;
     _activeDownloads.add(videoId);
 
@@ -97,8 +98,27 @@ class CachedStreamService {
       final tempFile = File('${targetFile.path}.tmp');
       final client = HttpClient();
       try {
-        final req = await client.getUrl(Uri.parse(streamUrl));
-        final res = await req.close();
+        String effectiveUrl = streamUrl;
+        if (effectiveUrl.isEmpty) {
+          final resolved = await StreamingService.resolveStreamUrl(videoId);
+          if (resolved != null && resolved.isNotEmpty) {
+            effectiveUrl = resolved;
+          }
+        }
+        if (effectiveUrl.isEmpty) return;
+
+        HttpClientRequest req = await client.getUrl(Uri.parse(effectiveUrl));
+        HttpClientResponse res = await req.close();
+
+        // If direct stream URL expired or failed with HTTP 403, attempt re-resolution
+        if (res.statusCode != 200 && res.statusCode != 206) {
+          final freshUrl = await StreamingService.resolveStreamUrl(videoId);
+          if (freshUrl != null && freshUrl.isNotEmpty && freshUrl != effectiveUrl) {
+            effectiveUrl = freshUrl;
+            req = await client.getUrl(Uri.parse(effectiveUrl));
+            res = await req.close();
+          }
+        }
 
         if (res.statusCode == 200 || res.statusCode == 206) {
           final sink = tempFile.openWrite();
@@ -119,7 +139,7 @@ class CachedStreamService {
               thumbnailUrl: thumbnailUrl,
               durationSeconds: durationSeconds,
               filePath: targetFile.path,
-              streamUrl: streamUrl,
+              streamUrl: effectiveUrl,
               fileSizeBytes: targetFile.lengthSync(),
             );
             debugPrint(
