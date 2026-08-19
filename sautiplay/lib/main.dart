@@ -1248,6 +1248,19 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
+  bool _isLocalTrack(TrackInfo track) {
+    if (track.sourceType == 'local') return true;
+    if (track.videoId.startsWith('http')) return false;
+    return track.videoId.contains(r'\') ||
+        track.videoId.contains('/') ||
+        File(track.videoId).existsSync();
+  }
+
+  bool _pathsMatch(String a, String b) {
+    return a.replaceAll('/', r'\').toLowerCase() ==
+        b.replaceAll('/', r'\').toLowerCase();
+  }
+
   void _ensureLookaheadForActiveTrack(AudioSource currentSource) {
     if (_currentUiQueue.isEmpty) return;
 
@@ -1257,7 +1270,7 @@ class _PlayerShellState extends State<PlayerShell> {
       queueIdx = _currentUiQueue.indexWhere((t) => t.videoId == curTrack.videoId);
     } else if (currentSource.uri.scheme == 'file') {
       final path = _safeFilePathFromUri(currentSource.uri);
-      queueIdx = _currentUiQueue.indexWhere((t) => t.videoId == path);
+      queueIdx = _currentUiQueue.indexWhere((t) => path != null && _pathsMatch(path, t.videoId));
     }
 
     if (queueIdx != -1 && queueIdx + 1 < _currentUiQueue.length) {
@@ -1281,11 +1294,27 @@ class _PlayerShellState extends State<PlayerShell> {
         return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
       } else if (src.uri.scheme == 'file') {
         final path = _safeFilePathFromUri(src.uri);
-        return path != null && path == track.videoId;
+        return path != null && _pathsMatch(path, track.videoId);
       }
       return false;
     });
     if (alreadyInPlaylist) return true;
+
+    // Handle genuine local tracks (e.g. from local folder or restored local queue)
+    if (_isLocalTrack(track)) {
+      final file = File(track.videoId);
+      if (file.existsSync()) {
+        final fileSrc = AudioSource.uri(file.uri);
+        if (mounted && _playbackSessionId == session) {
+          setState(() {
+            _playlist.add(fileSrc);
+          });
+          _player.addAudioSource(fileSrc);
+          return true;
+        }
+      }
+      return false;
+    }
 
     // Check if track is already cached offline on disk
     final cached = CachedStreamService.instance.getCachedItem(track.videoId);
@@ -1571,7 +1600,7 @@ class _PlayerShellState extends State<PlayerShell> {
           return _onlineTrackMetadata[src.uri]?.videoId == targetTrack.videoId;
         } else if (src.uri.scheme == 'file') {
           final path = _safeFilePathFromUri(src.uri);
-          return path != null && path == targetTrack.videoId;
+          return path != null && _pathsMatch(path, targetTrack.videoId);
         }
         return false;
       });

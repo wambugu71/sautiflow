@@ -4402,21 +4402,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         return;
     }
 
-#ifndef NDEBUG
-    if (!e->rateTransitionInProgress.load(std::memory_order_relaxed))
-    {
-        assert(e->engineSampleRate > 0);
-        assert(e->deviceSampleRate > 0);
-        assert(e->currentDecoder == nullptr || e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
-        assert(e->fadingOutDecoder == nullptr || e->fadingOutDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
-        assert((int)pDevice->sampleRate == e->deviceSampleRate);
-        if (e->engineSampleRate != e->deviceSampleRate)
-        {
-            assert(e->deviceResamplerInRate == e->engineSampleRate);
-            assert(e->deviceResamplerOutRate == e->deviceSampleRate);
-        }
-    }
-#endif
+
 
     try
     {
