@@ -706,6 +706,7 @@ class _StreamExtractionTestScreenState
                       label: const Text('Play via Sautiflow Engine'),
                       onPressed: () {
                         final track = TrackInfo.fromSongDetailed(song);
+                        Navigator.of(context).popUntil((route) => route.isFirst);
                         widget.onPlayTracks!([track]);
                       },
                     ),

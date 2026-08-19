@@ -65,6 +65,11 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     super.dispose();
   }
 
+  void _playAndPop(List<CachedStreamItem> tracks, {int initialIndex = 0}) {
+    widget.onPlayTracks(tracks, initialIndex: initialIndex);
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   List<CachedStreamItem> _filterAndSort(List<CachedStreamItem> items) {
     var filtered = items.where((item) {
       if (_searchQuery.isEmpty) return true;
@@ -583,7 +588,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                 ),
               ),
               onPressed: () {
-                widget.onPlayTracks(displayedItems, initialIndex: 0);
+                _playAndPop(displayedItems, initialIndex: 0);
               },
             ),
           ),
@@ -608,7 +613,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
               onPressed: () {
                 final shuffled = List<CachedStreamItem>.from(displayedItems)
                   ..shuffle();
-                widget.onPlayTracks(shuffled, initialIndex: 0);
+                _playAndPop(shuffled, initialIndex: 0);
               },
             ),
           ),
@@ -743,7 +748,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onTap: () => _playAndPop(allTracks, initialIndex: index),
           onLongPress: () => _showTrackOptions(context, track, isDesktop),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -822,7 +827,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onTap: () => _playAndPop(allTracks, initialIndex: index),
           onLongPress: () => _showTrackOptions(context, track, isDesktop),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -886,7 +891,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => widget.onPlayTracks(allTracks, initialIndex: index),
+          onTap: () => _playAndPop(allTracks, initialIndex: index),
           onLongPress: () => _showTrackOptions(context, track, isDesktop),
           child: M3EContainer(
             Shapes.bun,

@@ -511,7 +511,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             GestureDetector(
               onTap: () {
                 if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-                  Navigator.of(context).pop();
+                  Navigator.of(context).popUntil((route) => route.isFirst);
                   widget.onPlayTracks!(_tracks, initialIndex: 0);
                 }
               },
@@ -543,7 +543,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
                   final shuffledTracks = List<TrackInfo>.from(_tracks)
                     ..shuffle();
-                  Navigator.of(context).pop();
+                  Navigator.of(context).popUntil((route) => route.isFirst);
                   widget.onPlayTracks!(shuffledTracks, initialIndex: 0);
                 }
               },
@@ -619,7 +619,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         child: InkWell(
           onTap: () {
             if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-              Navigator.of(context).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
               widget.onPlayTracks!(_tracks, initialIndex: index);
             }
           },

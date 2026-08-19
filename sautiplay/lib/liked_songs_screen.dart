@@ -125,6 +125,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
     return InkWell(
       onTap: () {
         widget.onPlayTracks(allTracks, initialIndex: index);
+        Navigator.of(context).popUntil((route) => route.isFirst);
       },
       child: Padding(
         padding: EdgeInsets.symmetric(

@@ -110,6 +110,7 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
         // to pass the whole history block to the player
         final idxInFullList = _history.indexOf(track);
         if (idxInFullList >= 0) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
           widget.onPlayTracks(_history, initialIndex: idxInFullList);
         }
       },

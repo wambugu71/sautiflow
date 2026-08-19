@@ -370,6 +370,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
                             final tracks = _artistFull!.topSongs
                                 .map((s) => TrackInfo.fromSongDetailed(s))
                                 .toList();
+                            Navigator.of(context).popUntil((route) => route.isFirst);
                             widget.onPlayTracks!(tracks, initialIndex: 0);
                           }
                         },
@@ -439,6 +440,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
           final tracks = _artistFull!.topSongs
               .map((s) => TrackInfo.fromSongDetailed(s))
               .toList();
+          Navigator.of(context).popUntil((route) => route.isFirst);
           widget.onPlayTracks!(tracks, initialIndex: index);
         }
       },

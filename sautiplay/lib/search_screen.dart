@@ -676,6 +676,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
       if (widget.onPlayTracks != null) {
         widget.onPlayTracks!([track], initialIndex: 0);
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } else {
       Navigator.of(context).push(

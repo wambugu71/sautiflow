@@ -163,6 +163,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
       );
 
       if (success && localFile.existsSync()) {
+        if (mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
         if (widget.onPlayNetworkFile != null) {
           widget.onPlayNetworkFile!(
             localFile.path,
