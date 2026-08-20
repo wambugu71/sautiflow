@@ -32,6 +32,7 @@ import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/cached_stream_service.dart';
+import 'services/lastfm_service.dart';
 import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
@@ -345,6 +346,14 @@ class _PlayerShellState extends State<PlayerShell> {
     // Load persisted app state (settings, queue, etc.)
     _loadAppState();
     CachedStreamService.instance.init();
+    LastFmService.instance.init();
+    LastFmService.instance.logStream.listen((line) {
+      _logs.insert(0, '[${DateTime.now().toIso8601String()}] $line');
+      if (_logs.length > 200) {
+        _logs.removeRange(200, _logs.length);
+      }
+      _logUpdateCounter.value++;
+    });
 
     _metadata.addListener(_applyReplayGain);
     _metadata.addListener(_extractArtworkTheme);
@@ -643,6 +652,14 @@ class _PlayerShellState extends State<PlayerShell> {
           artist: finalArtist,
           duration: Duration(milliseconds: finalDurationSecs * 1000),
           artUri: artUri,
+        ),
+      );
+
+      unawaited(
+        LastFmService.instance.onTrackStarted(
+          title: title,
+          artist: finalArtist,
+          durationSeconds: finalDurationSecs,
         ),
       );
 
@@ -1195,6 +1212,18 @@ class _PlayerShellState extends State<PlayerShell> {
         }
       }
     }
+
+    if (s.isPlaying && s.durationSeconds > 0) {
+      unawaited(
+        LastFmService.instance.onPlaybackProgress(
+          title: _nameFromSource(curSource),
+          artist: _metadata.value.artist,
+          currentPositionSeconds: s.positionSeconds,
+          totalDurationSeconds: s.durationSeconds,
+          isPlaying: s.isPlaying,
+        ),
+      );
+    }
   }
 
   bool _checkIfCompleted({
@@ -1253,6 +1282,15 @@ class _PlayerShellState extends State<PlayerShell> {
         durationSeconds: track.durationSeconds,
       );
     }
+
+    unawaited(
+      LastFmService.instance.onTrackCompleted(
+        title: track.title,
+        artist: track.artist,
+        maxPositionSeconds: _lastPlaybackMaxPosition,
+        durationSeconds: _lastPlaybackDuration,
+      ),
+    );
 
     // End-of-loaded-playlist auto-heal: If we completed the last loaded track and more remain in UI queue, resolve the next one!
     if (trackIndex >= _playlist.length - 1 && _playlist.length < _currentUiQueue.length) {

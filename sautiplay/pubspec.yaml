@@ -44,6 +44,8 @@ dependencies:
     path: ../material_3_expressive
   flutter_m3shapes_extended: ^1.2.0
   url_launcher: ^6.3.1
+  crypto: ^3.0.3
+  http: ^1.2.0
 
   # Desktop Media Controls & Notifications
   system_tray: ^2.0.3

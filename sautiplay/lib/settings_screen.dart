@@ -16,6 +16,7 @@ import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'services/cached_stream_service.dart';
+import 'services/lastfm_service.dart';
 import 'streaming_service.dart';
 import 'widgets/album_art_shape_selector.dart';
 
@@ -497,7 +498,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildSectionHeader('PREFERENCES & ENGINE'),
                         const SizedBox(height: 10),
                         M3ECardList(
-                          itemCount: 8,
+                          itemCount: 9,
                           onTap: (index) {
                             switch (index) {
                               case 0:
@@ -537,6 +538,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 );
                                 break;
                               case 7:
+                                _navigateToSubScreen(
+                                    _buildLastFmSubScreen());
+                                break;
+                              case 8:
                                 _navigateToSubScreen(
                                     _buildMiscSystemSubScreen());
                                 break;
@@ -636,6 +641,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               widget.onPlayFtpFolder,
                                         ),
                                       ),
+                                    );
+                                  },
+                                );
+                              case 7:
+                                return AnimatedBuilder(
+                                  animation: LastFmService.instance,
+                                  builder: (context, _) {
+                                    final lastFm = LastFmService.instance;
+                                    return _buildCategoryCard(
+                                      title: 'Last.fm Scrobbler',
+                                      subtitle:
+                                          'Now Playing updates & track scrobbling to Last.fm',
+                                      icon: Icons.radio_rounded,
+                                      accentColor: const Color(0xFFD51007),
+                                      badgeText: lastFm.isLoggedIn
+                                          ? (lastFm.username ?? 'Connected')
+                                          : 'Not Connected',
+                                      onTap: () => _navigateToSubScreen(
+                                          _buildLastFmSubScreen()),
                                     );
                                   },
                                 );
@@ -3658,6 +3682,280 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ],
+        );
+      },
+    );
+  }
+
+  // 8. Last.fm Scrobbler Sub-Screen
+  Widget _buildLastFmSubScreen() {
+    String? currentToken;
+    bool isAuthenticating = false;
+
+    return AnimatedBuilder(
+      animation: LastFmService.instance,
+      builder: (context, _) {
+        final lastFm = LastFmService.instance;
+        const lastFmRed = Color(0xFFD51007);
+
+        return StatefulBuilder(
+          builder: (context, setSubState) {
+            return _buildSubScreenLayout(
+              title: 'Last.fm Scrobbler',
+              children: [
+                // ── ACCOUNT STATUS & PROFILE BANNER ────────────────────────
+                _buildSectionHeader('ACCOUNT & CONNECTION'),
+                const SizedBox(height: 8),
+                _buildCardContainer(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: lastFmRed.withAlpha(30),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: lastFmRed.withAlpha(80), width: 1.5),
+                            ),
+                            child: const Center(
+                              child: Icon(Icons.radio_rounded,
+                                  color: lastFmRed, size: 24),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  lastFm.isLoggedIn
+                                      ? (lastFm.username ?? 'Connected Account')
+                                      : 'Not Connected',
+                                  style: TextStyle(
+                                    color: _textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  lastFm.isLoggedIn
+                                      ? 'Scrobbles sync automatically to your Last.fm profile'
+                                      : 'Connect your Last.fm account to track listening history',
+                                  style: TextStyle(
+                                    color: _textDark,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const M3EDivider(),
+                    if (!lastFm.isLoggedIn) ...[
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (!isAuthenticating) ...[
+                              M3EButton.icon(
+                                onPressed: () async {
+                                  setSubState(() => isAuthenticating = true);
+                                  final token = await lastFm.fetchRequestToken();
+                                  if (token != null) {
+                                    currentToken = token;
+                                    await lastFm.launchAuthorizationUrl(token);
+                                  } else {
+                                    setSubState(() => isAuthenticating = false);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                              'Failed to connect to Last.fm API. Check internet connection.'),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                  setSubState(() {});
+                                },
+                                icon: const Icon(Icons.login_rounded, size: 18),
+                                label: const Text('Connect Last.fm Account'),
+                              ),
+                            ] else ...[
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: _primary.withAlpha(20),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border:
+                                      Border.all(color: _primary.withAlpha(60)),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      '1. Authorize Sautiplay in your browser\n2. Click the button below when done',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                          color: _textPrimary, fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: M3EButton.outlined(
+                                            onPressed: () {
+                                              setSubState(() {
+                                                isAuthenticating = false;
+                                                currentToken = null;
+                                              });
+                                            },
+                                            child: const Text('Cancel'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: M3EButton(
+                                            onPressed: () async {
+                                              if (currentToken == null) return;
+                                              final success = await lastFm
+                                                  .fetchSession(currentToken!);
+                                              if (success) {
+                                                setSubState(() {
+                                                  isAuthenticating = false;
+                                                  currentToken = null;
+                                                });
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                          'Connected to Last.fm as ${lastFm.username}!'),
+                                                    ),
+                                                  );
+                                                }
+                                              } else {
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text(
+                                                          'Authorization not completed yet. Please approve on the webpage.'),
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                            },
+                                            child: const Text('I Authorized'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      M3EListItem(
+                        headline: 'Disconnect Last.fm Account',
+                        supportingText: 'Log out and stop scrobbling',
+                        leading: _buildLeadingIcon(
+                            Icons.logout_rounded, Colors.redAccent),
+                        trailing: const Icon(Icons.chevron_right_rounded,
+                            color: Colors.redAccent, size: 20),
+                        onTap: () async {
+                          await lastFm.logout();
+                          setSubState(() {});
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // ── SCROBBLING SETTINGS ──────────────────────────────────────
+                _buildSectionHeader('SCROBBLING PREFERENCES'),
+                const SizedBox(height: 8),
+                _buildCardContainer(
+                  children: [
+                    _buildM3ESwitchTile(
+                      title: 'Scrobble Tracks',
+                      subtitle:
+                          'Save played songs to your Last.fm listening history',
+                      secondary:
+                          _buildLeadingIcon(Icons.history_rounded, lastFmRed),
+                      value: lastFm.isScrobbleEnabled,
+                      onChanged: (val) async {
+                        await lastFm.setScrobbleEnabled(val);
+                        setSubState(() {});
+                      },
+                    ),
+                    const M3EDivider(),
+                    _buildM3ESwitchTile(
+                      title: 'Update "Now Playing"',
+                      subtitle:
+                          'Broadcast currently active song in real-time',
+                      secondary:
+                          _buildLeadingIcon(Icons.graphic_eq_rounded, lastFmRed),
+                      value: lastFm.isNowPlayingEnabled,
+                      onChanged: (val) async {
+                        await lastFm.setNowPlayingEnabled(val);
+                        setSubState(() {});
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // ── RULES & DETAILS ─────────────────────────────────────────
+                _buildSectionHeader('LAST.FM SCROBBLER RULES'),
+                const SizedBox(height: 8),
+                _buildCardContainer(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline_rounded,
+                                  color: _primary, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'How scrobbling works',
+                                style: TextStyle(
+                                    color: _primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '• Tracks shorter than 30 seconds are ignored as per Last.fm guidelines.\n'
+                            '• A scrobble is sent after listening to 50% of the track or 4 minutes (whichever comes first).\n'
+                            '• Real-time "Now Playing" updates appear instantly on your Last.fm profile when playback begins.',
+                            style: TextStyle(
+                                color: _textDark, fontSize: 12, height: 1.45),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         );
       },
     );
