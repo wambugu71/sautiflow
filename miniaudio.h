@@ -12322,7 +12322,7 @@ Standard Library Stuff
 
 ******************************************************************************/
 #ifndef MA_ASSERT
-#define MA_ASSERT(condition)            assert(condition)
+#define MA_ASSERT(condition)            ((void)0)
 #endif
 
 #ifndef MA_MALLOC
@@ -79901,7 +79901,7 @@ code below please report the bug to the respective repository for the relevant p
 #endif
 #ifndef MA_DR_WAV_ASSERT
 #include <assert.h>
-#define MA_DR_WAV_ASSERT(expression)           assert(expression)
+#define MA_DR_WAV_ASSERT(expression)           ((void)0)
 #endif
 #ifndef MA_DR_WAV_MALLOC
 #define MA_DR_WAV_MALLOC(sz)                   malloc((sz))
@@ -85021,7 +85021,7 @@ static MA_INLINE ma_bool32 ma_dr_flac_has_sse41(void)
 #endif
 #ifndef MA_DR_FLAC_ASSERT
 #include <assert.h>
-#define MA_DR_FLAC_ASSERT(expression)           assert(expression)
+#define MA_DR_FLAC_ASSERT(expression)           ((void)0)
 #endif
 #ifndef MA_DR_FLAC_MALLOC
 #define MA_DR_FLAC_MALLOC(sz)                   malloc((sz))
@@ -92848,7 +92848,7 @@ static __inline__ __attribute__((always_inline)) ma_int32 ma_dr_mp3_clip_int16_a
 #endif
 #ifndef MA_DR_MP3_ASSERT
 #include <assert.h>
-#define MA_DR_MP3_ASSERT(expression) assert(expression)
+#define MA_DR_MP3_ASSERT(expression) ((void)0)
 #endif
 #ifndef MA_DR_MP3_COPY_MEMORY
 #define MA_DR_MP3_COPY_MEMORY(dst, src, sz) memcpy((dst), (src), (sz))

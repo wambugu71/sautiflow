@@ -46,7 +46,6 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Desktop Media Controls & Notifications
-  smtc_windows: ^1.1.0
   system_tray: ^2.0.3
   local_notifier: ^0.1.6
   youtube_scrape_api: ^0.1.1

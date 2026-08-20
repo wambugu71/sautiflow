@@ -2,13 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:local_notifier/local_notifier.dart';
-import 'package:smtc_windows/smtc_windows.dart';
 import 'package:system_tray/system_tray.dart';
 
 /// Centralized Desktop System Media Controller that handles:
-/// 1. Windows SMTC (System Media Transport Controls) for media flyouts and OS hardware key events.
-/// 2. System Tray (Notification Area Icon, Hover Tooltip & Context Menu with playback controls).
-/// 3. Desktop Native Toast Notifications on track changes.
+/// 1. System Tray (Notification Area Icon, Hover Tooltip & Context Menu with playback controls).
+/// 2. Desktop Native Toast Notifications on track changes.
 class DesktopSystemAudioController {
   DesktopSystemAudioController({
     required FutureOr<void> Function() onPlay,
@@ -33,8 +31,6 @@ class DesktopSystemAudioController {
   final SystemTray _systemTray = SystemTray();
   final Menu _menu = Menu();
 
-  SMTCWindows? _smtcWindows;
-  StreamSubscription<PressedButton>? _smtcSub;
   String? _currentTrackId;
   bool _isPlaying = false;
   String _currentTitle = 'Sautiplay';
@@ -48,47 +44,7 @@ class DesktopSystemAudioController {
     if (!isSupported || _isInitialized) return;
     _isInitialized = true;
 
-    // 1. Initialize Windows SMTC
-    if (Platform.isWindows) {
-      try {
-        _smtcWindows = SMTCWindows(
-          config: const SMTCConfig(
-            playEnabled: true,
-            pauseEnabled: true,
-            stopEnabled: true,
-            nextEnabled: true,
-            prevEnabled: true,
-            fastForwardEnabled: false,
-            rewindEnabled: false,
-          ),
-        );
-
-        _smtcSub = _smtcWindows?.buttonPressStream.listen((event) async {
-          debugPrint('[DesktopSystemAudio] SMTC Button Pressed: $event');
-          switch (event) {
-            case PressedButton.play:
-              await _onPlay();
-              break;
-            case PressedButton.pause:
-              await _onPause();
-              break;
-            case PressedButton.next:
-              await _onNext();
-              break;
-            case PressedButton.previous:
-              await _onPrevious();
-              break;
-            default:
-              break;
-          }
-        });
-        debugPrint('[DesktopSystemAudio] Windows SMTC initialized.');
-      } catch (e) {
-        debugPrint('[DesktopSystemAudio] SMTC init error: $e');
-      }
-    }
-
-    // 2. Initialize System Tray
+    // 1. Initialize System Tray
     try {
       String iconPath = Platform.isWindows
           ? 'assets/icon/icon.ico'
@@ -116,7 +72,7 @@ class DesktopSystemAudioController {
       debugPrint('[DesktopSystemAudio] System Tray init error: $e');
     }
 
-    // 3. Initialize Desktop Local Notifications
+    // 2. Initialize Desktop Local Notifications
     try {
       await localNotifier.setup(
         appName: 'Sautiplay',
@@ -143,28 +99,6 @@ class DesktopSystemAudioController {
     _currentTitle = title;
     _currentArtist = artist;
 
-    String? thumbnailPath = artUri;
-    if (thumbnailPath != null && thumbnailPath.startsWith('file://')) {
-      try {
-        thumbnailPath = Uri.parse(thumbnailPath).toFilePath();
-      } catch (_) {}
-    }
-
-    if (Platform.isWindows && _smtcWindows != null) {
-      try {
-        _smtcWindows!.updateMetadata(
-          MusicMetadata(
-            title: title,
-            artist: artist,
-            album: album ?? '',
-            thumbnail: thumbnailPath,
-          ),
-        );
-      } catch (e) {
-        debugPrint('[DesktopSystemAudio] SMTC updateMetadata error: $e');
-      }
-    }
-
     await _updateTrayMenu();
 
     if (isNewTrack && title.isNotEmpty) {
@@ -175,16 +109,6 @@ class DesktopSystemAudioController {
   Future<void> updatePlaybackStatus(bool isPlaying) async {
     if (!isSupported || !_isInitialized) return;
     _isPlaying = isPlaying;
-
-    if (Platform.isWindows && _smtcWindows != null) {
-      try {
-        _smtcWindows!.setPlaybackStatus(
-          isPlaying ? PlaybackStatus.playing : PlaybackStatus.paused,
-        );
-      } catch (e) {
-        debugPrint('[DesktopSystemAudio] SMTC setPlaybackStatus error: $e');
-      }
-    }
 
     await _updateTrayMenu();
   }
@@ -279,8 +203,6 @@ class DesktopSystemAudioController {
   }
 
   void dispose() {
-    _smtcSub?.cancel();
-    _smtcWindows?.disableSmtc();
     _systemTray.destroy();
   }
 }

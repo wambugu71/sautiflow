@@ -466,16 +466,28 @@ class _PlayerShellState extends State<PlayerShell> {
       _playbackSessionId++;
       final session = _playbackSessionId;
 
-      // Perform restoration - similar to _playOnlineTracks but stay paused
       final sources = <AudioSource>[];
       for (final t in tracks) {
-        final uri = t.videoId.startsWith('http')
-            ? Uri.parse(t.videoId)
-            : Uri.file(t.videoId, windows: Platform.isWindows);
-        final src = await _materializeSource(uri);
-        if (src != null) {
-          sources.add(src);
-          _onlineTrackMetadata[src.uri] = t;
+        if (_isLocalTrack(t)) {
+          final file = File(t.videoId);
+          if (file.existsSync()) {
+            sources.add(AudioSource.uri(file.uri));
+          }
+        } else {
+          final cached =
+              CachedStreamService.instance.getCachedItem(t.videoId);
+          if (cached != null && File(cached.filePath).existsSync()) {
+            final src = AudioSource.uri(File(cached.filePath).uri);
+            sources.add(src);
+            _onlineTrackMetadata[src.uri] = t;
+          } else if (t.videoId.startsWith('http://') ||
+              t.videoId.startsWith('https://')) {
+            final src = await _materializeSource(Uri.parse(t.videoId));
+            if (src != null) {
+              sources.add(src);
+              _onlineTrackMetadata[src.uri] = t;
+            }
+          }
         }
       }
 
@@ -1249,7 +1261,10 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   bool _isLocalTrack(TrackInfo track) {
-    if (track.videoId.startsWith('http')) return false;
+    if (track.videoId.startsWith('http://') ||
+        track.videoId.startsWith('https://')) {
+      return false;
+    }
     return track.videoId.contains(r'\') ||
         track.videoId.contains('/') ||
         File(track.videoId).existsSync();
@@ -1362,43 +1377,66 @@ class _PlayerShellState extends State<PlayerShell> {
     final firstTrack = tracks.first;
     bool isNetworkDown = false;
     try {
-      final cachedFirst =
-          CachedStreamService.instance.getCachedItem(firstTrack.videoId);
-      if (cachedFirst != null && File(cachedFirst.filePath).existsSync()) {
-        if (!mounted || _playbackSessionId != session) return;
-        final src = AudioSource.uri(File(cachedFirst.filePath).uri);
-        final alreadyIn = _playlist.any((s) =>
-            _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
-        if (!alreadyIn) {
-          _onlineTrackMetadata[src.uri] = firstTrack;
-          setState(() {
-            _playlist.add(src);
+      if (_isLocalTrack(firstTrack)) {
+        final file = File(firstTrack.videoId);
+        if (file.existsSync()) {
+          final src = AudioSource.uri(file.uri);
+          final alreadyIn = _playlist.any((s) {
+            if (s.uri.scheme == 'file') {
+              final path = _safeFilePathFromUri(s.uri);
+              return path != null && _pathsMatch(path, firstTrack.videoId);
+            }
+            return false;
           });
-          _player.addAudioSource(src);
-          _logs.insert(
-              0, '[stream] Lookahead loaded from cache: ${firstTrack.title}');
+          if (!alreadyIn) {
+            setState(() {
+              _playlist.add(src);
+            });
+            _player.addAudioSource(src);
+            _logs.insert(
+                0, '[local] Lookahead added local track: ${firstTrack.title}');
+          }
         }
       } else {
-        final firstUrl =
-            await StreamingService.resolveStreamUrl(firstTrack.videoId);
-        if (!mounted || _playbackSessionId != session) return;
-        if (firstUrl != null) {
-          final src = await _materializeSource(Uri.parse(firstUrl));
-          if (src != null && mounted && _playbackSessionId == session) {
-            final alreadyIn = _playlist.any((s) =>
-                _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
-            if (!alreadyIn) {
-              _onlineTrackMetadata[src.uri] = firstTrack;
-              _registerCachedStreamMeta(src, firstTrack, streamUrl: firstUrl);
-              setState(() {
-                _playlist.add(src);
-              });
-              _player.addAudioSource(src);
-              _logs.insert(0, '[stream] Lookahead preloaded: ${firstTrack.title}');
-            }
+        final cachedFirst =
+            CachedStreamService.instance.getCachedItem(firstTrack.videoId);
+        if (cachedFirst != null && File(cachedFirst.filePath).existsSync()) {
+          if (!mounted || _playbackSessionId != session) return;
+          final src = AudioSource.uri(File(cachedFirst.filePath).uri);
+          final alreadyIn = _playlist.any((s) =>
+              _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
+          if (!alreadyIn) {
+            _onlineTrackMetadata[src.uri] = firstTrack;
+            setState(() {
+              _playlist.add(src);
+            });
+            _player.addAudioSource(src);
+            _logs.insert(
+                0, '[stream] Lookahead loaded from cache: ${firstTrack.title}');
           }
         } else {
-          isNetworkDown = true;
+          final firstUrl =
+              await StreamingService.resolveStreamUrl(firstTrack.videoId);
+          if (!mounted || _playbackSessionId != session) return;
+          if (firstUrl != null) {
+            final src = await _materializeSource(Uri.parse(firstUrl));
+            if (src != null && mounted && _playbackSessionId == session) {
+              final alreadyIn = _playlist.any((s) =>
+                  _onlineTrackMetadata[s.uri]?.videoId == firstTrack.videoId);
+              if (!alreadyIn) {
+                _onlineTrackMetadata[src.uri] = firstTrack;
+                _registerCachedStreamMeta(src, firstTrack, streamUrl: firstUrl);
+                setState(() {
+                  _playlist.add(src);
+                });
+                _player.addAudioSource(src);
+                _logs.insert(
+                    0, '[stream] Lookahead preloaded: ${firstTrack.title}');
+              }
+            }
+          } else {
+            isNetworkDown = true;
+          }
         }
       }
     } catch (e) {
@@ -1422,41 +1460,61 @@ class _PlayerShellState extends State<PlayerShell> {
       for (final track in remaining) {
         if (!mounted || _playbackSessionId != session) break;
         try {
-          final cachedRem =
-              CachedStreamService.instance.getCachedItem(track.videoId);
-          if (cachedRem != null && File(cachedRem.filePath).existsSync()) {
-            if (!mounted || _playbackSessionId != session) break;
-            final src = AudioSource.uri(File(cachedRem.filePath).uri);
-            final alreadyIn = _playlist.any((s) =>
-                _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
-            if (!alreadyIn) {
-              _onlineTrackMetadata[src.uri] = track;
-              setState(() {
-                _playlist.add(src);
+          if (_isLocalTrack(track)) {
+            final file = File(track.videoId);
+            if (file.existsSync()) {
+              final src = AudioSource.uri(file.uri);
+              final alreadyIn = _playlist.any((s) {
+                if (s.uri.scheme == 'file') {
+                  final path = _safeFilePathFromUri(s.uri);
+                  return path != null && _pathsMatch(path, track.videoId);
+                }
+                return false;
               });
-              _player.addAudioSource(src);
+              if (!alreadyIn) {
+                setState(() {
+                  _playlist.add(src);
+                });
+                _player.addAudioSource(src);
+              }
             }
           } else {
-            final url = await StreamingService.resolveStreamUrl(track.videoId);
-            if (!mounted || _playbackSessionId != session) break;
-            if (url != null) {
-              final src = await _materializeSource(Uri.parse(url));
-              if (src != null && mounted && _playbackSessionId == session) {
-                final alreadyIn = _playlist.any((s) =>
-                    _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
-                if (!alreadyIn) {
-                  _onlineTrackMetadata[src.uri] = track;
-                  _registerCachedStreamMeta(src, track, streamUrl: url);
-                  setState(() {
-                    _playlist.add(src);
-                  });
-                  _player.addAudioSource(src);
-                }
+            final cachedRem =
+                CachedStreamService.instance.getCachedItem(track.videoId);
+            if (cachedRem != null && File(cachedRem.filePath).existsSync()) {
+              if (!mounted || _playbackSessionId != session) break;
+              final src = AudioSource.uri(File(cachedRem.filePath).uri);
+              final alreadyIn = _playlist.any((s) =>
+                  _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
+              if (!alreadyIn) {
+                _onlineTrackMetadata[src.uri] = track;
+                setState(() {
+                  _playlist.add(src);
+                });
+                _player.addAudioSource(src);
               }
             } else {
-              // Network failed / offline, abort background lookahead loop
-              _showOfflineSnackBar();
-              break;
+              final url = await StreamingService.resolveStreamUrl(track.videoId);
+              if (!mounted || _playbackSessionId != session) break;
+              if (url != null) {
+                final src = await _materializeSource(Uri.parse(url));
+                if (src != null && mounted && _playbackSessionId == session) {
+                  final alreadyIn = _playlist.any((s) =>
+                      _onlineTrackMetadata[s.uri]?.videoId == track.videoId);
+                  if (!alreadyIn) {
+                    _onlineTrackMetadata[src.uri] = track;
+                    _registerCachedStreamMeta(src, track, streamUrl: url);
+                    setState(() {
+                      _playlist.add(src);
+                    });
+                    _player.addAudioSource(src);
+                  }
+                }
+              } else {
+                // Network failed / offline, abort background lookahead loop
+                _showOfflineSnackBar();
+                break;
+              }
             }
           }
         } catch (e) {
@@ -1481,59 +1539,75 @@ class _PlayerShellState extends State<PlayerShell> {
     _playbackSessionId++;
     final session = _playbackSessionId;
 
-    _logs.insert(0,
-        '[stream] Resolving ${tracks.length} tracks (starting at #${initialIndex + 1})...');
-    setState(() {
-      _isLoading = true; // Start loading
-    });
-
-    // Check if the tapped track is already cached offline on disk
+    if (initialIndex < 0 || initialIndex >= tracks.length) {
+      initialIndex = 0;
+    }
     final tappedTrack = tracks[initialIndex];
-    final cached =
-        CachedStreamService.instance.getCachedItem(tappedTrack.videoId);
     final AudioSource firstSource;
 
-    if (cached != null && File(cached.filePath).existsSync()) {
-      _logs.insert(0,
-          '[stream] Playing from offline cache: ${tappedTrack.title} (${CachedStreamService.formatBytes(cached.fileSizeBytes)})');
-      firstSource = AudioSource.uri(File(cached.filePath).uri);
-      _onlineTrackMetadata[firstSource.uri] = tappedTrack;
-    } else {
-      // Resolve online stream
-      final detail =
-          await StreamingService.resolveStreamDetailed(tappedTrack.videoId);
-      if (!mounted || _playbackSessionId != session) return;
-      if (detail == null) {
-        _logs.insert(0, '[stream] Failed to resolve: ${tappedTrack.title}');
+    if (_isLocalTrack(tappedTrack)) {
+      final file = File(tappedTrack.videoId);
+      if (!file.existsSync()) {
+        _logs.insert(0, '[local] File not found: ${tappedTrack.videoId}');
         _showOfflineSnackBar(
-            message: 'Unable to stream "${tappedTrack.title}". Please check your internet connection.');
-        setState(() {
-          _isLoading = false; // Stop loading on failure
-        });
+            message: 'Local file not found: "${tappedTrack.title}"');
         return;
       }
-      final firstUrl = detail.url;
+      firstSource = AudioSource.uri(file.uri);
+    } else {
+      _logs.insert(0,
+          '[stream] Resolving ${tracks.length} tracks (starting at #${initialIndex + 1})...');
+      setState(() {
+        _isLoading = true; // Start loading
+      });
 
-      _logs.insert(
-        0,
-        detail.isFallback
-            ? '[stream] Fallback stream: ${detail.bitrateKbps.toStringAsFixed(0)}k MP3 (${tappedTrack.title})'
-            : '[stream] Direct stream: Tag ${detail.itag ?? 0} • ${detail.audioCodec} • ${detail.bitrateKbps.toStringAsFixed(1)} kbps (${tappedTrack.title})',
-      );
+      // Check if the tapped track is already cached offline on disk
+      final cached =
+          CachedStreamService.instance.getCachedItem(tappedTrack.videoId);
 
-      final materialized = await _materializeSource(Uri.parse(firstUrl));
-      if (!mounted || _playbackSessionId != session) return;
-      if (materialized == null) {
-        _logs.insert(0, '[stream] Failed to materialize: ${tappedTrack.title}');
-        setState(() {
-          _isLoading = false; // Stop loading on failure
-        });
-        return;
+      if (cached != null && File(cached.filePath).existsSync()) {
+        _logs.insert(0,
+            '[stream] Playing from offline cache: ${tappedTrack.title} (${CachedStreamService.formatBytes(cached.fileSizeBytes)})');
+        firstSource = AudioSource.uri(File(cached.filePath).uri);
+        _onlineTrackMetadata[firstSource.uri] = tappedTrack;
+      } else {
+        // Resolve online stream
+        final detail =
+            await StreamingService.resolveStreamDetailed(tappedTrack.videoId);
+        if (!mounted || _playbackSessionId != session) return;
+        if (detail == null) {
+          _logs.insert(0, '[stream] Failed to resolve: ${tappedTrack.title}');
+          _showOfflineSnackBar(
+              message:
+                  'Unable to stream "${tappedTrack.title}". Please check your internet connection.');
+          setState(() {
+            _isLoading = false; // Stop loading on failure
+          });
+          return;
+        }
+        final firstUrl = detail.url;
+
+        _logs.insert(
+          0,
+          detail.isFallback
+              ? '[stream] Fallback stream: ${detail.bitrateKbps.toStringAsFixed(0)}k MP3 (${tappedTrack.title})'
+              : '[stream] Direct stream: Tag ${detail.itag ?? 0} • ${detail.audioCodec} • ${detail.bitrateKbps.toStringAsFixed(1)} kbps (${tappedTrack.title})',
+        );
+
+        final materialized = await _materializeSource(Uri.parse(firstUrl));
+        if (!mounted || _playbackSessionId != session) return;
+        if (materialized == null) {
+          _logs.insert(0, '[stream] Failed to materialize: ${tappedTrack.title}');
+          setState(() {
+            _isLoading = false; // Stop loading on failure
+          });
+          return;
+        }
+
+        firstSource = materialized;
+        _onlineTrackMetadata[firstSource.uri] = tappedTrack;
+        _registerCachedStreamMeta(firstSource, tappedTrack, streamUrl: firstUrl);
       }
-
-      firstSource = materialized;
-      _onlineTrackMetadata[firstSource.uri] = tappedTrack;
-      _registerCachedStreamMeta(firstSource, tappedTrack, streamUrl: firstUrl);
     }
 
     if (!mounted || _playbackSessionId != session) return;
@@ -1565,10 +1639,10 @@ class _PlayerShellState extends State<PlayerShell> {
 
     _showNowPlayingScreen();
 
-    // If only one track was selected, fetch "Up Next" suggestions
-    if (tracks.length == 1) {
+    // If only one track was selected and it's an online stream, fetch "Up Next" suggestions
+    if (tracks.length == 1 && !_isLocalTrack(tappedTrack)) {
       _fetchAndAppendUpNext(tappedTrack.videoId, sessionId: session);
-    } else {
+    } else if (tracks.length > 1) {
       // Multiple tracks provided: resolve remaining tracks with lookahead priority
       final remainingTracks = [
         for (int i = 0; i < tracks.length; i++)
@@ -1613,38 +1687,36 @@ class _PlayerShellState extends State<PlayerShell> {
           useLazyPreparation: true,
         );
       } else {
-        // It's unresolved in playlist. Check if it's cached offline on disk first.
+        // It's unresolved in playlist. Check if it's local or cached offline on disk first.
         bool resolved = false;
         try {
-          final cached = CachedStreamService.instance.getCachedItem(targetTrack.videoId);
-          if (cached != null && File(cached.filePath).existsSync()) {
-            final src = AudioSource.uri(File(cached.filePath).uri);
-            if (mounted && _playbackSessionId == session) {
-              _onlineTrackMetadata[src.uri] = targetTrack;
-              setState(() {
-                _playlist.add(src);
-              });
-              _player.setAudioSources(
-                _playlist,
-                initialIndex: _playlist.length - 1,
-                initialPosition: Duration.zero,
-                useLazyPreparation: true,
-              );
-              resolved = true;
-            }
-          } else {
-            final url = await StreamingService.resolveStreamUrl(targetTrack.videoId);
-            if (!mounted || _playbackSessionId != session) return;
-            if (url != null) {
-              final src = await _materializeSource(Uri.parse(url));
-              if (src != null && mounted && _playbackSessionId == session) {
-                _onlineTrackMetadata[src.uri] = targetTrack;
-                _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
-
+          if (_isLocalTrack(targetTrack)) {
+            final file = File(targetTrack.videoId);
+            if (file.existsSync()) {
+              final src = AudioSource.uri(file.uri);
+              if (mounted && _playbackSessionId == session) {
                 setState(() {
                   _playlist.add(src);
                 });
-
+                _player.setAudioSources(
+                  _playlist,
+                  initialIndex: _playlist.length - 1,
+                  initialPosition: Duration.zero,
+                  useLazyPreparation: true,
+                );
+                resolved = true;
+              }
+            }
+          } else {
+            final cached =
+                CachedStreamService.instance.getCachedItem(targetTrack.videoId);
+            if (cached != null && File(cached.filePath).existsSync()) {
+              final src = AudioSource.uri(File(cached.filePath).uri);
+              if (mounted && _playbackSessionId == session) {
+                _onlineTrackMetadata[src.uri] = targetTrack;
+                setState(() {
+                  _playlist.add(src);
+                });
                 _player.setAudioSources(
                   _playlist,
                   initialIndex: _playlist.length - 1,
@@ -1654,9 +1726,33 @@ class _PlayerShellState extends State<PlayerShell> {
                 resolved = true;
               }
             } else {
-              _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
-              _showOfflineSnackBar(
-                  message: 'Unable to stream "${targetTrack.title}". Trying next track...');
+              final url =
+                  await StreamingService.resolveStreamUrl(targetTrack.videoId);
+              if (!mounted || _playbackSessionId != session) return;
+              if (url != null) {
+                final src = await _materializeSource(Uri.parse(url));
+                if (src != null && mounted && _playbackSessionId == session) {
+                  _onlineTrackMetadata[src.uri] = targetTrack;
+                  _registerCachedStreamMeta(src, targetTrack, streamUrl: url);
+
+                  setState(() {
+                    _playlist.add(src);
+                  });
+
+                  _player.setAudioSources(
+                    _playlist,
+                    initialIndex: _playlist.length - 1,
+                    initialPosition: Duration.zero,
+                    useLazyPreparation: true,
+                  );
+                  resolved = true;
+                }
+              } else {
+                _logs.insert(0, '[queue] Skip: ${targetTrack.title} (no URL)');
+                _showOfflineSnackBar(
+                    message:
+                        'Unable to stream "${targetTrack.title}". Trying next track...');
+              }
             }
           }
         } catch (e) {
@@ -1665,7 +1761,10 @@ class _PlayerShellState extends State<PlayerShell> {
         }
 
         // If this track failed to resolve (e.g. broken / geo-blocked / offline), auto-skip to next track in queue
-        if (!resolved && queueIndex + 1 < _currentUiQueue.length && mounted && _playbackSessionId == session) {
+        if (!resolved &&
+            queueIndex + 1 < _currentUiQueue.length &&
+            mounted &&
+            _playbackSessionId == session) {
           _isSwitchingQueueTrack = false;
           _playQueueIndex(queueIndex + 1);
           return;
@@ -1673,8 +1772,11 @@ class _PlayerShellState extends State<PlayerShell> {
       }
 
       // Lookahead window shift: resolve next track in queue if available
-      if (queueIndex + 1 < _currentUiQueue.length && mounted && _playbackSessionId == session) {
-        _ensureTrackInPlaylist(_currentUiQueue[queueIndex + 1], sessionId: session);
+      if (queueIndex + 1 < _currentUiQueue.length &&
+          mounted &&
+          _playbackSessionId == session) {
+        _ensureTrackInPlaylist(_currentUiQueue[queueIndex + 1],
+            sessionId: session);
       }
     } finally {
       _isSwitchingQueueTrack = false;

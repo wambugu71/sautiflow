@@ -340,17 +340,29 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         m_fmtCtx->interrupt_callback.opaque = this;
     }
 
+    std::printf("[ffmpeg] Step 1/5: Opening format context for %s: %s\n",
+                isNetwork ? "network URL" : "local file", m_url.c_str());
+    std::fflush(stdout);
+
     int ret = avformat_open_input(&m_fmtCtx, m_url.c_str(), nullptr, opts ? &opts : nullptr);
     if (opts) av_dict_free(&opts);
 
     if (ret < 0) {
+        std::printf("[ffmpeg] Step 1/5 FAILED: avformat_open_input returned error %s for %s\n",
+                    av_err2str_cpp(ret).c_str(), m_url.c_str());
+        std::fflush(stdout);
         if (!m_stopRequested.load(std::memory_order_acquire)) {
             set_error(StreamErrorCode::OpenFailed, "Failed to open " + std::string(isNetwork ? "stream URL: " : "audio file: ") + av_err2str_cpp(ret));
         }
         return;
     }
 
+    std::printf("[ffmpeg] Step 2/5: Probing stream information...\n");
+    std::fflush(stdout);
+
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        std::printf("[ffmpeg] Step 2/5 FAILED: avformat_find_stream_info failed for %s\n", m_url.c_str());
+        std::fflush(stdout);
         if (!m_stopRequested.load(std::memory_order_acquire)) {
             set_error(StreamErrorCode::StreamInfoNotFound, "Could not find stream info");
         }
@@ -360,6 +372,8 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     const AVCodec* decoder = nullptr;
     m_audioStreamIndex = av_find_best_stream(m_fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &decoder, 0);
     if (m_audioStreamIndex < 0 || !decoder) {
+        std::printf("[ffmpeg] Step 2/5 FAILED: No audio stream or decoder found in %s\n", m_url.c_str());
+        std::fflush(stdout);
         if (!m_stopRequested.load(std::memory_order_acquire)) {
             set_error(StreamErrorCode::CodecNotFound, "No audio stream or decoder found");
         }
@@ -367,6 +381,10 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     }
 
     AVStream* audioStream = m_fmtCtx->streams[m_audioStreamIndex];
+    std::printf("[ffmpeg] Step 2/5 SUCCESS: Found audio stream (index=%d, codec=%s, rate=%d Hz, channels=%d)\n",
+                m_audioStreamIndex, decoder->name, audioStream->codecpar->sample_rate, audioStream->codecpar->ch_layout.nb_channels);
+    std::fflush(stdout);
+
     m_codecCtx = avcodec_alloc_context3(decoder);
     if (!m_codecCtx) {
         set_error(StreamErrorCode::CodecOpenFailed, "Failed to allocate codec context");
@@ -379,9 +397,14 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     }
 
     if (avcodec_open2(m_codecCtx, decoder, nullptr) < 0) {
+        std::printf("[ffmpeg] Step 3/5 FAILED: avcodec_open2 failed for codec %s\n", decoder->name);
+        std::fflush(stdout);
         set_error(StreamErrorCode::CodecOpenFailed, "Failed to open audio codec");
         return;
     }
+
+    std::printf("[ffmpeg] Step 3/5 SUCCESS: Codec %s initialized\n", decoder->name);
+    std::fflush(stdout);
 
     // Set up Resampler (SwrContext)
     AVChannelLayout outLayout;
@@ -402,9 +425,15 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     av_channel_layout_uninit(&outLayout);
 
     if (ret < 0 || !m_swrCtx || swr_init(m_swrCtx) < 0) {
+        std::printf("[ffmpeg] Step 4/5 FAILED: SwrContext resampler init failed\n");
+        std::fflush(stdout);
         set_error(StreamErrorCode::DecodeError, "Failed to initialize audio resampler");
         return;
     }
+
+    std::printf("[ffmpeg] Step 4/5 SUCCESS: SwrContext configured (%d Hz -> %d Hz, %d ch)\n",
+                m_codecCtx->sample_rate, m_targetSampleRate, m_targetChannels);
+    std::fflush(stdout);
 
     // Populate initial telemetry
     {
@@ -420,6 +449,10 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         update_icy_metadata();
     }
     notify_telemetry();
+
+    std::printf("[ffmpeg] Step 5/5 SUCCESS: Playback pipeline active (duration=%.2fs, isLive=%d, isSeekable=%d)\n",
+                m_telemetry.totalDurationSec, m_telemetry.isLiveStream ? 1 : 0, m_telemetry.isSeekable ? 1 : 0);
+    std::fflush(stdout);
 
     AVPacket* packet = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
@@ -682,6 +715,16 @@ static std::string wstring_to_utf8_path(const wchar_t* wstr) {
 }
 #endif
 
+static bool is_miniaudio_native_local_file(const char* path) {
+    if (path == nullptr) return false;
+    std::string s(path);
+    auto dot = s.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = s.substr(dot);
+    for (auto &c : ext) c = (char)::tolower(c);
+    return (ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg" || ext == ".oga");
+}
+
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
     (void)pUserData;
     (void)pConfig;
@@ -692,12 +735,23 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
     }
 
     bool isNetwork = sautiflow::FFmpegStreamSource::is_network_url(pFilePath);
+    if (!isNetwork && is_miniaudio_native_local_file(pFilePath)) {
+        // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis decoders directly.
+        return MA_NO_BACKEND;
+    }
+
     ma_uint32 outChannels = 2;
     ma_uint32 outSampleRate = 48000;
     int prebufferMs = isNetwork ? 1500 : 0;
 
+    std::printf("[ffmpeg_backend] Requesting universal decoder for %s: %s\n",
+                isNetwork ? "network URL" : "local file", pFilePath);
+    std::fflush(stdout);
+
     auto* stream = new sautiflow::FFmpegStreamSource();
     if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
+        std::printf("[ffmpeg_backend] Universal decoder failed to open: %s\n", pFilePath);
+        std::fflush(stdout);
         delete stream;
         return MA_ERROR;
     }

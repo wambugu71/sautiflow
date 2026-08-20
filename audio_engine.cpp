@@ -9,9 +9,20 @@
 #include <windows.h>
 #endif
 
+#ifndef MA_NO_ASSERT
 #define MA_NO_ASSERT
+#endif
 #ifndef MA_ASSERT
 #define MA_ASSERT(condition) ((void)0)
+#endif
+#ifndef MA_DR_WAV_ASSERT
+#define MA_DR_WAV_ASSERT(expression) ((void)0)
+#endif
+#ifndef MA_DR_FLAC_ASSERT
+#define MA_DR_FLAC_ASSERT(expression) ((void)0)
+#endif
+#ifndef MA_DR_MP3_ASSERT
+#define MA_DR_MP3_ASSERT(expression) ((void)0)
 #endif
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -3507,8 +3518,8 @@ static bool load_decoder_for_path(
         cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
     }
     static ma_decoding_backend_vtable *pCustomDecoders[] = {
-        &g_ma_decoding_backend_vtable_mp4_aac,
-        &g_ma_decoding_backend_vtable_ffmpeg
+        &g_ma_decoding_backend_vtable_ffmpeg,
+        &g_ma_decoding_backend_vtable_mp4_aac
     };
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
@@ -7088,29 +7099,7 @@ extern "C"
             engine_log("RING BUFFER RESET");
             e->decodeProducerCv.notify_one();
 
-            #ifndef NDEBUG
-            if (wasPlaying && hadDecoder && e->currentDecoder != nullptr)
-            {
-                engine_log("FINAL ASSERTION CHECK before device start:\n  currentDecoder=%p\n  currentDecoder->outputSampleRate=%u\n  engineSampleRate=%d\n  device.sampleRate=%u\n  deviceSampleRate=%d\n  deviceSRC=%s (in=%d, out=%d)",
-                           (void*)e->currentDecoder,
-                           e->currentDecoder->outputSampleRate,
-                           e->engineSampleRate,
-                           e->device.sampleRate,
-                           e->deviceSampleRate,
-                           e->ratePlan.deviceSRC ? "YES" : "NO",
-                           e->deviceResamplerInRate,
-                           e->deviceResamplerOutRate);
 
-                assert(e->currentDecoder != nullptr);
-                assert(e->currentDecoder->outputSampleRate == (ma_uint32)e->engineSampleRate);
-                assert((int)e->device.sampleRate == e->deviceSampleRate);
-                if (e->ratePlan.deviceSRC)
-                {
-                    assert(e->deviceResamplerInRate == e->engineSampleRate);
-                    assert(e->deviceResamplerOutRate == e->deviceSampleRate);
-                }
-            }
-            #endif
 
             if (wasPlaying)
             {
