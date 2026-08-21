@@ -610,23 +610,26 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                         );
 
                         if (converted > 0) {
-                            // Write into circular ring buffer
+                            // Wait for buffer space if full
+                            std::unique_lock<std::mutex> cvLock(m_stateMutex);
+                            m_cv.wait(cvLock, [this, converted]() {
+                                return m_stopRequested.load(std::memory_order_acquire) ||
+                                       m_seekRequested.load(std::memory_order_acquire) ||
+                                       (m_rbCapacityFrames - m_rbAvailableFrames.load(std::memory_order_acquire)) >= static_cast<size_t>(converted);
+                            });
+
+                            if (m_stopRequested.load(std::memory_order_acquire) || m_seekRequested.load(std::memory_order_acquire)) {
+                                break;
+                            }
+
+                            // Write to circular ring buffer
                             size_t writePos = m_rbWritePos.load(std::memory_order_relaxed);
-                            size_t firstPart = std::min((size_t)converted, m_rbCapacityFrames - writePos);
+                            size_t firstPart = std::min(static_cast<size_t>(converted), m_rbCapacityFrames - writePos);
+                            std::memcpy(&m_pcmRingBuffer[writePos * m_targetChannels], resampleOutBuf.data(), firstPart * m_targetChannels * sizeof(float));
 
-                            std::memcpy(
-                                &m_pcmRingBuffer[writePos * m_targetChannels],
-                                resampleOutBuf.data(),
-                                firstPart * m_targetChannels * sizeof(float)
-                            );
-
-                            if ((size_t)converted > firstPart) {
-                                size_t secondPart = (size_t)converted - firstPart;
-                                std::memcpy(
-                                    &m_pcmRingBuffer[0],
-                                    resampleOutBuf.data() + firstPart * m_targetChannels,
-                                    secondPart * m_targetChannels * sizeof(float)
-                                );
+                            if (static_cast<size_t>(converted) > firstPart) {
+                                size_t secondPart = static_cast<size_t>(converted) - firstPart;
+                                std::memcpy(&m_pcmRingBuffer[0], resampleOutBuf.data() + firstPart * m_targetChannels, secondPart * m_targetChannels * sizeof(float));
                             }
 
                             m_rbWritePos.store((writePos + converted) % m_rbCapacityFrames, std::memory_order_relaxed);
@@ -771,8 +774,7 @@ static bool is_miniaudio_native_local_file(const char* path) {
     std::string ext = s.substr(dot);
     for (auto &c : ext) c = (char)::tolower(c);
     return (ext == ".flac" || ext == ".mp3" || ext == ".wav" ||
-            ext == ".ogg"  || ext == ".oga" || ext == ".m4a" ||
-            ext == ".aac"  || ext == ".mp4");
+            ext == ".ogg"  || ext == ".oga");
 }
 
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
@@ -786,7 +788,7 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
 
     bool isNetwork = sautiflow::FFmpegStreamSource::is_network_url(pFilePath);
     if (!isNetwork && is_miniaudio_native_local_file(pFilePath)) {
-        // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis and mp4_aac decoders directly.
+        // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis decoders directly.
         return MA_NO_BACKEND;
     }
 

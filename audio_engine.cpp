@@ -3519,8 +3519,8 @@ static bool load_decoder_for_path(
     }
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
     static ma_decoding_backend_vtable *pCustomDecoders[] = {
-        &g_ma_decoding_backend_vtable_ffmpeg,
-        &g_ma_decoding_backend_vtable_mp4_aac
+        &g_ma_decoding_backend_vtable_mp4_aac,
+        &g_ma_decoding_backend_vtable_ffmpeg
     };
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
