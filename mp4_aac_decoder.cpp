@@ -107,8 +107,10 @@ static int mp4_read_callback(int64_t offset, void *buffer, size_t size, void *to
 
     // 1. Check if entire request fits inside the active read-ahead cache
     if (pState->pReadCache != NULL &&
+        pState->cacheOffset >= 0 &&
+        pState->cacheLen >= size &&
         offset >= pState->cacheOffset &&
-        (uint64_t)offset + size <= (uint64_t)pState->cacheOffset + pState->cacheLen)
+        offset + (int64_t)size <= pState->cacheOffset + (int64_t)pState->cacheLen)
     {
         size_t cachePos = (size_t)(offset - pState->cacheOffset);
         memcpy(buffer, pState->pReadCache + cachePos, size);
@@ -668,6 +670,8 @@ static ma_result ma_decoding_backend_seek__mp4_aac(ma_data_source *pDataSource, 
     pState->cursor_pcm_frames = 0;
     pState->decodedBufferSizeFrames = 0;     // invalidate buffer (don't serve stale data)
     pState->decodedBufferCursorFrames = 0;
+    pState->cacheOffset = -1;
+    pState->cacheLen = 0;
 
     unsigned int total_samples = pState->use_fmp4 ? pState->fmp4_sample_count : pState->mp4_sample_count;
     unsigned int targetSample = (unsigned int)(frameIndex / spf);
