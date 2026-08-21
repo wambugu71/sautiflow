@@ -94,6 +94,8 @@ typedef struct
     // Dynamic samples-per-AAC-frame (1024 for LC-AAC, 2048 for HE-AAC/SBR)
     unsigned int samplesPerAACFrame; // in PCM frames (per channel), 0 = not yet known
 
+    FILE *pFileHandle; // Non-NULL if opened directly by onInitFile / onInitFileW
+
 } mp4_aac_decoder_state;
 
 // minimp4 read callback bridging to miniaudio with read-ahead caching
@@ -965,6 +967,110 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
     return MA_SUCCESS;
 }
 
+static ma_result ma_mp4_file_read(void *pUserData, void *pBufferOut, size_t bytesToRead, size_t *pBytesRead)
+{
+    FILE *f = (FILE *)pUserData;
+    if (f == NULL || (bytesToRead > 0 && pBufferOut == NULL))
+        return MA_INVALID_ARGS;
+
+    size_t r = fread(pBufferOut, 1, bytesToRead, f);
+    if (pBytesRead != NULL)
+        *pBytesRead = r;
+
+    if (r == bytesToRead || bytesToRead == 0)
+        return MA_SUCCESS;
+
+    return feof(f) ? MA_AT_END : MA_ERROR;
+}
+
+static ma_result ma_mp4_file_seek(void *pUserData, ma_int64 byteOffset, ma_seek_origin origin)
+{
+    FILE *f = (FILE *)pUserData;
+    if (f == NULL)
+        return MA_INVALID_ARGS;
+
+    int whence = SEEK_SET;
+    if (origin == ma_seek_origin_current)
+        whence = SEEK_CUR;
+    else if (origin == ma_seek_origin_end)
+        whence = SEEK_END;
+
+#if defined(_WIN32) || defined(_WIN64)
+    return (_fseeki64(f, byteOffset, whence) == 0) ? MA_SUCCESS : MA_ERROR;
+#else
+    return (fseeko(f, (off_t)byteOffset, whence) == 0) ? MA_SUCCESS : MA_ERROR;
+#endif
+}
+
+static ma_result ma_mp4_file_tell(void *pUserData, ma_int64 *pCursor)
+{
+    FILE *f = (FILE *)pUserData;
+    if (f == NULL || pCursor == NULL)
+        return MA_INVALID_ARGS;
+
+#if defined(_WIN32) || defined(_WIN64)
+    __int64 pos = _ftelli64(f);
+#else
+    off_t pos = ftello(f);
+#endif
+    if (pos < 0)
+        return MA_ERROR;
+
+    *pCursor = (ma_int64)pos;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__mp4_aac(void *pUserData, const char *pFilePath, const ma_decoding_backend_config *pConfig, const ma_allocation_callbacks *pAllocationCallbacks, ma_data_source **ppBackend)
+{
+    if (pFilePath == NULL || ppBackend == NULL)
+        return MA_INVALID_ARGS;
+
+    FILE *f = fopen(pFilePath, "rb");
+    if (f == NULL)
+        return MA_DOES_NOT_EXIST;
+
+    ma_result result = ma_decoding_backend_init__mp4_aac(pUserData, ma_mp4_file_read, ma_mp4_file_seek, ma_mp4_file_tell, f, pConfig, pAllocationCallbacks, ppBackend);
+    if (result != MA_SUCCESS)
+    {
+        fclose(f);
+        return result;
+    }
+
+    mp4_aac_decoder_state *pState = (mp4_aac_decoder_state *)(*ppBackend);
+    pState->pFileHandle = f;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file_w__mp4_aac(void *pUserData, const wchar_t *pFilePathW, const ma_decoding_backend_config *pConfig, const ma_allocation_callbacks *pAllocationCallbacks, ma_data_source **ppBackend)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    if (pFilePathW == NULL || ppBackend == NULL)
+        return MA_INVALID_ARGS;
+
+    FILE *f = _wfopen(pFilePathW, L"rb");
+    if (f == NULL)
+        return MA_DOES_NOT_EXIST;
+
+    ma_result result = ma_decoding_backend_init__mp4_aac(pUserData, ma_mp4_file_read, ma_mp4_file_seek, ma_mp4_file_tell, f, pConfig, pAllocationCallbacks, ppBackend);
+    if (result != MA_SUCCESS)
+    {
+        fclose(f);
+        return result;
+    }
+
+    mp4_aac_decoder_state *pState = (mp4_aac_decoder_state *)(*ppBackend);
+    pState->pFileHandle = f;
+    return MA_SUCCESS;
+#else
+    (void)pUserData;
+    (void)pFilePathW;
+    (void)pConfig;
+    (void)pAllocationCallbacks;
+    (void)ppBackend;
+    return MA_NOT_IMPLEMENTED;
+#endif
+}
+
 static void ma_decoding_backend_uninit__mp4_aac(void *pUserData, ma_data_source *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
 {
     (void)pUserData;
@@ -980,6 +1086,12 @@ static void ma_decoding_backend_uninit__mp4_aac(void *pUserData, ma_data_source 
         NeAACDecClose(pState->hDecoder);
     MP4D_close(&pState->mp4_demux);
 
+    if (pState->pFileHandle)
+    {
+        fclose(pState->pFileHandle);
+        pState->pFileHandle = NULL;
+    }
+
     if (pState->pReadCache)
         free(pState->pReadCache);
     if (pState->fmp4_samples)
@@ -994,7 +1106,7 @@ static void ma_decoding_backend_uninit__mp4_aac(void *pUserData, ma_data_source 
 
 ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp4_aac = {
     ma_decoding_backend_init__mp4_aac,
-    NULL, // onInitFile
-    NULL, // onInitFileW
+    ma_decoding_backend_init_file__mp4_aac,
+    ma_decoding_backend_init_file_w__mp4_aac,
     NULL, // onInitMemory
     ma_decoding_backend_uninit__mp4_aac};

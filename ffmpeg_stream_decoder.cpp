@@ -774,7 +774,8 @@ static bool is_miniaudio_native_local_file(const char* path) {
     std::string ext = s.substr(dot);
     for (auto &c : ext) c = (char)::tolower(c);
     return (ext == ".flac" || ext == ".mp3" || ext == ".wav" ||
-            ext == ".ogg"  || ext == ".oga");
+            ext == ".ogg"  || ext == ".oga" || ext == ".m4a" ||
+            ext == ".aac"  || ext == ".mp4");
 }
 
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
