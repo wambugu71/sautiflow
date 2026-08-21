@@ -93,7 +93,8 @@ foreach ($f in $cFiles) {
 Write-Host "Compiling C++ sources with g++..."
 $cppFiles = @(
     "audio_engine.cpp",
-    "mp4_aac_decoder.cpp"
+    "mp4_aac_decoder.cpp",
+    "ffmpeg_stream_decoder.cpp"
 ) + (Get-ChildItem -Path "ViPERDSP/viper/*.cpp", "ViPERDSP/viper/effects/*.cpp", "ViPERDSP/viper/utils/*.cpp" | Select-Object -ExpandProperty FullName)
 
 foreach ($f in $cppFiles) {
@@ -105,10 +106,11 @@ foreach ($f in $cppFiles) {
 
 Write-Host "Linking audio_engine.dll..."
 $allObjs = Get-ChildItem -Path "$objDir\*.o" | Select-Object -ExpandProperty FullName
-g++ -std=c++17 -O2 -shared -o audio_engine.dll @allObjs @curlArgs -static-libgcc -static-libstdc++ -lwinmm -lpthread
+g++ -std=c++17 -O2 -shared -o audio_engine.dll @allObjs @curlArgs -Lthird_party/ffmpeg/lib -lavformat -lavcodec -lavutil -lswresample -static-libgcc -static-libstdc++ -lwinmm -lpthread -lws2_32 -lbcrypt -lsecur32 -lm
 if ($LASTEXITCODE -ne 0) { throw "Linking failed" }
 
 New-Item -ItemType Directory -Force -Path "build\windows" | Out-Null
 Copy-Item "audio_engine.dll" "build\windows\audio_engine.dll" -Force
+Copy-Item "audio_engine.dll" "sautiflow.dll" -Force
 
 Write-Host "Done: build/windows/audio_engine.dll"

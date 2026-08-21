@@ -13,14 +13,16 @@ A cross-platform miniaudio-backed native engine exposed to Flutter through Dart 
   s.public_header_files = '../audio_engine.h'
   s.dependency 'FlutterMacOS'
   s.platform = :osx, '10.13'
-  s.libraries = 'c++', 'z', 'avformat', 'avcodec', 'avutil', 'swresample'
+  s.libraries = 'c++', 'z'
+  s.frameworks = 'CoreAudio', 'AudioToolbox', 'AVFoundation'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -O3 -ffast-math -ftree-vectorize',
-    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1 PACKAGE="libsamplerate" VERSION="0.2.2" ENABLE_SINC_BEST_CONVERTER=1 ENABLE_SINC_MEDIUM_CONVERTER=1 ENABLE_SINC_FAST_CONVERTER=1 SOXR_LIB=1',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src" "${PODS_TARGET_SRCROOT}/../ViPERDSP/include" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/effects" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/utils"'
+    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1 PACKAGE="libsamplerate" VERSION="0.2.2" PACKAGE_VERSION="2.11.1" ENABLE_SINC_BEST_CONVERTER=1 ENABLE_SINC_MEDIUM_CONVERTER=1 ENABLE_SINC_FAST_CONVERTER=1 MA_NO_ASSERT MA_DR_WAV_NO_ASSERT MA_DR_FLAC_NO_ASSERT MA_DR_MP3_NO_ASSERT SOXR_LIB=1',
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/.." "${PODS_TARGET_SRCROOT}/../native/apple/include" "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/libfaad" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src" "${PODS_TARGET_SRCROOT}/../ViPERDSP/include" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/effects" "${PODS_TARGET_SRCROOT}/../ViPERDSP/viper/utils"',
+    'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/lib" "${PODS_TARGET_SRCROOT}/../native/apple"'
   }
 
   s.swift_version = '5.0'

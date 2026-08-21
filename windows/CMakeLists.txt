@@ -93,12 +93,27 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()
 
-target_link_directories(audio_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/lib)
+set(_md_windows_ffmpeg_dir "${CMAKE_CURRENT_SOURCE_DIR}/../native/windows/x86_64")
+if(NOT (EXISTS "${_md_windows_ffmpeg_dir}/lib/avformat.lib" OR EXISTS "${_md_windows_ffmpeg_dir}/lib/libavformat.dll.a"))
+  set(_md_windows_ffmpeg_dir "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/windows/include")
+  target_include_directories(audio_engine BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../native/windows/include")
+endif()
+
+if(EXISTS "${_md_windows_ffmpeg_dir}/lib/avformat.lib" OR EXISTS "${_md_windows_ffmpeg_dir}/lib/libavformat.dll.a")
+  target_compile_definitions(audio_engine PRIVATE SAUTIFLOW_ENABLE_FFMPEG=1)
+  target_link_directories(audio_engine PRIVATE "${_md_windows_ffmpeg_dir}/lib")
+  target_link_libraries(audio_engine PRIVATE
+    avformat
+    avcodec
+    avutil
+    swresample
+  )
+endif()
+
 target_link_libraries(audio_engine PRIVATE
-  avformat
-  avcodec
-  avutil
-  swresample
   winmm
   ws2_32
   bcrypt
@@ -110,7 +125,10 @@ set_target_properties(audio_engine PROPERTIES
 )
 
 # Required by Flutter FFI plugin packaging.
+file(GLOB _md_ffmpeg_dlls "${_md_windows_ffmpeg_dir}/bin/*.dll")
+
 set(sautiflow_bundled_libraries
   $<TARGET_FILE:audio_engine>
+  ${_md_ffmpeg_dlls}
   PARENT_SCOPE
 )

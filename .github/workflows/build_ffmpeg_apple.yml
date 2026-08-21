@@ -1,0 +1,155 @@
+name: Build Audio-Only FFmpeg for iOS and macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-apple-ffmpeg:
+    runs-on: macos-14 # Apple Silicon macOS runner
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Tools
+        run: |
+          brew install nasm yasm pkg-config ninja cmake
+
+      - name: Clone FFmpeg Source
+        run: |
+          git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg_src
+
+      - name: Build FFmpeg for iOS and macOS
+        run: |
+          DEVELOPER="$(xcode-select -print-path)"
+          mkdir -p dist_apple/ios dist_apple/ios-sim dist_apple/macos dist_apple/include
+
+          build_target() {
+            TARGET_OS=$1      # ios, ios-sim, macos
+            SDK_NAME=$2       # iphoneos, iphonesimulator, macosx
+            ARCH=$3           # arm64, x86_64
+            MIN_VERSION_FLAG=$4 # -miphoneos-version-min=12.0, -mmacosx-version-min=10.15
+
+            echo "=========================================================="
+            echo " Building FFmpeg for $TARGET_OS ($ARCH) with SDK $SDK_NAME..."
+            echo "=========================================================="
+
+            SDK_PATH="$(xcrun --sdk $SDK_NAME --show-sdk-path)"
+            CLANG="$(xcrun --sdk $SDK_NAME -f clang)"
+            CLANGXX="$(xcrun --sdk $SDK_NAME -f clang++)"
+
+            BUILD_DIR="$(pwd)/build_${TARGET_OS}_${ARCH}"
+            rm -rf "$BUILD_DIR"
+            cp -a ffmpeg_src "$BUILD_DIR"
+            cd "$BUILD_DIR"
+            PREFIX="$(pwd)/install_out"
+
+            EXTRA_CFLAGS="-O3 -fPIC -arch $ARCH -isysroot $SDK_PATH $MIN_VERSION_FLAG"
+            EXTRA_LDFLAGS="-arch $ARCH -isysroot $SDK_PATH $MIN_VERSION_FLAG"
+
+            ./configure \
+              --prefix="$PREFIX" \
+              --target-os=darwin \
+              --arch=$ARCH \
+              --enable-cross-compile \
+              --cc="$CLANG" \
+              --cxx="$CLANGXX" \
+              --ar="$(xcrun --sdk $SDK_NAME -f ar)" \
+              --ranlib="$(xcrun --sdk $SDK_NAME -f ranlib)" \
+              --strip="$(xcrun --sdk $SDK_NAME -f strip)" \
+              --extra-cflags="$EXTRA_CFLAGS" \
+              --extra-ldflags="$EXTRA_LDFLAGS" \
+              --enable-static \
+              --disable-shared \
+              --disable-programs \
+              --disable-doc \
+              --disable-avdevice \
+              --disable-swscale \
+              --disable-avfilter \
+              --disable-hwaccels \
+              --disable-vulkan \
+              --disable-everything \
+              --enable-version3 \
+              --enable-securetransport \
+              --enable-protocol=file,pipe,http,https,tcp,tls,crypto,data,cache,subfile,concat,hls \
+              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat \
+              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3 \
+              --enable-parser=aac,mpegaudio,opus,vorbis,flac \
+              --enable-swresample \
+              --enable-small \
+              --enable-pic
+
+            make -j$(sysctl -n hw.ncpu)
+            make install
+
+            # Strip debug symbols
+            xcrun --sdk $SDK_NAME strip -S "$PREFIX/lib/"*.a || true
+
+            mkdir -p "../dist_apple/${TARGET_OS}_${ARCH}"
+            cp "$PREFIX/lib/"*.a "../dist_apple/${TARGET_OS}_${ARCH}/"
+
+            if [ ! -d "../dist_apple/include" ] || [ ! -f "../dist_apple/include/libavformat/avformat.h" ]; then
+              cp -r "$PREFIX/include" "../dist_apple/include"
+            fi
+
+            cd ..
+          }
+
+          # 1. iOS Device (arm64)
+          build_target "ios" "iphoneos" "arm64" "-miphoneos-version-min=12.0"
+
+          # 2. iOS Simulator (arm64 + x86_64)
+          build_target "ios-sim" "iphonesimulator" "arm64" "-mios-simulator-version-min=12.0"
+          build_target "ios-sim" "iphonesimulator" "x86_64" "-mios-simulator-version-min=12.0"
+
+          # 3. macOS (arm64 + x86_64)
+          build_target "macos" "macosx" "arm64" "-mmacosx-version-min=10.15"
+          build_target "macos" "macosx" "x86_64" "-mmacosx-version-min=10.15"
+
+          # Create Universal Fat Libraries for Simulator & macOS
+          mkdir -p dist_apple/ios-sim_universal dist_apple/macos_universal
+
+          for lib in libavformat libavcodec libavutil libswresample; do
+            lipo -create \
+              "dist_apple/ios-sim_arm64/${lib}.a" \
+              "dist_apple/ios-sim_x86_64/${lib}.a" \
+              -output "dist_apple/ios-sim_universal/${lib}.a"
+
+            lipo -create \
+              "dist_apple/macos_arm64/${lib}.a" \
+              "dist_apple/macos_x86_64/${lib}.a" \
+              -output "dist_apple/macos_universal/${lib}.a"
+          done
+
+          # Create XCFrameworks for iOS
+          mkdir -p dist_apple/xcframeworks
+          for lib in libavformat libavcodec libavutil libswresample; do
+            xcodebuild -create-xcframework \
+              -library "dist_apple/ios_arm64/${lib}.a" \
+              -headers "dist_apple/include" \
+              -library "dist_apple/ios-sim_universal/${lib}.a" \
+              -headers "dist_apple/include" \
+              -output "dist_apple/xcframeworks/${lib}.xcframework"
+          done
+
+      - name: Package Apple Libraries
+        run: |
+          cd dist_apple
+          zip -r ../ffmpeg-apple-audio-libs.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-apple-audio-libs
+          path: ffmpeg-apple-audio-libs.zip
+
+      - name: Create GitHub Release (Optional if tag pushed)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ffmpeg-apple-audio-libs.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -106,9 +106,10 @@ find_library(log-lib log)
 # and fallback to:
 #   <repo>/native/android/<ANDROID_ABI>/libcurl.a
 #   <repo>/native/android/<ANDROID_ABI>/libcurl.so
+set(_md_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../../../../")
+
 option(MINIAUDIODART_ENABLE_CURL "Enable native URL streaming via libcurl" ON)
 if(MINIAUDIODART_ENABLE_CURL)
-  set(_md_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../../../../")
   set(_md_default_include_dir "${_md_repo_root}/native/android/include")
   set(_md_default_library_dir "${_md_repo_root}/native/android")
 
@@ -157,15 +158,44 @@ if(MINIAUDIODART_ENABLE_CURL)
       "To enable, provide MINIAUDIODART_CURL_INCLUDE_DIR and MINIAUDIODART_CURL_LIBRARY "
       "or bundle artifacts under native/android/include and native/android/<ABI>/libcurl.(so|a)."
     )
+  endif()
+endif()
+
 # FFmpeg native libraries resolution for Android
 set(_md_ffmpeg_lib_dir "${_md_repo_root}/third_party/ffmpeg/android/${ANDROID_ABI}")
-if(NOT EXISTS "${_md_ffmpeg_lib_dir}")
+if(NOT (EXISTS "${_md_ffmpeg_lib_dir}/libavformat.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libavformat.a"))
   set(_md_ffmpeg_lib_dir "${_md_repo_root}/native/android/${ANDROID_ABI}")
 endif()
 
-if(EXISTS "${_md_ffmpeg_lib_dir}")
+set(_md_has_avformat FALSE)
+set(_md_has_avcodec FALSE)
+set(_md_has_avutil FALSE)
+set(_md_has_swresample FALSE)
+
+if(EXISTS "${_md_ffmpeg_lib_dir}/libavformat.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libavformat.a")
+  set(_md_has_avformat TRUE)
+endif()
+if(EXISTS "${_md_ffmpeg_lib_dir}/libavcodec.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libavcodec.a")
+  set(_md_has_avcodec TRUE)
+endif()
+if(EXISTS "${_md_ffmpeg_lib_dir}/libavutil.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libavutil.a")
+  set(_md_has_avutil TRUE)
+endif()
+if(EXISTS "${_md_ffmpeg_lib_dir}/libswresample.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libswresample.a")
+  set(_md_has_swresample TRUE)
+endif()
+
+if(_md_has_avformat AND _md_has_avcodec AND _md_has_avutil AND _md_has_swresample)
+  target_compile_definitions(audio_engine PRIVATE SAUTIFLOW_ENABLE_FFMPEG=1)
+  if(EXISTS "${_md_repo_root}/native/android/include")
+    target_include_directories(audio_engine BEFORE PRIVATE "${_md_repo_root}/native/android/include")
+  endif()
   target_link_directories(audio_engine PRIVATE ${_md_ffmpeg_lib_dir})
   target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample)
+  if(EXISTS "${_md_ffmpeg_lib_dir}/libmbedtls.so" OR EXISTS "${_md_ffmpeg_lib_dir}/libmbedtls.a")
+    target_link_libraries(audio_engine PRIVATE mbedtls mbedcrypto mbedx509)
+  endif()
+  message(STATUS "MiniAudioDart Android: FFmpeg native streaming decoder enabled for ${ANDROID_ABI} (${_md_ffmpeg_lib_dir}).")
 else()
   # Attempt direct/system resolution
   find_library(avformat-lib avformat)
@@ -173,11 +203,15 @@ else()
   find_library(avutil-lib avutil)
   find_library(swresample-lib swresample)
   if(avformat-lib AND avcodec-lib AND avutil-lib AND swresample-lib)
+    target_compile_definitions(audio_engine PRIVATE SAUTIFLOW_ENABLE_FFMPEG=1)
     target_link_libraries(audio_engine PRIVATE ${avformat-lib} ${avcodec-lib} ${avutil-lib} ${swresample-lib})
+    message(STATUS "MiniAudioDart Android: FFmpeg native streaming decoder enabled for ${ANDROID_ABI} (system libs).")
+  else()
+    message(STATUS "MiniAudioDart Android: FFmpeg prebuilts (including libswresample) not fully resolved for ${ANDROID_ABI}; built with native decoders (minimp4/faad2/miniaudio).")
   endif()
 endif()
 
-target_link_libraries(audio_engine
+target_link_libraries(audio_engine PRIVATE
   ${log-lib}
   android
   m

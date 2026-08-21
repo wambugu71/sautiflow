@@ -3517,6 +3517,7 @@ static bool load_decoder_for_path(
                                          : &g_customResamplerVTable;
         cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
     }
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
     static ma_decoding_backend_vtable *pCustomDecoders[] = {
         &g_ma_decoding_backend_vtable_ffmpeg,
         &g_ma_decoding_backend_vtable_mp4_aac
@@ -3524,6 +3525,14 @@ static bool load_decoder_for_path(
     cfg.pCustomBackendUserData = nullptr;
     cfg.ppCustomBackendVTables = pCustomDecoders;
     cfg.customBackendCount = 2;
+#else
+    static ma_decoding_backend_vtable *pCustomDecoders[] = {
+        &g_ma_decoding_backend_vtable_mp4_aac
+    };
+    cfg.pCustomBackendUserData = nullptr;
+    cfg.ppCustomBackendVTables = pCustomDecoders;
+    cfg.customBackendCount = 1;
+#endif
     // Build a 200-point seek table for local files so seeking on 1-hour+ mixtapes is instant (<1ms).
     // Keep 0 for network URLs to prevent socket scanning overhead over HTTP.
     cfg.seekPointCount = is_network_url(path) ? 0 : 200;
@@ -5977,7 +5986,11 @@ extern "C"
 
     AE_API int ae_is_network_streaming_supported(void)
     {
+#if (defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG) || (defined(AE_ENABLE_CURL) && AE_ENABLE_CURL)
         return 1;
+#else
+        return 0;
+#endif
     }
 
     AE_API int ae_get_stream_telemetry(AudioEngineHandle *e,
@@ -9019,29 +9032,119 @@ extern "C"
             }
         }
 
-        // C. Fallback to miniaudio decoder if sample_rate not resolved by header parser
-        ma_decoder decoder;
-        ma_decoder_config config = ma_decoder_config_init(ma_format_unknown, 0, 0);
-        ma_result res = MA_ERROR;
+        // C. M4A / MP4 / AAC / ALAC atom inspection
+        if (info.sample_rate == 0 && readBytes >= 16)
+        {
+            // 1. Check for ALAC atom
+            int alacOffset = -1;
+            for (size_t i = 0; i + 4 <= readBytes; i++)
+            {
+                if (bytes[i] == 'a' && bytes[i+1] == 'l' && bytes[i+2] == 'a' && bytes[i+3] == 'c')
+                {
+                    alacOffset = (int)i;
+                    break;
+                }
+            }
+            if (alacOffset != -1 && (size_t)alacOffset + 36 <= readBytes)
+            {
+                int bitDepth = (int)bytes[alacOffset + 21];
+                int ch = (int)bytes[alacOffset + 25];
+                int sr = (bytes[alacOffset + 32] << 24) |
+                         (bytes[alacOffset + 33] << 16) |
+                         (bytes[alacOffset + 34] << 8) |
+                         bytes[alacOffset + 35];
+                if (bitDepth > 0) info.bit_depth = bitDepth;
+                if (ch > 0) info.channels = ch;
+                if (sr > 0 && sr < 384000) info.sample_rate = sr;
+                std::snprintf(info.format_name, sizeof(info.format_name), "ALAC");
+            }
+
+            // 2. Check for MP4A (AAC) atom
+            if (info.sample_rate == 0)
+            {
+                int mp4aOffset = -1;
+                for (size_t i = 0; i + 4 <= readBytes; i++)
+                {
+                    if (bytes[i] == 'm' && bytes[i+1] == 'p' && bytes[i+2] == '4' && bytes[i+3] == 'a')
+                    {
+                        mp4aOffset = (int)i;
+                        break;
+                    }
+                }
+                if (mp4aOffset != -1 && (size_t)mp4aOffset + 28 <= readBytes)
+                {
+                    int ch = (bytes[mp4aOffset + 16] << 8) | bytes[mp4aOffset + 17];
+                    int bd = (bytes[mp4aOffset + 18] << 8) | bytes[mp4aOffset + 19];
+                    int sr = (bytes[mp4aOffset + 22] << 8) | bytes[mp4aOffset + 23];
+                    if (ch > 0) info.channels = ch;
+                    if (bd > 0) info.bit_depth = bd;
+                    if (sr > 0 && sr < 384000) info.sample_rate = sr;
+                    std::snprintf(info.format_name, sizeof(info.format_name), "AAC");
+                }
+            }
+
+            // 3. Fast duration extraction from mvhd atom if present in readBytes
+            if (info.duration_secs <= 0.0)
+            {
+                for (size_t i = 0; i + 24 <= readBytes; i++)
+                {
+                    if (bytes[i] == 'm' && bytes[i+1] == 'v' && bytes[i+2] == 'h' && bytes[i+3] == 'd')
+                    {
+                        unsigned char ver = bytes[i + 4];
+                        if (ver == 0 && i + 24 <= readBytes)
+                        {
+                            uint32_t timescale = ((uint32_t)bytes[i + 16] << 24) | ((uint32_t)bytes[i + 17] << 16) | ((uint32_t)bytes[i + 18] << 8) | bytes[i + 19];
+                            uint32_t duration = ((uint32_t)bytes[i + 20] << 24) | ((uint32_t)bytes[i + 21] << 16) | ((uint32_t)bytes[i + 22] << 8) | bytes[i + 23];
+                            if (timescale > 0 && duration > 0)
+                            {
+                                info.duration_secs = (double)duration / (double)timescale;
+                                break;
+                            }
+                        }
+                        else if (ver == 1 && i + 36 <= readBytes)
+                        {
+                            uint32_t timescale = ((uint32_t)bytes[i + 24] << 24) | ((uint32_t)bytes[i + 25] << 16) | ((uint32_t)bytes[i + 26] << 8) | bytes[i + 27];
+                            uint64_t duration = ((uint64_t)bytes[i + 28] << 56) | ((uint64_t)bytes[i + 29] << 48) |
+                                                ((uint64_t)bytes[i + 30] << 40) | ((uint64_t)bytes[i + 31] << 32) |
+                                                ((uint64_t)bytes[i + 32] << 24) | ((uint64_t)bytes[i + 33] << 16) |
+                                                ((uint64_t)bytes[i + 34] << 8) | bytes[i + 35];
+                            if (timescale > 0 && duration > 0)
+                            {
+                                info.duration_secs = (double)duration / (double)timescale;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // D. Fallback to miniaudio decoder if sample_rate not resolved by header parser
+        if (info.sample_rate <= 0)
+        {
+            ma_decoder decoder;
+            ma_decoder_config config = ma_decoder_config_init(ma_format_unknown, 0, 0);
+            ma_result res = MA_ERROR;
 
 #if defined(_WIN32) || defined(_WIN64)
-        res = ma_decoder_init_file_w(wpath.c_str(), &config, &decoder);
+            res = ma_decoder_init_file_w(wpath.c_str(), &config, &decoder);
 #else
-        res = ma_decoder_init_file(file_path, &config, &decoder);
+            res = ma_decoder_init_file(file_path, &config, &decoder);
 #endif
 
-        if (res == MA_SUCCESS)
-        {
-            if (info.sample_rate <= 0) info.sample_rate = (int)decoder.outputSampleRate;
-            if (info.channels <= 0) info.channels = (int)decoder.outputChannels;
-            if (info.bit_depth <= 0) info.bit_depth = 16;
-
-            ma_uint64 frameCount = 0;
-            if (ma_decoder_get_length_in_pcm_frames(&decoder, &frameCount) == MA_SUCCESS && info.sample_rate > 0)
+            if (res == MA_SUCCESS)
             {
-                info.duration_secs = (double)frameCount / (double)info.sample_rate;
+                if (info.sample_rate <= 0) info.sample_rate = (int)decoder.outputSampleRate;
+                if (info.channels <= 0) info.channels = (int)decoder.outputChannels;
+                if (info.bit_depth <= 0) info.bit_depth = 16;
+
+                ma_uint64 frameCount = 0;
+                if (info.duration_secs <= 0.0 && ma_decoder_get_length_in_pcm_frames(&decoder, &frameCount) == MA_SUCCESS && info.sample_rate > 0)
+                {
+                    info.duration_secs = (double)frameCount / (double)info.sample_rate;
+                }
+                ma_decoder_uninit(&decoder);
             }
-            ma_decoder_uninit(&decoder);
         }
 
         // D. Calculate exact average bitrate in kbps

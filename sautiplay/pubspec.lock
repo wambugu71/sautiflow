@@ -212,7 +212,7 @@ packages:
   dart_ytmusic_api:
     dependency: "direct main"
     description:
-      path: "../dart_ytmusic_api"
+      path: "dependencies/dart_ytmusic_api"
       relative: true
     source: path
     version: "1.3.7"
@@ -634,7 +634,7 @@ packages:
   material_3_expressive:
     dependency: "direct main"
     description:
-      path: "../material_3_expressive"
+      path: "dependencies/material_3_expressive"
       relative: true
     source: path
     version: "1.0.5"
@@ -1301,7 +1301,7 @@ packages:
   youtube_explode_dart:
     dependency: "direct main"
     description:
-      path: "../youtube_explode_dart"
+      path: "dependencies/youtube_explode_dart"
       relative: true
     source: path
     version: "3.1.0"

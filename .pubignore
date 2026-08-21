@@ -25,24 +25,34 @@ example/android/.gradle/
 example/android/local.properties
 *.o
 *.obj
-*.a
 *.so
 *.dll
 *.dylib
+*.a
+*.exe
 test_*
 *.py
 /analyze*
 example/android/build/
 example/macos/Flutter/
-native/windows/audio_engine.exp
-native/windows/audio_engine.lib
 
-# Action logs and temp build files
-logs_actions/
-example/native/
+# Whitelist prebuilt native libraries for all platforms
+!native/
+!native/**
+!native/**/*.so*
+!native/**/*.dll
+!native/**/*.lib
+!native/**/*.a
+!native/**/*.xcframework
+!native/**/*.h
+
+dart_ytmusic_api/
+test_extract_streams/
 example/build_temp/
-*.log
-*.exe
+example/native/
+logs_actions/
+audio_engine.dll
+sautiflow.dll
 pub_dry_run*.txt
 *.py
 minimal_streamer.cpp

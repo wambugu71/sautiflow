@@ -960,6 +960,7 @@ void _isolateEntry(_IsolateInitData initData) {
   });
 
   List<AudioSource> isolateSources = [];
+  final Map<String, TrackNativeInfo> fileInfoCache = {};
 
   receivePort.listen((message) {
     if (message is Map) {
@@ -1531,7 +1532,13 @@ void _isolateEntry(_IsolateInitData initData) {
               final src = isolateSources[status.currentIndex];
               if (!src.isNetwork) {
                 final path = src.uri.toFilePath();
-                final info = player.inspectFile(path);
+                TrackNativeInfo? info = fileInfoCache[path];
+                if (info == null) {
+                  info = player.inspectFile(path);
+                  if (info != null) {
+                    fileInfoCache[path] = info;
+                  }
+                }
                 if (info != null && info.sampleRate > 0) {
                   inputRate = info.sampleRate;
                   if (info.channels > 0) inputChannels = info.channels;
@@ -1600,7 +1607,13 @@ void _isolateEntry(_IsolateInitData initData) {
           final SendPort replyTo = message['replyTo'];
           try {
             final path = message['path'] as String;
-            final info = player.inspectFile(path);
+            TrackNativeInfo? info = fileInfoCache[path];
+            if (info == null) {
+              info = player.inspectFile(path);
+              if (info != null) {
+                fileInfoCache[path] = info;
+              }
+            }
             replyTo.send(info?.toJson());
           } catch (e) {
             replyTo.send({'error': e.toString()});

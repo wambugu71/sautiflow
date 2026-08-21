@@ -73,6 +73,10 @@ compile_commands.json
 *.exe
 *.py
 
+# Whitelist prebuilt native libraries for all platforms
+!native/
+!native/**
+
 # -----------------------------
 # Logs & Packages
 # -----------------------------

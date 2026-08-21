@@ -10,9 +10,10 @@
 #include <windows.h>
 #endif
 
-// Diagnostic logging: writes to %TEMP%\mp4_aac_log.txt + OutputDebugString
+// Diagnostic logging: only OutputDebugString / stderr in debug mode, no slow synchronous disk I/O
 static void mp4_log(const char *fmt, ...)
 {
+#if defined(_DEBUG) || defined(DEBUG)
     va_list args;
     char buf[512];
     va_start(args, fmt);
@@ -20,38 +21,11 @@ static void mp4_log(const char *fmt, ...)
     va_end(args);
 
     fputs(buf, stderr);
-    fflush(stderr);
-
 #ifdef _WIN32
     OutputDebugStringA(buf);
-
-    char logPath[MAX_PATH];
-    DWORD tempLen = GetTempPathA(MAX_PATH, logPath);
-    if (tempLen > 0 && tempLen < MAX_PATH - 20)
-    {
-        strcat(logPath, "mp4_aac_log.txt");
-        FILE *f = fopen(logPath, "a");
-        if (f)
-        {
-            fputs(buf, f);
-            fclose(f);
-        }
-    }
+#endif
 #else
-    // Try multiple writable paths
-    static const char *paths[] = {
-        "/tmp/mp4_aac_log.txt",
-        NULL};
-    for (int i = 0; paths[i] != NULL; i++)
-    {
-        FILE *f = fopen(paths[i], "a");
-        if (f)
-        {
-            fputs(buf, f);
-            fclose(f);
-            break;
-        }
-    }
+    (void)fmt;
 #endif
 }
 
@@ -85,6 +59,12 @@ typedef struct
     ma_uint32 channels;
     ma_uint32 sampleRate;
 
+    // Read-ahead cache to eliminate millions of 1-byte syscalls in minimp4
+    uint8_t *pReadCache;
+    int64_t cacheOffset;
+    size_t cacheLen;
+    size_t cacheCapacity;
+
     // MP4 State
     MP4D_demux_t mp4_demux;
     int aac_track_id;
@@ -116,37 +96,62 @@ typedef struct
 
 } mp4_aac_decoder_state;
 
-// minimp4 read callback bridging to miniaudio
+// minimp4 read callback bridging to miniaudio with read-ahead caching
 static int mp4_read_callback(int64_t offset, void *buffer, size_t size, void *token)
 {
     mp4_aac_decoder_state *pState = (mp4_aac_decoder_state *)token;
+    if (pState == NULL || buffer == NULL || size == 0)
+        return 1;
 
+    // 1. Check if entire request fits inside the active read-ahead cache
+    if (pState->pReadCache != NULL &&
+        offset >= pState->cacheOffset &&
+        (uint64_t)offset + size <= (uint64_t)pState->cacheOffset + pState->cacheLen)
+    {
+        size_t cachePos = (size_t)(offset - pState->cacheOffset);
+        memcpy(buffer, pState->pReadCache + cachePos, size);
+        return 0; // Cache hit
+    }
+
+    // 2. If large read (>= cacheCapacity), bypass cache directly
+    if (pState->cacheCapacity == 0 || size >= pState->cacheCapacity || pState->pReadCache == NULL)
+    {
+        if (pState->onSeek != NULL)
+        {
+            if (pState->onSeek(pState->pUserData, offset, ma_seek_origin_start) != MA_SUCCESS)
+                return 1;
+        }
+        size_t bytesRead = 0;
+        if (pState->onRead != NULL)
+        {
+            pState->onRead(pState->pUserData, buffer, size, &bytesRead);
+        }
+        return (bytesRead == size) ? 0 : 1;
+    }
+
+    // 3. Cache miss: seek to `offset` and fill 64KB read cache
     if (pState->onSeek != NULL)
     {
-        // MP4D seek is absolute
-        ma_result seekResult = pState->onSeek(pState->pUserData, offset, ma_seek_origin_start);
-        if (seekResult != MA_SUCCESS)
-        {
-            mp4_log("[mp4_aac] mp4_read_callback: seek to %lld FAILED (result=%d)\n", (long long)offset, seekResult);
+        if (pState->onSeek(pState->pUserData, offset, ma_seek_origin_start) != MA_SUCCESS)
             return 1;
-        }
     }
 
     size_t bytesRead = 0;
     if (pState->onRead != NULL)
     {
-        pState->onRead(pState->pUserData, buffer, size, &bytesRead);
+        pState->onRead(pState->pUserData, pState->pReadCache, pState->cacheCapacity, &bytesRead);
     }
 
-    if (bytesRead != size)
+    pState->cacheOffset = offset;
+    pState->cacheLen = bytesRead;
+
+    if (bytesRead >= size)
     {
-        mp4_log("[mp4_aac] mp4_read_callback: offset=%lld size=%zu bytesRead=%zu (short/EOF)\n",
-                (long long)offset, size, bytesRead);
+        memcpy(buffer, pState->pReadCache, size);
+        return 0;
     }
 
-    // minimp4 read_callback convention: return 0 on success, non-zero on error/EOF.
-    // (minimp4_fgets does `if (read_callback(...)) return -1;`)
-    return bytesRead == size ? 0 : 1;
+    return 1; // EOF or short read
 }
 
 // -------------------------------------------------------------------------
@@ -763,6 +768,12 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
     pState->onTell = onTell;
     pState->pUserData = pReadSeekTellUserData;
 
+    // Allocate 64 KB read-ahead cache for demuxing and box parsing
+    pState->cacheCapacity = 65536;
+    pState->pReadCache = (uint8_t *)malloc(pState->cacheCapacity);
+    pState->cacheOffset = -1;
+    pState->cacheLen = 0;
+
     int64_t file_size = INT64_MAX; // safe fallback if seek-to-end fails
     {
         // Seek to end to get real file size so minimp4's EOF guard fires correctly
@@ -788,6 +799,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
             openResult, pState->mp4_demux.track_count);
     if (openResult == 0)
     {
+        if (pState->pReadCache)
+            free(pState->pReadCache);
         free(pState);
         return MA_INVALID_DATA;
     }
@@ -808,6 +821,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
     {
         mp4_log("[mp4_aac] No SOUN track found (track_count=%d)\n", pState->mp4_demux.track_count);
         MP4D_close(&pState->mp4_demux);
+        if (pState->pReadCache)
+            free(pState->pReadCache);
         free(pState);
         return MA_INVALID_DATA;
     }
@@ -839,6 +854,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
     if (!pState->hDecoder)
     {
         MP4D_close(&pState->mp4_demux);
+        if (pState->pReadCache)
+            free(pState->pReadCache);
         free(pState);
         return MA_ERROR;
     }
@@ -887,6 +904,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
         {
             NeAACDecClose(pState->hDecoder);
             MP4D_close(&pState->mp4_demux);
+            if (pState->pReadCache)
+                free(pState->pReadCache);
             free(pState);
             return MA_ERROR;
         }
@@ -914,6 +933,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
         {
             NeAACDecClose(pState->hDecoder);
             MP4D_close(&pState->mp4_demux);
+            if (pState->pReadCache)
+                free(pState->pReadCache);
             free(pState);
             return MA_ERROR;
         }
@@ -934,6 +955,8 @@ static ma_result ma_decoding_backend_init__mp4_aac(void *pUserData, ma_read_proc
     {
         NeAACDecClose(pState->hDecoder);
         MP4D_close(&pState->mp4_demux);
+        if (pState->pReadCache)
+            free(pState->pReadCache);
         free(pState);
         return result;
     }
@@ -957,6 +980,8 @@ static void ma_decoding_backend_uninit__mp4_aac(void *pUserData, ma_data_source 
         NeAACDecClose(pState->hDecoder);
     MP4D_close(&pState->mp4_demux);
 
+    if (pState->pReadCache)
+        free(pState->pReadCache);
     if (pState->fmp4_samples)
         free(pState->fmp4_samples);
     if (pState->pDecodedBuffer)

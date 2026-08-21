@@ -1,0 +1,168 @@
+name: Build Audio-Only FFmpeg for Android
+
+on:
+  workflow_dispatch: # Allows manual one-click trigger from GitHub Actions tab
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ffmpeg:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d # Highly stable LTS NDK version
+          link-to-sdk: true
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yasm nasm build-essential pkg-config cmake ninja-build
+
+      - name: Download FFmpeg & MbedTLS Source
+        run: |
+          git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg_src
+          git clone --depth 1 --branch v3.6.3 https://github.com/Mbed-TLS/mbedtls.git mbedtls_src
+
+      - name: Compile MbedTLS and FFmpeg for Android ABIs
+        run: |
+          NDK=$ANDROID_NDK_HOME
+          TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          API=21
+
+          mkdir -p dist_libs
+
+          build_abi() {
+            ABI=$1
+            ARCH=$2
+            CPU=$3
+            CC_TARGET=$4
+            EXTRA_ABI_CFLAGS=$5
+
+            echo "=========================================================="
+            echo " [1/2] Building MbedTLS for $ABI ($ARCH)..."
+            echo "=========================================================="
+            MBEDTLS_PREFIX="$(pwd)/mbedtls_build/$ABI"
+            rm -rf mbedtls_src/build_$ABI
+            mkdir -p mbedtls_src/build_$ABI
+            cd mbedtls_src/build_$ABI
+
+            cmake .. -G Ninja \
+              -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
+              -DANDROID_ABI=$ABI \
+              -DANDROID_PLATFORM=android-$API \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+              -DUSE_SHARED_MBEDTLS_LIBRARY=ON \
+              -DUSE_STATIC_MBEDTLS_LIBRARY=ON \
+              -DENABLE_TESTING=OFF \
+              -DENABLE_PROGRAMS=OFF \
+              -DCMAKE_INSTALL_PREFIX="$MBEDTLS_PREFIX"
+
+            ninja install
+            cd ../..
+
+            echo "=========================================================="
+            echo " [2/2] Building FFmpeg for $ABI ($ARCH) with API $API..."
+            echo "=========================================================="
+            FFMPEG_BUILD_DIR="$(pwd)/ffmpeg_build_$ABI"
+            rm -rf "$FFMPEG_BUILD_DIR"
+            cp -a ffmpeg_src "$FFMPEG_BUILD_DIR"
+            cd "$FFMPEG_BUILD_DIR"
+            PREFIX="$(pwd)/install_out"
+
+            export PKG_CONFIG_PATH="$MBEDTLS_PREFIX/lib/pkgconfig:$MBEDTLS_PREFIX/lib:$PKG_CONFIG_PATH"
+
+            ./configure \
+              --prefix="$PREFIX" \
+              --target-os=android \
+              --arch=$ARCH \
+              --cpu=$CPU \
+              --enable-cross-compile \
+              --cc="$TOOLCHAIN/bin/${CC_TARGET}${API}-clang" \
+              --cxx="$TOOLCHAIN/bin/${CC_TARGET}${API}-clang++" \
+              --ar="$TOOLCHAIN/bin/llvm-ar" \
+              --nm="$TOOLCHAIN/bin/llvm-nm" \
+              --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
+              --strip="$TOOLCHAIN/bin/llvm-strip" \
+              --extra-cflags="-O3 -fPIC -DANDROID $EXTRA_ABI_CFLAGS -I$MBEDTLS_PREFIX/include" \
+              --extra-ldflags="-L$MBEDTLS_PREFIX/lib" \
+              --enable-shared \
+              --disable-static \
+              --disable-programs \
+              --disable-doc \
+              --disable-avdevice \
+              --disable-swscale \
+              --disable-avfilter \
+              --disable-hwaccels \
+              --disable-vulkan \
+              --disable-v4l2-m2m \
+              --disable-everything \
+              --enable-version3 \
+              --enable-mbedtls \
+              --enable-protocol=file,pipe,http,https,tcp,tls,tls_mbedtls,crypto,data,cache,subfile,concat,hls \
+              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat \
+              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3 \
+              --enable-parser=aac,mpegaudio,opus,vorbis,flac \
+              --enable-swresample \
+              --enable-small \
+              --enable-pic
+
+            make -j$(nproc)
+            make install
+
+            # Strip debug symbols to keep binary size tiny (< 2-3 MB)
+            $TOOLCHAIN/bin/llvm-strip "$PREFIX/lib/"*.so || true
+            $TOOLCHAIN/bin/llvm-strip "$MBEDTLS_PREFIX/lib/"*.so || true
+
+            # Copy .so files to dist
+            mkdir -p "../dist_libs/$ABI"
+            cp "$PREFIX/lib/libavformat.so" "../dist_libs/$ABI/"
+            cp "$PREFIX/lib/libavcodec.so" "../dist_libs/$ABI/"
+            cp "$PREFIX/lib/libavutil.so" "../dist_libs/$ABI/"
+            cp "$PREFIX/lib/libswresample.so" "../dist_libs/$ABI/"
+
+            # Copy MbedTLS shared libs if present (needed for HTTPS/TLS runtime dlopen)
+            cp "$MBEDTLS_PREFIX/lib/"libmbed*.so* "../dist_libs/$ABI/" 2>/dev/null || true
+
+            # Ship matching FFmpeg headers (first ABI only, headers are arch-independent)
+            if [ ! -d "../dist_libs/include" ]; then
+              cp -r "$PREFIX/include" "../dist_libs/include"
+            fi
+
+            cd ..
+          }
+
+          # 1. 32-bit ARM Phone (armeabi-v7a)
+          build_abi "armeabi-v7a" "arm" "armv7-a" "armv7a-linux-androideabi" "-march=armv7-a -mfpu=neon -mfloat-abi=softfp"
+
+          # 2. 64-bit ARM Phone (arm64-v8a)
+          build_abi "arm64-v8a" "aarch64" "armv8-a" "aarch64-linux-android" ""
+
+          # 3. 64-bit x86 Emulator (x86_64)
+          build_abi "x86_64" "x86_64" "x86-64" "x86_64-linux-android" ""
+
+      - name: Package Native Libraries
+        run: |
+          cd dist_libs
+          zip -r ../ffmpeg-android-audio-libs.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-android-audio-libs
+          path: ffmpeg-android-audio-libs.zip
+
+      - name: Create GitHub Release (Optional if tag pushed or manual)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ffmpeg-android-audio-libs.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,124 @@
+name: Build Audio-Only FFmpeg for Linux (x64)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux-ffmpeg:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yasm nasm build-essential pkg-config cmake ninja-build
+
+      - name: Download FFmpeg & MbedTLS Source
+        run: |
+          git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg_src
+          git clone --depth 1 --branch v3.6.3 https://github.com/Mbed-TLS/mbedtls.git mbedtls_src
+
+      - name: Build MbedTLS and FFmpeg for Linux x64
+        run: |
+          mkdir -p dist_linux/x86_64 dist_linux/include
+
+          echo "=========================================================="
+          echo " [1/2] Building MbedTLS for Linux x86_64..."
+          echo "=========================================================="
+          MBEDTLS_PREFIX="$(pwd)/mbedtls_build/x86_64"
+          rm -rf mbedtls_src/build_x86_64
+          mkdir -p mbedtls_src/build_x86_64
+          cd mbedtls_src/build_x86_64
+
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DUSE_SHARED_MBEDTLS_LIBRARY=ON \
+            -DUSE_STATIC_MBEDTLS_LIBRARY=ON \
+            -DENABLE_TESTING=OFF \
+            -DENABLE_PROGRAMS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$MBEDTLS_PREFIX"
+
+          ninja install
+          cd ../..
+
+          echo "=========================================================="
+          echo " [2/2] Building FFmpeg for Linux x86_64..."
+          echo "=========================================================="
+          BUILD_DIR="$(pwd)/build_linux_x86_64"
+          rm -rf "$BUILD_DIR"
+          cp -a ffmpeg_src "$BUILD_DIR"
+          cd "$BUILD_DIR"
+          PREFIX="$(pwd)/install_out"
+
+          export PKG_CONFIG_PATH="$MBEDTLS_PREFIX/lib/pkgconfig:$MBEDTLS_PREFIX/lib:$PKG_CONFIG_PATH"
+
+          ./configure \
+            --prefix="$PREFIX" \
+            --arch=x86_64 \
+            --cpu=x86-64 \
+            --target-os=linux \
+            --enable-shared \
+            --enable-static \
+            --disable-programs \
+            --disable-doc \
+            --disable-avdevice \
+            --disable-swscale \
+            --disable-avfilter \
+            --disable-hwaccels \
+            --disable-vulkan \
+            --disable-everything \
+            --enable-version3 \
+            --enable-mbedtls \
+            --enable-protocol=file,pipe,http,https,tcp,tls,tls_mbedtls,crypto,data,cache,subfile,concat,hls \
+            --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat \
+            --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3 \
+            --enable-parser=aac,mpegaudio,opus,vorbis,flac \
+            --enable-swresample \
+            --enable-small \
+            --enable-pic \
+            --extra-cflags="-O3 -fPIC -I$MBEDTLS_PREFIX/include" \
+            --extra-ldflags="-L$MBEDTLS_PREFIX/lib"
+
+          make -j$(nproc)
+          make install
+
+          # Strip debug symbols
+          strip -s "$PREFIX/lib/"*.so || true
+          strip -s "$MBEDTLS_PREFIX/lib/"*.so || true
+
+          # Copy .so and .a files to dist
+          mkdir -p "../dist_linux/x86_64"
+          cp -d "$PREFIX/lib/"libav*.so* "$PREFIX/lib/"libswresample.so* "../dist_linux/x86_64/" 2>/dev/null || true
+          cp "$MBEDTLS_PREFIX/lib/"libmbed*.so* "../dist_linux/x86_64/" 2>/dev/null || true
+          cp "$PREFIX/lib/"*.a "../dist_linux/x86_64/" 2>/dev/null || true
+
+          # Copy include headers
+          cp -r "$PREFIX/include" "../dist_linux/include"
+
+          cd ..
+
+      - name: Package Linux Libraries
+        run: |
+          cd dist_linux
+          zip -r ../ffmpeg-linux-audio-libs.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-linux-audio-libs
+          path: ffmpeg-linux-audio-libs.zip
+
+      - name: Create GitHub Release (Optional if tag pushed)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ffmpeg-linux-audio-libs.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
