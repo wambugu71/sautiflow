@@ -45,5 +45,5 @@ flutter:
         ffiPlugin: true
 
 false_secrets:
-  - "/sautiplay/dependencies/youtube_explode_dart/lib/src/videos/youtube_api_client.dart"
-  - "/sautiplay/dependencies/youtube_explode_dart/lib/src/reverse_engineering/youtube_http_client.dart"
+  - "/dependencies/youtube_explode_dart/lib/src/videos/youtube_api_client.dart"
+  - "/dependencies/youtube_explode_dart/lib/src/reverse_engineering/youtube_http_client.dart"

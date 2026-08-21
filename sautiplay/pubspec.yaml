@@ -21,16 +21,17 @@ dependencies:
   shared_preferences: ^2.5.4
   path: ^1.9.1
   dart_ytmusic_api:
-    path: dependencies/dart_ytmusic_api
+    path: ../dependencies/dart_ytmusic_api
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
   youtube_explode_dart:
-    path: dependencies/youtube_explode_dart
+    path: ../dependencies/youtube_explode_dart
   flutter_lyric: ^3.0.2
   shimmer: ^3.0.0
   loading_indicator_m3e: ^0.1.1
   file_selector: ^1.1.0
-  audio_metadata_reader: ^1.6.0
+  audio_metadata_reader:
+    path: ../dependencies/audio_metadata_reader
   text_scroll: ^0.2.1
   marquee: ^2.2.1
   share_plus: ^10.1.4
@@ -41,7 +42,7 @@ dependencies:
   showcaseview: ^3.0.0
   package_info_plus: ^9.0.1
   material_3_expressive:
-    path: dependencies/material_3_expressive
+    path: ../dependencies/material_3_expressive
   flutter_m3shapes_extended: ^1.2.0
   url_launcher: ^6.3.1
   crypto: ^3.0.3
