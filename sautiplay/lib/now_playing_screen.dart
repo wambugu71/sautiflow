@@ -120,6 +120,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _sampleRate = '...';
   String _channels = '...';
   String? _detectedCodec;
+  int _bitrateKbps = 0;
 
   String? _customTitle;
   String? _customArtist;
@@ -381,6 +382,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fileSizeBytes = 0;
     _originalBitDepth = '';
     _detectedCodec = null;
+    _bitrateKbps = 0;
 
     try {
       final props = await widget.player.getAudioProperties();
@@ -389,6 +391,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       String? channelsStr;
       String? depthStr;
       String? codecStr;
+      int bitrate = 0;
 
       String? cleanPath = widget.videoId;
       if (cleanPath != null && cleanPath.startsWith('file://')) {
@@ -406,6 +409,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             depthStr = info.formattedBitDepth;
             channelsStr = info.formattedChannels;
             codecStr = info.codec;
+            bitrate = info.bitrateKbps;
 
             try {
               final metadata = readMetadata(file, getImage: false);
@@ -422,7 +426,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (metadata.trackNumber != null) {
                 _customTrackNum = metadata.trackNumber.toString();
               }
+              if (bitrate <= 0 &&
+                  metadata.bitrate != null &&
+                  metadata.bitrate! > 0) {
+                bitrate = metadata.bitrate!;
+              }
             } catch (_) {}
+
+            if (bitrate <= 0 && _fileSizeBytes > 0) {
+              final dur = widget.statusNotifier.value.durationSeconds;
+              if (dur > 0) {
+                bitrate = ((_fileSizeBytes * 8) / dur / 1000).round();
+              }
+            }
           }
         } catch (e) {
           debugPrint('[NowPlaying] Audio file inspector error: $e');
@@ -465,6 +481,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           _channels = channelsStr ?? (channels == 1 ? 'MONO' : 'STEREO');
           _originalBitDepth = depthStr ?? '16 bit';
           _detectedCodec = codecStr;
+          _bitrateKbps = bitrate;
         });
       }
     } catch (e) {
@@ -473,11 +490,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   String _buildAudioInfoBadgeText(String trackPosition) {
+    final posPart =
+        trackPosition.trim().isNotEmpty ? '${trackPosition.trim()} ' : '';
+    final codecPart = (_detectedCodec != null && _detectedCodec!.isNotEmpty)
+        ? '${_detectedCodec!.toUpperCase()} '
+        : '';
     final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
+    final bitratePart = _bitrateKbps > 0 ? ' • $_bitrateKbps kbps' : '';
     final speedPart = (_currentPitch - 1.0).abs() > 0.01
         ? ' ${_currentPitch.toStringAsFixed(2)}X'
         : '';
-    return '$trackPosition $depthPart$_sampleRate$speedPart'
+    return '$posPart$codecPart$depthPart$_sampleRate$bitratePart$speedPart'
         .toUpperCase()
         .trim();
   }

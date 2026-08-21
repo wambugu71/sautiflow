@@ -1527,6 +1527,9 @@ void _isolateEntry(_IsolateInitData initData) {
             int inputRate = ps.inputSampleRate;
             int inputChannels = ps.inputChannels;
             int inputBitDepth = 16;
+            String fileType = 'PCM';
+            int bitrateKbps = 0;
+            int fileSizeBytes = 0;
             final status = player.status;
             if (status.currentIndex >= 0 && status.currentIndex < isolateSources.length) {
               final src = isolateSources[status.currentIndex];
@@ -1539,16 +1542,25 @@ void _isolateEntry(_IsolateInitData initData) {
                     fileInfoCache[path] = info;
                   }
                 }
-                if (info != null && info.sampleRate > 0) {
-                  inputRate = info.sampleRate;
+                if (info != null) {
+                  if (info.sampleRate > 0) inputRate = info.sampleRate;
                   if (info.channels > 0) inputChannels = info.channels;
                   if (info.bitDepth > 0) inputBitDepth = info.bitDepth;
+                  if (info.formatName.isNotEmpty) fileType = info.formatName;
+                  bitrateKbps = info.bitrateKbps;
+                  fileSizeBytes = info.fileSizeBytes;
                 }
+              } else {
+                fileType = st.codecName.isNotEmpty ? st.codecName.toUpperCase() : 'STREAM';
+                bitrateKbps = st.bitrate;
               }
             }
 
             replyTo.send({
               'hardware': hw.toJson(),
+              'fileType': fileType,
+              'bitrateKbps': bitrateKbps,
+              'fileSizeBytes': fileSizeBytes,
               'inputFormat': ps.inputFormat,
               'inputSampleRate': inputRate,
               'inputChannels': inputChannels,

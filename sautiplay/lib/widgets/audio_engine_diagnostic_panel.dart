@@ -230,6 +230,22 @@ class _AudioEngineDiagnosticPanelState
             : specs.deviceName)
         : specs.deviceName;
 
+    final String fileType = (t['fileType'] as String? ?? 'PCM').toUpperCase();
+    final int bitrateKbps = t['bitrateKbps'] as int? ?? 0;
+    final int fileSizeBytes = t['fileSizeBytes'] as int? ?? 0;
+
+    String bitrateDisplay = 'N/A';
+    if (bitrateKbps > 0) {
+      bitrateDisplay = '$bitrateKbps kbps';
+      if (['FLAC', 'ALAC'].contains(fileType)) {
+        bitrateDisplay += ' (Lossless VBR)';
+      } else if (['WAV', 'AIFF'].contains(fileType)) {
+        bitrateDisplay += ' (Uncompressed)';
+      } else if (['MP3', 'AAC', 'M4A', 'OGG', 'OPUS'].contains(fileType)) {
+        bitrateDisplay += ' (Compressed)';
+      }
+    }
+
     final int srcRate = t['inputSampleRate'] as int? ?? 48000;
     final int srcDepth =
         t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
@@ -363,6 +379,13 @@ class _AudioEngineDiagnosticPanelState
                   specs.formattedBtCodec ?? specs.bluetoothCodec!,
                   isValueActive: true,
                 ),
+              _buildTelemetryRow('File Format', fileType, isValueActive: true),
+              _buildTelemetryRow('Bitrate', bitrateDisplay,
+                  isValueActive: bitrateKbps > 0),
+              if (fileSizeBytes > 0)
+                _buildTelemetryRow('File Size',
+                    '${(fileSizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB',
+                    isValueActive: true),
               _buildTelemetryRow('Source',
                   '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM'),
               _buildTelemetryRow('Decoder',
