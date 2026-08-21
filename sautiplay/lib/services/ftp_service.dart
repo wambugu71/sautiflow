@@ -147,7 +147,7 @@ class FtpService {
       timeout: 15,
       securityType:
           config.isSecure ? SecurityType.ftps : SecurityType.ftp,
-      showLog: kDebugMode,
+      showLog: false,
     );
   }
 

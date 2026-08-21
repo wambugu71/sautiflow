@@ -138,7 +138,7 @@ class DlnaService extends ChangeNotifier {
   }) async {
     try {
       final device = renderer.deviceRef;
-      debugPrint('[DlnaService] Casting $audioUrl to ${renderer.name}');
+      debugPrint('[DlnaService] Casting to ${renderer.name}');
 
       await device.setUrl(audioUrl, title: title);
       await device.play();

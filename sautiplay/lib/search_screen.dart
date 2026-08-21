@@ -72,8 +72,16 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String msg = 'Search failed. Please try again.';
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('socketexception') ||
+            errStr.contains('timeout') ||
+            errStr.contains('failed host lookup') ||
+            errStr.contains('handshakeexception')) {
+          msg = 'Offline or connection error. Please check your internet.';
+        }
         setState(() {
-          _error = e.toString();
+          _error = msg;
           _isSearching = false;
         });
       }

@@ -226,17 +226,11 @@ class StreamingService {
 
         _cache[key] = result;
         debugPrint(
-            '[StreamingService] ✓ Direct resolved $videoId: Tag ${streamInfo.tag} | ${streamInfo.audioCodec} | ${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps');
+            '[StreamingService] ✓ Resolved $videoId (${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps)');
         return result;
-      } catch (e, st) {
+      } catch (e) {
         debugPrint(
             '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
-        if (kDebugMode &&
-            e is! SocketException &&
-            e is! HandshakeException &&
-            e is! TimeoutException) {
-          debugPrint(st.toString());
-        }
 
         // Re-instantiate client safely if connection or state error occurred
         try {

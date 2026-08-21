@@ -255,7 +255,7 @@ class YouTubeAuthService {
         return true;
       } else {
         debugPrint(
-            '[YouTubeAuthService] Token exchange failed (${res.statusCode}): $body');
+            '[YouTubeAuthService] Token exchange failed (${res.statusCode})');
         return false;
       }
     } catch (e) {

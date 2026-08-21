@@ -73,7 +73,10 @@ class _StreamExtractionTestScreenState
       await _ytMusic.initialize();
       await _performSearch(_searchController.text.trim());
     } catch (e) {
-      debugPrint('Search error: $e');
+      final err = e.toString().toLowerCase();
+      if (!err.contains('socketexception') && !err.contains('failed host lookup')) {
+        debugPrint('Search error: $e');
+      }
     } finally {
       if (mounted) setState(() => _isSearching = false);
     }
@@ -97,7 +100,10 @@ class _StreamExtractionTestScreenState
         });
       }
     } catch (e) {
-      debugPrint('Error searching songs: $e');
+      final err = e.toString().toLowerCase();
+      if (!err.contains('socketexception') && !err.contains('failed host lookup')) {
+        debugPrint('Error searching songs: $e');
+      }
     } finally {
       if (mounted) setState(() => _isSearching = false);
     }

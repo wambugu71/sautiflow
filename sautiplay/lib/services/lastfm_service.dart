@@ -45,7 +45,6 @@ class LastFmService extends ChangeNotifier {
   bool _currentTrackScrobbled = false;
 
   void _log(String message) {
-    debugPrint(message);
     _logController.add(message);
   }
 
