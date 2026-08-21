@@ -655,6 +655,7 @@ struct ma_ffmpeg_data_source {
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
+    ma_uint64 cursor;
 };
 
 static ma_result ma_ffmpeg_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead) {
@@ -663,6 +664,7 @@ static ma_result ma_ffmpeg_ds_read(ma_data_source* pDataSource, void* pFramesOut
 
     size_t read = ds->stream->read_pcm(reinterpret_cast<float*>(pFramesOut), static_cast<size_t>(frameCount));
     if (pFramesRead) *pFramesRead = read;
+    ds->cursor += read;
     if (read == 0) {
         if (ds->stream->is_buffering()) {
             std::memset(pFramesOut, 0, frameCount * ds->channels * sizeof(float));
@@ -682,6 +684,7 @@ static ma_result ma_ffmpeg_ds_seek(ma_data_source* pDataSource, ma_uint64 frameI
     if (ds->sampleRate > 0) {
         int64_t ms = (frameIndex * 1000) / ds->sampleRate;
         ds->stream->seek(ms);
+        ds->cursor = frameIndex;
     }
     return MA_SUCCESS;
 }
@@ -698,7 +701,9 @@ static ma_result ma_ffmpeg_ds_get_data_format(ma_data_source* pDataSource, ma_fo
 }
 
 static ma_result ma_ffmpeg_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor) {
-    if (pCursor) *pCursor = 0;
+    auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDataSource);
+    if (!ds) return MA_INVALID_ARGS;
+    if (pCursor) *pCursor = ds->cursor;
     return MA_SUCCESS;
 }
 
@@ -765,7 +770,9 @@ static bool is_miniaudio_native_local_file(const char* path) {
     if (dot == std::string::npos) return false;
     std::string ext = s.substr(dot);
     for (auto &c : ext) c = (char)::tolower(c);
-    return (ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg" || ext == ".oga");
+    return (ext == ".flac" || ext == ".mp3" || ext == ".wav" ||
+            ext == ".ogg"  || ext == ".oga" || ext == ".m4a" ||
+            ext == ".aac"  || ext == ".mp4");
 }
 
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
@@ -779,7 +786,7 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
 
     bool isNetwork = sautiflow::FFmpegStreamSource::is_network_url(pFilePath);
     if (!isNetwork && is_miniaudio_native_local_file(pFilePath)) {
-        // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis decoders directly.
+        // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis and mp4_aac decoders directly.
         return MA_NO_BACKEND;
     }
 
