@@ -9071,15 +9071,37 @@ extern "C"
                         break;
                     }
                 }
-                if (mp4aOffset != -1 && (size_t)mp4aOffset + 28 <= readBytes)
+                if (mp4aOffset != -1 && (size_t)mp4aOffset + 30 <= readBytes)
                 {
-                    int ch = (bytes[mp4aOffset + 16] << 8) | bytes[mp4aOffset + 17];
-                    int bd = (bytes[mp4aOffset + 18] << 8) | bytes[mp4aOffset + 19];
-                    int sr = (bytes[mp4aOffset + 22] << 8) | bytes[mp4aOffset + 23];
+                    int ch = (bytes[mp4aOffset + 20] << 8) | bytes[mp4aOffset + 21];
+                    int bd = (bytes[mp4aOffset + 22] << 8) | bytes[mp4aOffset + 23];
+                    int sr = (bytes[mp4aOffset + 28] << 8) | bytes[mp4aOffset + 29];
                     if (ch > 0) info.channels = ch;
                     if (bd > 0) info.bit_depth = bd;
                     if (sr > 0 && sr < 384000) info.sample_rate = sr;
                     std::snprintf(info.format_name, sizeof(info.format_name), "AAC");
+                }
+            }
+
+            // 3. Check for Opus in MP4 ('Opus' or 'dOps' atom)
+            if (info.sample_rate == 0)
+            {
+                int opusOffset = -1;
+                for (size_t i = 0; i + 4 <= readBytes; i++)
+                {
+                    if ((bytes[i] == 'O' && bytes[i+1] == 'p' && bytes[i+2] == 'u' && bytes[i+3] == 's') ||
+                        (bytes[i] == 'd' && bytes[i+1] == 'O' && bytes[i+2] == 'p' && bytes[i+3] == 's'))
+                    {
+                        opusOffset = (int)i;
+                        break;
+                    }
+                }
+                if (opusOffset != -1)
+                {
+                    info.sample_rate = 48000;
+                    info.channels = 2;
+                    info.bit_depth = 16;
+                    std::snprintf(info.format_name, sizeof(info.format_name), "OPUS");
                 }
             }
 
