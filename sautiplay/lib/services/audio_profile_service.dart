@@ -440,12 +440,12 @@ class AudioProfileService {
         sautiDspState: {
           'dspMasterEnabled': true,
           'bassEnabled': true,
-          'bassProfile': HarmonicBassProfile.punchyBass.value,
-          'bassCutoffHz': 80.0,
-          'bassBoost': 0.75,
+          'bassProfile': HarmonicBassProfile.subBassResonant.value,
+          'bassCutoffHz': 60.0,
+          'bassBoost': 0.85,
           'dynamicSystemEnabled': true,
-          'dynamicSystemProfile': TransducerProfile.headphone.value,
-          'dynamicSystemStrength': 0.6,
+          'dynamicSystemProfile': TransducerProfile.extremeSubwoofer.value,
+          'dynamicSystemStrength': 0.75,
         },
       ),
       AudioProfile(

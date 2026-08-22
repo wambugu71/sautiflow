@@ -14,12 +14,17 @@ enum AudioClarityProfile {
   const AudioClarityProfile(this.value);
 }
 
-/// Harmonic Bass DSP profiles.
+/// Dynamic Bass & Subwoofer DSP profiles.
 enum HarmonicBassProfile {
-  subBassResonant(0),
-  punchyBass(1),
-  harmonicExciter(2),
-  pultecDeep(3);
+  naturalBass(0),
+  pureBass(1),
+  subwoofer(2),
+  harmonicExciter(3),
+  pultecDeep(4);
+
+  // Backward-compatible aliases
+  static const HarmonicBassProfile subBassResonant = naturalBass;
+  static const HarmonicBassProfile punchyBass = pureBass;
 
   final int value;
   const HarmonicBassProfile(this.value);
@@ -30,7 +35,9 @@ enum TransducerProfile {
   earphone(0),
   headphone(1),
   highEndReference(2),
-  speakerMonitor(3);
+  speakerMonitor(3),
+  extremeSubwoofer(4),
+  pureDynamic(5);
 
   final int value;
   const TransducerProfile(this.value);

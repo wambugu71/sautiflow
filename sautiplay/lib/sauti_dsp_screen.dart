@@ -302,7 +302,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load impulse response: $e')),
+          SnackBar(content: Text('Failed to load acoustic file: $e')),
         );
       }
     }
@@ -312,7 +312,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     widget.player.resetDsp();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('DSP states and history buffers reset.'),
+        content: Text('All sound effects have been reset.'),
         duration: Duration(seconds: 2),
       ),
     );
@@ -411,7 +411,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Sauti DSP Suite',
+                    'Sauti Studio Audio FX',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
@@ -420,7 +420,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
                     ),
                   ),
                   Text(
-                    _dspMasterEnabled ? 'Clean-room studio processing active' : 'DSP Engine Bypassed',
+                    _dspMasterEnabled ? 'Studio Enhancements Active' : 'All Sound Effects Off',
                     style: TextStyle(
                       color: _dspMasterEnabled ? primaryColor : Colors.white54,
                       fontSize: 12,
@@ -434,7 +434,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
             children: [
               IconButton(
                 icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
-                tooltip: 'Reset DSP Buffers',
+                tooltip: 'Reset All Effects',
                 onPressed: _resetDsp,
               ),
               M3ESwitch(
@@ -451,11 +451,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 1. Audio Clarity Card ─────────────────────────────────────────────────
+  // ─── 1. Clarity & Vocals Card ───────────────────────────────────────────────
   Widget _buildClarityCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Audio Clarity Engine',
-      subtitle: 'High-frequency transient restoration & harmonic exciter',
+      title: 'Clarity & Vocal Enhancer',
+      subtitle: 'Brings out crisp details, vocal presence & high-end sparkle',
       icon: Icons.graphic_eq_rounded,
       enabled: _clarityEnabled,
       onToggle: (v) {
@@ -468,13 +468,13 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildProfileSelector<AudioClarityProfile>(
-            label: 'Clarity Mode',
+            label: 'Clarity Style',
             selectedValue: _clarityProfile,
             items: const [
-              (AudioClarityProfile.transientCrisp, 'Transient Crisp (Nyquist)'),
-              (AudioClarityProfile.airShelf, 'Air Shelf (12 kHz Sparkle)'),
-              (AudioClarityProfile.presenceExciter, 'Presence Exciter (3-Band)'),
-              (AudioClarityProfile.harmonicBrilliance, 'Harmonic Brilliance (Aural)'),
+              (AudioClarityProfile.transientCrisp, 'Crisp & Detailed (Fast Transients)'),
+              (AudioClarityProfile.airShelf, 'Air & Sparkle (Top-End Sheen)'),
+              (AudioClarityProfile.presenceExciter, 'Vocal Presence (Forward & Intelligible)'),
+              (AudioClarityProfile.harmonicBrilliance, 'Studio Brilliance (Bright & Open)'),
             ],
             onChanged: (p) {
               if (p == null) return;
@@ -485,7 +485,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 14),
           _buildSliderRow(
-            label: 'Intensity',
+            label: 'Clarity Amount',
             value: _clarityIntensity,
             displayValue: '${(_clarityIntensity * 100).toInt()}%',
             min: 0.0,
@@ -501,11 +501,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 2. Harmonic Bass Card ─────────────────────────────────────────────────
+  // ─── 2. Deep Bass & Subwoofer Card ─────────────────────────────────────────
   Widget _buildHarmonicBassCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Harmonic Bass Engine',
-      subtitle: 'Dynamic sub-harmonic synthesis & Pultec deep trick',
+      title: 'Deep Bass & Subwoofer',
+      subtitle: 'Clean mono bass injection, kick punch & subwoofer power',
       icon: Icons.speaker_group_rounded,
       enabled: _bassEnabled,
       onToggle: (v) {
@@ -521,10 +521,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
             label: 'Bass Character',
             selectedValue: _bassProfile,
             items: const [
-              (HarmonicBassProfile.subBassResonant, 'Sub-Bass Resonant (Adaptive Q)'),
-              (HarmonicBassProfile.punchyBass, 'Punchy Mid-Bass (Tight)'),
-              (HarmonicBassProfile.harmonicExciter, 'Harmonic Exciter (Missing Fundamental)'),
-              (HarmonicBassProfile.pultecDeep, 'Pultec EQP-1A Deep Trick'),
+              (HarmonicBassProfile.naturalBass, 'Natural Bass (Smooth & Clean)'),
+              (HarmonicBassProfile.pureBass, 'Punchy Kick (Tight Drums & Beats)'),
+              (HarmonicBassProfile.subwoofer, 'Subwoofer Rumble (Deep Low-End)'),
+              (HarmonicBassProfile.harmonicExciter, 'Earbud / Small Speaker Bass (Harmonic)'),
+              (HarmonicBassProfile.pultecDeep, 'Deep Sub & Anti-Mud (Pultec Studio)'),
             ],
             onChanged: (p) {
               if (p == null) return;
@@ -535,7 +536,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 14),
           _buildSliderRow(
-            label: 'Cutoff Frequency',
+            label: 'Bass Focus Frequency',
             value: _bassCutoffHz,
             displayValue: '${_bassCutoffHz.toInt()} Hz',
             min: 30.0,
@@ -548,7 +549,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 10),
           _buildSliderRow(
-            label: 'Boost Amount',
+            label: 'Bass Power',
             value: _bassBoost,
             displayValue: '${(_bassBoost * 100).toInt()}%',
             min: 0.0,
@@ -564,11 +565,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 3. Dynamic Transducer Correction ──────────────────────────────────────
+  // ─── 3. Headphone & Speaker Optimizer Card ─────────────────────────────────
   Widget _buildDynamicSystemCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Dynamic Transducer System',
-      subtitle: 'Multi-pole acoustic ladder driver optimization',
+      title: 'Device & Headphone Optimizer',
+      subtitle: 'Tailors sound dynamics and crossover to your listening gear',
       icon: Icons.headphones_rounded,
       enabled: _dynamicSystemEnabled,
       onToggle: (v) {
@@ -581,13 +582,15 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildProfileSelector<TransducerProfile>(
-            label: 'Transducer Type',
+            label: 'Your Listening Device',
             selectedValue: _dynamicSystemProfile,
             items: const [
-              (TransducerProfile.earphone, 'In-Ear Monitors (Fast Sub-Lows)'),
-              (TransducerProfile.headphone, 'Over-Ear Headphones (Warm Acoustic)'),
-              (TransducerProfile.highEndReference, 'Planar / Reference (Linear Deep)'),
-              (TransducerProfile.speakerMonitor, 'Speaker Monitors (Excursion Protected)'),
+              (TransducerProfile.earphone, 'In-Ear Earbuds (Punchy & Open Sound)'),
+              (TransducerProfile.headphone, 'Over-Ear Headphones (Warm & Spacious)'),
+              (TransducerProfile.highEndReference, 'Studio / Audiophile (Accurate & Flat)'),
+              (TransducerProfile.speakerMonitor, 'Desktop & Portable Speakers (Excursion Safe)'),
+              (TransducerProfile.extremeSubwoofer, 'Club & Basshead Subwoofer (Massive Impact)'),
+              (TransducerProfile.pureDynamic, 'Punchy Dynamic (Energetic & Lively)'),
             ],
             onChanged: (p) {
               if (p == null) return;
@@ -598,7 +601,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 14),
           _buildSliderRow(
-            label: 'Correction Strength',
+            label: 'Optimization Strength',
             value: _dynamicSystemStrength,
             displayValue: '${(_dynamicSystemStrength * 100).toInt()}%',
             min: 0.0,
@@ -614,11 +617,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 4. Analog Warmth (Tube & Tape) ────────────────────────────────────────
+  // ─── 4. Warmth & Vintage Sound Card ────────────────────────────────────────
   Widget _buildAnalogWarmthCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Analog Warmth & Saturation',
-      subtitle: 'Asymmetric 12AX7 triode tube & magnetic tape simulation',
+      title: 'Analog Warmth & Color',
+      subtitle: 'Adds rich analog harmonics, velvety depth & vintage character',
       icon: Icons.album_rounded,
       enabled: _analogWarmthEnabled,
       onToggle: (v) {
@@ -631,12 +634,12 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildProfileSelector<AnalogWarmthProfile>(
-            label: 'Harmonic Profile',
+            label: 'Warmth Flavor',
             selectedValue: _analogWarmthProfile,
             items: const [
-              (AnalogWarmthProfile.triode12AX7, '12AX7 Vacuum Tube (Class-A Even Harmonics)'),
-              (AnalogWarmthProfile.magneticTape, 'Magnetic Tape (S-Curve & HF Damping)'),
-              (AnalogWarmthProfile.vintagePreamp, 'Vintage Console Preamp (Punchy Presence)'),
+              (AnalogWarmthProfile.triode12AX7, 'Vacuum Tube Amp (12AX7 Smooth Warmth)'),
+              (AnalogWarmthProfile.magneticTape, 'Vintage Reel-to-Reel Tape (Soft & Silky)'),
+              (AnalogWarmthProfile.vintagePreamp, 'Studio Console Preamp (Punchy Body)'),
             ],
             onChanged: (p) {
               if (p == null) return;
@@ -647,7 +650,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 14),
           _buildSliderRow(
-            label: 'Drive / Warmth Amount',
+            label: 'Warmth Amount',
             value: _analogWarmthDrive,
             displayValue: '${(_analogWarmthDrive * 100).toInt()}%',
             min: 0.0,
@@ -663,11 +666,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 5. Partitioned FFT Convolver ──────────────────────────────────────────
+  // ─── 5. Room & Acoustic Space Convolver Card ───────────────────────────────
   Widget _buildConvolverCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Partitioned FFT Convolver',
-      subtitle: 'Real-time frequency-domain impulse response convolution',
+      title: 'Acoustic Space & Convolver',
+      subtitle: 'Simulate playing inside real concert halls, rooms, or custom acoustics',
       icon: Icons.waves_rounded,
       enabled: _convolverEnabled,
       onToggle: (v) {
@@ -694,7 +697,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _convolverIrFileName ?? 'No Impulse Response Loaded',
+                        _convolverIrFileName ?? 'No Acoustic File Loaded',
                         style: TextStyle(
                           color: _convolverIrFileName != null ? Colors.white : Colors.white54,
                           fontWeight: FontWeight.w600,
@@ -705,7 +708,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        _convolverIrPath != null ? 'Partitioned 1024-FFT Block' : 'Select a .wav IR file',
+                        _convolverIrPath != null ? 'Active Acoustic Simulation' : 'Select a .wav room impulse response file',
                         style: const TextStyle(color: Colors.white38, fontSize: 11),
                       ),
                     ],
@@ -715,7 +718,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
                 if (_convolverIrPath != null)
                   IconButton(
                     icon: const Icon(Icons.clear_rounded, color: Colors.white54, size: 20),
-                    tooltip: 'Clear IR',
+                    tooltip: 'Clear File',
                     onPressed: () {
                       setState(() {
                         _convolverIrPath = null;
@@ -742,7 +745,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 14),
           _buildSliderRow(
-            label: 'Wet Mix',
+            label: 'Room Acoustic Mix',
             value: _convolverWet,
             displayValue: '${(_convolverWet * 100).toInt()}%',
             min: 0.0,
@@ -755,7 +758,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 10),
           _buildSliderRow(
-            label: 'Dry Mix',
+            label: 'Original Audio Mix',
             value: _convolverDry,
             displayValue: '${(_convolverDry * 100).toInt()}%',
             min: 0.0,
@@ -771,11 +774,11 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
     );
   }
 
-  // ─── 6. Master Peak Limiter ────────────────────────────────────────────────
+  // ─── 6. Volume & Distortion Shield ─────────────────────────────────────────
   Widget _buildMasterLimiterCard(Color primaryColor, Color surfaceColor) {
     return _buildSectionCard(
-      title: 'Master Lookahead Limiter',
-      subtitle: 'True-peak inter-sample overs protection & gain compensation',
+      title: 'Volume & Distortion Shield',
+      subtitle: 'Prevents clipping distortion and boosts loudness safely',
       icon: Icons.shield_rounded,
       enabled: _limiterEnabled,
       onToggle: (v) {
@@ -788,7 +791,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSliderRow(
-            label: 'Ceiling',
+            label: 'Max Volume Ceiling',
             value: _limiterCeilingDb,
             displayValue: '${_limiterCeilingDb.toStringAsFixed(1)} dBFS',
             min: -12.0,
@@ -801,7 +804,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 10),
           _buildSliderRow(
-            label: 'Output Gain',
+            label: 'Loudness Boost',
             value: _limiterOutputGainDb,
             displayValue: '${_limiterOutputGainDb > 0 ? '+' : ''}${_limiterOutputGainDb.toStringAsFixed(1)} dB',
             min: -24.0,
@@ -814,7 +817,7 @@ class _SautiDspScreenState extends State<SautiDspScreen> with AutomaticKeepAlive
           ),
           const SizedBox(height: 10),
           _buildSliderRow(
-            label: 'Release Time',
+            label: 'Smooth Recovery Speed',
             value: _limiterReleaseMs,
             displayValue: '${_limiterReleaseMs.toInt()} ms',
             min: 5.0,
