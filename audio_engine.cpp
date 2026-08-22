@@ -1998,168 +1998,6 @@ namespace
         }
     };
 
-    struct DynamicExciterSVF
-    {
-        float ic1eq = 0.0f;
-        float ic2eq = 0.0f;
-        float g = 0.0f;
-        float k = 0.0f;
-        float a1 = 0.0f;
-        float a2 = 0.0f;
-        float a3 = 0.0f;
-
-        void set(float cutoff, float q, float sampleRate)
-        {
-            g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
-            k = 1.0f / q;
-            a1 = 1.0f / (1.0f + g * (g + k));
-            a2 = g * a1;
-            a3 = g * a2;
-        }
-
-        void process(float input, float &lp, float &hp)
-        {
-            float v3 = input - ic2eq;
-            float v1 = a1 * ic1eq + a2 * v3;
-            float v2 = ic2eq + a2 * ic1eq + a3 * v3;
-            ic1eq = 2.0f * v1 - ic1eq;
-            ic2eq = 2.0f * v2 - ic2eq;
-            lp = v2;
-            hp = input - k * v1 - v2;
-        }
-    };
-
-    struct EnvelopeFollower
-    {
-        float releaseCoeff = 0.0f;
-        float envelope = 0.0f;
-
-        void set(float releaseMs, float sampleRate)
-        {
-            releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * sampleRate));
-        }
-
-        float process(float input)
-        {
-            float absIn = std::abs(input);
-            if (absIn > envelope)
-            {
-                envelope = absIn; // Fast attack
-            }
-            else
-            {
-                envelope = envelope * releaseCoeff + absIn * (1.0f - releaseCoeff);
-            }
-            return envelope;
-        }
-    };
-
-    struct DynamicBassState
-    {
-        DynamicExciterSVF filterL;
-        DynamicExciterSVF filterR;
-        EnvelopeFollower envL;
-        EnvelopeFollower envR;
-
-        int cachedSampleRate = 0;
-        float cutoffFreq = 120.0f;
-        float driveLevel = 1.0f;
-        float harmMix = 0.0f;
-
-        void init(int sampleRate)
-        {
-            cachedSampleRate = sampleRate;
-            cutoffFreq = 120.0f;
-            driveLevel = 1.0f;
-            harmMix = 0.0f;
-
-            filterL.set(cutoffFreq, 0.7071f, (float)sampleRate);
-            filterR.set(cutoffFreq, 0.7071f, (float)sampleRate);
-            envL.set(50.0f, (float)sampleRate); // 50ms release
-            envR.set(50.0f, (float)sampleRate);
-        }
-
-        void setPreset(int dPreset)
-        {
-            // Map the 19 presets to meaningful crossover frequencies (60Hz to 160Hz)
-            // Smaller presets target deep sub, larger target wider upper-bass
-            float cutoffMap[19] = {
-                60.0f, 65.0f, 70.0f, 75.0f, 80.0f,
-                85.0f, 90.0f, 95.0f, 100.0f, 105.0f,
-                110.0f, 115.0f, 120.0f, 125.0f, 130.0f,
-                140.0f, 150.0f, 160.0f, 180.0f};
-
-            if (dPreset >= 0 && dPreset < 19)
-            {
-                cutoffFreq = cutoffMap[dPreset];
-            }
-            else
-            {
-                cutoffFreq = 120.0f;
-            }
-
-            if (cachedSampleRate > 0)
-            {
-                filterL.set(cutoffFreq, 0.7071f, (float)cachedSampleRate);
-                filterR.set(cutoffFreq, 0.7071f, (float)cachedSampleRate);
-            }
-        }
-
-        void resetIfRateChanged(int sampleRate)
-        {
-            if (cachedSampleRate != sampleRate)
-            {
-                init(sampleRate);
-            }
-        }
-
-        void setBassGain(float gain)
-        {
-            // gain is 0 to 100
-            // Map to exciter drive (saturation factor) and harmonic mix
-            driveLevel = 1.0f + (gain * 0.05f); // 1.0 to 6.0
-            harmMix = gain * 0.02f;             // 0.0 to 2.0 additional volume for the saturated bass
-        }
-
-        void process(float *interleaved, ma_uint32 frames, int channels)
-        {
-            if (channels < 2)
-                return; // Requires stereo
-
-            for (ma_uint32 i = 0; i < frames; ++i)
-            {
-                size_t base = (size_t)i * channels;
-                float left = interleaved[base];
-                float right = interleaved[base + 1];
-
-                float lpL, hpL, lpR, hpR;
-                filterL.process(left, lpL, hpL);
-                filterR.process(right, lpR, hpR);
-
-                // Track the low frequency amplitude
-                float envValL = envL.process(lpL);
-                float envValR = envR.process(lpR);
-
-                // Soft-clipping/saturation based on envelope and drive
-                // The tanh curve prevents clipping while creating rich harmonics
-                // We normalize by driveLevel to keep peak amplitude contained
-                float satL = std::tanh(lpL * driveLevel * (1.0f + envValL)) / std::max(1.0f, std::log(driveLevel + 1.0f));
-                float satR = std::tanh(lpR * driveLevel * (1.0f + envValR)) / std::max(1.0f, std::log(driveLevel + 1.0f));
-
-                // Recombine phase-coherently
-                float outSampleL = hpL + lpL + satL * harmMix;
-                float outSampleR = hpR + lpR + satR * harmMix;
-
-                // Final safety ceiling to prevent master channel clipping if harmMix is huge
-                outSampleL = std::tanh(outSampleL);
-                outSampleR = std::tanh(outSampleR);
-
-                interleaved[base] = outSampleL;
-                interleaved[base + 1] = outSampleR;
-            }
-        }
-    }; // end DynamicBassState
-
     // ============================================================
     // CrystalizerState
     // Audiophile-grade transient edge reconstruction algorithm.
@@ -2738,13 +2576,6 @@ struct AudioEngineHandle
     std::vector<float> pitchInputBuffer;
     size_t pitchInputUnconsumed = 0;
 
-    // Spatialization
-    std::mutex spatialMutex;
-    bool spatializationEnabled = false;
-    ma_spatializer spatializer{};
-    ma_spatializer_listener spatialListener{};
-    bool spatializerInitialized = false;
-
     // Fading & Scheduling
     std::atomic<bool> customFadeArmed{false};
     std::atomic<float> customFadeVolumeBeg{1.0f};
@@ -2764,46 +2595,10 @@ struct AudioEngineHandle
 
     std::mutex fxMutex;
     bool eqEnabled = false;
-    bool reverbEnabled = false;
-    bool lowpassEnabled = false;
-    bool highpassEnabled = false;
-    bool delayEnabled = false;
-    bool bandpassEnabled = false;
-    bool peakEqEnabled = false;
-    bool notchEnabled = false;
-    bool lowshelfEnabled = false;
-    bool highshelfEnabled = false;
     std::atomic<float> gain{1.0f};
     std::atomic<float> replayGainLinear{1.0f}; // Replay Gain multiplier (linear); 1.0 = no change
     std::atomic<float> pan{0.0f};
     EqState eq;
-    ReverbState reverb;
-    OnePoleState lowpass;
-    OnePoleState highpass;
-    DelayState delay;
-
-    float bandpassCutoffHz = 1000.0f;
-    float bandpassQ = 0.707f;
-    ma_bpf2 bandpass{};
-
-    float peakGainDb = 0.0f;
-    float peakQ = 1.0f;
-    float peakFrequencyHz = 1000.0f;
-    ma_peak2 peakEq{};
-
-    float notchQ = 1.0f;
-    float notchFrequencyHz = 1000.0f;
-    ma_notch2 notch{};
-
-    float lowshelfGainDb = 0.0f;
-    float lowshelfSlope = 1.0f;
-    float lowshelfFrequencyHz = 200.0f;
-    ma_loshelf2 lowshelf{};
-
-    float highshelfGainDb = 0.0f;
-    float highshelfSlope = 1.0f;
-    float highshelfFrequencyHz = 4000.0f;
-    ma_hishelf2 highshelf{};
 
     // Audio Limiter & Clipping Detection
     bool limiterEnabled = false;
@@ -2825,18 +2620,6 @@ struct AudioEngineHandle
     AutomatedParamFloat paramPan;
     std::atomic<float> parameterSmoothingMs{15.0f};
 
-    bool customLpf1Enabled = false;
-    double customLpf1Cutoff = 1000.0;
-    ma_lpf1 customLpf1{};
-
-    bool customHpf1Enabled = false;
-    double customHpf1Cutoff = 80.0;
-    ma_hpf1 customHpf1{};
-
-    bool customBiquadEnabled = false;
-    double bq_b0 = 1.0, bq_b1 = 0.0, bq_b2 = 0.0, bq_a0 = 1.0, bq_a1 = 0.0, bq_a2 = 0.0;
-    ma_biquad customBiquad{};
-
     // Stereo Widen Effect
     bool stereoWidenEnabled = false;
     StereoWidenState stereoWiden;
@@ -2850,10 +2633,6 @@ struct AudioEngineHandle
     int crossfeedPreset = 1;
     CrossfeedState crossfeed;       // Legacy path (preset-4 RACE; kept for RACE API)
     CrossfeedNode crossfeedNode;    // New modular crossfeed DSP node
-
-    // Dynamic Bass
-    bool dynamicBassEnabled = false;
-    DynamicBassState dynamicBass;
 
     // Crystalizer (audiophile transient reconstruction + air enhancement)
     bool crystalizerEnabled = false;
@@ -3195,96 +2974,6 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         return;
 
     const ma_uint32 sampleRate = (ma_uint32)((e->sampleRate > 0) ? e->sampleRate : 48000);
-    const ma_uint32 channels = (ma_uint32)((e->outputChannels > 0) ? e->outputChannels : 2);
-
-    ma_bpf2_config bpfConfig = ma_bpf2_config_init(
-        ma_format_f32,
-        channels,
-        sampleRate,
-        clampf(e->bandpassCutoffHz, 20.0f, (float)sampleRate * 0.45f),
-        clampf(e->bandpassQ, 0.1f, 18.0f));
-    ma_bpf2_uninit(&e->bandpass, nullptr);
-    (void)ma_bpf2_init(&bpfConfig, nullptr, &e->bandpass);
-
-    ma_peak2_config peakConfig = ma_peak2_config_init(
-        ma_format_f32,
-        channels,
-        sampleRate,
-        clampf(e->peakGainDb, -24.0f, 24.0f),
-        clampf(e->peakQ, 0.1f, 18.0f),
-        clampf(e->peakFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    ma_peak2_uninit(&e->peakEq, nullptr);
-    (void)ma_peak2_init(&peakConfig, nullptr, &e->peakEq);
-
-    ma_notch2_config notchConfig = ma_notch2_config_init(
-        ma_format_f32,
-        channels,
-        sampleRate,
-        clampf(e->notchQ, 0.1f, 18.0f),
-        clampf(e->notchFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    ma_notch2_uninit(&e->notch, nullptr);
-    (void)ma_notch2_init(&notchConfig, nullptr, &e->notch);
-
-    ma_loshelf2_config lowshelfConfig = ma_loshelf2_config_init(
-        ma_format_f32,
-        channels,
-        sampleRate,
-        clampf(e->lowshelfGainDb, -24.0f, 24.0f),
-        clampf(e->lowshelfSlope, 0.1f, 2.0f),
-        clampf(e->lowshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    ma_loshelf2_uninit(&e->lowshelf, nullptr);
-    (void)ma_loshelf2_init(&lowshelfConfig, nullptr, &e->lowshelf);
-
-    ma_hishelf2_config highshelfConfig = ma_hishelf2_config_init(
-        ma_format_f32,
-        channels,
-        sampleRate,
-        clampf(e->highshelfGainDb, -24.0f, 24.0f),
-        clampf(e->highshelfSlope, 0.1f, 2.0f),
-        clampf(e->highshelfFrequencyHz, 20.0f, (float)sampleRate * 0.45f));
-    ma_hishelf2_uninit(&e->highshelf, nullptr);
-    (void)ma_hishelf2_init(&highshelfConfig, nullptr, &e->highshelf);
-
-    // LPF1 – clamp cutoff and use init (not reinit) so pR1 is always heap-allocated.
-    {
-        const double lpfCutoff = clampd(e->customLpf1Cutoff, 1.0, (double)sampleRate * 0.45);
-        ma_lpf1_config lpf1Cfg = ma_lpf1_config_init(ma_format_f32, channels, sampleRate, lpfCutoff);
-        ma_lpf1_uninit(&e->customLpf1, nullptr);
-        if (ma_lpf1_init(&lpf1Cfg, nullptr, &e->customLpf1) != MA_SUCCESS)
-        {
-            MA_ZERO_OBJECT(&e->customLpf1);
-            e->customLpf1Enabled = false;
-        }
-    }
-
-    // HPF1 – same issue as LPF1.
-    {
-        const double hpfCutoff = clampd(e->customHpf1Cutoff, 1.0, (double)sampleRate * 0.45);
-        ma_hpf1_config hpf1Cfg = ma_hpf1_config_init(ma_format_f32, channels, sampleRate, hpfCutoff);
-        ma_hpf1_uninit(&e->customHpf1, nullptr);
-        if (ma_hpf1_init(&hpf1Cfg, nullptr, &e->customHpf1) != MA_SUCCESS)
-        {
-            MA_ZERO_OBJECT(&e->customHpf1);
-            e->customHpf1Enabled = false;
-        }
-    }
-
-    // Custom biquad – pR1/pR2 are heap-allocated by init(), NOT reinit().
-    // On a zero-initialized struct pR1==nullptr; reinit() would not allocate it,
-    // causing a NULL-deref crash when processing audio. Use uninit+init every time.
-    {
-        // Guard against a0==0 which causes MA_INVALID_ARGS inside biquad_init.
-        const double safe_a0 = (e->bq_a0 != 0.0) ? e->bq_a0 : 1.0;
-        ma_biquad_config bqCfg = ma_biquad_config_init(
-            ma_format_f32, channels,
-            e->bq_b0, e->bq_b1, e->bq_b2, safe_a0, e->bq_a1, e->bq_a2);
-        ma_biquad_uninit(&e->customBiquad, nullptr);
-        if (ma_biquad_init(&bqCfg, nullptr, &e->customBiquad) != MA_SUCCESS)
-        {
-            MA_ZERO_OBJECT(&e->customBiquad);
-            e->customBiquadEnabled = false;
-        }
-    }
 
     e->stereoEnhancement.refresh((int)sampleRate);
     e->crystalizer.init((int)sampleRate);
@@ -3374,8 +3063,6 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> fx(e->fxMutex);
         reinit_advanced_fx_filters(e);
         e->eq.updateCoefficients(sr);
-        e->reverb.updateParams(sr, e->reverb.mix, e->reverb.feedback, e->reverb.delayMs);
-        e->delay.updateParams(sr, ch, e->delay.mix, e->delay.feedback, e->delay.delayMs);
         e->stereoWiden.reset(sr);
         e->stereoEnhancement.refresh(sr);
         if (e->crossfeedPreset == 4)
@@ -3386,7 +3073,6 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         {
             e->crossfeedNode.setSampleRate((double)sr);
         }
-        e->dynamicBass.resetIfRateChanged(sr);
         e->crystalizer.init(sr);
     }
 
@@ -4693,19 +4379,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
-            // 3D Spatialization
-            bool spatialOn = false;
-            {
-                std::lock_guard<std::mutex> lock(e->spatialMutex);
-                spatialOn = e->spatializationEnabled && e->spatializerInitialized;
-            }
-
-            if (spatialOn)
-            {
-                std::lock_guard<std::mutex> lock(e->spatialMutex);
-                ma_spatializer_process_pcm_frames(&e->spatializer, &e->spatialListener, processBuffer, processBuffer, produced);
-            }
-
             // Pan (Assume Stereo or more)
             const float panVal = e->pan.load(std::memory_order_relaxed);
             if (e->channels >= 2 && panVal != 0.0f)
@@ -4734,8 +4407,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
-
-
             if (e->crossfeedEnabled)
             {
                 // Preset 4 = RACE (legacy CrossfeedState), all other algorithms use CrossfeedNode
@@ -4761,12 +4432,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->stereoEnhancement.process(processBuffer, produced, e->channels);
             }
 
-            // Dynamic Bass
-            if (e->dynamicBassEnabled)
-            {
-                e->dynamicBass.process(processBuffer, produced, e->channels);
-            }
-
             // Crystalizer (transient edge reconstruction + air shelf)
             if (e->crystalizerEnabled)
             {
@@ -4784,38 +4449,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->process_multiband_fx(processBuffer, produced);
             }
 
-            // Custom Filter Elements
-            if (e->customLpf1Enabled)
-                (void)ma_lpf1_process_pcm_frames(&e->customLpf1, processBuffer, processBuffer, produced);
-            if (e->customHpf1Enabled)
-                (void)ma_hpf1_process_pcm_frames(&e->customHpf1, processBuffer, processBuffer, produced);
-            if (e->customBiquadEnabled)
-                (void)ma_biquad_process_pcm_frames(&e->customBiquad, processBuffer, processBuffer, produced);
-
-            // Existing Effects
-            // Note: passing e->channels instead of e->channels
-            if (e->lowpassEnabled)
-                e->lowpass.processLowpass(processBuffer, produced, e->channels);
-            if (e->highpassEnabled)
-                e->highpass.processHighpass(processBuffer, produced, e->channels);
-            if (e->bandpassEnabled)
-                (void)ma_bpf2_process_pcm_frames(&e->bandpass, processBuffer, processBuffer, (ma_uint64)produced);
-            // Delay (Check channel layout support in DelayState - assumes stereo?)
-            if (e->delayEnabled)
-                e->delay.process(processBuffer, produced, e->channels);
-            if (e->peakEqEnabled)
-                (void)ma_peak2_process_pcm_frames(&e->peakEq, processBuffer, processBuffer, (ma_uint64)produced);
-            if (e->notchEnabled)
-                (void)ma_notch2_process_pcm_frames(&e->notch, processBuffer, processBuffer, (ma_uint64)produced);
-            if (e->lowshelfEnabled)
-                (void)ma_loshelf2_process_pcm_frames(&e->lowshelf, processBuffer, processBuffer, (ma_uint64)produced);
-            if (e->highshelfEnabled)
-                (void)ma_hishelf2_process_pcm_frames(&e->highshelf, processBuffer, processBuffer, (ma_uint64)produced);
-            // Old 3-band EQ
+            // 3-band EQ
             if (e->eqEnabled)
                 e->eq.process(processBuffer, produced, e->channels);
-            if (e->reverbEnabled)
-                e->reverb.process(processBuffer, produced, e->channels);
 
             // Native Clean-Room Audio DSP Suite
             if (e->channels >= 2)
@@ -4979,24 +4615,8 @@ extern "C"
         e->channels = channels;
 
         e->eq.updateCoefficients(sample_rate);
-        e->reverb.reset(sample_rate);
-        e->lowpass.setLowpassCutoff(12000.0f, sample_rate);
-        e->highpass.setHighpassCutoff(80.0f, sample_rate);
-        e->delay.reset(sample_rate, channels);
         reinit_advanced_fx_filters(e);
         e->crystalizer.init(sample_rate);
-
-        // Initialize Spatializer
-        ma_spatializer_config spatConfig = ma_spatializer_config_init(channels, channels);
-        spatConfig.minDistance = 1.0f;
-        spatConfig.maxDistance = 10000.0f;
-        spatConfig.rolloff = 1.0f;
-        if (ma_spatializer_init(&spatConfig, nullptr, &e->spatializer) == MA_SUCCESS)
-        {
-            ma_spatializer_listener_config listConfig = ma_spatializer_listener_config_init(channels);
-            ma_spatializer_listener_init(&listConfig, nullptr, &e->spatialListener);
-            e->spatializerInitialized = true;
-        }
 
         e->analyzerFrameSize = 512;
         e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
@@ -5112,7 +4732,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
-            if (e->hasCurrent)
+            if (e->hasCurrent && e->currentDecoder)
             {
                 uninit_decoder_slot(
                     e,
@@ -5122,9 +4742,10 @@ extern "C"
                     e->currentStream
 #endif
                 );
+                e->currentDecoder = nullptr;
                 e->hasCurrent = false;
             }
-            if (e->hasNext)
+            if (e->hasNext && e->nextDecoder)
             {
                 uninit_decoder_slot(
                     e,
@@ -5134,6 +4755,7 @@ extern "C"
                     e->nextStream
 #endif
                 );
+                e->nextDecoder = nullptr;
                 e->hasNext = false;
             }
             uninit_fading_out_slot_locked(e);
@@ -5156,33 +4778,12 @@ extern "C"
                 e->pushStreamForCurrent.initialized = false;
             }
 
-            if (e->spatializerInitialized)
-            {
-                ma_spatializer_uninit(&e->spatializer, nullptr);
-                ma_spatializer_listener_uninit(&e->spatialListener, nullptr);
-                e->spatializerInitialized = false;
-            }
             e->garbageQueue.drain();
         }
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
             ma_device_uninit(&e->device);
-        }
-
-        // Uninit all heap-allocated filter states to prevent memory leaks.
-        // These filters use internal heap via ma_xxx_init(); without uninit the
-        // per-channel coefficient arrays are leaked every time the engine is destroyed.
-        {
-            std::lock_guard<std::mutex> fx(e->fxMutex);
-            ma_bpf2_uninit(&e->bandpass, nullptr);
-            ma_peak2_uninit(&e->peakEq, nullptr);
-            ma_notch2_uninit(&e->notch, nullptr);
-            ma_loshelf2_uninit(&e->lowshelf, nullptr);
-            ma_hishelf2_uninit(&e->highshelf, nullptr);
-            ma_lpf1_uninit(&e->customLpf1, nullptr);
-            ma_hpf1_uninit(&e->customHpf1, nullptr);
-            ma_biquad_uninit(&e->customBiquad, nullptr);
         }
 
         e->garbageQueue.drain();
@@ -6296,12 +5897,12 @@ extern "C"
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
         ps.eq_enabled = e->eqEnabled ? 1 : 0;
-        ps.reverb_enabled = e->reverbEnabled ? 1 : 0;
+        ps.reverb_enabled = 0;
         ps.limiter_enabled = e->limiterEnabled ? 1 : 0;
         ps.stereo_widen_enabled = e->stereoWidenEnabled ? 1 : 0;
         ps.stereo_enhancement_enabled = e->stereoEnhancementEnabled ? 1 : 0;
-        ps.spatialization_enabled = e->spatializationEnabled ? 1 : 0;
-        ps.delay_enabled = e->delayEnabled ? 1 : 0;
+        ps.spatialization_enabled = 0;
+        ps.delay_enabled = 0;
         ps.gain = e->gain;
         ps.pan = e->pan;
         ps.pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
@@ -6326,18 +5927,12 @@ extern "C"
 
     AE_API void ae_set_reverb_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->reverbEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_reverb_params(AudioEngineHandle *e, float mix, float feedback, float delay_ms)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->reverb.updateParams(e->sampleRate, mix, feedback, delay_ms);
+        (void)e; (void)mix; (void)feedback; (void)delay_ms;
     }
 
     AE_API void ae_set_eq_enabled(AudioEngineHandle *e, int enabled)
@@ -6392,178 +5987,97 @@ extern "C"
 
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->lowpassEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_lowpass_cutoff(AudioEngineHandle *e, float hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->lowpass.setLowpassCutoff(clampf(hz, 20.0f, (float)e->sampleRate * 0.45f), e->sampleRate);
+        (void)e; (void)hz;
     }
 
     AE_API void ae_set_highpass_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->highpassEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_highpass_cutoff(AudioEngineHandle *e, float hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->highpass.setHighpassCutoff(clampf(hz, 10.0f, (float)e->sampleRate * 0.45f), e->sampleRate);
+        (void)e; (void)hz;
     }
 
     AE_API void ae_set_delay_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->delayEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_delay_params(AudioEngineHandle *e, float mix, float feedback, float delay_ms)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->delay.updateParams(e->sampleRate, e->channels, mix, feedback, delay_ms);
+        (void)e; (void)mix; (void)feedback; (void)delay_ms;
     }
 
     AE_API void ae_set_bandpass_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->bandpassEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_bandpass_params(AudioEngineHandle *e, float cutoff_hz, float q)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->bandpassCutoffHz = clampf(cutoff_hz, 20.0f, (float)e->sampleRate * 0.45f);
-        e->bandpassQ = clampf(q, 0.1f, 18.0f);
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)cutoff_hz; (void)q;
     }
 
     AE_API void ae_set_peak_eq_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->peakEqEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_peak_eq_params(AudioEngineHandle *e, float gain_db, float q, float frequency_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->peakGainDb = clampf(gain_db, -24.0f, 24.0f);
-        e->peakQ = clampf(q, 0.1f, 18.0f);
-        e->peakFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)gain_db; (void)q; (void)frequency_hz;
     }
 
     AE_API void ae_set_notch_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->notchEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_notch_params(AudioEngineHandle *e, float q, float frequency_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->notchQ = clampf(q, 0.1f, 18.0f);
-        e->notchFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)q; (void)frequency_hz;
     }
 
     AE_API void ae_set_lowshelf_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->lowshelfEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_lowshelf_params(AudioEngineHandle *e, float gain_db, float slope, float frequency_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->lowshelfGainDb = clampf(gain_db, -24.0f, 24.0f);
-        e->lowshelfSlope = clampf(slope, 0.1f, 2.0f);
-        e->lowshelfFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)gain_db; (void)slope; (void)frequency_hz;
     }
 
     AE_API void ae_set_highshelf_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->highshelfEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_highshelf_params(AudioEngineHandle *e, float gain_db, float slope, float frequency_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->highshelfGainDb = clampf(gain_db, -24.0f, 24.0f);
-        e->highshelfSlope = clampf(slope, 0.1f, 2.0f);
-        e->highshelfFrequencyHz = clampf(frequency_hz, 20.0f, (float)e->sampleRate * 0.45f);
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)gain_db; (void)slope; (void)frequency_hz;
     }
 
     AE_API void ae_set_custom_lpf1_params(AudioEngineHandle *e, int enabled, double cutoff_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->customLpf1Enabled = (enabled != 0);
-        e->customLpf1Cutoff = cutoff_hz;
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)enabled; (void)cutoff_hz;
     }
 
     AE_API void ae_set_custom_hpf1_params(AudioEngineHandle *e, int enabled, double cutoff_hz)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->customHpf1Enabled = (enabled != 0);
-        e->customHpf1Cutoff = cutoff_hz;
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)enabled; (void)cutoff_hz;
     }
 
     AE_API void ae_set_custom_biquad_params(AudioEngineHandle *e, int enabled, double b0, double b1, double b2, double a0, double a1, double a2)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->customBiquadEnabled = (enabled != 0);
-        e->bq_b0 = b0;
-        e->bq_b1 = b1;
-        e->bq_b2 = b2;
-        e->bq_a0 = a0;
-        e->bq_a1 = a1;
-        e->bq_a2 = a2;
-        reinit_advanced_fx_filters(e);
+        (void)e; (void)enabled; (void)b0; (void)b1; (void)b2; (void)a0; (void)a1; (void)a2;
     }
 
     // --- Crystalizer ---
@@ -6752,23 +6266,12 @@ extern "C"
 
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)
     {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->dynamicBassEnabled = (enabled != 0);
+        (void)engine; (void)enabled;
     }
 
     AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain)
     {
-        if (!engine)
-            return;
-        std::lock_guard<std::mutex> lock(engine->fxMutex);
-        engine->dynamicBass.resetIfRateChanged(engine->sampleRate);
-        if (preset >= 0 && preset <= 18)
-        {
-            engine->dynamicBass.setPreset(preset);
-        }
-        engine->dynamicBass.setBassGain(gain);
+        (void)engine; (void)preset; (void)gain;
     }
 
     static void device_notification_callback(const ma_device_notification *pNotification)
@@ -7116,153 +6619,89 @@ extern "C"
 
     AE_API void ae_set_spatialization_enabled(AudioEngineHandle *e, int enabled)
     {
-        if (e == nullptr)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        e->spatializationEnabled = (enabled != 0);
+        (void)e; (void)enabled;
     }
 
     AE_API void ae_set_position(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_position(&e->spatializer, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_direction(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_direction(&e->spatializer, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_velocity(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_velocity(&e->spatializer, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_sound_cone(AudioEngineHandle *e, float inner_angle_rad, float outer_angle_rad, float outer_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_cone(&e->spatializer, inner_angle_rad, outer_angle_rad, outer_gain);
+        (void)e; (void)inner_angle_rad; (void)outer_angle_rad; (void)outer_gain;
     }
 
     AE_API void ae_set_attenuation_model(AudioEngineHandle *e, int model)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_attenuation_model am = ma_attenuation_model_none;
-        switch (model)
-        {
-        case 1:
-            am = ma_attenuation_model_inverse;
-            break;
-        case 2:
-            am = ma_attenuation_model_linear;
-            break;
-        case 3:
-            am = ma_attenuation_model_exponential;
-            break;
-        }
-        ma_spatializer_set_attenuation_model(&e->spatializer, am);
+        (void)e; (void)model;
     }
 
     AE_API void ae_set_rolloff(AudioEngineHandle *e, float rolloff)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_rolloff(&e->spatializer, rolloff);
+        (void)e; (void)rolloff;
     }
 
     AE_API void ae_set_min_gain(AudioEngineHandle *e, float min_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_min_gain(&e->spatializer, min_gain);
+        (void)e; (void)min_gain;
     }
 
     AE_API void ae_set_max_gain(AudioEngineHandle *e, float max_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_max_gain(&e->spatializer, max_gain);
+        (void)e; (void)max_gain;
     }
 
     AE_API void ae_set_min_distance(AudioEngineHandle *e, float min_distance)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_min_distance(&e->spatializer, min_distance);
+        (void)e; (void)min_distance;
     }
 
     AE_API void ae_set_max_distance(AudioEngineHandle *e, float max_distance)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_max_distance(&e->spatializer, max_distance);
+        (void)e; (void)max_distance;
     }
 
     AE_API void ae_set_doppler_factor(AudioEngineHandle *e, float doppler_factor)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_set_doppler_factor(&e->spatializer, doppler_factor);
+        (void)e; (void)doppler_factor;
     }
 
     // --- Listener 3D Spatialization Controls ---
 
     AE_API void ae_set_listener_position(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_listener_set_position(&e->spatialListener, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_listener_direction(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_listener_set_direction(&e->spatialListener, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_listener_velocity(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_listener_set_velocity(&e->spatialListener, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_listener_world_up(AudioEngineHandle *e, float x, float y, float z)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_listener_set_world_up(&e->spatialListener, x, y, z);
+        (void)e; (void)x; (void)y; (void)z;
     }
 
     AE_API void ae_set_listener_cone(AudioEngineHandle *e, float inner_angle_rad, float outer_angle_rad, float outer_gain)
     {
-        if (e == nullptr || !e->spatializerInitialized)
-            return;
-        std::lock_guard<std::mutex> lock(e->spatialMutex);
-        ma_spatializer_listener_set_cone(&e->spatialListener, inner_angle_rad, outer_angle_rad, outer_gain);
+        (void)e; (void)inner_angle_rad; (void)outer_angle_rad; (void)outer_gain;
     }
 
 

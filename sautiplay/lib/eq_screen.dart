@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
-import 'widgets/custom_filters_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/race_visualizer.dart';
@@ -160,23 +161,6 @@ class _EqScreenState extends State<EqScreen>
   ];
   bool _parametricEqEnabled = false;
 
-  // Spatial Audio
-  bool _spatialAudioEnabled = false;
-  double _reverbMix = 0.25;
-  double _roomSize = 0.3; // Using delay/feedback to simulate
-  double _echo = 0.15;
-
-  // Delay (Echo)
-  bool _delayEnabled = false;
-  double _delayMix = 0.3;
-  double _delayFeedback = 0.4;
-  double _delayTime = 0.25;
-
-  // Dynamic Bass
-  bool _dynamicBassEnabled = false;
-  int _dynamicBassPreset = 12;
-  double _dynamicBassGain = 15.0;
-
   // Crystalizer
   bool _crystalizerEnabled = false;
   double _crystalizerIntensity = 0.5;
@@ -184,10 +168,10 @@ class _EqScreenState extends State<EqScreen>
   double _crystalizerShelfGain = 2.0;
 
   // Audiophile Crossfeed
-  bool _crossfeedEnabled = false;
   int _crossfeedPreset = 1;
   int _crossfeedAlgorithmIndex =
       2; // 1=Simple, 2=BS2B, 3=Meier, 4=Natural, 5=RACE
+  bool _crossfeedEnabled = false;
   double _crossfeedMix = 0.5;
   double _crossfeedDelayMs = 0.40;
   double _crossfeedCutoffHz = 700.0;
@@ -213,62 +197,6 @@ class _EqScreenState extends State<EqScreen>
 
   // Preamp
   double _preampDb = 0.0; // Simulated gain offset
-
-  // True 3D Spatialization
-  bool _true3dEnabled = false;
-  double _spatX = 0.0;
-  double _spatY = 0.0;
-  double _spatZ = 0.0;
-  int _spatAttenuationModel = 1;
-  double _spatRolloff = 1.0;
-  double _spatMinDistance = 1.0;
-  double _spatMaxDistance = 100.0;
-  double _spatDopplerFactor = 1.0;
-  double _soundConeInnerRad = 3.14;
-  double _soundConeOuterRad = 6.28;
-  double _soundConeOuterGain = 0.5;
-  double _listenerX = 0.0;
-  double _listenerY = 0.0;
-  double _listenerZ = 0.0;
-  final double _listenerDirZ = 1.0;
-
-  // Custom Filters & Standalone Miniaudio Bindings
-  bool _customLpfEnabled = false;
-  double _customLpfCutoff = 500.0;
-
-  bool _customHpfEnabled = false;
-  double _customHpfCutoff = 120.0;
-
-  bool _customBpfEnabled = false;
-  double _customBpfCutoff = 1000.0;
-  double _customBpfQ = 0.707;
-
-  bool _customNotchEnabled = false;
-  double _customNotchCutoff = 60.0;
-  double _customNotchQ = 10.0;
-
-  bool _customPeakEnabled = false;
-  double _customPeakCutoff = 1000.0;
-  double _customPeakGainDb = 0.0;
-  double _customPeakQ = 1.0;
-
-  bool _customLoshelfEnabled = false;
-  double _customLoshelfCutoff = 250.0;
-  double _customLoshelfGainDb = 0.0;
-  double _customLoshelfSlope = 1.0;
-
-  bool _customHishelfEnabled = false;
-  double _customHishelfCutoff = 8000.0;
-  double _customHishelfGainDb = 0.0;
-  double _customHishelfSlope = 1.0;
-
-  bool _customBiquadEnabled = false;
-  double _biquadB0 = 1.0;
-  double _biquadB1 = 0.0;
-  double _biquadB2 = 0.0;
-  double _biquadA0 = 1.0;
-  double _biquadA1 = 0.0;
-  double _biquadA2 = 0.0;
   // Subscriptions
   StreamSubscription<void>? _eqSettingsSub;
 
@@ -277,6 +205,41 @@ class _EqScreenState extends State<EqScreen>
   double _limiterThreshold = 0.95; // 0.1 – 1.0
   double _limiterAttackMs = 2.0; // 0.1 – 100 ms
   double _limiterReleaseMs = 50.0; // 10 – 1000 ms
+
+  // ── Sauti DSP Suite States ──
+  // 1. Audio Clarity
+  bool _clarityEnabled = false;
+  AudioClarityProfile _clarityProfile = AudioClarityProfile.transientCrisp;
+  double _clarityIntensity = 0.5;
+
+  // 2. Harmonic Bass
+  bool _bassEnabled = false;
+  HarmonicBassProfile _bassProfile = HarmonicBassProfile.subBassResonant;
+  double _bassCutoffHz = 60.0;
+  double _bassBoost = 0.5;
+
+  // 3. Dynamic Transducer System
+  bool _dynamicSystemEnabled = false;
+  TransducerProfile _dynamicSystemProfile = TransducerProfile.earphone;
+  double _dynamicSystemStrength = 0.5;
+
+  // 4. Analog Warmth
+  bool _analogWarmthEnabled = false;
+  AnalogWarmthProfile _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
+  double _analogWarmthDrive = 0.5;
+
+  // 5. FFT Convolver
+  bool _convolverEnabled = false;
+  String? _convolverIrPath;
+  String? _convolverIrFileName;
+  double _convolverWet = 1.0;
+  double _convolverDry = 0.0;
+
+  // 6. Master Peak Limiter
+  bool _masterLimiterEnabled = false;
+  double _masterLimiterCeilingDb = -0.1;
+  double _masterLimiterOutputGainDb = 0.0;
+  double _masterLimiterReleaseMs = 60.0;
 
   // Playback Speed & Status
   double _playbackPitch = 1.0;
@@ -320,9 +283,6 @@ class _EqScreenState extends State<EqScreen>
     // Load all persisted EQ state
     final speed = await AppStateService.instance.loadPlaybackSpeed();
     final eqBands = await AppStateService.instance.loadEqBands();
-    final spatial = await AppStateService.instance.loadSpatialAudio();
-    final delay = await AppStateService.instance.loadDelay();
-    final dynamicBass = await AppStateService.instance.loadDynamicBass();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
     final stereoEnhancement =
@@ -330,9 +290,6 @@ class _EqScreenState extends State<EqScreen>
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final raceParams = await AppStateService.instance.loadRaceParams();
     final tuning = await AppStateService.instance.loadAudioTuning();
-    final true3d = await AppStateService.instance.loadTrue3d();
-    final lpf = await AppStateService.instance.loadCustomLpf();
-    final hpf = await AppStateService.instance.loadCustomHpf();
     final limiter = await AppStateService.instance.loadLimiter();
 
     setState(() {
@@ -349,23 +306,6 @@ class _EqScreenState extends State<EqScreen>
         }
       }
       _preampDb = eqBands.preampDb;
-
-      // Spatial
-      _spatialAudioEnabled = spatial.enabled;
-      _reverbMix = spatial.reverbMix;
-      _roomSize = spatial.roomSize;
-      _echo = spatial.echo;
-
-      // Delay
-      _delayEnabled = delay.enabled;
-      _delayMix = delay.mix;
-      _delayFeedback = delay.feedback;
-      _delayTime = delay.time;
-
-      // Dynamic Bass
-      _dynamicBassEnabled = dynamicBass.enabled;
-      _dynamicBassPreset = dynamicBass.preset;
-      _dynamicBassGain = dynamicBass.gain;
 
       // Crystalizer
       _crystalizerEnabled = crystalizer.enabled;
@@ -400,18 +340,6 @@ class _EqScreenState extends State<EqScreen>
       _tuneMid = tuning.mid;
       _tuneHigh = tuning.high;
 
-      // True 3D
-      _true3dEnabled = true3d.enabled;
-      _spatX = true3d.x;
-      _spatY = true3d.y;
-      _spatZ = true3d.z;
-
-      // Custom filters
-      _customLpfEnabled = lpf.enabled;
-      _customLpfCutoff = lpf.cutoff;
-      _customHpfEnabled = hpf.enabled;
-      _customHpfCutoff = hpf.cutoff;
-
       // Limiter
       _limiterEnabled = limiter.enabled;
       _limiterThreshold = limiter.threshold;
@@ -419,23 +347,66 @@ class _EqScreenState extends State<EqScreen>
       _limiterReleaseMs = limiter.releaseMs;
     });
 
+    // Load Sauti DSP Suite state
+    final dspMap = await AppStateService.instance.loadSautiDspState();
+    if (dspMap.isNotEmpty && mounted) {
+      setState(() {
+        _clarityEnabled = dspMap['clarityEnabled'] ?? false;
+        _clarityProfile = AudioClarityProfile.values.firstWhere(
+          (e) => e.value == (dspMap['clarityProfile'] ?? 0),
+          orElse: () => AudioClarityProfile.transientCrisp,
+        );
+        _clarityIntensity =
+            (dspMap['clarityIntensity'] as num?)?.toDouble() ?? 0.5;
+
+        _bassEnabled = dspMap['bassEnabled'] ?? false;
+        _bassProfile = HarmonicBassProfile.values.firstWhere(
+          (e) => e.value == (dspMap['bassProfile'] ?? 0),
+          orElse: () => HarmonicBassProfile.subBassResonant,
+        );
+        _bassCutoffHz = (dspMap['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
+        _bassBoost = (dspMap['bassBoost'] as num?)?.toDouble() ?? 0.5;
+
+        _dynamicSystemEnabled = dspMap['dynamicSystemEnabled'] ?? false;
+        _dynamicSystemProfile = TransducerProfile.values.firstWhere(
+          (e) => e.value == (dspMap['dynamicSystemProfile'] ?? 0),
+          orElse: () => TransducerProfile.earphone,
+        );
+        _dynamicSystemStrength =
+            (dspMap['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
+
+        _analogWarmthEnabled = dspMap['analogWarmthEnabled'] ?? false;
+        _analogWarmthProfile = AnalogWarmthProfile.values.firstWhere(
+          (e) => e.value == (dspMap['analogWarmthProfile'] ?? 0),
+          orElse: () => AnalogWarmthProfile.triode12AX7,
+        );
+        _analogWarmthDrive =
+            (dspMap['analogWarmthDrive'] as num?)?.toDouble() ?? 0.5;
+
+        _convolverEnabled = dspMap['convolverEnabled'] ?? false;
+        _convolverIrPath = dspMap['convolverIrPath'] as String?;
+        if (_convolverIrPath != null && _convolverIrPath!.isNotEmpty) {
+          _convolverIrFileName = p.basename(_convolverIrPath!);
+        }
+        _convolverWet = (dspMap['convolverWet'] as num?)?.toDouble() ?? 1.0;
+        _convolverDry = (dspMap['convolverDry'] as num?)?.toDouble() ?? 0.0;
+
+        _masterLimiterEnabled = dspMap['limiterEnabled'] ?? false;
+        _masterLimiterCeilingDb =
+            (dspMap['limiterCeilingDb'] as num?)?.toDouble() ?? -0.1;
+        _masterLimiterOutputGainDb =
+            (dspMap['limiterOutputGainDb'] as num?)?.toDouble() ?? 0.0;
+        _masterLimiterReleaseMs =
+            (dspMap['limiterReleaseMs'] as num?)?.toDouble() ?? 60.0;
+      });
+    }
+
     // Apply loaded state to the audio engine
     widget.player.setMultibandEqEnabled(_masterEqEnabled);
     widget.player.initMultibandEq(_eqFrequencies);
     _applyEqGains();
     _applyStoredPreamp();
 
-    if (_spatialAudioEnabled) {
-      widget.player.setReverbEnabled(true);
-      _updateSpatialAudio();
-    }
-    if (_delayEnabled) {
-      widget.player.setDelay(enabled: true);
-      _updateDelay();
-    }
-    if (_dynamicBassEnabled) {
-      _updateDynamicBass();
-    }
     if (_crystalizerEnabled) {
       _updateCrystalizer();
     }
@@ -452,18 +423,93 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setEqEnabled(true);
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
     }
-    if (_true3dEnabled) {
-      widget.player.setSpatializationEnabled(true);
-      _updateTrue3dPositions();
-    }
-    if (_customLpfEnabled) {
-      widget.player.setCustomLpf1(enabled: true, cutoffHz: _customLpfCutoff);
-    }
-    if (_customHpfEnabled) {
-      widget.player.setCustomHpf1(enabled: true, cutoffHz: _customHpfCutoff);
-    }
     if (_limiterEnabled) {
       _applyLimiter();
+    }
+
+    // Apply Sauti DSP suite
+    _updateClarity();
+    _updateHarmonicBass();
+    _updateDynamicSystem();
+    _updateAnalogWarmth();
+    _updateConvolver();
+    _updateMasterLimiter();
+  }
+
+  void _updateClarity() {
+    widget.player.setClarity(
+      enabled: _clarityEnabled,
+      profile: _clarityProfile,
+      intensity: _clarityIntensity,
+    );
+  }
+
+  void _updateHarmonicBass() {
+    widget.player.setHarmonicBass(
+      enabled: _bassEnabled,
+      profile: _bassProfile,
+      cutoffHz: _bassCutoffHz,
+      boost: _bassBoost,
+    );
+  }
+
+  void _updateDynamicSystem() {
+    widget.player.setDynamicSystem(
+      enabled: _dynamicSystemEnabled,
+      profile: _dynamicSystemProfile,
+      strength: _dynamicSystemStrength,
+    );
+  }
+
+  void _updateAnalogWarmth() {
+    widget.player.setAnalogWarmth(
+      enabled: _analogWarmthEnabled,
+      profile: _analogWarmthProfile,
+      drive: _analogWarmthDrive,
+    );
+  }
+
+  void _updateConvolver() {
+    widget.player.setConvolverEnabled(_convolverEnabled);
+    widget.player.setConvolverMix(wet: _convolverWet, dry: _convolverDry);
+    if (_convolverEnabled &&
+        _convolverIrPath != null &&
+        _convolverIrPath!.isNotEmpty) {
+      widget.player.loadConvolverIr(_convolverIrPath!);
+    }
+  }
+
+  void _updateMasterLimiter() {
+    widget.player.setMasterLimiter(
+      enabled: _masterLimiterEnabled,
+      ceilingDb: _masterLimiterCeilingDb,
+      outputGainDb: _masterLimiterOutputGainDb,
+      releaseMs: _masterLimiterReleaseMs,
+    );
+  }
+
+  Future<void> _pickImpulseResponse() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['wav'],
+      );
+      if (result != null && result.files.single.path != null) {
+        final path = result.files.single.path!;
+        setState(() {
+          _convolverIrPath = path;
+          _convolverIrFileName = p.basename(path);
+          _convolverEnabled = true;
+        });
+        _updateConvolver();
+        _saveEqState();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load acoustic file: $e')),
+        );
+      }
     }
   }
 
@@ -480,7 +526,7 @@ class _EqScreenState extends State<EqScreen>
     widget.player.setGain(gain);
   }
 
-  /// Saves all current EQ state to persistent storage.
+  /// Saves all current EQ and Sauti DSP state to persistent storage.
   void _saveEqState() {
     AppStateService.instance.saveEqBands(
       enabled: _masterEqEnabled,
@@ -488,23 +534,6 @@ class _EqScreenState extends State<EqScreen>
       gains: List<double>.from(_eqGains),
       preampDb: _preampDb,
       bandCount: _eqFrequencies.length,
-    );
-    AppStateService.instance.saveSpatialAudio(
-      enabled: _spatialAudioEnabled,
-      reverbMix: _reverbMix,
-      roomSize: _roomSize,
-      echo: _echo,
-    );
-    AppStateService.instance.saveDelay(
-      enabled: _delayEnabled,
-      mix: _delayMix,
-      feedback: _delayFeedback,
-      time: _delayTime,
-    );
-    AppStateService.instance.saveDynamicBass(
-      enabled: _dynamicBassEnabled,
-      preset: _dynamicBassPreset,
-      gain: _dynamicBassGain,
     );
     AppStateService.instance.saveCrystalizer(
       enabled: _crystalizerEnabled,
@@ -541,26 +570,38 @@ class _EqScreenState extends State<EqScreen>
       mid: _tuneMid,
       high: _tuneHigh,
     );
-    AppStateService.instance.saveTrue3d(
-      enabled: _true3dEnabled,
-      x: _spatX,
-      y: _spatY,
-      z: _spatZ,
-    );
-    AppStateService.instance.saveCustomLpf(
-      enabled: _customLpfEnabled,
-      cutoff: _customLpfCutoff,
-    );
-    AppStateService.instance.saveCustomHpf(
-      enabled: _customHpfEnabled,
-      cutoff: _customHpfCutoff,
-    );
     AppStateService.instance.saveLimiter(
       enabled: _limiterEnabled,
       threshold: _limiterThreshold,
       attackMs: _limiterAttackMs,
       releaseMs: _limiterReleaseMs,
     );
+
+    // Save Sauti DSP Suite state
+    AppStateService.instance.saveSautiDspState({
+      'dspMasterEnabled': _masterEqEnabled,
+      'clarityEnabled': _clarityEnabled,
+      'clarityProfile': _clarityProfile.value,
+      'clarityIntensity': _clarityIntensity,
+      'bassEnabled': _bassEnabled,
+      'bassProfile': _bassProfile.value,
+      'bassCutoffHz': _bassCutoffHz,
+      'bassBoost': _bassBoost,
+      'dynamicSystemEnabled': _dynamicSystemEnabled,
+      'dynamicSystemProfile': _dynamicSystemProfile.value,
+      'dynamicSystemStrength': _dynamicSystemStrength,
+      'analogWarmthEnabled': _analogWarmthEnabled,
+      'analogWarmthProfile': _analogWarmthProfile.value,
+      'analogWarmthDrive': _analogWarmthDrive,
+      'convolverEnabled': _convolverEnabled,
+      'convolverIrPath': _convolverIrPath,
+      'convolverWet': _convolverWet,
+      'convolverDry': _convolverDry,
+      'limiterEnabled': _masterLimiterEnabled,
+      'limiterCeilingDb': _masterLimiterCeilingDb,
+      'limiterOutputGainDb': _masterLimiterOutputGainDb,
+      'limiterReleaseMs': _masterLimiterReleaseMs,
+    });
   }
 
   void _dismissWarningBanner() async {
@@ -745,26 +786,21 @@ class _EqScreenState extends State<EqScreen>
       _masterEqEnabled = true;
       widget.player.setMultibandEqEnabled(true);
 
-      _spatialAudioEnabled = false;
-      widget.player.setReverbEnabled(false);
-
-      _delayEnabled = false;
-      widget.player.setDelay(enabled: false);
-
-      _dynamicBassEnabled = false;
-      _dynamicBassPreset = 12;
-      _dynamicBassGain = 15.0;
-      widget.player.setDynamicBass(
-        enabled: false,
-        preset: _dynamicBassPreset,
-        gain: _dynamicBassGain,
-      );
-
       _crystalizerEnabled = false;
       _crystalizerIntensity = 0.5;
       _crystalizerHighShelf = true;
       _crystalizerShelfGain = 2.0;
       widget.player.setCrystalizer(enabled: false);
+
+      _crossfeedEnabled = false;
+      _crossfeedPreset = 1;
+      _crossfeedAlgorithmIndex = 2;
+      widget.player.setCrossfeed(enabled: false, preset: 0);
+      widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
+
+      _stereoWidenEnabled = false;
+      _stereoWidenWidth = 1.5;
+      widget.player.setStereoWiden(enabled: false, width: 1.5, delayMs: 15.0);
 
       _stereoEnhancementEnabled = false;
       _stereoEnhancementMix = 0.5;
@@ -781,77 +817,10 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setGain(1.0); // 1.0 is 0dB
       widget.player.setPitch(1.0);
 
-      _true3dEnabled = false;
-      widget.player.setSpatializationEnabled(false);
-      _spatX = 0.0;
-      _spatY = 0.0;
-      _spatZ = 0.0;
-
       _parametricEqEnabled = false;
       _parametricBands.clear();
       widget.player.setMultibandFxEnabled(false);
       widget.player.clearMultibandFx();
-
-      _customLpfEnabled = false;
-      _customLpfCutoff = 500.0;
-      widget.player.setCustomLpf1(enabled: false, cutoffHz: _customLpfCutoff);
-
-      _customHpfEnabled = false;
-      _customHpfCutoff = 120.0;
-      widget.player.setCustomHpf1(enabled: false, cutoffHz: _customHpfCutoff);
-
-      _customBpfEnabled = false;
-      _customBpfCutoff = 1000.0;
-      _customBpfQ = 0.707;
-      widget.player.setBandpass(
-          enabled: false, cutoffHz: _customBpfCutoff, q: _customBpfQ);
-
-      _customNotchEnabled = false;
-      _customNotchCutoff = 60.0;
-      _customNotchQ = 10.0;
-      widget.player.setNotch(
-          enabled: false, frequencyHz: _customNotchCutoff, q: _customNotchQ);
-
-      _customPeakEnabled = false;
-      _customPeakCutoff = 1000.0;
-      _customPeakGainDb = 0.0;
-      _customPeakQ = 1.0;
-      widget.player.setPeakEq(
-          enabled: false,
-          frequencyHz: _customPeakCutoff,
-          gainDb: _customPeakGainDb,
-          q: _customPeakQ);
-
-      _customLoshelfEnabled = false;
-      _customLoshelfCutoff = 250.0;
-      _customLoshelfGainDb = 0.0;
-      _customLoshelfSlope = 1.0;
-      widget.player.setLowshelf(
-          enabled: false,
-          frequencyHz: _customLoshelfCutoff,
-          gainDb: _customLoshelfGainDb,
-          slope: _customLoshelfSlope);
-
-      _customHishelfEnabled = false;
-      _customHishelfCutoff = 8000.0;
-      _customHishelfGainDb = 0.0;
-      _customHishelfSlope = 1.0;
-      widget.player.setHighshelf(
-          enabled: false,
-          frequencyHz: _customHishelfCutoff,
-          gainDb: _customHishelfGainDb,
-          slope: _customHishelfSlope);
-
-      _customBiquadEnabled = false;
-      widget.player.setCustomBiquad(
-        enabled: false,
-        b0: _biquadB0,
-        b1: _biquadB1,
-        b2: _biquadB2,
-        a0: _biquadA0,
-        a1: _biquadA1,
-        a2: _biquadA2,
-      );
 
       _limiterEnabled = false;
       _limiterThreshold = 0.95;
@@ -859,6 +828,42 @@ class _EqScreenState extends State<EqScreen>
       _limiterReleaseMs = 50.0;
       widget.player.setLimiterEnabled(false);
       widget.player.setClippingDetectionEnabled(false);
+
+      // Sauti DSP Suite Resets
+      _clarityEnabled = false;
+      _clarityProfile = AudioClarityProfile.transientCrisp;
+      _clarityIntensity = 0.5;
+      widget.player.setClarity(enabled: false);
+
+      _bassEnabled = false;
+      _bassProfile = HarmonicBassProfile.subBassResonant;
+      _bassCutoffHz = 60.0;
+      _bassBoost = 0.5;
+      widget.player.setHarmonicBass(enabled: false);
+
+      _dynamicSystemEnabled = false;
+      _dynamicSystemProfile = TransducerProfile.earphone;
+      _dynamicSystemStrength = 0.5;
+      widget.player.setDynamicSystem(enabled: false);
+
+      _analogWarmthEnabled = false;
+      _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
+      _analogWarmthDrive = 0.5;
+      widget.player.setAnalogWarmth(enabled: false);
+
+      _convolverEnabled = false;
+      _convolverIrPath = null;
+      _convolverIrFileName = null;
+      _convolverWet = 1.0;
+      _convolverDry = 0.0;
+      widget.player.setConvolverEnabled(false);
+      widget.player.clearConvolverIr();
+
+      _masterLimiterEnabled = false;
+      _masterLimiterCeilingDb = -0.1;
+      _masterLimiterOutputGainDb = 0.0;
+      _masterLimiterReleaseMs = 60.0;
+      widget.player.setMasterLimiter(enabled: false);
     });
     // Persist the reset state
     _saveEqState();
@@ -1122,6 +1127,12 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       Row(
                         children: [
+                          M3EIconButton(
+                            icon: const Icon(Icons.info_outline_rounded, size: 19),
+                            variant: M3EIconButtonVariant.tonal,
+                            tooltip: 'Pipeline Info',
+                            onPressed: _showPipelineInfo,
+                          ),
                           const SizedBox(width: 4),
                           M3EIconButton(
                             icon: const Icon(Icons.refresh_rounded, size: 19),
@@ -1350,25 +1361,104 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 2: Dynamics & Bass
+            // Section 2: Bass & Subwoofer Engine
             SliverToBoxAdapter(
-              child: _buildSectionHeader('Dynamics & Bass',
-                  icon: Icons.waves_rounded),
+              child: _buildSectionHeader('Bass & Subwoofer Engine',
+                  icon: Icons.speaker_group_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 3,
+                  itemCount: 2,
                   onTap: (index) {
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          'Dynamic Bass',
-                          Icons.waves_rounded,
-                          (_) => _buildDynamicBassSection(),
+                          'Deep Bass & Subwoofer',
+                          Icons.speaker_group_rounded,
+                          (_) => _buildHarmonicBassSection(),
                           shape: Shapes.boom,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Device & Transducer Optimizer',
+                          Icons.headphones_rounded,
+                          (_) => _buildDynamicSystemSection(),
+                          shape: Shapes.burst,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.speaker_group_rounded,
+                        shape: Shapes.boom,
+                        title: 'Deep Bass & Subwoofer',
+                        subtitle: _bassEnabled
+                            ? '${_getHarmonicBassProfileName(_bassProfile)} | ${_bassCutoffHz.toInt()}Hz (${(_bassBoost * 100).toInt()}%)'
+                            : 'Disabled',
+                        isEnabled: _bassEnabled,
+                        onToggle: (v) {
+                          setState(() => _bassEnabled = v);
+                          _updateHarmonicBass();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Deep Bass & Subwoofer',
+                          Icons.speaker_group_rounded,
+                          (_) => _buildHarmonicBassSection(),
+                          shape: Shapes.boom,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.headphones_rounded,
+                      shape: Shapes.burst,
+                      title: 'Device & Transducer Optimizer',
+                      subtitle: _dynamicSystemEnabled
+                          ? '${_getTransducerProfileName(_dynamicSystemProfile)} (${(_dynamicSystemStrength * 100).toInt()}%)'
+                          : 'Disabled',
+                      isEnabled: _dynamicSystemEnabled,
+                      onToggle: (v) {
+                        setState(() => _dynamicSystemEnabled = v);
+                        _updateDynamicSystem();
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Device & Transducer Optimizer',
+                        Icons.headphones_rounded,
+                        (_) => _buildDynamicSystemSection(),
+                        shape: Shapes.burst,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 3: Clarity & Dynamics
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Clarity & Dynamics',
+                  icon: Icons.auto_awesome),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 2,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Audio Clarity & Vocal',
+                          Icons.graphic_eq_rounded,
+                          (_) => _buildClaritySection(),
+                          shape: Shapes.gem,
                         );
                         break;
                       case 1:
@@ -1379,90 +1469,49 @@ class _EqScreenState extends State<EqScreen>
                           shape: Shapes.burst,
                         );
                         break;
-                      case 2:
-                        _openDetailScreen(
-                          'Soft Limiter',
-                          Icons.compress_rounded,
-                          (_) => _buildLimiterSection(),
-                          shape: Shapes.square,
-                        );
-                        break;
                     }
                   },
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return _buildEffectTileCard(
-                        icon: Icons.waves_rounded,
-                        shape: Shapes.boom,
-                        title: 'Dynamic Bass',
-                        subtitle: _dynamicBassEnabled
-                            ? 'Gain: ${_dynamicBassGain.toInt()}%'
+                        icon: Icons.graphic_eq_rounded,
+                        shape: Shapes.gem,
+                        title: 'Audio Clarity & Vocal',
+                        subtitle: _clarityEnabled
+                            ? '${_getClarityProfileName(_clarityProfile)} (${(_clarityIntensity * 100).toInt()}%)'
                             : 'Disabled',
-                        isEnabled: _dynamicBassEnabled,
+                        isEnabled: _clarityEnabled,
                         onToggle: (v) {
-                          setState(() => _dynamicBassEnabled = v);
-                          if (v) {
-                            _updateDynamicBass();
-                          } else {
-                            widget.player.setDynamicBass(
-                                enabled: false,
-                                preset: _dynamicBassPreset,
-                                gain: _dynamicBassGain);
-                          }
+                          setState(() => _clarityEnabled = v);
+                          _updateClarity();
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Dynamic Bass',
-                          Icons.waves_rounded,
-                          (_) => _buildDynamicBassSection(),
-                          shape: Shapes.boom,
-                        ),
-                      );
-                    }
-                    if (index == 1) {
-                      return _buildEffectTileCard(
-                        icon: Icons.auto_fix_high_rounded,
-                        shape: Shapes.burst,
-                        title: 'Crystalizer',
-                        subtitle: _crystalizerEnabled
-                            ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
-                            : 'Disabled',
-                        isEnabled: _crystalizerEnabled,
-                        onToggle: (v) {
-                          setState(() => _crystalizerEnabled = v);
-                          _updateCrystalizer();
-                          _saveEqState();
-                        },
-                        onTapDetail: () => _openDetailScreen(
-                          'Crystalizer',
-                          Icons.auto_fix_high_rounded,
-                          (_) => _buildCrystalizerSection(),
-                          shape: Shapes.burst,
+                          'Audio Clarity & Vocal',
+                          Icons.graphic_eq_rounded,
+                          (_) => _buildClaritySection(),
+                          shape: Shapes.gem,
                         ),
                       );
                     }
                     return _buildEffectTileCard(
-                      icon: Icons.compress_rounded,
-                      shape: Shapes.square,
-                      title: 'Soft Limiter',
-                      subtitle: _limiterEnabled
-                          ? 'Threshold: ${_limiterThreshold.toInt()}dB'
+                      icon: Icons.auto_fix_high_rounded,
+                      shape: Shapes.burst,
+                      title: 'Crystalizer',
+                      subtitle: _crystalizerEnabled
+                          ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
                           : 'Disabled',
-                      isEnabled: _limiterEnabled,
+                      isEnabled: _crystalizerEnabled,
                       onToggle: (v) {
-                        setState(() => _limiterEnabled = v);
-                        if (v) {
-                          _applyLimiter();
-                        } else {
-                          widget.player.setLimiterEnabled(false);
-                        }
+                        setState(() => _crystalizerEnabled = v);
+                        _updateCrystalizer();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Soft Limiter',
-                        Icons.compress_rounded,
-                        (_) => _buildLimiterSection(),
-                        shape: Shapes.square,
+                        'Crystalizer',
+                        Icons.auto_fix_high_rounded,
+                        (_) => _buildCrystalizerSection(),
+                        shape: Shapes.burst,
                       ),
                     );
                   },
@@ -1470,9 +1519,9 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 3: Spatial & Headphones
+            // Section 4: Spatial & Analog Warmth
             SliverToBoxAdapter(
-              child: _buildSectionHeader('Spatial & Headphones',
+              child: _buildSectionHeader('Spatial & Analog Warmth',
                   icon: Icons.headphones_rounded),
             ),
             SliverToBoxAdapter(
@@ -1480,7 +1529,7 @@ class _EqScreenState extends State<EqScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 5,
+                  itemCount: 4,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -1509,18 +1558,10 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 3:
                         _openDetailScreen(
-                          '3D Audio',
-                          Icons.spatial_audio_off_outlined,
-                          (_) => _buildSpatialAudioSection(),
-                          shape: Shapes.softBoom,
-                        );
-                        break;
-                      case 4:
-                        _openDetailScreen(
-                          'True 3D Spatial Audio',
-                          Icons.threed_rotation_rounded,
-                          (_) => _buildTrue3dSection(),
-                          shape: Shapes.circle,
+                          'Analog Warmth & Color',
+                          Icons.album_rounded,
+                          (_) => _buildAnalogWarmthSection(),
+                          shape: Shapes.sunny,
                         );
                         break;
                     }
@@ -1614,48 +1655,24 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
-                    if (index == 3) {
-                      return _buildEffectTileCard(
-                        icon: Icons.spatial_audio_off_outlined,
-                        shape: Shapes.softBoom,
-                        title: '3D Audio',
-                        subtitle: _spatialAudioEnabled
-                            ? 'Reverb: ${(_reverbMix * 100).toInt()}% | Room: ${(_roomSize * 100).toInt()}%'
-                            : 'Disabled',
-                        isEnabled: _spatialAudioEnabled,
-                        onToggle: (v) {
-                          setState(() => _spatialAudioEnabled = v);
-                          widget.player.setReverbEnabled(v);
-                          if (v) _updateSpatialAudio();
-                          _saveEqState();
-                        },
-                        onTapDetail: () => _openDetailScreen(
-                          '3D Audio',
-                          Icons.spatial_audio_off_outlined,
-                          (_) => _buildSpatialAudioSection(),
-                          shape: Shapes.softBoom,
-                        ),
-                      );
-                    }
                     return _buildEffectTileCard(
-                      icon: Icons.threed_rotation_rounded,
-                      shape: Shapes.circle,
-                      title: 'True 3D Spatial Audio',
-                      subtitle: _true3dEnabled
-                          ? 'XYZ Vector Coordinates Active'
+                      icon: Icons.album_rounded,
+                      shape: Shapes.sunny,
+                      title: 'Analog Warmth & Color',
+                      subtitle: _analogWarmthEnabled
+                          ? '${_getAnalogWarmthProfileName(_analogWarmthProfile)} (${(_analogWarmthDrive * 100).toInt()}%)'
                           : 'Disabled',
-                      isEnabled: _true3dEnabled,
+                      isEnabled: _analogWarmthEnabled,
                       onToggle: (v) {
-                        setState(() => _true3dEnabled = v);
-                        widget.player.setSpatializationEnabled(v);
-                        if (v) _updateTrue3dPositions();
+                        setState(() => _analogWarmthEnabled = v);
+                        _updateAnalogWarmth();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'True 3D Spatial Audio',
-                        Icons.threed_rotation_rounded,
-                        (_) => _buildTrue3dSection(),
-                        shape: Shapes.circle,
+                        'Analog Warmth & Color',
+                        Icons.album_rounded,
+                        (_) => _buildAnalogWarmthSection(),
+                        shape: Shapes.sunny,
                       ),
                     );
                   },
@@ -1663,10 +1680,55 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 4: Advanced Audio Filters
+            // Section 5: Acoustic Space & Convolver
             SliverToBoxAdapter(
-              child: _buildSectionHeader('Advanced Audio Filters',
-                  icon: Icons.filter_alt_rounded),
+              child: _buildSectionHeader('Acoustic Space & Convolver',
+                  icon: Icons.waves_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 1,
+                  onTap: (index) {
+                    _openDetailScreen(
+                      'Acoustic Space & Convolver',
+                      Icons.waves_rounded,
+                      (_) => _buildConvolverSection(),
+                      shape: Shapes.c4SidedCookie,
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    return _buildEffectTileCard(
+                      icon: Icons.waves_rounded,
+                      shape: Shapes.c4SidedCookie,
+                      title: 'Acoustic Space & Convolver',
+                      subtitle: _convolverEnabled
+                          ? (_convolverIrFileName ?? 'Acoustic IR Active')
+                          : 'Disabled',
+                      isEnabled: _convolverEnabled,
+                      onToggle: (v) {
+                        setState(() => _convolverEnabled = v);
+                        _updateConvolver();
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Acoustic Space & Convolver',
+                        Icons.waves_rounded,
+                        (_) => _buildConvolverSection(),
+                        shape: Shapes.c4SidedCookie,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 6: Master Dynamics & Protection
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Master Dynamics & Protection',
+                  icon: Icons.shield_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -1678,17 +1740,17 @@ class _EqScreenState extends State<EqScreen>
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          'Delay / Echo',
-                          Icons.repeat_rounded,
-                          (_) => _buildDelaySection(),
-                          shape: Shapes.l4LeafClover,
+                          'Master Peak Limiter',
+                          Icons.shield_rounded,
+                          (_) => _buildMasterLimiterSection(),
+                          shape: Shapes.square,
                         );
                         break;
                       case 1:
                         _openDetailScreen(
-                          'Advanced Filters',
-                          Icons.filter_alt_outlined,
-                          (_) => _buildCustomFiltersSection(),
+                          'Soft Anti-Clipping Limiter',
+                          Icons.compress_rounded,
+                          (_) => _buildLimiterSection(),
                           shape: Shapes.diamond,
                         );
                         break;
@@ -1697,53 +1759,47 @@ class _EqScreenState extends State<EqScreen>
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return _buildEffectTileCard(
-                        icon: Icons.repeat_rounded,
-                        shape: Shapes.l4LeafClover,
-                        title: 'Delay / Echo',
-                        subtitle: _delayEnabled
-                            ? 'Time: ${(_delayTime * 1000).toInt()}ms | Mix: ${(_delayMix * 100).toInt()}%'
+                        icon: Icons.shield_rounded,
+                        shape: Shapes.square,
+                        title: 'Master Peak Limiter',
+                        subtitle: _masterLimiterEnabled
+                            ? 'Ceiling: ${_masterLimiterCeilingDb.toStringAsFixed(1)} dBFS'
                             : 'Disabled',
-                        isEnabled: _delayEnabled,
+                        isEnabled: _masterLimiterEnabled,
                         onToggle: (v) {
-                          setState(() => _delayEnabled = v);
-                          widget.player.setDelay(enabled: v);
-                          if (v) _updateDelay();
+                          setState(() => _masterLimiterEnabled = v);
+                          _updateMasterLimiter();
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Delay / Echo',
-                          Icons.repeat_rounded,
-                          (_) => _buildDelaySection(),
-                          shape: Shapes.l4LeafClover,
+                          'Master Peak Limiter',
+                          Icons.shield_rounded,
+                          (_) => _buildMasterLimiterSection(),
+                          shape: Shapes.square,
                         ),
                       );
                     }
                     return _buildEffectTileCard(
-                      icon: Icons.filter_alt_outlined,
+                      icon: Icons.compress_rounded,
                       shape: Shapes.diamond,
-                      title: 'Advanced Filters',
-                      subtitle: (_customLpfEnabled ||
-                              _customHpfEnabled ||
-                              _customBpfEnabled ||
-                              _customNotchEnabled ||
-                              _customPeakEnabled ||
-                              _customLoshelfEnabled ||
-                              _customHishelfEnabled ||
-                              _customBiquadEnabled)
-                          ? 'Active Filters Configured'
+                      title: 'Soft Anti-Clipping Limiter',
+                      subtitle: _limiterEnabled
+                          ? 'Threshold: ${_limiterThreshold.toInt()}dB'
                           : 'Disabled',
-                      isEnabled: _customLpfEnabled ||
-                          _customHpfEnabled ||
-                          _customBpfEnabled ||
-                          _customNotchEnabled ||
-                          _customPeakEnabled ||
-                          _customLoshelfEnabled ||
-                          _customHishelfEnabled ||
-                          _customBiquadEnabled,
+                      isEnabled: _limiterEnabled,
+                      onToggle: (v) {
+                        setState(() => _limiterEnabled = v);
+                        if (v) {
+                          _applyLimiter();
+                        } else {
+                          widget.player.setLimiterEnabled(false);
+                        }
+                        _saveEqState();
+                      },
                       onTapDetail: () => _openDetailScreen(
-                        'Advanced Filters',
-                        Icons.filter_alt_outlined,
-                        (_) => _buildCustomFiltersSection(),
+                        'Soft Anti-Clipping Limiter',
+                        Icons.compress_rounded,
+                        (_) => _buildLimiterSection(),
                         shape: Shapes.diamond,
                       ),
                     );
@@ -2123,192 +2179,6 @@ class _EqScreenState extends State<EqScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSpatialAudioSection() {
-    return _CollapsibleSection(
-      icon: /*M3EContainer(
-        Shapes.softBoom,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child:*/
-          Center(
-        child: Icon(Icons.spatial_audio_off_outlined,
-            color: primaryColor, size: 20),
-        //),
-      ),
-      title: '3D Spatial Audio',
-      subtitle: 'Immersive virtual soundstage & reverb',
-      isEnabled: _spatialAudioEnabled,
-      onToggle: (v) {
-        setState(() => _spatialAudioEnabled = v);
-        widget.player.setReverbEnabled(v);
-        if (v) _updateSpatialAudio();
-        _saveEqState();
-      },
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'SIZE',
-              value: _roomSize,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.3,
-              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _roomSize = v);
-                if (_spatialAudioEnabled) _updateSpatialAudio();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'ECHO',
-              value: _echo,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.15,
-              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _echo = v);
-                if (_spatialAudioEnabled) _updateSpatialAudio();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'REVERB',
-              value: _reverbMix,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.25,
-              activeColor: _spatialAudioEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _reverbMix = v);
-                if (_spatialAudioEnabled) _updateSpatialAudio();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDynamicBassSection() {
-    return _CollapsibleSection(
-      icon: /*M3EContainer(
-        Shapes.boom,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
-        child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
-        // ),
-      ),
-      title: 'Dynamic Bass',
-      subtitle: 'Harmonic bass boost & sub-frequency enhancement',
-      isEnabled: _dynamicBassEnabled,
-      onToggle: (v) {
-        setState(() => _dynamicBassEnabled = v);
-        if (v) {
-          _updateDynamicBass();
-        } else {
-          widget.player.setDynamicBass(
-              enabled: false,
-              preset: _dynamicBassPreset,
-              gain: _dynamicBassGain);
-        }
-        _saveEqState();
-      },
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'GAIN',
-              value: _dynamicBassGain / 100.0,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 1.0,
-              activeColor: _dynamicBassEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _dynamicBassGain = v * 100.0);
-                if (_dynamicBassEnabled) _updateDynamicBass();
-              },
-            ),
-            Column(
-              children: [
-                Text(
-                  'PRESET FREQ',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                /*M3EContainer(
-                  Shapes.pill,
-                  color: surfaceDarkColor,
-                  border:
-                      BorderSide(color: primaryColor.withValues(alpha: 0.35)),
-                  child: */
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int>(
-                      value: _dynamicBassPreset,
-                      dropdownColor: surfaceDarkerColor,
-                      icon: Icon(Icons.arrow_drop_down_rounded,
-                          color: primaryColor),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600),
-                      items: List.generate(19, (index) {
-                        int f = 60 + (index * 5);
-                        if (index > 14) f = 130 + ((index - 14) * 10);
-                        if (index == 18) f = 180;
-                        return DropdownMenuItem(
-                            value: index, child: Text('$f Hz'));
-                      }),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() => _dynamicBassPreset = val);
-                          if (_dynamicBassEnabled) _updateDynamicBass();
-                          _saveEqState();
-                        }
-                      },
-                      //  ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ],
     );
   }
 
@@ -2809,104 +2679,6 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
-  Widget _buildDelaySection() {
-    return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.l4LeafClover,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
-        child: Icon(Icons.repeat_rounded, color: primaryColor, size: 20),
-        // ),
-      ),
-      title: 'Delay / Echo',
-      subtitle: 'Feedback, time delay & rhythmic repeats',
-      isEnabled: _delayEnabled,
-      onToggle: (v) {
-        setState(() => _delayEnabled = v);
-        widget.player.setDelay(enabled: v);
-        if (v) _updateDelay();
-        _saveEqState();
-      },
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'TIME',
-              value: _delayTime,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.25,
-              activeColor: _delayEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _delayTime = v);
-                if (_delayEnabled) _updateDelay();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'FEEDBACK',
-              value: _delayFeedback,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.4,
-              activeColor: _delayEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _delayFeedback = v);
-                if (_delayEnabled) _updateDelay();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'MIX',
-              value: _delayMix,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.3,
-              activeColor: _delayEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _delayMix = v);
-                if (_delayEnabled) _updateDelay();
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  void _updateDelay() {
-    // delayTime: 0.0 -> 1.0 mapped to 10ms -> 1000ms
-    double delayMs = 10.0 + (_delayTime * 990.0);
-    widget.player.setDelay(
-      enabled: _delayEnabled,
-      mix: _delayMix,
-      feedback: _delayFeedback,
-      delayMs: delayMs,
-    );
-  }
-
-  void _updateDynamicBass() {
-    widget.player.setDynamicBass(
-      enabled: _dynamicBassEnabled,
-      preset: _dynamicBassPreset,
-      gain: _dynamicBassGain,
-    );
-  }
-
   void _updateCrystalizer() {
     widget.player.setCrystalizer(
       enabled: _crystalizerEnabled,
@@ -2959,336 +2731,6 @@ class _EqScreenState extends State<EqScreen>
       width: _stereoWidenWidth,
       delayMs: delayMsMapping,
     );
-  }
-
-  void _updateSpatialAudio() {
-    double delayMs = 20.0 + (_roomSize * 330.0);
-    double feedback = _echo * 0.98;
-
-    widget.player
-        .setReverb(mix: _reverbMix, feedback: feedback, delayMs: delayMs);
-  }
-
-  Widget _buildSectionSubHeader(String title) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: primaryColor.withValues(alpha: 0.9),
-          fontSize: 10.5,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTrue3dSection() {
-    return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.circle,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
-        child:
-            Icon(Icons.threed_rotation_rounded, color: primaryColor, size: 20),
-        //  ),
-      ),
-      title: 'True 3D Spatial Audio',
-      subtitle: '3D Positioning, Sound Cones & Distance Attenuation',
-      isEnabled: _true3dEnabled,
-      onToggle: (v) {
-        setState(() => _true3dEnabled = v);
-        widget.player.setSpatializationEnabled(v);
-        if (v) _updateTrue3dPositions();
-        _saveEqState();
-      },
-      children: [
-        _buildSectionSubHeader('Sound Source Position'),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'SRC X',
-              value: _spatX,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _spatX = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'SRC Y',
-              value: _spatY,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _spatY = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'SRC Z',
-              value: _spatZ,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _spatZ = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _buildSectionSubHeader('Distance Attenuation & Doppler'),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Attenuation Model',
-                style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600)),
-            /*M3EContainer(
-              Shapes.pill,
-              color: surfaceDarkColor,
-              border: BorderSide(color: primaryColor.withValues(alpha: 0.35)),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                child:*/
-            DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _spatAttenuationModel,
-                dropdownColor: surfaceDarkerColor,
-                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text('None')),
-                  DropdownMenuItem(value: 1, child: Text('Inverse')),
-                  DropdownMenuItem(value: 2, child: Text('Linear')),
-                  DropdownMenuItem(value: 3, child: Text('Exponential')),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _spatAttenuationModel = val);
-                    if (_true3dEnabled) _updateTrue3dPositions();
-                    _saveEqState();
-                  }
-                },
-              ),
-            ),
-            // ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'ROLLOFF',
-              value: _spatRolloff,
-              min: 0.0,
-              max: 5.0,
-              flatValue: 1.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
-              onChanged: (v) {
-                setState(() => _spatRolloff = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'MIN DIST',
-              value: _spatMinDistance,
-              min: 0.1,
-              max: 20.0,
-              flatValue: 1.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)}m',
-              onChanged: (v) {
-                setState(() => _spatMinDistance = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'MAX DIST',
-              value: _spatMaxDistance,
-              min: 1.0,
-              max: 500.0,
-              flatValue: 100.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()}m',
-              onChanged: (v) {
-                setState(() => _spatMaxDistance = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'DOPPLER',
-              value: _spatDopplerFactor,
-              min: 0.0,
-              max: 5.0,
-              flatValue: 1.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
-              onChanged: (v) {
-                setState(() => _spatDopplerFactor = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _buildSectionSubHeader('Sound Cone & Directivity'),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'INNER CONE',
-              value: _soundConeInnerRad,
-              min: 0.0,
-              max: 6.28,
-              flatValue: 3.14,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${(v * 180 / 3.14159).round()}°',
-              onChanged: (v) {
-                setState(() => _soundConeInnerRad = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'OUTER CONE',
-              value: _soundConeOuterRad,
-              min: 0.0,
-              max: 6.28,
-              flatValue: 6.28,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${(v * 180 / 3.14159).round()}°',
-              onChanged: (v) {
-                setState(() => _soundConeOuterRad = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'OUTER GAIN',
-              value: _soundConeOuterGain,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.5,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _soundConeOuterGain = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _buildSectionSubHeader('Listener Position & Orientation'),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'LISTENER X',
-              value: _listenerX,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _listenerX = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'LISTENER Y',
-              value: _listenerY,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _listenerY = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'LISTENER Z',
-              value: _listenerZ,
-              min: -5.0,
-              max: 5.0,
-              flatValue: 0.0,
-              activeColor: _true3dEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
-              onChanged: (v) {
-                setState(() => _listenerZ = v);
-                if (_true3dEnabled) _updateTrue3dPositions();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  void _updateTrue3dPositions() {
-    widget.player.setSpatializationEnabled(_true3dEnabled);
-    widget.player.setPosition(x: _spatX, y: _spatY, z: _spatZ);
-    widget.player.setAttenuationModel(_spatAttenuationModel);
-    widget.player.setRolloff(_spatRolloff);
-    widget.player.setMinDistance(_spatMinDistance);
-    widget.player.setMaxDistance(_spatMaxDistance);
-    widget.player.setDopplerFactor(_spatDopplerFactor);
-    widget.player.setSoundCone(
-      innerAngleRad: _soundConeInnerRad,
-      outerAngleRad: _soundConeOuterRad,
-      outerGain: _soundConeOuterGain,
-    );
-    widget.player
-        .setListenerPosition(x: _listenerX, y: _listenerY, z: _listenerZ);
-    widget.player.setListenerDirection(x: 0.0, y: 0.0, z: _listenerDirZ);
   }
 
   Widget _buildAudioTuningSection() {
@@ -3687,598 +3129,606 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
-  Widget _buildCustomFiltersSection() {
+  String _getHarmonicBassProfileName(HarmonicBassProfile profile) {
+    return switch (profile) {
+      HarmonicBassProfile.naturalBass => 'Natural Bass',
+      HarmonicBassProfile.pureBass => 'Punchy Kick',
+      HarmonicBassProfile.subwoofer => 'Subwoofer Rumble',
+      HarmonicBassProfile.harmonicExciter => 'Harmonic Exciter',
+      HarmonicBassProfile.pultecDeep => 'Pultec Deep Sub',
+    };
+  }
+
+  String _getTransducerProfileName(TransducerProfile profile) {
+    return switch (profile) {
+      TransducerProfile.earphone => 'In-Ear Earbuds',
+      TransducerProfile.headphone => 'Over-Ear Headphones',
+      TransducerProfile.highEndReference => 'Studio Reference',
+      TransducerProfile.speakerMonitor => 'Desktop Speakers',
+      TransducerProfile.extremeSubwoofer => 'Extreme Subwoofer',
+      TransducerProfile.pureDynamic => 'Pure Dynamic',
+    };
+  }
+
+  String _getClarityProfileName(AudioClarityProfile profile) {
+    return switch (profile) {
+      AudioClarityProfile.transientCrisp => 'Crisp & Detailed',
+      AudioClarityProfile.airShelf => 'Air & Sparkle',
+      AudioClarityProfile.presenceExciter => 'Vocal Presence',
+      AudioClarityProfile.harmonicBrilliance => 'Studio Brilliance',
+    };
+  }
+
+  String _getAnalogWarmthProfileName(AnalogWarmthProfile profile) {
+    return switch (profile) {
+      AnalogWarmthProfile.triode12AX7 => 'Vacuum Tube (12AX7)',
+      AnalogWarmthProfile.magneticTape => 'Reel-to-Reel Tape',
+      AnalogWarmthProfile.vintagePreamp => 'Console Preamp',
+    };
+  }
+
+  Widget _buildHarmonicBassSection() {
     return _CollapsibleSection(
-      icon: /*M3EContainer(
-        Shapes.diamond,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
-        child: Icon(Icons.filter_alt_rounded, color: primaryColor, size: 20),
-        // ),
+      icon: Center(
+        child: Icon(Icons.speaker_group_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Advanced Audio Filters',
-      subtitle: 'Real-Time LPF, HPF, BPF, Notch, Peak, Low/High Shelf & Biquad',
-      hasSwitch: false,
+      title: 'Deep Bass & Subwoofer',
+      subtitle: 'Clean mono bass injection, kick punch & subwoofer power',
+      isEnabled: _bassEnabled,
+      onToggle: (v) {
+        setState(() => _bassEnabled = v);
+        _updateHarmonicBass();
+        _saveEqState();
+      },
       children: [
-        // Real-Time Combined Frequency Response Graph
-        RepaintBoundary(
-          child: CustomFiltersGraph(
-            config: CustomFilterGraphConfig(
-              lpfEnabled: _customLpfEnabled,
-              lpfCutoff: _customLpfCutoff,
-              hpfEnabled: _customHpfEnabled,
-              hpfCutoff: _customHpfCutoff,
-              bpfEnabled: _customBpfEnabled,
-              bpfCutoff: _customBpfCutoff,
-              bpfQ: _customBpfQ,
-              notchEnabled: _customNotchEnabled,
-              notchCutoff: _customNotchCutoff,
-              notchQ: _customNotchQ,
-              peakEnabled: _customPeakEnabled,
-              peakCutoff: _customPeakCutoff,
-              peakGainDb: _customPeakGainDb,
-              peakQ: _customPeakQ,
-              loshelfEnabled: _customLoshelfEnabled,
-              loshelfCutoff: _customLoshelfCutoff,
-              loshelfGainDb: _customLoshelfGainDb,
-              loshelfSlope: _customLoshelfSlope,
-              hishelfEnabled: _customHishelfEnabled,
-              hishelfCutoff: _customHishelfCutoff,
-              hishelfGainDb: _customHishelfGainDb,
-              hishelfSlope: _customHishelfSlope,
-              biquadEnabled: _customBiquadEnabled,
-              biquadB0: _biquadB0,
-              biquadB1: _biquadB1,
-              biquadB2: _biquadB2,
-              biquadA0: _biquadA0,
-              biquadA1: _biquadA1,
-              biquadA2: _biquadA2,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Bass Character',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            primaryColor: primaryColor,
-            height: 125.0,
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // LPF Section
-        _buildFilterRow(
-          title: 'Low-Pass Filter (LPF)',
-          isEnabled: _customLpfEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customLpfEnabled = v;
-              widget.player
-                  .setCustomLpf1(enabled: v, cutoffHz: _customLpfCutoff);
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'CUTOFF',
-              value: _customLpfCutoff,
-              min: 20.0,
-              max: 20000.0,
-              flatValue: 500.0,
-              activeColor: _customLpfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customLpfCutoff = v;
-                  if (_customLpfEnabled) {
-                    widget.player.setCustomLpf1(enabled: true, cutoffHz: v);
+            DropdownButtonHideUnderline(
+              child: DropdownButton<HarmonicBassProfile>(
+                value: _bassProfile,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: HarmonicBassProfile.naturalBass,
+                    child: Text('Natural Bass (Smooth & Clean)'),
+                  ),
+                  DropdownMenuItem(
+                    value: HarmonicBassProfile.pureBass,
+                    child: Text('Punchy Kick (Tight Drums)'),
+                  ),
+                  DropdownMenuItem(
+                    value: HarmonicBassProfile.subwoofer,
+                    child: Text('Subwoofer Rumble (Deep Sub)'),
+                  ),
+                  DropdownMenuItem(
+                    value: HarmonicBassProfile.harmonicExciter,
+                    child: Text('Harmonic Exciter (Earbuds)'),
+                  ),
+                  DropdownMenuItem(
+                    value: HarmonicBassProfile.pultecDeep,
+                    child: Text('Pultec Deep Sub (Anti-Mud)'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _bassProfile = val);
+                    if (_bassEnabled) _updateHarmonicBass();
+                    _saveEqState();
                   }
-                });
-              },
+                },
+              ),
             ),
           ],
         ),
         const SizedBox(height: 16),
-
-        // HPF Section
-        _buildFilterRow(
-          title: 'High-Pass Filter (HPF)',
-          isEnabled: _customHpfEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customHpfEnabled = v;
-              widget.player
-                  .setCustomHpf1(enabled: v, cutoffHz: _customHpfCutoff);
-            });
-          },
-          controls: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
             ModernAudioKnob(
-              label: 'CUTOFF',
-              value: _customHpfCutoff,
-              min: 20.0,
-              max: 20000.0,
-              flatValue: 120.0,
-              activeColor: _customHpfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customHpfCutoff = v;
-                  if (_customHpfEnabled) {
-                    widget.player.setCustomHpf1(enabled: true, cutoffHz: v);
-                  }
-                });
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Band-Pass Filter (BPF) Section
-        _buildFilterRow(
-          title: 'Band-Pass Filter (BPF)',
-          isEnabled: _customBpfEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customBpfEnabled = v;
-              _updateBpf();
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'CUTOFF',
-              value: _customBpfCutoff,
-              min: 20.0,
-              max: 20000.0,
-              flatValue: 1000.0,
-              activeColor: _customBpfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customBpfCutoff = v;
-                  _updateBpf();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'Q',
-              value: _customBpfQ,
-              min: 0.1,
-              max: 10.0,
-              flatValue: 0.707,
-              activeColor: _customBpfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(2),
-              onChanged: (v) {
-                setState(() {
-                  _customBpfQ = v;
-                  _updateBpf();
-                });
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Notch Filter Section
-        _buildFilterRow(
-          title: 'Notch Filter',
-          isEnabled: _customNotchEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customNotchEnabled = v;
-              _updateNotch();
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'FREQ',
-              value: _customNotchCutoff,
-              min: 20.0,
-              max: 20000.0,
+              label: 'FOCUS FREQ',
+              value: _bassCutoffHz,
+              min: 30.0,
+              max: 160.0,
               flatValue: 60.0,
-              activeColor: _customNotchEnabled ? primaryColor : Colors.white,
+              activeColor: _bassEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} Hz',
               onChanged: (v) {
-                setState(() {
-                  _customNotchCutoff = v;
-                  _updateNotch();
-                });
+                setState(() => _bassCutoffHz = v);
+                if (_bassEnabled) _updateHarmonicBass();
+                _saveEqState();
               },
             ),
             ModernAudioKnob(
-              label: 'Q',
-              value: _customNotchQ,
-              min: 0.5,
-              max: 30.0,
-              flatValue: 10.0,
-              activeColor: _customNotchEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(1),
+              label: 'BASS POWER',
+              value: _bassBoost,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _bassEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
-                setState(() {
-                  _customNotchQ = v;
-                  _updateNotch();
-                });
+                setState(() => _bassBoost = v);
+                if (_bassEnabled) _updateHarmonicBass();
+                _saveEqState();
               },
             ),
           ],
-        ),
-        const SizedBox(height: 16),
-
-        // Peaking EQ Filter Section
-        _buildFilterRow(
-          title: 'Peaking EQ Filter',
-          isEnabled: _customPeakEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customPeakEnabled = v;
-              _updatePeak();
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'FREQ',
-              value: _customPeakCutoff,
-              min: 20.0,
-              max: 20000.0,
-              flatValue: 1000.0,
-              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customPeakCutoff = v;
-                  _updatePeak();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'GAIN',
-              value: _customPeakGainDb,
-              min: -24.0,
-              max: 24.0,
-              flatValue: 0.0,
-              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() {
-                  _customPeakGainDb = v;
-                  _updatePeak();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'Q',
-              value: _customPeakQ,
-              min: 0.1,
-              max: 10.0,
-              flatValue: 1.0,
-              activeColor: _customPeakEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(2),
-              onChanged: (v) {
-                setState(() {
-                  _customPeakQ = v;
-                  _updatePeak();
-                });
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Low Shelf Filter Section
-        _buildFilterRow(
-          title: 'Low Shelf Filter',
-          isEnabled: _customLoshelfEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customLoshelfEnabled = v;
-              _updateLoshelf();
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'CUTOFF',
-              value: _customLoshelfCutoff,
-              min: 20.0,
-              max: 5000.0,
-              flatValue: 250.0,
-              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customLoshelfCutoff = v;
-                  _updateLoshelf();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'GAIN',
-              value: _customLoshelfGainDb,
-              min: -24.0,
-              max: 24.0,
-              flatValue: 0.0,
-              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() {
-                  _customLoshelfGainDb = v;
-                  _updateLoshelf();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'SLOPE',
-              value: _customLoshelfSlope,
-              min: 0.1,
-              max: 2.0,
-              flatValue: 1.0,
-              activeColor: _customLoshelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(2),
-              onChanged: (v) {
-                setState(() {
-                  _customLoshelfSlope = v;
-                  _updateLoshelf();
-                });
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // High Shelf Filter Section
-        _buildFilterRow(
-          title: 'High Shelf Filter',
-          isEnabled: _customHishelfEnabled,
-          onToggle: (v) {
-            setState(() {
-              _customHishelfEnabled = v;
-              _updateHishelf();
-            });
-          },
-          controls: [
-            ModernAudioKnob(
-              label: 'CUTOFF',
-              value: _customHishelfCutoff,
-              min: 1000.0,
-              max: 20000.0,
-              flatValue: 8000.0,
-              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() {
-                  _customHishelfCutoff = v;
-                  _updateHishelf();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'GAIN',
-              value: _customHishelfGainDb,
-              min: -24.0,
-              max: 24.0,
-              flatValue: 0.0,
-              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() {
-                  _customHishelfGainDb = v;
-                  _updateHishelf();
-                });
-              },
-            ),
-            ModernAudioKnob(
-              label: 'SLOPE',
-              value: _customHishelfSlope,
-              min: 0.1,
-              max: 2.0,
-              flatValue: 1.0,
-              activeColor: _customHishelfEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => v.toStringAsFixed(2),
-              onChanged: (v) {
-                setState(() {
-                  _customHishelfSlope = v;
-                  _updateHishelf();
-                });
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Biquad Section
-        M3ECard(
-          variant: M3ECardVariant.filled,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Direct Form II Biquad Coeffs',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.bold)),
-                    M3ESwitch(
-                      selectedIcon: Icon(Icons.check, color: primaryColor),
-                      value: _customBiquadEnabled,
-                      onChanged: (v) {
-                        setState(() {
-                          _customBiquadEnabled = v;
-                          _updateBiquad();
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    _buildBiquadKnob(
-                        'B0',
-                        _biquadB0,
-                        (v) => setState(() {
-                              _biquadB0 = v;
-                              _updateBiquad();
-                            })),
-                    _buildBiquadKnob(
-                        'B1',
-                        _biquadB1,
-                        (v) => setState(() {
-                              _biquadB1 = v;
-                              _updateBiquad();
-                            })),
-                    _buildBiquadKnob(
-                        'B2',
-                        _biquadB2,
-                        (v) => setState(() {
-                              _biquadB2 = v;
-                              _updateBiquad();
-                            })),
-                    _buildBiquadKnob(
-                        'A0',
-                        _biquadA0,
-                        (v) => setState(() {
-                              _biquadA0 = v;
-                              _updateBiquad();
-                            })),
-                    _buildBiquadKnob(
-                        'A1',
-                        _biquadA1,
-                        (v) => setState(() {
-                              _biquadA1 = v;
-                              _updateBiquad();
-                            })),
-                    _buildBiquadKnob(
-                        'A2',
-                        _biquadA2,
-                        (v) => setState(() {
-                              _biquadA2 = v;
-                              _updateBiquad();
-                            })),
-                  ],
-                ),
-              ],
-            ),
-          ),
         ),
       ],
     );
   }
 
-  Widget _buildFilterRow({
-    required String title,
-    required bool isEnabled,
-    required ValueChanged<bool> onToggle,
-    required List<Widget> controls,
-  }) {
-    return M3ECard(
-      variant: M3ECardVariant.filled,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+  Widget _buildDynamicSystemSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Device & Headphone Optimizer',
+      subtitle: 'Tailors sound dynamics and crossover to your listening gear',
+      isEnabled: _dynamicSystemEnabled,
+      onToggle: (v) {
+        setState(() => _dynamicSystemEnabled = v);
+        _updateDynamicSystem();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                M3ESwitch(
-                  selectedIcon: Icon(Icons.check, color: primaryColor),
-                  value: isEnabled,
-                  onChanged: onToggle,
-                ),
-              ],
+            Text(
+              'Listening Gear',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: controls,
+            DropdownButtonHideUnderline(
+              child: DropdownButton<TransducerProfile>(
+                value: _dynamicSystemProfile,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: TransducerProfile.earphone,
+                    child: Text('In-Ear Earbuds'),
+                  ),
+                  DropdownMenuItem(
+                    value: TransducerProfile.headphone,
+                    child: Text('Over-Ear Headphones'),
+                  ),
+                  DropdownMenuItem(
+                    value: TransducerProfile.highEndReference,
+                    child: Text('Studio / Reference'),
+                  ),
+                  DropdownMenuItem(
+                    value: TransducerProfile.speakerMonitor,
+                    child: Text('Desktop Speakers'),
+                  ),
+                  DropdownMenuItem(
+                    value: TransducerProfile.extremeSubwoofer,
+                    child: Text('Club Subwoofer'),
+                  ),
+                  DropdownMenuItem(
+                    value: TransducerProfile.pureDynamic,
+                    child: Text('Pure Dynamic'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _dynamicSystemProfile = val);
+                    if (_dynamicSystemEnabled) _updateDynamicSystem();
+                    _saveEqState();
+                  }
+                },
+              ),
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'OPTIMIZE',
+              value: _dynamicSystemStrength,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _dynamicSystemStrength = v);
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClaritySection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.graphic_eq_rounded, color: primaryColor, size: 20),
       ),
+      title: 'Clarity & Vocal Enhancer',
+      subtitle: 'Brings out crisp details, vocal presence & high-end sheen',
+      isEnabled: _clarityEnabled,
+      onToggle: (v) {
+        setState(() => _clarityEnabled = v);
+        _updateClarity();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Clarity Style',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<AudioClarityProfile>(
+                value: _clarityProfile,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: AudioClarityProfile.transientCrisp,
+                    child: Text('Crisp & Detailed'),
+                  ),
+                  DropdownMenuItem(
+                    value: AudioClarityProfile.airShelf,
+                    child: Text('Air & Sparkle (Top-End)'),
+                  ),
+                  DropdownMenuItem(
+                    value: AudioClarityProfile.presenceExciter,
+                    child: Text('Vocal Presence'),
+                  ),
+                  DropdownMenuItem(
+                    value: AudioClarityProfile.harmonicBrilliance,
+                    child: Text('Studio Brilliance'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _clarityProfile = val);
+                    if (_clarityEnabled) _updateClarity();
+                    _saveEqState();
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'CLARITY',
+              value: _clarityIntensity,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _clarityEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _clarityIntensity = v);
+                if (_clarityEnabled) _updateClarity();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  void _updateBpf() {
-    widget.player.setBandpass(
-      enabled: _customBpfEnabled,
-      cutoffHz: _customBpfCutoff,
-      q: _customBpfQ,
+  Widget _buildAnalogWarmthSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.album_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Analog Warmth & Color',
+      subtitle: 'Adds rich analog harmonics, velvety depth & vintage character',
+      isEnabled: _analogWarmthEnabled,
+      onToggle: (v) {
+        setState(() => _analogWarmthEnabled = v);
+        _updateAnalogWarmth();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Warmth Flavor',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<AnalogWarmthProfile>(
+                value: _analogWarmthProfile,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: AnalogWarmthProfile.triode12AX7,
+                    child: Text('Vacuum Tube (12AX7)'),
+                  ),
+                  DropdownMenuItem(
+                    value: AnalogWarmthProfile.magneticTape,
+                    child: Text('Vintage Tape (Reel-to-Reel)'),
+                  ),
+                  DropdownMenuItem(
+                    value: AnalogWarmthProfile.vintagePreamp,
+                    child: Text('Studio Console Preamp'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _analogWarmthProfile = val);
+                    if (_analogWarmthEnabled) _updateAnalogWarmth();
+                    _saveEqState();
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'WARMTH DRIVE',
+              value: _analogWarmthDrive,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5,
+              activeColor: _analogWarmthEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _analogWarmthDrive = v);
+                if (_analogWarmthEnabled) _updateAnalogWarmth();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  void _updateNotch() {
-    widget.player.setNotch(
-      enabled: _customNotchEnabled,
-      frequencyHz: _customNotchCutoff,
-      q: _customNotchQ,
+  Widget _buildConvolverSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Acoustic Space & Convolver',
+      subtitle: 'Simulate playing inside real halls, spaces & acoustic impulses',
+      isEnabled: _convolverEnabled,
+      onToggle: (v) {
+        setState(() => _convolverEnabled = v);
+        _updateConvolver();
+        _saveEqState();
+      },
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _convolverIrFileName ?? 'No Impulse Response Loaded',
+                      style: TextStyle(
+                        color: _convolverIrFileName != null
+                            ? Colors.white
+                            : Colors.white54,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _convolverIrPath != null
+                          ? 'Active Acoustic Room Simulation'
+                          : 'Load a .wav room impulse response file',
+                      style: const TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (_convolverIrPath != null)
+                IconButton(
+                  icon: const Icon(Icons.clear_rounded,
+                      color: Colors.white54, size: 20),
+                  tooltip: 'Clear File',
+                  onPressed: () {
+                    setState(() {
+                      _convolverIrPath = null;
+                      _convolverIrFileName = null;
+                      _convolverEnabled = false;
+                    });
+                    widget.player.clearConvolverIr();
+                    _updateConvolver();
+                    _saveEqState();
+                  },
+                ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.folder_open_rounded, size: 16),
+                label: const Text('Browse'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor.withValues(alpha: 0.25),
+                  foregroundColor: primaryColor,
+                  elevation: 0,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onPressed: _pickImpulseResponse,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'ROOM WET',
+              value: _convolverWet,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 1.0,
+              activeColor: _convolverEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _convolverWet = v);
+                if (_convolverEnabled) _updateConvolver();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'AUDIO DRY',
+              value: _convolverDry,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.0,
+              activeColor: _convolverEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _convolverDry = v);
+                if (_convolverEnabled) _updateConvolver();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  void _updatePeak() {
-    widget.player.setPeakEq(
-      enabled: _customPeakEnabled,
-      frequencyHz: _customPeakCutoff,
-      gainDb: _customPeakGainDb,
-      q: _customPeakQ,
-    );
-  }
-
-  void _updateLoshelf() {
-    widget.player.setLowshelf(
-      enabled: _customLoshelfEnabled,
-      frequencyHz: _customLoshelfCutoff,
-      gainDb: _customLoshelfGainDb,
-      slope: _customLoshelfSlope,
-    );
-  }
-
-  void _updateHishelf() {
-    widget.player.setHighshelf(
-      enabled: _customHishelfEnabled,
-      frequencyHz: _customHishelfCutoff,
-      gainDb: _customHishelfGainDb,
-      slope: _customHishelfSlope,
-    );
-  }
-
-  void _updateBiquad() {
-    widget.player.setCustomBiquad(
-      enabled: _customBiquadEnabled,
-      b0: _biquadB0,
-      b1: _biquadB1,
-      b2: _biquadB2,
-      a0: _biquadA0,
-      a1: _biquadA1,
-      a2: _biquadA2,
-    );
-  }
-
-  Widget _buildBiquadKnob(
-      String label, double value, ValueChanged<double> onChanged) {
-    return ModernAudioKnob(
-      label: label,
-      value: value,
-      min: -2.0,
-      max: 2.0,
-      flatValue: (label == 'B0' || label == 'A0') ? 1.0 : 0.0,
-      activeColor: _customBiquadEnabled ? primaryColor : Colors.white,
-      valueFormatter: (v) => v.toStringAsFixed(2),
-      onChanged: onChanged,
+  Widget _buildMasterLimiterSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.shield_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Master Peak Limiter',
+      subtitle: 'Lookahead true-peak brickwall limiting & loudness booster',
+      isEnabled: _masterLimiterEnabled,
+      onToggle: (v) {
+        setState(() => _masterLimiterEnabled = v);
+        _updateMasterLimiter();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'CEILING',
+              value: _masterLimiterCeilingDb,
+              min: -12.0,
+              max: 0.0,
+              flatValue: -0.1,
+              activeColor: _masterLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _masterLimiterCeilingDb = v);
+                if (_masterLimiterEnabled) _updateMasterLimiter();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'GAIN BOOST',
+              value: _masterLimiterOutputGainDb,
+              min: -6.0,
+              max: 12.0,
+              flatValue: 0.0,
+              activeColor: _masterLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) =>
+                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _masterLimiterOutputGainDb = v);
+                if (_masterLimiterEnabled) _updateMasterLimiter();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: _masterLimiterReleaseMs,
+              min: 10.0,
+              max: 500.0,
+              flatValue: 60.0,
+              activeColor: _masterLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() => _masterLimiterReleaseMs = v);
+                if (_masterLimiterEnabled) _updateMasterLimiter();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -4702,7 +4152,6 @@ class _CollapsibleSection extends StatefulWidget {
   final String title;
   final String subtitle;
   final bool isEnabled;
-  final bool hasSwitch;
   final ValueChanged<bool>? onToggle;
   final List<Widget> children;
 
@@ -4711,7 +4160,6 @@ class _CollapsibleSection extends StatefulWidget {
     required this.title,
     required this.subtitle,
     this.isEnabled = false,
-    this.hasSwitch = true,
     this.onToggle,
     required this.children,
   });
@@ -4799,7 +4247,7 @@ class _CollapsibleSectionState extends State<_CollapsibleSection> {
                 ],
               ),
             ),
-            if (widget.hasSwitch) ...[
+            if (widget.onToggle != null) ...[
               const SizedBox(width: 8),
               M3ESwitch(
                 selectedIcon: Icon(Icons.check, color: primaryColor),
