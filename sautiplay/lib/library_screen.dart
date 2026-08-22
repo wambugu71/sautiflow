@@ -1233,26 +1233,64 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<List<String>> _scanForAudioFiles(String dirPath) async {
     final audioFiles = <String>[];
     final seenPaths = <String>{};
-    final dir = Directory(dirPath);
-    if (!await dir.exists()) return audioFiles;
+    final rootDir = Directory(dirPath);
+    if (!await rootDir.exists()) return audioFiles;
 
-    const allowedExtensions = {'.mp3', '.m4a', '.wav', '.flac', '.aac', '.ogg'};
+    const allowedExtensions = {
+      '.mp3',
+      '.m4a',
+      '.wav',
+      '.flac',
+      '.aac',
+      '.ogg',
+      '.opus',
+      '.wma',
+      '.alac',
+      '.aiff',
+      '.aif',
+      '.ape',
+      '.wv',
+      '.m4b',
+      '.m4p',
+    };
 
-    try {
-      await for (final entity
-          in dir.list(recursive: true, followLinks: false)) {
-        if (entity is File) {
-          final ext = p.extension(entity.path).toLowerCase();
-          if (allowedExtensions.contains(ext)) {
-            final canonicalPath = p.canonicalize(entity.path);
-            if (seenPaths.add(canonicalPath.toLowerCase())) {
-              audioFiles.add(canonicalPath);
+    final dirsToScan = <Directory>[rootDir];
+    final visitedDirs = <String>{};
+
+    while (dirsToScan.isNotEmpty) {
+      final currentDir = dirsToScan.removeLast();
+      final canonicalDirPath = p.canonicalize(currentDir.path).toLowerCase();
+      if (!visitedDirs.add(canonicalDirPath)) {
+        continue;
+      }
+
+      try {
+        await for (final entity in currentDir.list(followLinks: false).handleError((e) {
+          debugPrint('Error listing entry in ${currentDir.path}: $e');
+        })) {
+          try {
+            if (entity is Directory) {
+              final dirName = p.basename(entity.path);
+              // Skip hidden directories (e.g. .git, .thumbnails, .trashed, .cache)
+              if (!dirName.startsWith('.')) {
+                dirsToScan.add(entity);
+              }
+            } else if (entity is File) {
+              final ext = p.extension(entity.path).toLowerCase();
+              if (allowedExtensions.contains(ext)) {
+                final canonicalPath = p.canonicalize(entity.path);
+                if (seenPaths.add(canonicalPath.toLowerCase())) {
+                  audioFiles.add(canonicalPath);
+                }
+              }
             }
+          } catch (e) {
+            debugPrint('Error processing entity ${entity.path}: $e');
           }
         }
+      } catch (e) {
+        debugPrint('Error accessing directory ${currentDir.path}: $e');
       }
-    } catch (e) {
-      debugPrint('Error reading directory: $e');
     }
 
     return audioFiles;
@@ -1275,6 +1313,38 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _rescanLibrary() async {
+    if (_isScanning || _isLoading) return;
+    if (_folders.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No folders tracked. Add a local folder first to scan songs.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final prevCount = _allSongs.length;
+    await _smartScanFolders(showFullLoading: false);
+
+    if (mounted) {
+      final newCount = _allSongs.length;
+      final diff = newCount - prevCount;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            diff > 0
+                ? 'Scan complete: Added $diff new track(s) ($newCount total).'
+                : 'Scan complete: Library is up to date ($newCount tracks).',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _addDirectory() async {
@@ -1784,6 +1854,14 @@ class _LibraryScreenState extends State<LibraryScreen>
                                     children: [
                                       M3EMenuGroup.entries(
                                         entries: [
+                                          M3EMenuEntry(
+                                            label: 'Rescan for New Songs',
+                                            leading: const Icon(
+                                                Icons.sync_rounded,
+                                                color: Colors.lightGreenAccent,
+                                                size: 20),
+                                            onPressed: _rescanLibrary,
+                                          ),
                                           M3EMenuEntry(
                                             label: 'Add Local Folder',
                                             leading: const Icon(
