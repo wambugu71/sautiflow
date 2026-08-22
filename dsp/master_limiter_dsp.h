@@ -7,7 +7,10 @@
 
 namespace sauti::dsp {
 
-// Professional Lookahead Peak Limiter with smooth soft-knee envelope follower
+// =============================================================================
+// MasterLimiterDSP: Professional Lookahead Peak Limiter with Smooth Envelope
+// Follower, Soft-Knee Clamping, and De-Zippered Gain Smoothing
+// =============================================================================
 class MasterLimiterDSP {
 public:
     MasterLimiterDSP() {
@@ -19,6 +22,7 @@ public:
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateTimeConstants();
     }
 
@@ -34,7 +38,7 @@ public:
     // Ceiling in dBFS (e.g. -0.1 dB to prevent inter-sample true-peak DAC overs)
     void setCeilingDb(float ceilingDb) {
         ceiling_db_ = std::clamp(ceilingDb, -12.0f, 0.0f);
-        ceiling_linear_ = std::pow(10.0f, ceiling_db_ / 20.0f);
+        target_ceiling_linear_ = std::pow(10.0f, ceiling_db_ / 20.0f);
     }
 
     float getCeilingDb() const { return ceiling_db_; }
@@ -42,7 +46,7 @@ public:
     // Master Output Gain in dB (-12.0 dB to +12.0 dB)
     void setOutputGainDb(float gainDb) {
         output_gain_db_ = std::clamp(gainDb, -24.0f, 12.0f);
-        output_gain_linear_ = std::pow(10.0f, output_gain_db_ / 20.0f);
+        target_output_gain_linear_ = std::pow(10.0f, output_gain_db_ / 20.0f);
     }
 
     float getOutputGainDb() const { return output_gain_db_; }
@@ -61,6 +65,8 @@ public:
         lookahead_pos_ = 0;
         envelope_ = 0.0f;
         current_gain_ = 1.0f;
+        current_output_gain_linear_ = target_output_gain_linear_;
+        current_ceiling_linear_ = target_ceiling_linear_;
     }
 
     float getCurrentGainReductionDb() const {
@@ -73,6 +79,10 @@ public:
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         for (uint32_t i = 0; i < frame_count; i++) {
+            // Per-sample gain smoothing
+            current_output_gain_linear_ += smoothing_coeff_ * (target_output_gain_linear_ - current_output_gain_linear_);
+            current_ceiling_linear_     += smoothing_coeff_ * (target_ceiling_linear_ - current_ceiling_linear_);
+
             float in_l = interleaved_samples[2 * i];
             float in_r = interleaved_samples[2 * i + 1];
 
@@ -87,8 +97,8 @@ public:
 
             // 2. Compute Gain Reduction (Soft-Knee Peak Clamping)
             float target_gain = 1.0f;
-            if (envelope_ > ceiling_linear_) {
-                target_gain = ceiling_linear_ / envelope_;
+            if (envelope_ > current_ceiling_linear_) {
+                target_gain = current_ceiling_linear_ / envelope_;
             }
 
             // Smooth gain changes to eliminate harmonic distortion during gain reduction
@@ -105,12 +115,12 @@ public:
             lookahead_pos_ = (lookahead_pos_ + 1) % lookahead_samples_;
 
             // 4. Apply gain reduction and master output volume
-            float out_l = delayed_l * current_gain_ * output_gain_linear_;
-            float out_r = delayed_r * current_gain_ * output_gain_linear_;
+            float out_l = delayed_l * current_gain_ * current_output_gain_linear_;
+            float out_r = delayed_r * current_gain_ * current_output_gain_linear_;
 
             // Final safety ceiling hard-protection
-            interleaved_samples[2 * i]     = std::clamp(out_l, -ceiling_linear_, ceiling_linear_);
-            interleaved_samples[2 * i + 1] = std::clamp(out_r, -ceiling_linear_, ceiling_linear_);
+            interleaved_samples[2 * i]     = std::clamp(out_l, -current_ceiling_linear_, current_ceiling_linear_);
+            interleaved_samples[2 * i + 1] = std::clamp(out_r, -current_ceiling_linear_, current_ceiling_linear_);
         }
     }
 
@@ -119,9 +129,14 @@ private:
     float sample_rate_ = 48000.0f;
 
     float ceiling_db_ = -0.1f;
-    float ceiling_linear_ = 0.988553f; // ~ -0.1 dBFS
+    float target_ceiling_linear_ = 0.988553f; // ~ -0.1 dBFS
+    float current_ceiling_linear_ = 0.988553f;
+
     float output_gain_db_ = 0.0f;
-    float output_gain_linear_ = 1.0f;
+    float target_output_gain_linear_ = 1.0f;
+    float current_output_gain_linear_ = 1.0f;
+
+    float smoothing_coeff_ = 0.002f;
 
     float release_ms_ = 60.0f;
     float attack_coeff_ = 0.1f;

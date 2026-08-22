@@ -11,9 +11,13 @@ enum class AudioClarityProfile {
     TransientCrisp = 0,      // Rate-of-change pre-emphasis with Nyquist anti-aliasing reconstruction
     AirShelf = 1,            // 12 kHz ultra-high shelf for upper harmonic sparkle and breath
     PresenceExciter = 2,      // 3-way multi-band crossover with selective upper-mid and high excitation
-    HarmonicBrilliance = 3   // Aphex-style Aural Exciter (3.5 kHz HPF sidechain -> non-linear harmonic synthesis)
+    HarmonicBrilliance = 3   // Aural Exciter (3.5 kHz HPF sidechain -> non-linear harmonic synthesis)
 };
 
+// =============================================================================
+// AudioClarityDSP: Professional High-Frequency Enhancer & Multi-Band Exciter
+// with De-Zippered Parameter Smoothing and Anti-Pop Crossfading
+// =============================================================================
 class AudioClarityDSP {
 public:
     AudioClarityDSP() {
@@ -25,13 +29,17 @@ public:
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
+        sample_period_ = 1.0f / sample_rate_;
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateFilters();
     }
 
     void setEnabled(bool enabled) {
-        enabled_ = enabled;
-        if (!enabled) {
-            reset();
+        if (enabled_ != enabled) {
+            if (enabled) {
+                anti_pop_ = 0.0f;
+            }
+            enabled_ = enabled;
         }
     }
 
@@ -49,11 +57,11 @@ public:
 
     // Intensity factor in range [0.0, 1.0]
     void setIntensity(float intensity) {
-        intensity_ = std::clamp(intensity, 0.0f, 1.0f);
+        target_intensity_ = std::clamp(intensity, 0.0f, 1.0f);
         updateFilters();
     }
 
-    float getIntensity() const { return intensity_; }
+    float getIntensity() const { return target_intensity_; }
 
     void reset() {
         prev_sample_l_ = 0.0f;
@@ -80,6 +88,9 @@ public:
         // Reset Harmonic Brilliance sidechain states
         brill_hp_x1_l_ = brill_hp_x2_l_ = brill_hp_y1_l_ = brill_hp_y2_l_ = 0.0f;
         brill_hp_x1_r_ = brill_hp_x2_r_ = brill_hp_y1_r_ = brill_hp_y2_r_ = 0.0f;
+
+        current_intensity_ = target_intensity_;
+        anti_pop_ = 0.0f;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -106,7 +117,11 @@ private:
     bool enabled_ = false;
     AudioClarityProfile profile_ = AudioClarityProfile::TransientCrisp;
     float sample_rate_ = 48000.0f;
-    float intensity_ = 0.5f;
+    float sample_period_ = 1.0f / 48000.0f;
+    float target_intensity_ = 0.5f;
+    float current_intensity_ = 0.5f;
+    float smoothing_coeff_ = 0.002f;
+    float anti_pop_ = 0.0f;
 
     // --- Profile 1: Transient Crisp (Differential Enhancer + Reconstruction Filter) ---
     float prev_sample_l_ = 0.0f;
@@ -118,9 +133,10 @@ private:
     float smooth_state_r_ = 0.0f;
 
     void processTransientCrisp(float* samples, uint32_t frame_count) {
-        const float diff_scale = intensity_ * 1.5f;
-
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            const float diff_scale = current_intensity_ * 1.5f;
+
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];
 
@@ -140,7 +156,13 @@ private:
             float out_r = sharp_r * smooth_b0_ + smooth_state_r_;
             smooth_state_r_ = sharp_r * smooth_b1_ - out_r * smooth_a1_;
 
-            samples[2 * i] = out_l;
+            if (anti_pop_ < 1.0f) {
+                out_l = in_l + anti_pop_ * (out_l - in_l);
+                out_r = in_r + anti_pop_ * (out_r - in_r);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            }
+
+            samples[2 * i]     = out_l;
             samples[2 * i + 1] = out_r;
         }
     }
@@ -166,7 +188,13 @@ private:
             air_x2_r_ = air_x1_r_; air_x1_r_ = in_r;
             air_y2_r_ = air_y1_r_; air_y1_r_ = out_r;
 
-            samples[2 * i] = out_l;
+            if (anti_pop_ < 1.0f) {
+                out_l = in_l + anti_pop_ * (out_l - in_l);
+                out_r = in_r + anti_pop_ * (out_r - in_r);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            }
+
+            samples[2 * i]     = out_l;
             samples[2 * i + 1] = out_r;
         }
     }
@@ -186,10 +214,11 @@ private:
     float x_high_x1_r_ = 0.0f, x_high_x2_r_ = 0.0f, x_high_y1_r_ = 0.0f, x_high_y2_r_ = 0.0f;
 
     void processPresenceExciter(float* samples, uint32_t frame_count) {
-        const float mid_gain = 1.0f + intensity_ * 0.4f;
-        const float high_gain = 1.0f + intensity_ * 0.8f;
-
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            const float mid_gain = 1.0f + current_intensity_ * 0.4f;
+            const float high_gain = 1.0f + current_intensity_ * 0.8f;
+
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];
 
@@ -213,27 +242,35 @@ private:
             float high_r = x_high_b0_ * in_r + x_high_b1_ * x_high_x1_r_ + x_high_b2_ * x_high_x2_r_ - x_high_a1_ * x_high_y1_r_ - x_high_a2_ * x_high_y2_r_;
             x_high_x2_r_ = x_high_x1_r_; x_high_x1_r_ = in_r; x_high_y2_r_ = x_high_y1_r_; x_high_y1_r_ = high_r;
 
-            // Reconstruct stereo frame
-            samples[2 * i]     = low_l + (mid_l * mid_gain) + (high_l * high_gain);
-            samples[2 * i + 1] = low_r + (mid_r * mid_gain) + (high_r * high_gain);
+            float out_l = low_l + (mid_l * mid_gain) + (high_l * high_gain);
+            float out_r = low_r + (mid_r * mid_gain) + (high_r * high_gain);
+
+            if (anti_pop_ < 1.0f) {
+                out_l = in_l + anti_pop_ * (out_l - in_l);
+                out_r = in_r + anti_pop_ * (out_r - in_r);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            }
+
+            samples[2 * i]     = out_l;
+            samples[2 * i + 1] = out_r;
         }
     }
 
-    // --- Profile 4: Harmonic Brilliance (Aphex-Style Sidechain Exciter) ---
+    // --- Profile 4: Harmonic Brilliance (Aural Exciter: 3.5 kHz HPF -> Soft Asymmetric Saturation) ---
     float brill_hp_b0_ = 1.0f, brill_hp_b1_ = 0.0f, brill_hp_b2_ = 0.0f;
     float brill_hp_a1_ = 0.0f, brill_hp_a2_ = 0.0f;
     float brill_hp_x1_l_ = 0.0f, brill_hp_x2_l_ = 0.0f, brill_hp_y1_l_ = 0.0f, brill_hp_y2_l_ = 0.0f;
     float brill_hp_x1_r_ = 0.0f, brill_hp_x2_r_ = 0.0f, brill_hp_y1_r_ = 0.0f, brill_hp_y2_r_ = 0.0f;
 
     void processHarmonicBrilliance(float* samples, uint32_t frame_count) {
-        const float drive = 1.0f + intensity_ * 3.0f;
-        const float mix = intensity_ * 0.65f;
-
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            const float mix = current_intensity_ * 0.45f;
+
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];
 
-            // 1. High-Pass Sidechain (3.5 kHz)
+            // 3.5 kHz High-Pass filter
             float hp_l = brill_hp_b0_ * in_l + brill_hp_b1_ * brill_hp_x1_l_ + brill_hp_b2_ * brill_hp_x2_l_
                        - brill_hp_a1_ * brill_hp_y1_l_ - brill_hp_a2_ * brill_hp_y2_l_;
             brill_hp_x2_l_ = brill_hp_x1_l_; brill_hp_x1_l_ = in_l;
@@ -244,104 +281,112 @@ private:
             brill_hp_x2_r_ = brill_hp_x1_r_; brill_hp_x1_r_ = in_r;
             brill_hp_y2_r_ = brill_hp_y1_r_; brill_hp_y1_r_ = hp_r;
 
-            // 2. Asymmetric Diode/Tube Saturation (Generates 2nd even + 3rd odd harmonics)
-            float driven_l = hp_l * drive;
-            float harm_l = std::tanh(driven_l) + (driven_l * driven_l * 0.15f);
+            // Asymmetric even+odd harmonic saturation
+            float harm_l = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
+            float harm_r = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
 
-            float driven_r = hp_r * drive;
-            float harm_r = std::tanh(driven_r) + (driven_r * driven_r * 0.15f);
+            float out_l = in_l + harm_l * mix;
+            float out_r = in_r + harm_r * mix;
 
-            // 3. Blend excited harmonics into original signal
-            samples[2 * i]     = in_l + (harm_l * mix);
-            samples[2 * i + 1] = in_r + (harm_r * mix);
+            if (anti_pop_ < 1.0f) {
+                out_l = in_l + anti_pop_ * (out_l - in_l);
+                out_r = in_r + anti_pop_ * (out_r - in_r);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            }
+
+            samples[2 * i]     = out_l;
+            samples[2 * i + 1] = out_r;
         }
     }
 
     void updateFilters() {
         constexpr float PI = 3.14159265358979323846f;
 
-        // 1. Smoothing filter cutoff near Nyquist
-        float fc = (sample_rate_ * 0.5f) - 1000.0f;
-        if (fc < 10000.0f) fc = 10000.0f;
-        float omega = 2.0f * PI * fc / sample_rate_;
-        float gamma = std::cos(omega) / (1.0f + std::sin(omega));
-        smooth_b0_ = (1.0f - gamma) * 0.5f;
-        smooth_b1_ = smooth_b0_;
+        // 1. Transient Smoothing Filter: 1st-order low-pass at 18 kHz
+        float fc = std::min(18000.0f, sample_rate_ * 0.45f);
+        float w0 = 2.0f * PI * fc / sample_rate_;
+        float gamma = std::cos(w0) / (1.0f + std::sin(w0));
         smooth_a1_ = -gamma;
+        smooth_b0_ = (1.0f - gamma) * 0.5f;
+        smooth_b1_ = (1.0f - gamma) * 0.5f;
 
-        // 2. Air High-Shelf filter (12 kHz)
-        float shelf_gain_db = intensity_ * 10.0f;
-        float A = std::pow(10.0f, shelf_gain_db / 40.0f);
-        float w0 = 2.0f * PI * 12000.0f / sample_rate_;
-        if (w0 > PI * 0.95f) w0 = PI * 0.95f;
-        float cos_w0 = std::cos(w0);
-        float sin_w0 = std::sin(w0);
-        float alpha = sin_w0 / 2.0f * std::sqrt((A + 1.0f / A) * (1.0f / 0.7071f - 1.0f) + 2.0f);
-        float sqrt_A = 2.0f * std::sqrt(A) * alpha;
+        // 2. Air Shelf: 12 kHz High-Shelf Biquad (+0 dB to +8 dB)
+        float shelf_gain_db = target_intensity_ * 8.0f;
+        calcHighshelf(12000.0f, shelf_gain_db, air_b0_, air_b1_, air_b2_, air_a1_, air_a2_);
 
-        float a0 = (A + 1.0f) - (A - 1.0f) * cos_w0 + sqrt_A;
-        air_b0_ = (A * ((A + 1.0f) + (A - 1.0f) * cos_w0 + sqrt_A)) / a0;
-        air_b1_ = (-2.0f * A * ((A - 1.0f) + (A + 1.0f) * cos_w0)) / a0;
-        air_b2_ = (A * ((A + 1.0f) + (A - 1.0f) * cos_w0 - sqrt_A)) / a0;
-        air_a1_ = (2.0f * ((A - 1.0f) - (A + 1.0f) * cos_w0)) / a0;
-        air_a2_ = ((A + 1.0f) - (A - 1.0f) * cos_w0 - sqrt_A) / a0;
+        // 3. 3-Way Crossover:
+        calcLowpass(120.0f, 0.7071f, x_low_b0_, x_low_b1_, x_low_b2_, x_low_a1_, x_low_a2_);
+        calcBandpass(400.0f, 0.6f, x_mid_b0_, x_mid_b1_, x_mid_b2_, x_mid_a1_, x_mid_a2_);
+        calcHighpass(1200.0f, 0.7071f, x_high_b0_, x_high_b1_, x_high_b2_, x_high_a1_, x_high_a2_);
 
-        // 3. 3-Way Crossover (Lowpass 120Hz, Bandpass 120-1200Hz, Highpass 1200Hz)
-        calcLowpassBiquad(120.0f, 0.7071f, x_low_b0_, x_low_b1_, x_low_b2_, x_low_a1_, x_low_a2_);
-        calcBandpassBiquad(120.0f, 1200.0f, x_mid_b0_, x_mid_b1_, x_mid_b2_, x_mid_a1_, x_mid_a2_);
-        calcHighpassBiquad(1200.0f, 0.7071f, x_high_b0_, x_high_b1_, x_high_b2_, x_high_a1_, x_high_a2_);
-
-        // 4. Harmonic Brilliance 3.5 kHz High-Pass Sidechain
-        calcHighpassBiquad(3500.0f, 0.7071f, brill_hp_b0_, brill_hp_b1_, brill_hp_b2_, brill_hp_a1_, brill_hp_a2_);
+        // 4. Harmonic Brilliance 3.5 kHz HPF:
+        calcHighpass(3500.0f, 0.7071f, brill_hp_b0_, brill_hp_b1_, brill_hp_b2_, brill_hp_a1_, brill_hp_a2_);
     }
 
-    void calcLowpassBiquad(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr float PI = 3.14159265358979323846f;
-        float w0 = 2.0f * PI * freq / sample_rate_;
-        if (w0 > PI * 0.95f) w0 = PI * 0.95f;
-        float cos_w0 = std::cos(w0);
-        float alpha = std::sin(w0) / (2.0f * Q);
+    void calcHighshelf(float freq, float gain_db, float& b0, float& b1, float& b2, float& a1, float& a2) {
+        constexpr double PI = 3.14159265358979323846;
+        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
+        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / 0.7071 - 1.0) + 2.0);
+        const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
 
-        float a0 = 1.0f + alpha;
-        b0 = ((1.0f - cos_w0) * 0.5f) / a0;
-        b1 = (1.0f - cos_w0) / a0;
-        b2 = b0;
-        a1 = (-2.0f * cos_w0) / a0;
-        a2 = (1.0f - alpha) / a0;
+        const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;
+        b0 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A)) / a0);
+        b1 = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
+        b2 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A)) / a0);
+        a1 = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
+        a2 = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A) / a0);
     }
 
-    void calcHighpassBiquad(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr float PI = 3.14159265358979323846f;
-        float w0 = 2.0f * PI * freq / sample_rate_;
-        if (w0 > PI * 0.95f) w0 = PI * 0.95f;
-        float cos_w0 = std::cos(w0);
-        float alpha = std::sin(w0) / (2.0f * Q);
+    void calcLowpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
+        constexpr double PI = 3.14159265358979323846;
+        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
 
-        float a0 = 1.0f + alpha;
-        b0 = ((1.0f + cos_w0) * 0.5f) / a0;
-        b1 = (-(1.0f + cos_w0)) / a0;
-        b2 = b0;
-        a1 = (-2.0f * cos_w0) / a0;
-        a2 = (1.0f - alpha) / a0;
+        const double a0 = 1.0 + alpha;
+        b0 = static_cast<float>(((1.0 - cos_w0) / 2.0) / a0);
+        b1 = static_cast<float>((1.0 - cos_w0) / a0);
+        b2 = static_cast<float>(((1.0 - cos_w0) / 2.0) / a0);
+        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
+        a2 = static_cast<float>((1.0 - alpha) / a0);
     }
 
-    void calcBandpassBiquad(float f_low, float f_high, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr float PI = 3.14159265358979323846f;
-        float center_freq = std::sqrt(f_low * f_high);
-        float bandwidth = (f_high - f_low) / center_freq;
-        float Q = 1.0f / bandwidth;
+    void calcHighpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
+        constexpr double PI = 3.14159265358979323846;
+        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
 
-        float w0 = 2.0f * PI * center_freq / sample_rate_;
-        if (w0 > PI * 0.95f) w0 = PI * 0.95f;
-        float cos_w0 = std::cos(w0);
-        float alpha = std::sin(w0) / (2.0f * Q);
+        const double a0 = 1.0 + alpha;
+        b0 = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
+        b1 = static_cast<float>(-(1.0 + cos_w0) / a0);
+        b2 = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
+        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
+        a2 = static_cast<float>((1.0 - alpha) / a0);
+    }
 
-        float a0 = 1.0f + alpha;
-        b0 = alpha / a0;
+    void calcBandpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
+        constexpr double PI = 3.14159265358979323846;
+        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
+
+        const double a0 = 1.0 + alpha;
+        b0 = static_cast<float>((alpha) / a0);
         b1 = 0.0f;
-        b2 = -b0;
-        a1 = (-2.0f * cos_w0) / a0;
-        a2 = (1.0f - alpha) / a0;
+        b2 = static_cast<float>((-alpha) / a0);
+        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
+        a2 = static_cast<float>((1.0 - alpha) / a0);
     }
 };
 

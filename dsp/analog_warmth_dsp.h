@@ -12,6 +12,10 @@ enum class AnalogWarmthProfile {
     VintagePreamp = 2    // Clean, punchy analog console drive with subtle harmonic presence
 };
 
+// =============================================================================
+// AnalogWarmthDSP: High-Fidelity Non-Linear Analog Modeling Suite
+// with De-Zippered Parameter Smoothing and Anti-Pop Crossfading
+// =============================================================================
 class AnalogWarmthDSP {
 public:
     AnalogWarmthDSP() {
@@ -23,13 +27,17 @@ public:
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
+        sample_period_ = 1.0f / sample_rate_;
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateTapeFilter();
     }
 
     void setEnabled(bool enabled) {
-        enabled_ = enabled;
-        if (!enabled) {
-            reset();
+        if (enabled_ != enabled) {
+            if (enabled) {
+                anti_pop_ = 0.0f;
+            }
+            enabled_ = enabled;
         }
     }
 
@@ -55,6 +63,7 @@ public:
         current_drive_ = target_drive_;
         tape_prev_l_ = 0.0f;
         tape_prev_r_ = 0.0f;
+        anti_pop_ = 0.0f;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -63,25 +72,37 @@ public:
 
         for (uint32_t i = 0; i < frame_count; i++) {
             // Parameter de-zippering / smoothing per sample
-            current_drive_ += 0.002f * (target_drive_ - current_drive_);
+            current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
 
             float in_l = interleaved_samples[2 * i];
             float in_r = interleaved_samples[2 * i + 1];
+            float out_l = in_l;
+            float out_r = in_r;
 
             switch (profile_) {
                 case AnalogWarmthProfile::Triode12AX7:
-                    interleaved_samples[2 * i]     = processTriode(in_l);
-                    interleaved_samples[2 * i + 1] = processTriode(in_r);
+                    out_l = processTriode(in_l);
+                    out_r = processTriode(in_r);
                     break;
                 case AnalogWarmthProfile::MagneticTape:
-                    interleaved_samples[2 * i]     = processTape(in_l, tape_prev_l_);
-                    interleaved_samples[2 * i + 1] = processTape(in_r, tape_prev_r_);
+                    out_l = processTape(in_l, tape_prev_l_);
+                    out_r = processTape(in_r, tape_prev_r_);
                     break;
                 case AnalogWarmthProfile::VintagePreamp:
-                    interleaved_samples[2 * i]     = processPreamp(in_l);
-                    interleaved_samples[2 * i + 1] = processPreamp(in_r);
+                    out_l = processPreamp(in_l);
+                    out_r = processPreamp(in_r);
                     break;
             }
+
+            // Anti-pop smooth crossfade on activation / preset change
+            if (anti_pop_ < 1.0f) {
+                out_l = in_l + anti_pop_ * (out_l - in_l);
+                out_r = in_r + anti_pop_ * (out_r - in_r);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            }
+
+            interleaved_samples[2 * i]     = out_l;
+            interleaved_samples[2 * i + 1] = out_r;
         }
     }
 
@@ -89,9 +110,12 @@ private:
     bool enabled_ = false;
     AnalogWarmthProfile profile_ = AnalogWarmthProfile::Triode12AX7;
     float sample_rate_ = 48000.0f;
+    float sample_period_ = 1.0f / 48000.0f;
 
     float target_drive_ = 0.5f;
     float current_drive_ = 0.5f;
+    float smoothing_coeff_ = 0.002f;
+    float anti_pop_ = 0.0f;
 
     // Tape simulation high-frequency damping
     float tape_prev_l_ = 0.0f;

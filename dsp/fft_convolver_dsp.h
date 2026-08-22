@@ -10,7 +10,10 @@
 
 namespace sauti::dsp {
 
-// Clean, high-performance Partitioned Overlap-Add (OLS/OLA) FFT Convolver
+// =============================================================================
+// FFTConvolverDSP: Clean, High-Performance Partitioned Overlap-Add Convolver
+// with Click-Free Wet/Dry Smoothing and Anti-Pop Crossfading
+// =============================================================================
 class FFTConvolverDSP {
 public:
     static constexpr size_t BLOCK_SIZE = 512;
@@ -25,28 +28,32 @@ public:
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         sample_rate_ = sampleRate;
+        sample_period_ = 1.0f / sample_rate_;
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
     }
 
     void setEnabled(bool enabled) {
-        enabled_ = enabled;
-        if (!enabled) {
-            reset();
+        if (enabled_ != enabled) {
+            if (enabled) {
+                anti_pop_ = 0.0f;
+            }
+            enabled_ = enabled;
         }
     }
 
     bool isEnabled() const { return enabled_; }
 
     void setWetLevel(float wet) {
-        wet_level_ = std::clamp(wet, 0.0f, 1.0f);
+        target_wet_level_ = std::clamp(wet, 0.0f, 1.0f);
     }
 
-    float getWetLevel() const { return wet_level_; }
+    float getWetLevel() const { return target_wet_level_; }
 
     void setDryLevel(float dry) {
-        dry_level_ = std::clamp(dry, 0.0f, 1.0f);
+        target_dry_level_ = std::clamp(dry, 0.0f, 1.0f);
     }
 
-    float getDryLevel() const { return dry_level_; }
+    float getDryLevel() const { return target_dry_level_; }
 
     // Load Impulse Response (mono or stereo interleaved float samples)
     bool loadImpulseResponse(const float* ir_samples, uint32_t frame_count, uint32_t channels) {
@@ -116,6 +123,7 @@ public:
 
         resetInternalBuffers();
         has_ir_ = true;
+        anti_pop_ = 0.0f; // Smooth fade-in on newly loaded IR
         return true;
     }
 
@@ -128,6 +136,7 @@ public:
         fdl_l_.clear();
         fdl_r_.clear();
         resetInternalBuffers();
+        anti_pop_ = 0.0f;
     }
 
     bool hasImpulseResponse() const { return has_ir_; }
@@ -136,6 +145,9 @@ public:
     void reset() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
         resetInternalBuffers();
+        current_wet_level_ = target_wet_level_;
+        current_dry_level_ = target_dry_level_;
+        anti_pop_ = 0.0f;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -153,15 +165,28 @@ public:
 
             for (uint32_t i = 0; i < frames_to_copy; i++) {
                 uint32_t in_idx = (processed_frames + i) * 2;
-                in_buf_l_[in_pos_ + i] = interleaved_samples[in_idx];
-                in_buf_r_[in_pos_ + i] = interleaved_samples[in_idx + 1];
+                float dry_in_l = interleaved_samples[in_idx];
+                float dry_in_r = interleaved_samples[in_idx + 1];
+
+                in_buf_l_[in_pos_ + i] = dry_in_l;
+                in_buf_r_[in_pos_ + i] = dry_in_r;
+
+                // De-zipper / smoothly interpolate wet & dry levels per sample
+                current_wet_level_ += smoothing_coeff_ * (target_wet_level_ - current_wet_level_);
+                current_dry_level_ += smoothing_coeff_ * (target_dry_level_ - current_dry_level_);
 
                 // Output combined dry + overlap-added wet sample
                 float wet_l = out_buf_l_[in_pos_ + i];
                 float wet_r = out_buf_r_[in_pos_ + i];
 
-                interleaved_samples[in_idx]     = (interleaved_samples[in_idx] * dry_level_) + (wet_l * wet_level_);
-                interleaved_samples[in_idx + 1] = (interleaved_samples[in_idx + 1] * dry_level_) + (wet_r * wet_level_);
+                // Anti-pop smooth crossfade on activation / IR load
+                float eff_wet = current_wet_level_ * anti_pop_;
+                if (anti_pop_ < 1.0f) {
+                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                }
+
+                interleaved_samples[in_idx]     = (dry_in_l * current_dry_level_) + (wet_l * eff_wet);
+                interleaved_samples[in_idx + 1] = (dry_in_r * current_dry_level_) + (wet_r * eff_wet);
             }
 
             in_pos_ += frames_to_copy;
@@ -181,8 +206,14 @@ private:
     bool enabled_ = false;
     bool has_ir_ = false;
     float sample_rate_ = 48000.0f;
-    float wet_level_ = 1.0f;
-    float dry_level_ = 0.0f;
+    float sample_period_ = 1.0f / 48000.0f;
+    float target_wet_level_ = 1.0f;
+    float current_wet_level_ = 1.0f;
+    float target_dry_level_ = 0.0f;
+    float current_dry_level_ = 0.0f;
+
+    float smoothing_coeff_ = 0.002f;
+    float anti_pop_ = 0.0f;
 
     mutable std::mutex ir_mutex_;
     uint32_t segments_count_ = 0;
@@ -259,59 +290,61 @@ private:
         forwardFFT(scratch_time_l_, scratch_freq_l_);
         forwardFFT(scratch_time_r_, scratch_freq_r_);
 
-        // 2. Insert into circular Frequency Delay Line (FDL)
+        // 2. Store input spectrum in current FDL slot
         std::memcpy(&fdl_l_[fdl_head_ * FFT_SIZE], scratch_freq_l_, FFT_SIZE * sizeof(std::complex<float>));
         if (ir_channels_ == 2) {
             std::memcpy(&fdl_r_[fdl_head_ * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<float>));
         }
 
-        // 3. Frequency-domain complex multiply-accumulate across all partitions
-        std::fill_n(accum_l_, FFT_SIZE, std::complex<float>(0.0f, 0.0f));
-        std::fill_n(accum_r_, FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+        // 3. Frequency-domain complex multiply-accumulate across all IR partitions
+        std::fill(accum_l_, accum_l_ + FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+        std::fill(accum_r_, accum_r_ + FFT_SIZE, std::complex<float>(0.0f, 0.0f));
 
-        for (size_t seg = 0; seg < segments_count_; seg++) {
-            size_t fdl_idx = (fdl_head_ + segments_count_ - seg) % segments_count_;
-            const auto* x_l = &fdl_l_[fdl_idx * FFT_SIZE];
-            const auto* h_l = &ir_partitions_l_[seg * FFT_SIZE];
+        for (uint32_t seg = 0; seg < segments_count_; seg++) {
+            size_t fdl_slot = (fdl_head_ + segments_count_ - seg) % segments_count_;
+            const std::complex<float>* in_spec_l = &fdl_l_[fdl_slot * FFT_SIZE];
+            const std::complex<float>* ir_spec_l = &ir_partitions_l_[seg * FFT_SIZE];
 
             for (size_t k = 0; k < FFT_SIZE; k++) {
-                accum_l_[k] += x_l[k] * h_l[k];
+                accum_l_[k] += in_spec_l[k] * ir_spec_l[k];
             }
 
             if (ir_channels_ == 2) {
-                const auto* x_r = &fdl_r_[fdl_idx * FFT_SIZE];
-                const auto* h_r = &ir_partitions_r_[seg * FFT_SIZE];
+                const std::complex<float>* in_spec_r = &fdl_r_[fdl_slot * FFT_SIZE];
+                const std::complex<float>* ir_spec_r = &ir_partitions_r_[seg * FFT_SIZE];
                 for (size_t k = 0; k < FFT_SIZE; k++) {
-                    accum_r_[k] += x_r[k] * h_r[k];
+                    accum_r_[k] += in_spec_r[k] * ir_spec_r[k];
                 }
             }
         }
 
-        // 4. Inverse FFT on accumulated frequency spectrum
-        inverseFFT(accum_l_, scratch_time_l_);
-        if (ir_channels_ == 2) {
-            inverseFFT(accum_r_, scratch_time_r_);
-        } else {
-            std::memcpy(scratch_time_r_, scratch_time_l_, FFT_SIZE * sizeof(float));
-        }
-
-        // 5. Overlap-Add into output buffer
-        // First 512 samples are added with the tail of the previous block
-        for (size_t i = 0; i < BLOCK_SIZE; i++) {
-            out_buf_l_[i] = out_buf_l_[i + BLOCK_SIZE] + scratch_time_l_[i];
-            out_buf_r_[i] = out_buf_r_[i + BLOCK_SIZE] + scratch_time_r_[i];
-        }
-        // Last 512 samples form the new overlap tail
-        for (size_t i = 0; i < BLOCK_SIZE; i++) {
-            out_buf_l_[i + BLOCK_SIZE] = scratch_time_l_[i + BLOCK_SIZE];
-            out_buf_r_[i + BLOCK_SIZE] = scratch_time_r_[i + BLOCK_SIZE];
+        if (ir_channels_ == 1) {
+            std::memcpy(accum_r_, accum_l_, FFT_SIZE * sizeof(std::complex<float>));
         }
 
         // Advance FDL head
         fdl_head_ = (fdl_head_ + 1) % segments_count_;
+
+        // 4. Inverse FFT on accumulated frequency spectrum
+        inverseFFT(accum_l_, scratch_time_l_);
+        inverseFFT(accum_r_, scratch_time_r_);
+
+        // 5. Overlap-Add into output buffer
+        // Shift old second half (tail) to first half
+        std::memcpy(out_buf_l_, out_buf_l_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
+        std::memset(out_buf_l_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
+
+        std::memcpy(out_buf_r_, out_buf_r_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
+        std::memset(out_buf_r_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
+
+        // Add current IFFT output block
+        for (size_t i = 0; i < FFT_SIZE; i++) {
+            out_buf_l_[i] += scratch_time_l_[i];
+            out_buf_r_[i] += scratch_time_r_[i];
+        }
     }
 
-    // High-performance In-Place Radix-2 Decimation-in-Time FFT
+    // Radix-2 Cooley-Tukey In-Place Decimation-in-Time Forward FFT
     void forwardFFT(const float* time_in, std::complex<float>* freq_out) {
         for (size_t i = 0; i < FFT_SIZE; i++) {
             freq_out[bit_rev_[i]] = std::complex<float>(time_in[i], 0.0f);
@@ -331,11 +364,11 @@ private:
         }
     }
 
+    // Radix-2 Cooley-Tukey In-Place Inverse FFT
     void inverseFFT(const std::complex<float>* freq_in, float* time_out) {
         std::complex<float> temp[FFT_SIZE];
         for (size_t i = 0; i < FFT_SIZE; i++) {
-            // Conjugate input for IFFT
-            temp[bit_rev_[i]] = std::conj(freq_in[i]);
+            temp[bit_rev_[i]] = freq_in[i];
         }
 
         for (size_t len = 2; len <= FFT_SIZE; len <<= 1) {
@@ -344,16 +377,18 @@ private:
             for (size_t i = 0; i < FFT_SIZE; i += len) {
                 for (size_t j = 0; j < half_len; j++) {
                     std::complex<float> u = temp[i + j];
-                    std::complex<float> v = temp[i + j + half_len] * twiddles_[j * step];
+                    // Conjugate twiddle for IFFT
+                    std::complex<float> w(twiddles_[j * step].real(), -twiddles_[j * step].imag());
+                    std::complex<float> v = temp[i + j + half_len] * w;
                     temp[i + j] = u + v;
                     temp[i + j + half_len] = u - v;
                 }
             }
         }
 
-        constexpr float norm = 1.0f / static_cast<float>(FFT_SIZE);
+        const float inv_n = 1.0f / static_cast<float>(FFT_SIZE);
         for (size_t i = 0; i < FFT_SIZE; i++) {
-            time_out[i] = std::real(temp[i]) * norm;
+            time_out[i] = temp[i].real() * inv_n;
         }
     }
 };

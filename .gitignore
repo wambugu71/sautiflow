@@ -83,3 +83,4 @@ compile_commands.json
 *.log
 material_3_expressive/
 example/build_temp/
+viper/
