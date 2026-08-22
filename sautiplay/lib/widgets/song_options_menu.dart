@@ -4,6 +4,7 @@ import '../services/app_theme_service.dart';
 
 enum SongOption {
   queue,
+  addToPlaylist,
   info,
   share,
   delete,
@@ -44,6 +45,11 @@ class SongOptionsMenuButton extends StatelessWidget {
               label: 'Play Next',
               leading: Icon(Icons.queue_music_rounded, color: primary, size: 20),
               onPressed: () => onOptionSelected(SongOption.queue),
+            ),
+            M3EMenuEntry(
+              label: 'Add to Playlist',
+              leading: Icon(Icons.playlist_add_rounded, color: primary, size: 20),
+              onPressed: () => onOptionSelected(SongOption.addToPlaylist),
             ),
             M3EMenuEntry(
               label: 'Song Info',

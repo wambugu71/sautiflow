@@ -92,6 +92,108 @@ class M3uPlaylistService {
     await savePlaylists(playlists);
   }
 
+  /// Creates a new custom playlist from the provided [tracks].
+  Future<SavedM3uPlaylist> createPlaylist({
+    required String name,
+    required List<LocalSongItem> tracks,
+  }) async {
+    final newPlaylist = SavedM3uPlaylist(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name.trim().isNotEmpty ? name.trim() : 'Untitled Playlist',
+      pathOrUrl: '',
+      isNetwork: false,
+      tracks: List.from(tracks),
+      dateAdded: DateTime.now(),
+    );
+    await saveSinglePlaylist(newPlaylist);
+    return newPlaylist;
+  }
+
+  /// Appends [tracks] to an existing playlist, avoiding duplicate file paths.
+  Future<SavedM3uPlaylist?> addTracksToPlaylist({
+    required String playlistId,
+    required List<LocalSongItem> tracks,
+  }) async {
+    final playlists = await loadPlaylists();
+    final idx = playlists.indexWhere((p) => p.id == playlistId);
+    if (idx == -1) return null;
+
+    final current = playlists[idx];
+    final existingPaths = current.tracks.map((t) => t.path).toSet();
+    final updatedTracks = List<LocalSongItem>.from(current.tracks);
+
+    for (final track in tracks) {
+      if (!existingPaths.contains(track.path)) {
+        updatedTracks.add(track);
+        existingPaths.add(track.path);
+      }
+    }
+
+    final updatedPlaylist = SavedM3uPlaylist(
+      id: current.id,
+      name: current.name,
+      pathOrUrl: current.pathOrUrl,
+      isNetwork: current.isNetwork,
+      tracks: updatedTracks,
+      dateAdded: current.dateAdded,
+    );
+
+    playlists[idx] = updatedPlaylist;
+    await savePlaylists(playlists);
+    return updatedPlaylist;
+  }
+
+  /// Removes a track by [trackPath] from the specified playlist.
+  Future<SavedM3uPlaylist?> removeTrackFromPlaylist({
+    required String playlistId,
+    required String trackPath,
+  }) async {
+    final playlists = await loadPlaylists();
+    final idx = playlists.indexWhere((p) => p.id == playlistId);
+    if (idx == -1) return null;
+
+    final current = playlists[idx];
+    final updatedTracks =
+        current.tracks.where((t) => t.path != trackPath).toList();
+
+    final updatedPlaylist = SavedM3uPlaylist(
+      id: current.id,
+      name: current.name,
+      pathOrUrl: current.pathOrUrl,
+      isNetwork: current.isNetwork,
+      tracks: updatedTracks,
+      dateAdded: current.dateAdded,
+    );
+
+    playlists[idx] = updatedPlaylist;
+    await savePlaylists(playlists);
+    return updatedPlaylist;
+  }
+
+  /// Renames an existing playlist.
+  Future<SavedM3uPlaylist?> renamePlaylist({
+    required String playlistId,
+    required String newName,
+  }) async {
+    final playlists = await loadPlaylists();
+    final idx = playlists.indexWhere((p) => p.id == playlistId);
+    if (idx == -1) return null;
+
+    final current = playlists[idx];
+    final updatedPlaylist = SavedM3uPlaylist(
+      id: current.id,
+      name: newName.trim().isNotEmpty ? newName.trim() : current.name,
+      pathOrUrl: current.pathOrUrl,
+      isNetwork: current.isNetwork,
+      tracks: current.tracks,
+      dateAdded: current.dateAdded,
+    );
+
+    playlists[idx] = updatedPlaylist;
+    await savePlaylists(playlists);
+    return updatedPlaylist;
+  }
+
   /// Generates the `.m3u8` string content for a list of tracks.
   String generateM3u8Content({
     required String playlistName,

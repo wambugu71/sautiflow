@@ -8,8 +8,10 @@ import 'package:share_plus/share_plus.dart';
 
 import 'album_detail_screen.dart'; // for TrackInfo
 import 'models/cached_stream_item.dart';
+import 'models/local_song_item.dart';
 import 'services/app_theme_service.dart';
 import 'services/cached_stream_service.dart';
+import 'services/m3u_playlist_service.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/song_options_menu.dart';
@@ -159,6 +161,46 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Added "${track.title}" to queue'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+        break;
+      case SongOption.addToPlaylist:
+        final song = LocalSongItem(
+          path: track.filePath,
+          title: track.title,
+          artist: track.artist,
+          album: 'Cached Streams',
+          sizeBytes: track.fileSizeBytes,
+          lastModified: DateTime.now(),
+        );
+        final playlists = await M3uPlaylistService.instance.loadPlaylists();
+        if (!mounted) break;
+        if (playlists.isNotEmpty) {
+          final first = playlists.first;
+          await M3uPlaylistService.instance.addTracksToPlaylist(
+            playlistId: first.id,
+            tracks: [song],
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Added "${track.title}" to "${first.name}"'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          final pl = await M3uPlaylistService.instance.createPlaylist(
+            name: 'Favorite Streams',
+            tracks: [song],
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Created playlist "${pl.name}" with "${track.title}"'),
                 duration: const Duration(seconds: 2),
               ),
             );
