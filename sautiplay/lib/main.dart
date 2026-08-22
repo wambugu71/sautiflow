@@ -23,6 +23,7 @@ import 'services/artwork_theme_service.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'combined_home_screen.dart';
 import 'effects_screen.dart';
+import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'mini_player.dart';
 import 'models/cached_stream_item.dart';
@@ -461,7 +462,7 @@ class _PlayerShellState extends State<PlayerShell> {
     );
 
     // Apply Sauti DSP Suite settings
-    await SautiDspScreen.applySavedStateToEngine(_player);
+    await EqScreen.applySavedStateToEngine(_player);
 
     // Load and restore queue
     final queueData = await AppStateService.instance.loadQueue();

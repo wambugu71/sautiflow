@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_profile.dart';
+import '../eq_screen.dart';
 import '../isolate_player.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'app_state_service.dart';
@@ -133,7 +134,7 @@ class AudioProfileService {
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
     await AppStateService.instance.saveSautiDspState({'dspMasterEnabled': false});
-    await SautiDspScreen.applySavedStateToEngine(player);
+    await EqScreen.applySavedStateToEngine(player);
 
     // 2. Persist baseline disabled state to storage in parallel
     await Future.wait([
@@ -352,7 +353,7 @@ class AudioProfileService {
       ...profile.sautiDspState,
     };
     await AppStateService.instance.saveSautiDspState(cleanDspState);
-    await SautiDspScreen.applySavedStateToEngine(player);
+    await EqScreen.applySavedStateToEngine(player);
 
     // 4. Save active profile ID & notify listeners
     final prefs = await SharedPreferences.getInstance();

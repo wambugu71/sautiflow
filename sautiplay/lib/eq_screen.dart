@@ -32,6 +32,105 @@ class EqScreen extends StatefulWidget {
     this.effectsKnobKey,
   });
 
+  /// Applies persisted Sauti DSP suite settings directly to the audio engine.
+  static Future<void> applySavedStateToEngine(IsolateAudioPlayer player) async {
+    final state = await AppStateService.instance.loadSautiDspState();
+    if (state.isEmpty) return;
+
+    final masterEnabled = state['dspMasterEnabled'] ?? true;
+    final clarityEnabled = masterEnabled && (state['clarityEnabled'] ?? false);
+    final clarityProfile = AudioClarityProfile.values.firstWhere(
+      (e) => e.value == (state['clarityProfile'] ?? 0),
+      orElse: () => AudioClarityProfile.transientCrisp,
+    );
+    final clarityIntensity =
+        (state['clarityIntensity'] as num?)?.toDouble() ?? 0.5;
+
+    final bassEnabled = masterEnabled && (state['bassEnabled'] ?? false);
+    final bassProfile = HarmonicBassProfile.values.firstWhere(
+      (e) => e.value == (state['bassProfile'] ?? 0),
+      orElse: () => HarmonicBassProfile.naturalBass,
+    );
+    final bassCutoffHz =
+        (state['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
+    final bassBoost = (state['bassBoost'] as num?)?.toDouble() ?? 0.5;
+
+    final dynamicSystemEnabled =
+        masterEnabled && (state['dynamicSystemEnabled'] ?? false);
+    final dynamicSystemProfile = TransducerProfile.values.firstWhere(
+      (e) => e.value == (state['dynamicSystemProfile'] ?? 0),
+      orElse: () => TransducerProfile.earphone,
+    );
+    final dynamicSystemStrength =
+        (state['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
+
+    final analogWarmthEnabled =
+        masterEnabled && (state['analogWarmthEnabled'] ?? false);
+    final analogWarmthProfile = AnalogWarmthProfile.values.firstWhere(
+      (e) => e.value == (state['analogWarmthProfile'] ?? 0),
+      orElse: () => AnalogWarmthProfile.triode12AX7,
+    );
+    final analogWarmthDrive =
+        (state['analogWarmthDrive'] as num?)?.toDouble() ?? 0.5;
+
+    final convolverEnabled =
+        masterEnabled && (state['convolverEnabled'] ?? false);
+    final convolverIrPath = state['convolverIrPath'] as String?;
+    final convolverWet =
+        (state['convolverWet'] as num?)?.toDouble() ?? 1.0;
+    final convolverDry =
+        (state['convolverDry'] as num?)?.toDouble() ?? 0.0;
+
+    final limiterEnabled =
+        masterEnabled && (state['limiterEnabled'] ?? false);
+    final limiterCeilingDb =
+        (state['limiterCeilingDb'] as num?)?.toDouble() ?? -0.1;
+    final limiterOutputGainDb =
+        (state['limiterOutputGainDb'] as num?)?.toDouble() ?? 0.0;
+    final limiterReleaseMs =
+        (state['limiterReleaseMs'] as num?)?.toDouble() ?? 60.0;
+
+    player.setClarity(
+      enabled: clarityEnabled,
+      profile: clarityProfile,
+      intensity: clarityIntensity,
+    );
+
+    player.setHarmonicBass(
+      enabled: bassEnabled,
+      profile: bassProfile,
+      cutoffHz: bassCutoffHz,
+      boost: bassBoost,
+    );
+
+    player.setDynamicSystem(
+      enabled: dynamicSystemEnabled,
+      profile: dynamicSystemProfile,
+      strength: dynamicSystemStrength,
+    );
+
+    player.setAnalogWarmth(
+      enabled: analogWarmthEnabled,
+      profile: analogWarmthProfile,
+      drive: analogWarmthDrive,
+    );
+
+    player.setConvolverEnabled(convolverEnabled);
+    player.setConvolverMix(wet: convolverWet, dry: convolverDry);
+    if (convolverEnabled &&
+        convolverIrPath != null &&
+        convolverIrPath.isNotEmpty) {
+      player.loadConvolverIr(convolverIrPath);
+    }
+
+    player.setMasterLimiter(
+      enabled: limiterEnabled,
+      ceilingDb: limiterCeilingDb,
+      outputGainDb: limiterOutputGainDb,
+      releaseMs: limiterReleaseMs,
+    );
+  }
+
   @override
   State<EqScreen> createState() => _EqScreenState();
 }
