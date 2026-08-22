@@ -121,11 +121,22 @@ class LastFmService extends ChangeNotifier {
   /// Step 2: Launches the web browser for the user to authorize this application.
   Future<bool> launchAuthorizationUrl(String token) async {
     final authUrl = Uri.parse('https://www.last.fm/api/auth/?api_key=$_apiKey&token=$token');
-    _log('[LastFm] Opening authorization webpage...');
-    if (await canLaunchUrl(authUrl)) {
-      return await launchUrl(authUrl, mode: LaunchMode.externalApplication);
+    _log('[LastFm] Opening authorization webpage: $authUrl');
+    try {
+      if (await canLaunchUrl(authUrl)) {
+        return await launchUrl(authUrl, mode: LaunchMode.externalApplication);
+      } else {
+        // Direct attempt fallback if canLaunchUrl check fails
+        return await launchUrl(authUrl, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      _log('[LastFm] Error launching authorization URL: $e');
+      try {
+        return await launchUrl(authUrl, mode: LaunchMode.platformDefault);
+      } catch (_) {
+        return false;
+      }
     }
-    return false;
   }
 
   /// Step 3: Exchanges the authorized token for a permanent session key.

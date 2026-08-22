@@ -133,7 +133,8 @@ class AudioProfileService {
     player.setAnalogWarmth(enabled: false);
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
-    await AppStateService.instance.saveSautiDspState({'dspMasterEnabled': false});
+    await AppStateService.instance
+        .saveSautiDspState({'dspMasterEnabled': false});
     await EqScreen.applySavedStateToEngine(player);
 
     // 2. Persist baseline disabled state to storage in parallel
@@ -429,7 +430,7 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
+          'enabled': false,
           'preampDb': -3.0,
           'freqs': defaultFrequencies,
           'gains': [6.0, 5.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -440,10 +441,10 @@ class AudioProfileService {
         sautiDspState: {
           'dspMasterEnabled': true,
           'bassEnabled': true,
-          'bassProfile': HarmonicBassProfile.subBassResonant.value,
+          'bassProfile': HarmonicBassProfile.pureBass.value,
           'bassCutoffHz': 60.0,
           'bassBoost': 0.85,
-          'dynamicSystemEnabled': true,
+          'dynamicSystemEnabled': false,
           'dynamicSystemProfile': TransducerProfile.extremeSubwoofer.value,
           'dynamicSystemStrength': 0.75,
         },

@@ -626,8 +626,6 @@ class _PlayerShellState extends State<PlayerShell> {
           }
         }
         _player.setGain(0.0); // Mute local audio
-      } else {
-        _player.setGain(1.0); // Ensure unmuted if not casting
       }
 
       if (!isNewTrack) return; // art is loaded, skip notification re-publish

@@ -51,8 +51,7 @@ class EqScreen extends StatefulWidget {
       (e) => e.value == (state['bassProfile'] ?? 0),
       orElse: () => HarmonicBassProfile.naturalBass,
     );
-    final bassCutoffHz =
-        (state['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
+    final bassCutoffHz = (state['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
     final bassBoost = (state['bassBoost'] as num?)?.toDouble() ?? 0.5;
 
     final dynamicSystemEnabled =
@@ -76,13 +75,10 @@ class EqScreen extends StatefulWidget {
     final convolverEnabled =
         masterEnabled && (state['convolverEnabled'] ?? false);
     final convolverIrPath = state['convolverIrPath'] as String?;
-    final convolverWet =
-        (state['convolverWet'] as num?)?.toDouble() ?? 1.0;
-    final convolverDry =
-        (state['convolverDry'] as num?)?.toDouble() ?? 0.0;
+    final convolverWet = (state['convolverWet'] as num?)?.toDouble() ?? 1.0;
+    final convolverDry = (state['convolverDry'] as num?)?.toDouble() ?? 0.0;
 
-    final limiterEnabled =
-        masterEnabled && (state['limiterEnabled'] ?? false);
+    final limiterEnabled = masterEnabled && (state['limiterEnabled'] ?? false);
     final limiterCeilingDb =
         (state['limiterCeilingDb'] as num?)?.toDouble() ?? -0.1;
     final limiterOutputGainDb =
@@ -284,7 +280,7 @@ class _EqScreenState extends State<EqScreen>
   double _stereoWidenWidth = 1.5;
   double _stereoWidenDelayMs = 0.15; // Maps to 15ms
 
-  // DSP Stereo Enhancement
+  // DSP Stereo Enhancer
   bool _stereoEnhancementEnabled = false;
   double _stereoEnhancementMix = 0.5;
 
@@ -429,7 +425,7 @@ class _EqScreenState extends State<EqScreen>
       _stereoWidenWidth = stereoWiden.width;
       _stereoWidenDelayMs = stereoWiden.delayMs;
 
-      // DSP Stereo Enhancement
+      // DSP Stereo Enhancer
       _stereoEnhancementEnabled = stereoEnhancement.enabled;
       _stereoEnhancementMix = stereoEnhancement.mix;
 
@@ -591,7 +587,7 @@ class _EqScreenState extends State<EqScreen>
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['wav'],
+        allowedExtensions: ['wav', 'irs'],
       );
       if (result != null && result.files.single.path != null) {
         final path = result.files.single.path!;
@@ -1226,8 +1222,10 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       Row(
                         children: [
+                          const SizedBox(width: 4),
                           M3EIconButton(
-                            icon: const Icon(Icons.info_outline_rounded, size: 19),
+                            icon: const Icon(Icons.info_outline_rounded,
+                                size: 19),
                             variant: M3EIconButtonVariant.tonal,
                             tooltip: 'Pipeline Info',
                             onPressed: _showPipelineInfo,
@@ -1262,8 +1260,8 @@ class _EqScreenState extends State<EqScreen>
             if (_showWarningBanner)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3ECard(
                     variant: M3ECardVariant.filled,
                     child: Padding(
@@ -1315,8 +1313,8 @@ class _EqScreenState extends State<EqScreen>
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 4,
                   onTap: (index) {
@@ -1358,8 +1356,7 @@ class _EqScreenState extends State<EqScreen>
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return AppShowcase(
-                        showcaseKey:
-                            widget.effectsKnobKey ?? GlobalKey(),
+                        showcaseKey: widget.effectsKnobKey ?? GlobalKey(),
                         title: 'Knob Controls',
                         description:
                             'Drag knobs to adjust EQ. Tip: Long-press any knob to edit values directly with your keyboard!',
@@ -1368,8 +1365,7 @@ class _EqScreenState extends State<EqScreen>
                         child: _buildEffectTileCard(
                           icon: Icons.equalizer_rounded,
                           shape: Shapes.c4SidedCookie,
-                          title:
-                              '${_eqFrequencies.length}-Band Graphic EQ',
+                          title: '${_eqFrequencies.length}-Band Graphic EQ',
                           subtitle: _masterEqEnabled
                               ? '${_eqFrequencies.length}-Band ($_activePreset)'
                               : 'Disabled',
@@ -1396,14 +1392,12 @@ class _EqScreenState extends State<EqScreen>
                         subtitle: (_playbackPitch - 1.0).abs() >= 0.01
                             ? '${_playbackPitch.toStringAsFixed(2)}x Speed'
                             : 'Normal Speed (1.0x)',
-                        isEnabled:
-                            (_playbackPitch - 1.0).abs() >= 0.01,
+                        isEnabled: (_playbackPitch - 1.0).abs() >= 0.01,
                         onToggle: (v) {
                           final newPitch = v ? 1.25 : 1.0;
                           setState(() => _playbackPitch = newPitch);
                           widget.player.setPitch(newPitch);
-                          AppStateService.instance
-                              .savePlaybackSpeed(newPitch);
+                          AppStateService.instance.savePlaybackSpeed(newPitch);
                         },
                         onTapDetail: () => _openDetailScreen(
                           'Playback Speed & Pitch',
@@ -1462,20 +1456,20 @@ class _EqScreenState extends State<EqScreen>
 
             // Section 2: Bass & Subwoofer Engine
             SliverToBoxAdapter(
-              child: _buildSectionHeader('Bass & Subwoofer Engine',
+              child: _buildSectionHeader('Bass Engine',
                   icon: Icons.speaker_group_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 2,
                   onTap: (index) {
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          'Deep Bass & Subwoofer',
+                          'Dynamic Bass',
                           Icons.speaker_group_rounded,
                           (_) => _buildHarmonicBassSection(),
                           shape: Shapes.boom,
@@ -1483,7 +1477,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 1:
                         _openDetailScreen(
-                          'Device & Transducer Optimizer',
+                          'Psychoacoustics Bass',
                           Icons.headphones_rounded,
                           (_) => _buildDynamicSystemSection(),
                           shape: Shapes.burst,
@@ -1496,7 +1490,7 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.speaker_group_rounded,
                         shape: Shapes.boom,
-                        title: 'Deep Bass & Subwoofer',
+                        title: 'Dynamic Bass',
                         subtitle: _bassEnabled
                             ? '${_getHarmonicBassProfileName(_bassProfile)} | ${_bassCutoffHz.toInt()}Hz (${(_bassBoost * 100).toInt()}%)'
                             : 'Disabled',
@@ -1507,7 +1501,7 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Deep Bass & Subwoofer',
+                          'Dynamic Bass',
                           Icons.speaker_group_rounded,
                           (_) => _buildHarmonicBassSection(),
                           shape: Shapes.boom,
@@ -1517,7 +1511,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.headphones_rounded,
                       shape: Shapes.burst,
-                      title: 'Device & Transducer Optimizer',
+                      title: 'Psychoacoustics Bass',
                       subtitle: _dynamicSystemEnabled
                           ? '${_getTransducerProfileName(_dynamicSystemProfile)} (${(_dynamicSystemStrength * 100).toInt()}%)'
                           : 'Disabled',
@@ -1528,7 +1522,7 @@ class _EqScreenState extends State<EqScreen>
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Device & Transducer Optimizer',
+                        'Psychoacoustics Bass',
                         Icons.headphones_rounded,
                         (_) => _buildDynamicSystemSection(),
                         shape: Shapes.burst,
@@ -1546,15 +1540,15 @@ class _EqScreenState extends State<EqScreen>
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 2,
                   onTap: (index) {
                     switch (index) {
                       case 0:
                         _openDetailScreen(
-                          'Audio Clarity & Vocal',
+                          'Audio Clarity',
                           Icons.graphic_eq_rounded,
                           (_) => _buildClaritySection(),
                           shape: Shapes.gem,
@@ -1575,7 +1569,7 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.graphic_eq_rounded,
                         shape: Shapes.gem,
-                        title: 'Audio Clarity & Vocal',
+                        title: 'Audio Clarity',
                         subtitle: _clarityEnabled
                             ? '${_getClarityProfileName(_clarityProfile)} (${(_clarityIntensity * 100).toInt()}%)'
                             : 'Disabled',
@@ -1586,7 +1580,7 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Audio Clarity & Vocal',
+                          'Audio Clarity',
                           Icons.graphic_eq_rounded,
                           (_) => _buildClaritySection(),
                           shape: Shapes.gem,
@@ -1625,8 +1619,8 @@ class _EqScreenState extends State<EqScreen>
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 4,
                   onTap: (index) {
@@ -1649,7 +1643,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
-                          'Stereo Enhancement',
+                          'Stereo Enhancer',
                           Icons.surround_sound_rounded,
                           (_) => _buildStereoEnhancementSection(),
                           shape: Shapes.puffyDiamond,
@@ -1657,7 +1651,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 3:
                         _openDetailScreen(
-                          'Analog Warmth & Color',
+                          'Analog Warmth',
                           Icons.album_rounded,
                           (_) => _buildAnalogWarmthSection(),
                           shape: Shapes.sunny,
@@ -1689,8 +1683,7 @@ class _EqScreenState extends State<EqScreen>
                             _updateCrossfeed();
                           } else {
                             widget.player.setCrossfeed(
-                                enabled: false,
-                                preset: _crossfeedPreset);
+                                enabled: false, preset: _crossfeedPreset);
                           }
                           _saveEqState();
                         },
@@ -1735,19 +1728,18 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.surround_sound_rounded,
                         shape: Shapes.puffyDiamond,
-                        title: 'Stereo Enhancement',
+                        title: 'Stereo Enhancer',
                         subtitle: _stereoEnhancementEnabled
                             ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
                             : 'Disabled',
                         isEnabled: _stereoEnhancementEnabled,
                         onToggle: (v) {
-                          setState(
-                              () => _stereoEnhancementEnabled = v);
+                          setState(() => _stereoEnhancementEnabled = v);
                           _updateStereoEnhancement();
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Stereo Enhancement',
+                          'Stereo Enhancer',
                           Icons.surround_sound_rounded,
                           (_) => _buildStereoEnhancementSection(),
                           shape: Shapes.puffyDiamond,
@@ -1757,7 +1749,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.album_rounded,
                       shape: Shapes.sunny,
-                      title: 'Analog Warmth & Color',
+                      title: 'Analog Warmth',
                       subtitle: _analogWarmthEnabled
                           ? '${_getAnalogWarmthProfileName(_analogWarmthProfile)} (${(_analogWarmthDrive * 100).toInt()}%)'
                           : 'Disabled',
@@ -1768,7 +1760,7 @@ class _EqScreenState extends State<EqScreen>
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Analog Warmth & Color',
+                        'Analog Warmth',
                         Icons.album_rounded,
                         (_) => _buildAnalogWarmthSection(),
                         shape: Shapes.sunny,
@@ -1781,18 +1773,18 @@ class _EqScreenState extends State<EqScreen>
 
             // Section 5: Acoustic Space & Convolver
             SliverToBoxAdapter(
-              child: _buildSectionHeader('Acoustic Space & Convolver',
-                  icon: Icons.waves_rounded),
+              child:
+                  _buildSectionHeader('Convolver', icon: Icons.waves_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 1,
                   onTap: (index) {
                     _openDetailScreen(
-                      'Acoustic Space & Convolver',
+                      'Convolver',
                       Icons.waves_rounded,
                       (_) => _buildConvolverSection(),
                       shape: Shapes.c4SidedCookie,
@@ -1802,7 +1794,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.waves_rounded,
                       shape: Shapes.c4SidedCookie,
-                      title: 'Acoustic Space & Convolver',
+                      title: 'Convolver',
                       subtitle: _convolverEnabled
                           ? (_convolverIrFileName ?? 'Acoustic IR Active')
                           : 'Disabled',
@@ -1813,7 +1805,7 @@ class _EqScreenState extends State<EqScreen>
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Acoustic Space & Convolver',
+                        'Convolver',
                         Icons.waves_rounded,
                         (_) => _buildConvolverSection(),
                         shape: Shapes.c4SidedCookie,
@@ -1831,8 +1823,8 @@ class _EqScreenState extends State<EqScreen>
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
                   itemCount: 2,
                   onTap: (index) {
@@ -2153,8 +2145,8 @@ class _EqScreenState extends State<EqScreen>
                         double gain = math.pow(10, v / 20).toDouble();
                         widget.player.setGain(gain);
                       });
-                      _saveEqState();
                     },
+                    onChangeEnd: (_) => _saveEqState(),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -2228,9 +2220,10 @@ class _EqScreenState extends State<EqScreen>
                                       widget.player
                                           .setMultibandEqBandGain(i, v);
                                     });
-                                    _saveEqState();
                                   }
                                 : null,
+                            onChangeEnd:
+                                _masterEqEnabled ? (_) => _saveEqState() : null,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -2721,7 +2714,7 @@ class _EqScreenState extends State<EqScreen>
             Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
         //),
       ),
-      title: 'Stereo Enhancement',
+      title: 'Stereo Enhancer',
       subtitle: 'Warped PFB M/S Widening',
       isEnabled: _stereoEnhancementEnabled,
       onToggle: (v) {
@@ -3271,8 +3264,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.speaker_group_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Deep Bass & Subwoofer',
-      subtitle: 'Clean mono bass injection, kick punch & subwoofer power',
+      title: 'Dynamic Bass',
+      subtitle: 'Powerful chest pumping bass & subwoofer rumble',
       isEnabled: _bassEnabled,
       onToggle: (v) {
         setState(() => _bassEnabled = v);
@@ -3304,23 +3297,23 @@ class _EqScreenState extends State<EqScreen>
                 items: const [
                   DropdownMenuItem(
                     value: HarmonicBassProfile.naturalBass,
-                    child: Text('Natural Bass (Smooth & Clean)'),
+                    child: Text('Natural Bass'),
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.pureBass,
-                    child: Text('Punchy Kick (Tight Drums)'),
+                    child: Text('Pure Bass'),
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.subwoofer,
-                    child: Text('Subwoofer Rumble (Deep Sub)'),
+                    child: Text('Aggressive Bass'),
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.harmonicExciter,
-                    child: Text('Harmonic Exciter (Earbuds)'),
+                    child: Text('Harmonic Exciter'),
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.pultecDeep,
-                    child: Text('Pultec Deep Sub (Anti-Mud)'),
+                    child: Text('Pultec Deep'),
                   ),
                 ],
                 onChanged: (val) {
@@ -3378,8 +3371,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Device & Headphone Optimizer',
-      subtitle: 'Tailors sound dynamics and crossover to your listening gear',
+      title: 'Psychoacoustics Bass',
+      subtitle: 'Dynamic Crossover & Spatialization for your Listening Gear',
       isEnabled: _dynamicSystemEnabled,
       onToggle: (v) {
         setState(() => _dynamicSystemEnabled = v);
@@ -3419,7 +3412,7 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   DropdownMenuItem(
                     value: TransducerProfile.highEndReference,
-                    child: Text('Studio / Reference'),
+                    child: Text('Reference'),
                   ),
                   DropdownMenuItem(
                     value: TransducerProfile.speakerMonitor,
@@ -3475,7 +3468,7 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.graphic_eq_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Clarity & Vocal Enhancer',
+      title: 'Audio Clarity',
       subtitle: 'Brings out crisp details, vocal presence & high-end sheen',
       isEnabled: _clarityEnabled,
       onToggle: (v) {
@@ -3508,19 +3501,19 @@ class _EqScreenState extends State<EqScreen>
                 items: const [
                   DropdownMenuItem(
                     value: AudioClarityProfile.transientCrisp,
-                    child: Text('Crisp & Detailed'),
+                    child: Text('Crisp'),
                   ),
                   DropdownMenuItem(
                     value: AudioClarityProfile.airShelf,
-                    child: Text('Air & Sparkle (Top-End)'),
+                    child: Text('Air'),
                   ),
                   DropdownMenuItem(
                     value: AudioClarityProfile.presenceExciter,
-                    child: Text('Vocal Presence'),
+                    child: Text('Vocal'),
                   ),
                   DropdownMenuItem(
                     value: AudioClarityProfile.harmonicBrilliance,
-                    child: Text('Studio Brilliance'),
+                    child: Text('Harmonic Brilliance'),
                   ),
                 ],
                 onChanged: (val) {
@@ -3564,7 +3557,7 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.album_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Analog Warmth & Color',
+      title: 'Analog Warmth',
       subtitle: 'Adds rich analog harmonics, velvety depth & vintage character',
       isEnabled: _analogWarmthEnabled,
       onToggle: (v) {
@@ -3597,15 +3590,15 @@ class _EqScreenState extends State<EqScreen>
                 items: const [
                   DropdownMenuItem(
                     value: AnalogWarmthProfile.triode12AX7,
-                    child: Text('Vacuum Tube (12AX7)'),
+                    child: Text('Vacuum Tube'),
                   ),
                   DropdownMenuItem(
                     value: AnalogWarmthProfile.magneticTape,
-                    child: Text('Vintage Tape (Reel-to-Reel)'),
+                    child: Text('Vintage Tape'),
                   ),
                   DropdownMenuItem(
                     value: AnalogWarmthProfile.vintagePreamp,
-                    child: Text('Studio Console Preamp'),
+                    child: Text('Console Preamp'),
                   ),
                 ],
                 onChanged: (val) {
@@ -3650,7 +3643,8 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
       ),
       title: 'Acoustic Space & Convolver',
-      subtitle: 'Simulate playing inside real halls, spaces & acoustic impulses',
+      subtitle:
+          'Simulate playing inside real halls, spaces & acoustic impulses',
       isEnabled: _convolverEnabled,
       onToggle: (v) {
         setState(() => _convolverEnabled = v);
@@ -3688,7 +3682,8 @@ class _EqScreenState extends State<EqScreen>
                       _convolverIrPath != null
                           ? 'Active Acoustic Room Simulation'
                           : 'Load a .wav room impulse response file',
-                      style: const TextStyle(color: Colors.white38, fontSize: 11),
+                      style:
+                          const TextStyle(color: Colors.white38, fontSize: 11),
                     ),
                   ],
                 ),
