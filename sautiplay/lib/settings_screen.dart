@@ -1652,98 +1652,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const M3EDivider(),
-                _buildM3ESwitchTile(
-                  title: 'Bit-Perfect Playback',
-                  subtitle: 'Bypasses OS Mixer',
-                  secondary: _buildLeadingIcon(Icons.verified),
-                  value: widget.exclusiveMode,
-                  onChanged: (val) async {
-                    widget.player.setExclusiveMode(val);
-                    await Future.delayed(const Duration(milliseconds: 150));
-                    final actual = await widget.player.getExclusiveMode();
-                    widget.onExclusiveModeChanged(actual);
-                    setSubState(() {});
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    if (val && actual) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: _cardDark,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
-                                color: Colors.greenAccent.withAlpha(120)),
-                          ),
-                          content: Row(
-                            children: [
-                              const Icon(Icons.verified_rounded,
-                                  color: Colors.greenAccent, size: 20),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Bit-Perfect Mode Accepted',
-                                  style: TextStyle(
-                                      color: _textPrimary, fontSize: 13),
-                                ),
+                IgnorePointer(
+                  ignoring: _autoBitPerfectEnabled,
+                  child: AnimatedOpacity(
+                    opacity: _autoBitPerfectEnabled ? 0.38 : 1.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: _buildM3ESwitchTile(
+                      title: 'Bit-Perfect Playback',
+                      subtitle: _autoBitPerfectEnabled
+                          ? 'Managed automatically (Auto Sample-Rate Match is on)'
+                          : 'Bypasses OS Mixer',
+                      secondary: _buildLeadingIcon(Icons.verified),
+                      value: widget.exclusiveMode,
+                      onChanged: (val) async {
+                        widget.player.setExclusiveMode(val);
+                        await Future.delayed(const Duration(milliseconds: 150));
+                        final actual = await widget.player.getExclusiveMode();
+                        widget.onExclusiveModeChanged(actual);
+                        setSubState(() {});
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        if (val && actual) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: _cardDark,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                    color: Colors.greenAccent.withAlpha(120)),
                               ),
-                            ],
-                          ),
-                        ),
-                      );
-                    } else if (val && !actual) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: _cardDark,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
-                                color: Colors.amberAccent.withAlpha(120)),
-                          ),
-                          content: Row(
-                            children: [
-                              const Icon(Icons.warning_amber_rounded,
-                                  color: Colors.amberAccent, size: 20),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Hardware declined Exclusive Mode. Falling back to Shared Mixer!',
-                                  style: TextStyle(
-                                      color: _textPrimary, fontSize: 13),
-                                ),
+                              content: Row(
+                                children: [
+                                  const Icon(Icons.verified_rounded,
+                                      color: Colors.greenAccent, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Bit-Perfect Mode Accepted',
+                                      style: TextStyle(
+                                          color: _textPrimary, fontSize: 13),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: _cardDark,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: context.outlineColor),
-                          ),
-                          content: Row(
-                            children: [
-                              Icon(Icons.info_outline,
-                                  color: _textDark, size: 20),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Bit-Perfect Exclusive Mode Disabled (Shared Mixer)',
-                                  style: TextStyle(
-                                      color: _textPrimary, fontSize: 13),
-                                ),
+                            ),
+                          );
+                        } else if (val && !actual) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: _cardDark,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                    color: Colors.amberAccent.withAlpha(120)),
                               ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                  },
+                              content: Row(
+                                children: [
+                                  const Icon(Icons.warning_amber_rounded,
+                                      color: Colors.amberAccent, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Hardware declined Exclusive Mode. Falling back to Shared Mixer!',
+                                      style: TextStyle(
+                                          color: _textPrimary, fontSize: 13),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: _cardDark,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(color: context.outlineColor),
+                              ),
+                              content: Row(
+                                children: [
+                                  Icon(Icons.info_outline,
+                                      color: _textDark, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Bit-Perfect Exclusive Mode Disabled (Shared Mixer)',
+                                      style: TextStyle(
+                                          color: _textPrimary, fontSize: 13),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
