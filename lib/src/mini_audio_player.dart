@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 
 import '../audio_engine_ffi.dart';
 import '../sauti_dsp.dart';
-import '../viper_dsp.dart';
 import 'miniaudio_filters.dart';
 import 'mobile_system_audio.dart';
 
@@ -20,7 +19,6 @@ class MiniAudioPlayer {
 
   final AudioEngineFFI _engine;
   late final SautiDsp _dsp = SautiDsp.fromEngine(_engine);
-  late final ViperDsp _viper = ViperDsp(_engine);
   final Duration statusPollInterval;
   final Duration analyzerPollInterval;
 
@@ -68,9 +66,6 @@ class MiniAudioPlayer {
 
   /// Provides direct access to all Sauti clean-room DSP features.
   SautiDsp get dsp => _dsp;
-
-  /// Provides direct access to all ViPER compatibility features.
-  ViperDsp get viper => _viper;
 
   bool init({
     int sampleRate = 48000,
@@ -206,7 +201,6 @@ class MiniAudioPlayer {
   AEHardwareInfo get hardwareInfo => getHardwareInfo();
   ResampleAlgorithm getEngineResampleAlgorithm() =>
       ResampleAlgorithm.values[_engine.getEngineResampleAlgorithm().clamp(0, ResampleAlgorithm.values.length - 1)];
-  bool get viperEnabled => _viper.isEnabled;
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
   StreamTelemetry get streamTelemetry => _engine.getStreamTelemetry();
   StreamTelemetry getStreamTelemetry() => _engine.getStreamTelemetry();

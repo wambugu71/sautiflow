@@ -1,5 +1,5 @@
 /// Represents a complete Audio Profile containing Graphic/Parametric EQ state,
-/// built-in DSP effect settings, and ViPER FX configuration.
+/// built-in DSP effect settings, and Sauti DSP Suite configuration.
 class AudioProfile {
   final String id;
   final String name;
@@ -15,8 +15,8 @@ class AudioProfile {
   /// 2. Built-in DSP Effects state (Spatial/Reverb, Delay, Dynamic Bass, Crystalizer, Crossfeed, Stereo Widen, etc.)
   final Map<String, dynamic> dspEffectsState;
 
-  /// 3. ViPER FX complete state dictionary
-  final Map<String, dynamic> viperFxState;
+  /// 3. Sauti DSP Suite complete state dictionary
+  final Map<String, dynamic> sautiDspState;
 
   AudioProfile({
     required this.id,
@@ -28,7 +28,7 @@ class AudioProfile {
     required this.updatedAt,
     this.eqState = const {},
     this.dspEffectsState = const {},
-    this.viperFxState = const {},
+    this.sautiDspState = const {},
   });
 
   AudioProfile copyWith({
@@ -41,7 +41,7 @@ class AudioProfile {
     DateTime? updatedAt,
     Map<String, dynamic>? eqState,
     Map<String, dynamic>? dspEffectsState,
-    Map<String, dynamic>? viperFxState,
+    Map<String, dynamic>? sautiDspState,
   }) {
     return AudioProfile(
       id: id ?? this.id,
@@ -53,7 +53,7 @@ class AudioProfile {
       updatedAt: updatedAt ?? this.updatedAt,
       eqState: eqState ?? this.eqState,
       dspEffectsState: dspEffectsState ?? this.dspEffectsState,
-      viperFxState: viperFxState ?? this.viperFxState,
+      sautiDspState: sautiDspState ?? this.sautiDspState,
     );
   }
 
@@ -67,7 +67,7 @@ class AudioProfile {
         'updatedAt': updatedAt.toIso8601String(),
         'eqState': eqState,
         'dspEffectsState': dspEffectsState,
-        'viperFxState': viperFxState,
+        'sautiDspState': sautiDspState,
       };
 
   factory AudioProfile.fromJson(Map<String, dynamic> json) => AudioProfile(
@@ -80,7 +80,9 @@ class AudioProfile {
         updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
         eqState: Map<String, dynamic>.from(json['eqState'] as Map? ?? {}),
         dspEffectsState: Map<String, dynamic>.from(json['dspEffectsState'] as Map? ?? {}),
-        viperFxState: Map<String, dynamic>.from(json['viperFxState'] as Map? ?? {}),
+        sautiDspState: Map<String, dynamic>.from(
+          (json['sautiDspState'] ?? json['viperFxState']) as Map? ?? {},
+        ),
       );
 
   @override

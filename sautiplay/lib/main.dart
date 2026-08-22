@@ -41,7 +41,7 @@ import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
 import 'services/ftp_service.dart';
 import 'streaming_service.dart';
-import 'viper_fx_screen.dart';
+import 'sauti_dsp_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -461,8 +461,8 @@ class _PlayerShellState extends State<PlayerShell> {
       safetyAttenuationDb: spSaved.safetyAttenuationDb,
     );
 
-    // Apply ViPER DSP settings
-    await ViperFxScreen.applySavedStateToEngine(_player);
+    // Apply Sauti DSP Suite settings
+    await SautiDspScreen.applySavedStateToEngine(_player);
 
     // Load and restore queue
     final queueData = await AppStateService.instance.loadQueue();
@@ -2716,9 +2716,9 @@ class _PlayerShellState extends State<PlayerShell> {
                   M3ENavigationBarDestination(
                     icon: AppShowcase(
                       showcaseKey: _effectsTabKey,
-                      title: 'ViPER DSP & EQ',
+                      title: 'Sauti DSP & EQ',
                       description:
-                          'Tailor your sound with 10-band EQ, ViPER effects & real-time spectrum visualizers.',
+                          'Tailor your sound with 10-band EQ, Sauti DSP Suite effects & real-time spectrum visualizers.',
                       currentStep: 2,
                       totalSteps: 4,
                       child: const Icon(Icons.tune),

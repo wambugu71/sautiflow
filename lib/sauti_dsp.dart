@@ -1,5 +1,6 @@
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
+import 'package:ffi/ffi.dart';
 import 'audio_engine_ffi.dart';
 
 /// Audio Clarity DSP profiles.
@@ -190,12 +191,14 @@ class SautiDsp {
   bool loadImpulseResponse(Float32List samples, int channels) {
     if (_enginePtr == ffi.nullptr || samples.isEmpty) return false;
     final frameCount = samples.length ~/ channels;
-    final ptr = AudioEngineFFI.copyFloatListToNative(samples);
+    final ptr = calloc<ffi.Float>(samples.length);
+    final typedList = ptr.asTypedList(samples.length);
+    typedList.setAll(0, samples);
     try {
       final res = _loadConvolverIr(_enginePtr, ptr, frameCount, channels);
       return res == 1;
     } finally {
-      AudioEngineFFI.freeNative(ptr.cast());
+      calloc.free(ptr);
     }
   }
 

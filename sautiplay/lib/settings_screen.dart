@@ -342,7 +342,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     }
 
-    widget.player.setViperOversampling(oversamplingSaved);
     widget.player.set64BitProcessingEnabled(is64Bit);
     widget.player.setAutoSampleRateMatchEnabled(autoBp);
     widget.player.setLoudnessCrossfadeEnabled(loudnessCf);
@@ -576,7 +575,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 return _buildCategoryCard(
                                   title: 'Equalizer & DSP',
                                   subtitle:
-                                      'Band configuration & ViPER FX shortcuts',
+                                      'Band configuration & Sauti DSP shortcuts',
                                   icon: Icons.tune_rounded,
                                   accentColor: _primary,
                                   badgeText: '$_eqBandCount-Band',
@@ -1280,7 +1279,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 M3EListItem(
                   headline: 'Oversampler',
-                  supportingText: 'Anti-aliasing for ViPER FX & limiters',
+                  supportingText: 'Anti-aliasing for DSP & limiters',
                   leading: _buildLeadingIcon(Icons.blur_on),
                   trailing: SizedBox(
                     width: 150,
@@ -4074,7 +4073,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'DSP Anti-Aliasing Oversampling',
-          subtitle: 'Anti-aliasing oversampling for ViPER FX & limiters',
+          subtitle: 'Anti-aliasing oversampling for DSP & limiters',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4087,7 +4086,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final val = options[index]['factor'] as int;
               setDlgState(() {});
               setState(() => _dspOversampling = val);
-              widget.player.setViperOversampling(val);
               AppStateService.instance.saveDspOversampling(val);
               onDone?.call();
               Navigator.pop(ctx);
@@ -4104,9 +4102,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: val,
                   groupValue: _dspOversampling,
                   onChanged: (v) {
+                    if (v == null) return;
                     setDlgState(() {});
                     setState(() => _dspOversampling = v);
-                    widget.player.setViperOversampling(v);
                     AppStateService.instance.saveDspOversampling(v);
                     onDone?.call();
                     Navigator.pop(ctx);

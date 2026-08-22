@@ -16,7 +16,7 @@ Color get primaryColor => AppThemeService.instance.currentData.primary;
 Color get bgDarkColor => AppThemeService.instance.currentData.bgDark;
 Color get surfaceDarkColor => AppThemeService.instance.currentData.cardDark;
 
-/// Reusable profile selector bar for AppBar, EqScreen & ViperFxScreen.
+/// Reusable profile selector bar for AppBar, EqScreen & SautiDspScreen.
 class AudioProfileSelector extends StatefulWidget {
   final IsolateAudioPlayer player;
   final VoidCallback onProfileChanged;
@@ -76,7 +76,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
     final tuning = await AppStateService.instance.loadAudioTuning();
     final true3d = await AppStateService.instance.loadTrue3d();
     final limiter = await AppStateService.instance.loadLimiter();
-    final viperMap = await AppStateService.instance.loadViperFxState();
+    final dspMap = await AppStateService.instance.loadSautiDspState();
 
     return {
       'eqState': {
@@ -137,7 +137,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
           'releaseMs': limiter.releaseMs
         },
       },
-      'viperFxState': viperMap,
+      'sautiDspState': dspMap,
     };
   }
 
@@ -146,7 +146,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
     final descController = TextEditingController();
     String category = 'Custom';
     bool includeEqAndDsp = true;
-    bool includeViper = true;
+    bool includeSautiDsp = true;
 
     showDialog(
       context: context,
@@ -277,15 +277,15 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                                 children: [
                                   const Expanded(
                                     child: Text(
-                                      'ViPER FX Settings',
+                                      'Sauti DSP Suite Settings',
                                       style: TextStyle(
                                           color: Colors.white, fontSize: 13),
                                     ),
                                   ),
                                   M3ESwitch(
-                                    value: includeViper,
+                                    value: includeSautiDsp,
                                     onChanged: (v) =>
-                                        setDialogState(() => includeViper = v),
+                                        setDialogState(() => includeSautiDsp = v),
                                   ),
                                 ],
                               ),
@@ -319,8 +319,8 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                                 as Map<String, dynamic>? ??
                             {})
                         : <String, dynamic>{};
-                    final viperState = includeViper
-                        ? (currentState['viperFxState']
+                    final sautiDspState = includeSautiDsp
+                        ? (currentState['sautiDspState']
                                 as Map<String, dynamic>? ??
                             {})
                         : <String, dynamic>{};
@@ -337,7 +337,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                       updatedAt: DateTime.now(),
                       eqState: eqState,
                       dspEffectsState: dspState,
-                      viperFxState: viperState,
+                      sautiDspState: sautiDspState,
                     );
 
                     await AudioProfileService.instance.saveProfile(newProfile);

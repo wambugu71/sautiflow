@@ -591,8 +591,6 @@ extern "C"
     AE_API void ae_dsp_set_master_limiter_params(AudioEngineHandle *engine, float ceiling_db, float output_gain_db, float release_ms);
     AE_API float ae_dsp_get_limiter_gain_reduction_db(AudioEngineHandle *engine);
 
-    // Legacy / Compatibility Shims
-    AE_API void ae_viper_set_oversampling(AudioEngineHandle *engine, int factor);
 
     // Native Track Inspection
     typedef struct AETrackInfo

@@ -204,9 +204,9 @@ If you need emulator ABIs (`x86`, `x86_64`), add matching prebuilt curl artifact
 For release/legal packaging, include third-party attributions from
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Credits and Acknowledgements
+## DSP Engine & Architecture
 
-- **ViPER DSP Engine**: The ViPER DSP integration is based on reverse-engineered code. The original intellectual property belongs to Zhuhang and ViPER520 (ViPER4Android). Reverse engineering by [Martmists](https://github.com/Martmists-GH), [Iscle](https://github.com/iscle), and [likelikeslike](https://github.com/likelikeslike) ([AndroidAudioMods/ViPERFX_RE](https://github.com/AndroidAudioMods/ViPERFX_RE)). Please note this specific module carries no standard open source license (All Rights Reserved) and is intended for personal use only.
+- **Sauti DSP Engine**: Built cleanly from the ground up under the MIT license, providing high-fidelity Audio Clarity, Harmonic Bass, Dynamic Transducer Correction, Analog Warmth saturation, Partitioned FFT Impulse Response Convolution, and Master Peak Limiting.
 
 ## Example
 

@@ -7,9 +7,9 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'sauti_dsp_screen.dart';
 import 'services/app_theme_service.dart';
 import 'services/fft_processor.dart';
-import 'viper_fx_screen.dart';
 import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/profile_selector.dart';
 
@@ -660,7 +660,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           unselectedLabelColor: Colors.white54,
                           tabs: [
                             Tab(text: 'Equalizer'),
-                            Tab(text: 'ViPER FX'),
+                            Tab(text: 'Sauti DSP'),
                           ],
                         ),
                       ],
@@ -678,7 +678,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                 analyzerEnabled: widget.analyzerEnabled,
                 analyzerType: widget.analyzerType,
               ),
-              ViperFxScreen(player: widget.player),
+              SautiDspScreen(player: widget.player),
             ],
           ),
         ),

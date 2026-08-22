@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_profile.dart';
 import '../isolate_player.dart';
-import '../viper_fx_screen.dart';
+import '../sauti_dsp_screen.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'app_state_service.dart';
 
 /// Service for managing audio profiles, saving user custom profiles,
@@ -109,7 +110,7 @@ class AudioProfileService {
     }
   }
 
-  /// Resets all built-in DSP effects and ViPER FX to baseline disabled defaults.
+  /// Resets all built-in DSP effects and Sauti DSP Suite to baseline disabled defaults.
   Future<void> resetAllEffects(IsolateAudioPlayer player) async {
     // 1. Send all disable commands to the isolate audio engine ATOMICALLY (0ms latency)
     player.setReverbEnabled(false);
@@ -124,11 +125,16 @@ class AudioProfileService {
     player.setCustomHpf1(enabled: false, cutoffHz: 120.0);
     player.setLimiterEnabled(false);
 
-    // Disable all ViPER FX modules directly in engine
-    player.setViperEnabled(false);
-    player.resetViperAll();
-    await AppStateService.instance.saveViperFxState({'viperEnabled': false});
-    await ViperFxScreen.applySavedStateToEngine(player);
+    // Reset & disable all Sauti DSP Suite modules directly in engine
+    player.resetDsp();
+    player.setClarity(enabled: false);
+    player.setHarmonicBass(enabled: false);
+    player.setDynamicSystem(enabled: false);
+    player.setAnalogWarmth(enabled: false);
+    player.setConvolverEnabled(false);
+    player.setMasterLimiter(enabled: false);
+    await AppStateService.instance.saveSautiDspState({'dspMasterEnabled': false});
+    await SautiDspScreen.applySavedStateToEngine(player);
 
     // 2. Persist baseline disabled state to storage in parallel
     await Future.wait([
@@ -335,38 +341,19 @@ class AudioProfileService {
       }
     }
 
-    // 3. Apply ViPER FX State
-    final cleanViperState = <String, dynamic>{
-      'viperEnabled': profile.viperFxState['viperEnabled'] ?? false,
-      'playbackGainEnabled': false,
-      'lufsEnabled': false,
-      'alcEnabled': false,
-      'stereoImagerEnabled': false,
-      'cureEnabled': false,
-      'headphoneSurroundEnabled': false,
-      'fieldSurroundEnabled': false,
-      'diffSurroundEnabled': false,
-      'reverbEnabled': false,
-      'dynamicSystemEnabled': false,
-      'multibandCompressorEnabled': false,
-      'fetCompressorEnabled': false,
-      'bassEnabled': false,
-      'bassMonoEnabled': false,
-      'psychoBassEnabled': false,
+    // 3. Apply Sauti DSP Suite State
+    final cleanDspState = <String, dynamic>{
+      'dspMasterEnabled': profile.sautiDspState['dspMasterEnabled'] ?? false,
       'clarityEnabled': false,
-      'spectrumEnabled': false,
-      'firEqEnabled': false,
-      'dynamicEqEnabled': false,
-      'iirEqEnabled': false,
-      'tubeEnabled': false,
-      'analogXEnabled': false,
-      'speakerCorrectionEnabled': false,
+      'bassEnabled': false,
+      'dynamicSystemEnabled': false,
+      'analogWarmthEnabled': false,
       'convolverEnabled': false,
-      'ddcEnabled': false,
-      ...profile.viperFxState,
+      'limiterEnabled': false,
+      ...profile.sautiDspState,
     };
-    await AppStateService.instance.saveViperFxState(cleanViperState);
-    await ViperFxScreen.applySavedStateToEngine(player);
+    await AppStateService.instance.saveSautiDspState(cleanDspState);
+    await SautiDspScreen.applySavedStateToEngine(player);
 
     // 4. Save active profile ID & notify listeners
     final prefs = await SharedPreferences.getInstance();
@@ -431,7 +418,7 @@ class AudioProfileService {
           'gains': List<double>.filled(10, 0.0),
         },
         dspEffectsState: {},
-        viperFxState: {'viperEnabled': false},
+        sautiDspState: {'dspMasterEnabled': false},
       ),
       AudioProfile(
         id: 'builtin_basshead',
@@ -450,15 +437,15 @@ class AudioProfileService {
         dspEffectsState: {
           'dynamicBass': {'enabled': false, 'preset': 18, 'gain': 18.0}
         },
-        viperFxState: {
-          'viperEnabled': true,
+        sautiDspState: {
+          'dspMasterEnabled': true,
+          'bassEnabled': true,
+          'bassProfile': HarmonicBassProfile.punchyBass.value,
+          'bassCutoffHz': 80.0,
+          'bassBoost': 0.75,
           'dynamicSystemEnabled': true,
+          'dynamicSystemProfile': TransducerProfile.headphone.value,
           'dynamicSystemStrength': 0.6,
-          'dynPreset': 1,
-          'bassMonoEnabled': true,
-          'bassMonoMode': 1,
-          'bassMonoFreq': 80.0,
-          'bassMonoGain': 0.5,
         },
       ),
       AudioProfile(
@@ -483,11 +470,11 @@ class AudioProfileService {
             'highShelfGainDb': 1.5
           }
         },
-        viperFxState: {
-          'viperEnabled': true,
+        sautiDspState: {
+          'dspMasterEnabled': true,
           'clarityEnabled': true,
-          'clarityMode': 1,
-          'clarityGain': 0.6,
+          'clarityProfile': AudioClarityProfile.presenceExciter.value,
+          'clarityIntensity': 0.6,
         },
       ),
       AudioProfile(
@@ -506,7 +493,12 @@ class AudioProfileService {
           'gains': [5.0, 4.0, 2.0, -1.0, -2.0, -1.0, 1.0, 3.0, 4.0, 5.0],
         },
         dspEffectsState: {},
-        viperFxState: {},
+        sautiDspState: {
+          'dspMasterEnabled': true,
+          'analogWarmthEnabled': true,
+          'analogWarmthProfile': AnalogWarmthProfile.triode12AX7.value,
+          'analogWarmthDrive': 0.45,
+        },
       ),
       AudioProfile(
         id: 'builtin_audiophile',
@@ -526,11 +518,14 @@ class AudioProfileService {
           'crossfeed': {'enabled': true, 'preset': 4},
           'stereoEnhancement': {'enabled': true, 'mix': 0.35},
         },
-        viperFxState: {
-          'viperEnabled': true,
-          'tubeEnabled': false,
-          'analogXEnabled': false,
-          'analogXMode': 1,
+        sautiDspState: {
+          'dspMasterEnabled': true,
+          'analogWarmthEnabled': true,
+          'analogWarmthProfile': AnalogWarmthProfile.vintagePreamp.value,
+          'analogWarmthDrive': 0.35,
+          'clarityEnabled': true,
+          'clarityProfile': AudioClarityProfile.airShelf.value,
+          'clarityIntensity': 0.4,
         },
       ),
       AudioProfile(
@@ -548,16 +543,14 @@ class AudioProfileService {
           'gains': [2.0, 1.0, 0.0, 0.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0],
         },
         dspEffectsState: {},
-        viperFxState: {
-          'viperEnabled': true,
-          'headphoneSurroundEnabled': true,
-          'headphoneSurroundQuality': 1,
+        sautiDspState: {
+          'dspMasterEnabled': true,
           'dynamicSystemEnabled': true,
-          'dynamicSystemStrength': 0.5,
-          'dynPreset': 0,
+          'dynamicSystemProfile': TransducerProfile.highEndReference.value,
+          'dynamicSystemStrength': 0.6,
           'clarityEnabled': true,
-          'clarityMode': 2,
-          'clarityGain': 0.6,
+          'clarityProfile': AudioClarityProfile.harmonicBrilliance.value,
+          'clarityIntensity': 0.5,
         },
       ),
     ];

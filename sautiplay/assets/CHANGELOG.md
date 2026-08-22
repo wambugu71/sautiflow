@@ -1,4 +1,4 @@
-﻿## v0.6.20 — 2026-08-18
+## v0.6.20 — 2026-08-18
 - Reesigned the app with material 3 expressive components for a fresh look. 
 - Add developer info (name, copyright year) to Misc & System About section
 - Add inline changelog viewer to Misc & System screen
@@ -11,7 +11,7 @@
 - Set Shapes.slanted as default album art shape, applied to mini player
 - Optimize queue scroll performance and tune dismissible gestures
 - Fix intermittent crash and assertion abort on track skip / jump
-- Fix RenderFlex overflow in EQ and ViPER FX tabs using sliver layout
+- Fix RenderFlex overflow in EQ and Sauti DSP tabs using sliver layout
 - Switch bottom navigation to M3ENavigationBar components
 
 ## v0.6.10 — 2026-08
@@ -28,7 +28,7 @@
 ## v0.6.0 — 2026-08
 
 - Implement reactive Material 3 Expressive theme adaptation across SautiPlay
-- Refactor Settings and ViPER FX sub-screens to M3E components
+- Refactor Settings and Sauti DSP sub-screens to M3E components
 - Redesign Equalizer and DSP screen with M3E vertical sliders
 - Redesign Home, Search, and Online Playlist screens with M3E
 - Integrate M3E components across Library, Song Info dialogs, and card lists

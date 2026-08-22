@@ -265,7 +265,7 @@ class _AudioEngineDiagnosticPanelState
     final double crossfeedMix = (t['crossfeedMix'] as num?)?.toDouble() ?? 0.0;
     final String crossfeedAlgo =
         _formatCrossfeedAlgo(t['crossfeedAlgo']?.toString(), crossfeedMix);
-    final bool viperOn = t['viperEnabled'] == true;
+    final bool sautiDspOn = t['sautiDspEnabled'] == true;
     final bool limiterOn = t['limiterEnabled'] == true;
     final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
     final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
@@ -280,7 +280,7 @@ class _AudioEngineDiagnosticPanelState
       limiterOn: limiterOn,
       stereoWidenOn: stereoWidenOn,
       stereoEnhanceOn: stereoEnhanceOn,
-      viperOn: viperOn,
+      sautiDspOn: sautiDspOn,
       isSrcActive: (srcRate != dacRate),
       deviceType: specs.deviceType,
     );
@@ -426,8 +426,8 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive: eqOn),
               _buildTelemetryRow('Crossfeed', crossfeedAlgo,
                   isValueActive: crossfeedAlgo != 'OFF'),
-              _buildTelemetryRow('ViPER DSP', viperOn ? 'ON' : 'OFF',
-                  isValueActive: viperOn),
+              _buildTelemetryRow('Sauti DSP', sautiDspOn ? 'ON' : 'OFF',
+                  isValueActive: sautiDspOn),
               _buildTelemetryRow('Limiter', limiterOn ? 'ON' : 'OFF',
                   isValueActive: limiterOn),
               _buildTelemetryRow('Clipping', '$clippedCount samples',
@@ -846,7 +846,7 @@ class _AudioEngineDiagnosticPanelState
     required bool limiterOn,
     required bool stereoWidenOn,
     required bool stereoEnhanceOn,
-    required bool viperOn,
+    required bool sautiDspOn,
     required bool isSrcActive,
     String? deviceType,
   }) {
@@ -866,15 +866,14 @@ class _AudioEngineDiagnosticPanelState
       list.add(_NodeLatencyInfo('${step++}.', 'Crossfeed Node', 0.0, 0.0));
     }
 
-    // 3. ViPER DSP Node (Oversampling FIR & Effects)
-    if (viperOn) {
-      const double viperMs =
-          1.00; // Base polyphase oversampling FIR & FX latency
-      final double samples = viperMs * 0.001 * sampleRate;
+    // 3. Sauti DSP Suite Node (Convolver & Enhancers)
+    if (sautiDspOn) {
+      const double dspMs = 0.50; // Low-latency partitioned convolution & DSP
+      final double samples = dspMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'ViPER DSP (Oversampling & FX)', viperMs, samples));
+          '${step++}.', 'Sauti DSP (Convolver & Suite)', dspMs, samples));
     } else {
-      list.add(_NodeLatencyInfo('${step++}.', 'ViPER DSP Node', 0.0, 0.0));
+      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP Node', 0.0, 0.0));
     }
 
     // 4. Stereo Widen (Haas delay)

@@ -24,17 +24,5 @@ export 'src/mobile_system_audio.dart'
     show MiniAudioSystemAudioConfig, MiniAudioSystemAudioController;
 export 'src/analyzer/audio_analysis_processor.dart'
     show AudioAnalysisProcessor, AudioAnalysisData;
-export 'src/analyzer/spectrum_visualizer_widget.dart'
-    show SpectrumVisualizerWidget, RmsMeterWidget, SpectrumVisualStyle;
-export 'viper_dsp.dart'
-    show
-        ViperDsp,
-        ViperBassMode,
-        ViperClarityMode,
-        ViperAnalogXMode,
-        ViperCureCrossfeedPreset,
-        ViperLufsSpeed,
-        ViperAlcMode,
-        ViperOversamplingFactor,
-        ViperMultibandCompressorBand;
+export 'src/analyzer/spectrum_visualizer_widget.dart';
 export 'sauti_dsp.dart';

@@ -777,17 +777,18 @@ class AppStateService {
     return val;
   }
 
-  // ─── ViPER DSP Settings ───────────────────────────────────────────────────
-  static const _kViperFxState = 'sp_viper_fx_state';
+  // ─── Sauti DSP Suite Settings ─────────────────────────────────────────────
+  static const _kSautiDspState = 'sp_sauti_dsp_state';
+  static const _kViperFxState = 'sp_viper_fx_state'; // Legacy fallback key
 
-  Future<void> saveViperFxState(Map<String, dynamic> state) async {
+  Future<void> saveSautiDspState(Map<String, dynamic> state) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kViperFxState, jsonEncode(state));
+    await prefs.setString(_kSautiDspState, jsonEncode(state));
   }
 
-  Future<Map<String, dynamic>> loadViperFxState() async {
+  Future<Map<String, dynamic>> loadSautiDspState() async {
     final prefs = await SharedPreferences.getInstance();
-    final str = prefs.getString(_kViperFxState);
+    final str = prefs.getString(_kSautiDspState) ?? prefs.getString(_kViperFxState);
     if (str != null && str.isNotEmpty) {
       try {
         return jsonDecode(str) as Map<String, dynamic>;

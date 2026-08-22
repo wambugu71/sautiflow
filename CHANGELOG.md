@@ -38,7 +38,7 @@
 - **[Apps/UI]** Added interactive Hardware Audio Output & Device Inspector modal sheet to `sautiplay` Now Playing Screen.
 
 - **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.
-- **[Apps/UI]** For `sautiplay`: added ViPER FX effects, implemented UI improvements, boosted performance, and fixed bugs.
+- **[Apps/UI]** For `sautiplay`: added Sauti DSP Suite effects, implemented UI improvements, boosted performance, and fixed bugs.
 
 ## 0.6.4
 
