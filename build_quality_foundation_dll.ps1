@@ -13,8 +13,7 @@ $includes = @(
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
     "-Ithird_party/ffmpeg/include",
-    "-IViPERDSP/include",
-    "-IViPERDSP/viper"
+    "-Idsp"
 )
 
 $defines = @(
@@ -37,8 +36,7 @@ $defines = @(
 )
 
 $cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + `
-          (Get-ChildItem -Path "third_party/faad2/libfaad/*.c" | Select-Object -ExpandProperty FullName) + `
-          (Get-ChildItem -Path "ViPERDSP/viper/utils/*.c" | Select-Object -ExpandProperty FullName) + @(
+          (Get-ChildItem -Path "third_party/faad2/libfaad/*.c" | Select-Object -ExpandProperty FullName) + @(
     (Get-Item "third_party/libsoxr/src/soxr.c").FullName,
     (Get-Item "third_party/libsoxr/src/data-io.c").FullName,
     (Get-Item "third_party/libsoxr/src/filter.c").FullName,
@@ -66,10 +64,8 @@ foreach ($f in $cFiles) {
 $cppFiles = @(
     "audio_engine.cpp",
     "mp4_aac_decoder.cpp",
-    "ffmpeg_stream_decoder.cpp",
-    "ViPERDSP/viper/ViPER.cpp"
-) + (Get-ChildItem -Path "ViPERDSP/viper/effects/*.cpp" | Select-Object -ExpandProperty FullName) + `
-    (Get-ChildItem -Path "ViPERDSP/viper/utils/*.cpp" | Select-Object -ExpandProperty FullName)
+    "ffmpeg_stream_decoder.cpp"
+)
 
 Write-Host "Compiling C++ files..."
 foreach ($f in $cppFiles) {

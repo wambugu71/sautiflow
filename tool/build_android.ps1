@@ -24,16 +24,13 @@ New-Item -ItemType Directory -Force -Path "build\android" | Out-Null
 
 $includes = @(
     "-I.",
+    "-Idsp",
     "-Ithird_party",
     "-Ithird_party/faad2/include",
     "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
-    "-Ithird_party/libsoxr/src",
-    "-IViPERDSP/include",
-    "-IViPERDSP/viper",
-    "-IViPERDSP/viper/effects",
-    "-IViPERDSP/viper/utils"
+    "-Ithird_party/libsoxr/src"
 )
 
 $defines = @(
@@ -73,7 +70,7 @@ $soxrSources = @(
 $allSources = @(
     "audio_engine.cpp",
     "mp4_aac_decoder.cpp"
-) + (Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c", "ViPERDSP/viper/*.cpp", "ViPERDSP/viper/effects/*.cpp", "ViPERDSP/viper/utils/*.cpp", "ViPERDSP/viper/utils/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
+) + (Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
 
 foreach ($t in $targets) {
     $abi = $t.Abi

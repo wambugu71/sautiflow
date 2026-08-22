@@ -36,5 +36,5 @@ export 'viper_dsp.dart'
         ViperLufsSpeed,
         ViperAlcMode,
         ViperOversamplingFactor,
-        ViperMultibandCompressorBand,
-        ViperDynamicEqBand;
+        ViperMultibandCompressorBand;
+export 'sauti_dsp.dart';

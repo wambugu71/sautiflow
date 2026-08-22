@@ -34,7 +34,12 @@
 #include <soxr.h>
 #include "mp4_aac_decoder.h"
 #include "ffmpeg_stream_decoder.h"
-#include "ViPERDSP/viper/ViPER.h"
+#include "dsp/clarity_dsp.h"
+#include "dsp/dynamic_bass_dsp.h"
+#include "dsp/dynamic_system_dsp.h"
+#include "dsp/analog_warmth_dsp.h"
+#include "dsp/fft_convolver_dsp.h"
+#include "dsp/master_limiter_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2900,10 +2905,15 @@ struct AudioEngineHandle
     bool multibandFxEnabled = false;
     std::vector<FxBand> multibandFxBands;
 
-    // ViPER DSP Engine
-    bool viperEnabled = false;
-    std::mutex viperMutex;
-    ViPER viper;
+    // Native Clean-Room Audio DSP Suite
+    sauti::dsp::AudioClarityDSP clarityDsp;
+    sauti::dsp::HarmonicBassDSP harmonicBassDsp;
+    sauti::dsp::DynamicSystemDSP dynamicSystemDsp;
+    sauti::dsp::AnalogWarmthDSP analogWarmthDsp;
+    sauti::dsp::FFTConvolverDSP fftConvolverDsp;
+    sauti::dsp::MasterLimiterDSP masterLimiterDsp;
+    std::mutex dspMutex;
+    bool legacyViperMasterEnabled = false;
 
     std::atomic<bool> analyzerEnabled{false};
     int analyzerFrameSize = 512;
@@ -3131,7 +3141,6 @@ struct AudioEngineHandle
     std::vector<float> conversionBuffer;
 
     // Pre-allocated scratch buffers for audio thread to avoid real-time heap allocations
-    std::vector<float> viperScratchBuffer;
     std::vector<float> crossfadeMixBuffer;
 
     std::mutex errorMutex;
@@ -3280,6 +3289,14 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
 
     e->stereoEnhancement.refresh((int)sampleRate);
     e->crystalizer.init((int)sampleRate);
+
+    const float srF = (float)sampleRate;
+    e->clarityDsp.setSampleRate(srF);
+    e->harmonicBassDsp.setSampleRate(srF);
+    e->dynamicSystemDsp.setSampleRate(srF);
+    e->analogWarmthDsp.setSampleRate(srF);
+    e->fftConvolverDsp.setSampleRate(srF);
+    e->masterLimiterDsp.setSampleRate(srF);
 }
 
 static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
@@ -3374,10 +3391,15 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->crystalizer.init(sr);
     }
 
-    if (e->viperEnabled)
     {
-        std::lock_guard<std::mutex> lock(e->viperMutex);
-        e->viper.SetSamplingRate(sr);
+        std::lock_guard<std::mutex> lock(e->dspMutex);
+        const float srF = (float)sr;
+        e->clarityDsp.setSampleRate(srF);
+        e->harmonicBassDsp.setSampleRate(srF);
+        e->dynamicSystemDsp.setSampleRate(srF);
+        e->analogWarmthDsp.setSampleRate(srF);
+        e->fftConvolverDsp.setSampleRate(srF);
+        e->masterLimiterDsp.setSampleRate(srF);
     }
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
@@ -4796,54 +4818,15 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (e->reverbEnabled)
                 e->reverb.process(processBuffer, produced, e->channels);
 
-            if (e->viperEnabled)
+            // Native Clean-Room Audio DSP Suite
+            if (e->channels >= 2)
             {
-                std::lock_guard<std::mutex> lock(e->viperMutex);
-                size_t neededStereoSamples = (size_t)produced * 2;
-                if (e->viperScratchBuffer.size() < neededStereoSamples)
-                {
-                    neededStereoSamples = e->viperScratchBuffer.size();
-                }
-                float *vBuf = e->viperScratchBuffer.data();
-
-                if (e->channels == 2)
-                {
-                    std::memcpy(vBuf, processBuffer, neededStereoSamples * sizeof(float));
-                    e->viper.Process(e->viperScratchBuffer, produced);
-                    std::memcpy(processBuffer, vBuf, neededStereoSamples * sizeof(float));
-                }
-                else if (e->channels == 1)
-                {
-                    // Mono -> Stereo Upmix for ViPER DSP -> Mono Downmix back
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        float mono = processBuffer[i];
-                        vBuf[i * 2]     = mono;
-                        vBuf[i * 2 + 1] = mono;
-                    }
-                    e->viper.Process(e->viperScratchBuffer, produced);
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        processBuffer[i] = (vBuf[i * 2] + vBuf[i * 2 + 1]) * 0.5f;
-                    }
-                }
-                else if (e->channels > 2)
-                {
-                    // Multi-channel (>2): Extract L/R (ch 0 & 1) for ViPER, keep surround channels intact
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        size_t base = (size_t)i * (size_t)e->channels;
-                        vBuf[i * 2]     = processBuffer[base];
-                        vBuf[i * 2 + 1] = processBuffer[base + 1];
-                    }
-                    e->viper.Process(e->viperScratchBuffer, produced);
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        size_t base = (size_t)i * (size_t)e->channels;
-                        processBuffer[base]     = vBuf[i * 2];
-                        processBuffer[base + 1] = vBuf[i * 2 + 1];
-                    }
-                }
+                e->harmonicBassDsp.process(processBuffer, produced);
+                e->dynamicSystemDsp.process(processBuffer, produced);
+                e->analogWarmthDsp.process(processBuffer, produced);
+                e->clarityDsp.process(processBuffer, produced);
+                e->fftConvolverDsp.process(processBuffer, produced);
+                e->masterLimiterDsp.process(processBuffer, produced);
             }
 
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
@@ -5024,7 +5007,6 @@ extern "C"
         // Pre-allocate real-time scratch buffers to eliminate heap allocations inside data_callback
         const size_t preallocSamples = 262144; // 256K floats (~1MB)
         e->conversionBuffer.resize(preallocSamples);
-        e->viperScratchBuffer.resize(preallocSamples);
         e->crossfadeMixBuffer.resize(preallocSamples);
         e->engineProcessBuffer.resize(preallocSamples);
 
@@ -8517,418 +8499,373 @@ extern "C"
     }
 
     // ==========================================
-    // ViPER DSP Integration Implementation
+    // Native Clean-Room Audio DSP Suite Implementation
+    // ==========================================
+
+    // Audio Clarity Engine
+    AE_API void ae_dsp_set_clarity_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_clarity_params(AudioEngineHandle *engine, int profile, float intensity)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.setProfile(static_cast<sauti::dsp::AudioClarityProfile>(profile));
+        engine->clarityDsp.setIntensity(intensity);
+    }
+
+    // Harmonic Bass Engine
+    AE_API void ae_dsp_set_bass_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_bass_params(AudioEngineHandle *engine, int profile, float cutoff_hz, float boost)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setProfile(static_cast<sauti::dsp::BassEnhanceProfile>(profile));
+        engine->harmonicBassDsp.setCutoffFrequency(cutoff_hz);
+        engine->harmonicBassDsp.setBoost(boost);
+    }
+
+    // Dynamic Transducer System
+    AE_API void ae_dsp_set_dynamic_system_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicSystemDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_dynamic_system_params(AudioEngineHandle *engine, int profile, float strength)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicSystemDsp.setProfile(static_cast<sauti::dsp::TransducerProfile>(profile));
+        engine->dynamicSystemDsp.setStrength(strength);
+    }
+
+    // Analog Warmth (Tube & Tape Saturation)
+    AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->analogWarmthDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_analog_warmth_params(AudioEngineHandle *engine, int profile, float drive)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->analogWarmthDsp.setProfile(static_cast<sauti::dsp::AnalogWarmthProfile>(profile));
+        engine->analogWarmthDsp.setDrive(drive);
+    }
+
+    // Master DSP Reset
+    AE_API void ae_dsp_reset(AudioEngineHandle *engine)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.reset();
+        engine->harmonicBassDsp.reset();
+        engine->dynamicSystemDsp.reset();
+        engine->analogWarmthDsp.reset();
+        engine->fftConvolverDsp.reset();
+        engine->masterLimiterDsp.reset();
+    }
+
+    // FFT Impulse Response Convolver
+    AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->fftConvolverDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_load_convolver_ir(AudioEngineHandle *engine, const float *samples, int frame_count, int channels)
+    {
+        if (!engine) return 0;
+        return engine->fftConvolverDsp.loadImpulseResponse(samples, frame_count, channels) ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_clear_convolver_ir(AudioEngineHandle *engine)
+    {
+        if (!engine) return;
+        engine->fftConvolverDsp.clearImpulseResponse();
+    }
+
+    AE_API void ae_dsp_set_convolver_mix(AudioEngineHandle *engine, float wet, float dry)
+    {
+        if (!engine) return;
+        engine->fftConvolverDsp.setWetLevel(wet);
+        engine->fftConvolverDsp.setDryLevel(dry);
+    }
+
+    AE_API int ae_dsp_has_convolver_ir(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        return engine->fftConvolverDsp.hasImpulseResponse() ? 1 : 0;
+    }
+
+    AE_API int ae_dsp_get_convolver_kernel_length(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        return (int)engine->fftConvolverDsp.getKernelLength();
+    }
+
+    // Master Peak Limiter & Output Level
+    AE_API void ae_dsp_set_master_limiter_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->masterLimiterDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_master_limiter_params(AudioEngineHandle *engine, float ceiling_db, float output_gain_db, float release_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->masterLimiterDsp.setCeilingDb(ceiling_db);
+        engine->masterLimiterDsp.setOutputGainDb(output_gain_db);
+        engine->masterLimiterDsp.setReleaseMs(release_ms);
+    }
+
+    AE_API float ae_dsp_get_limiter_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        return engine->masterLimiterDsp.getCurrentGainReductionDb();
+    }
+
+    // ==========================================
+    // Backward Compatibility Shims for Legacy FFI Callers
     // ==========================================
 
     AE_API void ae_viper_set_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viperEnabled = (enabled != 0);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->legacyViperMasterEnabled = (enabled != 0);
     }
 
     AE_API void ae_viper_set_sampling_rate(AudioEngineHandle *engine, int sample_rate)
     {
-        if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.SetSamplingRate(sample_rate);
+        if (!engine || sample_rate <= 0) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        const float sr = static_cast<float>(sample_rate);
+        engine->clarityDsp.setSampleRate(sr);
+        engine->harmonicBassDsp.setSampleRate(sr);
+        engine->dynamicSystemDsp.setSampleRate(sr);
+        engine->analogWarmthDsp.setSampleRate(sr);
+        engine->fftConvolverDsp.setSampleRate(sr);
+        engine->masterLimiterDsp.setSampleRate(sr);
     }
 
     AE_API void ae_viper_reset(AudioEngineHandle *engine)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ResetAllEffects();
-        engine->viper.ResetBuffers();
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.reset();
+        engine->harmonicBassDsp.reset();
+        engine->dynamicSystemDsp.reset();
+        engine->analogWarmthDsp.reset();
+        engine->fftConvolverDsp.reset();
+        engine->masterLimiterDsp.reset();
     }
 
     AE_API void ae_viper_master_limiter(AudioEngineHandle *engine, float threshold, float output_volume, float channel_pan)
     {
         if (!engine) return;
-        viper::MasterLimiterParams p;
-        p.threshold = threshold;
-        p.output_volume = output_volume;
-        p.channel_pan = channel_pan;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyMasterLimiter(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        float ceiling_db = (threshold <= 0.0f) ? -0.1f : (20.0f * std::log10(std::clamp(threshold, 0.01f, 1.0f)));
+        float gain_db = (output_volume <= 0.0f) ? 0.0f : (20.0f * std::log10(std::clamp(output_volume, 0.01f, 2.0f)));
+        engine->masterLimiterDsp.setCeilingDb(ceiling_db);
+        engine->masterLimiterDsp.setOutputGainDb(gain_db);
+        engine->pan.store(channel_pan, std::memory_order_relaxed);
     }
 
     AE_API void ae_viper_playback_gain(AudioEngineHandle *engine, int enable, float strength, float max_gain, float output_threshold)
     {
-        if (!engine) return;
-        viper::PlaybackGainControlParams p;
-        p.enable = enable;
-        p.strength = strength;
-        p.max_gain = max_gain;
-        p.output_threshold = output_threshold;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyPlaybackGainControl(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_lufs(AudioEngineHandle *engine, int enable, float target, float max_gain_db, int speed)
     {
-        if (!engine) return;
-        viper::LufsParams p;
-        p.enable = enable;
-        p.target = target;
-        p.max_gain = max_gain_db;
-        p.speed = speed;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyLufs(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_fet_compressor(AudioEngineHandle *engine, int enable, float threshold, float ratio, float knee, int knee_auto, float gain, int gain_auto, float attack, int attack_auto, float release, int release_auto, float knee_multi, float max_attack, float max_release, float crest, float adapt, int no_clip)
     {
-        if (!engine) return;
-        viper::FetCompressorParams p;
-        p.enable = enable;
-        p.threshold = threshold;
-        p.ratio = ratio;
-        p.knee = knee;
-        p.knee_auto = knee_auto;
-        p.gain = gain;
-        p.gain_auto = gain_auto;
-        p.attack = attack;
-        p.attack_auto = attack_auto;
-        p.release = release;
-        p.release_auto = release_auto;
-        p.knee_multi = knee_multi;
-        p.max_attack = max_attack;
-        p.max_release = max_release;
-        p.crest = crest;
-        p.adapt = adapt;
-        p.no_clip = no_clip;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyFetCompressor(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_bass(AudioEngineHandle *engine, int enable, int mode, int frequency_hz, float gain, int anti_pop)
     {
         if (!engine) return;
-        viper::BassParams p;
-        p.enable = enable;
-        p.mode = mode;
-        p.frequency = (uint32_t)frequency_hz;
-        p.gain = gain;
-        p.anti_pop = anti_pop;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyBass(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setEnabled(enable != 0);
+        int profile = (mode == 0) ? 0 : ((mode == 1) ? 1 : 2);
+        engine->harmonicBassDsp.setProfile(static_cast<sauti::dsp::BassEnhanceProfile>(profile));
+        engine->harmonicBassDsp.setCutoffFrequency(static_cast<float>(frequency_hz));
+        engine->harmonicBassDsp.setBoost(gain);
     }
 
     AE_API void ae_viper_bass_mono(AudioEngineHandle *engine, int enable, int mode, int frequency_hz, float gain, int anti_pop)
     {
-        if (!engine) return;
-        viper::BassMonoParams p;
-        p.enable = enable;
-        p.mode = mode;
-        p.frequency = (uint32_t)frequency_hz;
-        p.gain = gain;
-        p.anti_pop = anti_pop;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyBassMono(p);
+        ae_viper_bass(engine, enable, mode, frequency_hz, gain, anti_pop);
     }
 
     AE_API void ae_viper_psychoacoustic_bass(AudioEngineHandle *engine, int enable, int cutoff_hz, int intensity, int harmonic_order, int original_level)
     {
         if (!engine) return;
-        viper::PsychoacousticBassParams p;
-        p.enable = enable;
-        p.cutoff = (uint32_t)cutoff_hz;
-        p.intensity = (uint32_t)intensity;
-        p.harmonic_order = (uint32_t)harmonic_order;
-        p.original_level = (uint32_t)original_level;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyPsychoacousticBass(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setEnabled(enable != 0);
+        engine->harmonicBassDsp.setProfile(sauti::dsp::BassEnhanceProfile::HarmonicExciter);
+        engine->harmonicBassDsp.setCutoffFrequency(static_cast<float>(cutoff_hz));
+        engine->harmonicBassDsp.setBoost(static_cast<float>(intensity) / 100.0f);
     }
 
     AE_API void ae_viper_spectrum_extension(AudioEngineHandle *engine, int enable, int strength, float exciter)
     {
         if (!engine) return;
-        viper::SpectrumExtensionParams p;
-        p.enable = enable;
-        p.strength = strength;
-        p.exciter = exciter;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplySpectrumExtension(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.setEnabled(enable != 0);
+        engine->clarityDsp.setProfile(sauti::dsp::AudioClarityProfile::HarmonicBrilliance);
+        engine->clarityDsp.setIntensity(exciter);
     }
 
     AE_API void ae_viper_equalizer(AudioEngineHandle *engine, int enable, int band_count, const float *band_levels)
     {
-        if (!engine) return;
-        viper::EqualizerParams p;
-        p.enable = enable;
-        p.band_count = band_count;
-        if (band_levels) {
-            int count = (band_count > 31) ? 31 : band_count;
-            for(int i=0; i<count; i++) p.band_levels[i] = band_levels[i];
-        }
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyEqualizer(p);
+        // Handled by native multi-band EQ
     }
 
     AE_API void ae_viper_convolver(AudioEngineHandle *engine, int enable, float cross_channel)
     {
         if (!engine) return;
-        viper::ConvolverParams p;
-        p.enable = enable;
-        p.cross_channel = cross_channel;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyConvolver(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->fftConvolverDsp.setEnabled(enable != 0);
     }
 
     AE_API int ae_viper_load_convolver_kernel(AudioEngineHandle *engine, const float *samples, int frame_count, int channels, int kernel_id)
     {
-        if (!engine || !samples) return 0;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        auto result = engine->viper.LoadConvolverKernel(samples, frame_count, channels, kernel_id);
-        return result.value_or(0);
+        if (!engine) return 0;
+        return engine->fftConvolverDsp.loadImpulseResponse(samples, frame_count, channels) ? 1 : 0;
     }
 
     AE_API void ae_viper_unload_convolver_kernel(AudioEngineHandle *engine)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.UnloadConvolverKernel();
+        engine->fftConvolverDsp.clearImpulseResponse();
     }
 
     AE_API void ae_viper_ddc(AudioEngineHandle *engine, int enable)
     {
-        if (!engine) return;
-        viper::DdcParams p;
-        p.enable = enable;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyDdc(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_load_ddc_coefficients(AudioEngineHandle *engine, const float *sections44100, const float *sections48000, int section_count)
     {
-        if (!engine || !sections44100 || !sections48000) return;
-        std::vector<viper::BiquadSection> s44;
-        std::vector<viper::BiquadSection> s48;
-        for(int i=0; i<section_count; i++) {
-            viper::BiquadSection sec;
-            sec[0] = sections44100[i*5+0];
-            sec[1] = sections44100[i*5+1];
-            sec[2] = sections44100[i*5+2];
-            sec[3] = sections44100[i*5+3];
-            sec[4] = sections44100[i*5+4];
-            s44.push_back(sec);
-            
-            viper::BiquadSection sec2;
-            sec2[0] = sections48000[i*5+0];
-            sec2[1] = sections48000[i*5+1];
-            sec2[2] = sections48000[i*5+2];
-            sec2[3] = sections48000[i*5+3];
-            sec2[4] = sections48000[i*5+4];
-            s48.push_back(sec2);
-        }
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.LoadDdcCoefficients(s44.data(), s48.data(), section_count);
+        // Safe no-op
     }
 
     AE_API void ae_viper_field_surround(AudioEngineHandle *engine, int enable, float widening, float mid_image, int depth)
     {
         if (!engine) return;
-        viper::FieldSurroundParams p;
-        p.enable = enable;
-        p.widening = widening;
-        p.mid_image = mid_image;
-        p.depth = depth;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyFieldSurround(p);
+        engine->stereoWidenEnabled = (enable != 0);
+        engine->stereoWiden.updateParams(engine->sampleRate, widening, 15.0f);
     }
 
     AE_API void ae_viper_diff_surround(AudioEngineHandle *engine, int enable, float delay, int reverse, float wet_dry_mix, float lp_cutoff_hz)
     {
-        if (!engine) return;
-        viper::DiffSurroundParams p;
-        p.enable = enable;
-        p.delay = delay;
-        p.reverse = reverse;
-        p.wet_dry_mix = wet_dry_mix;
-        p.lp_cutoff = lp_cutoff_hz;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyDiffSurround(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_stereo_imager(AudioEngineHandle *engine, int enable, float low_width, float mid_width, float high_width, float low_crossover_hz, float high_crossover_hz)
     {
-        if (!engine) return;
-        viper::StereoImagerParams p;
-        p.enable = enable;
-        p.low_width = low_width;
-        p.mid_width = mid_width;
-        p.high_width = high_width;
-        p.low_crossover = low_crossover_hz;
-        p.high_crossover = high_crossover_hz;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyStereoImager(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_headphone_surround(AudioEngineHandle *engine, int enable, int quality)
     {
         if (!engine) return;
-        viper::HeadphoneSurroundParams p;
-        p.enable = enable;
-        p.quality = quality;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyHeadphoneSurround(p);
+        engine->crossfeedEnabled = (enable != 0);
     }
 
     AE_API void ae_viper_reverb(AudioEngineHandle *engine, int enable, float room_size, float width, float damp, float wet, float dry)
     {
-        if (!engine) return;
-        viper::ReverbParams p;
-        p.enable = enable;
-        p.room_size = room_size;
-        p.width = width;
-        p.damp = damp;
-        p.wet = wet;
-        p.dry = dry;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyReverb(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_dynamic_system(AudioEngineHandle *engine, int enable, int x_coeff_low, int x_coeff_high, int y_coeff_low, int y_coeff_high, float side_gain_low, float side_gain_high, float strength)
     {
         if (!engine) return;
-        viper::DynamicSystemParams p;
-        p.enable = enable;
-        p.x_coeff_low = x_coeff_low;
-        p.x_coeff_high = x_coeff_high;
-        p.y_coeff_low = y_coeff_low;
-        p.y_coeff_high = y_coeff_high;
-        p.side_gain_low = side_gain_low;
-        p.side_gain_high = side_gain_high;
-        p.strength = strength;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyDynamicSystem(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicSystemDsp.setEnabled(enable != 0);
+        engine->dynamicSystemDsp.setStrength(strength);
     }
 
     AE_API void ae_viper_clarity(AudioEngineHandle *engine, int enable, int mode, float gain)
     {
         if (!engine) return;
-        viper::ClarityParams p;
-        p.enable = enable;
-        p.mode = mode;
-        p.gain = gain;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyClarity(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.setEnabled(enable != 0);
+        int profile = (mode == 1) ? 1 : ((mode == 2) ? 2 : 0);
+        engine->clarityDsp.setProfile(static_cast<sauti::dsp::AudioClarityProfile>(profile));
+        engine->clarityDsp.setIntensity(gain);
     }
 
     AE_API void ae_viper_cure(AudioEngineHandle *engine, int enable, int crossfeed_preset)
     {
         if (!engine) return;
-        viper::CureParams p;
-        p.enable = enable;
-        p.crossfeed_preset = crossfeed_preset;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyCure(p);
+        engine->crossfeedEnabled = (enable != 0);
+        engine->crossfeedPreset = crossfeed_preset;
     }
 
     AE_API void ae_viper_tube_simulator(AudioEngineHandle *engine, int enable)
     {
         if (!engine) return;
-        viper::TubeSimulatorParams p;
-        p.enable = enable;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyTubeSimulator(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->analogWarmthDsp.setEnabled(enable != 0);
+        engine->analogWarmthDsp.setProfile(sauti::dsp::AnalogWarmthProfile::Triode12AX7);
     }
 
     AE_API void ae_viper_analog_x(AudioEngineHandle *engine, int enable, int mode)
     {
         if (!engine) return;
-        viper::AnalogXParams p;
-        p.enable = enable;
-        p.mode = mode;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyAnalogX(p);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->analogWarmthDsp.setEnabled(enable != 0);
+        int profile = (mode == 1) ? 1 : ((mode == 2) ? 2 : 0);
+        engine->analogWarmthDsp.setProfile(static_cast<sauti::dsp::AnalogWarmthProfile>(profile));
     }
 
     AE_API void ae_viper_speaker_correction(AudioEngineHandle *engine, int enable)
     {
-        if (!engine) return;
-        viper::SpeakerCorrectionParams p;
-        p.enable = enable;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplySpeakerCorrection(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_multiband_compressor(AudioEngineHandle *engine, int enable, int band_count, const float *crossover_freqs, const float *band_params)
     {
-        if (!engine) return;
-        viper::MultibandCompressorParams p;
-        p.enable = enable;
-        p.band_count = band_count;
-        if (crossover_freqs && band_params) {
-            for(int i=0; i<4; i++) p.crossover_frequencies[i] = crossover_freqs[i];
-            int count = (band_count > 5) ? 5 : band_count;
-            for(int i=0; i<count; i++) {
-                p.bands[i].enable = (band_params[i*17+0] != 0.0f);
-                p.bands[i].threshold = band_params[i*17+1];
-                p.bands[i].ratio = band_params[i*17+2];
-                p.bands[i].knee = band_params[i*17+3];
-                p.bands[i].knee_auto = (band_params[i*17+4] != 0.0f);
-                p.bands[i].gain = band_params[i*17+5];
-                p.bands[i].gain_auto = (band_params[i*17+6] != 0.0f);
-                p.bands[i].attack = band_params[i*17+7];
-                p.bands[i].attack_auto = (band_params[i*17+8] != 0.0f);
-                p.bands[i].release = band_params[i*17+9];
-                p.bands[i].release_auto = (band_params[i*17+10] != 0.0f);
-                p.bands[i].knee_multi = band_params[i*17+11];
-                p.bands[i].max_attack = band_params[i*17+12];
-                p.bands[i].max_release = band_params[i*17+13];
-                p.bands[i].crest = band_params[i*17+14];
-                p.bands[i].adapt = band_params[i*17+15];
-                p.bands[i].no_clip = (band_params[i*17+16] != 0.0f);
-            }
-        }
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyMultibandCompressor(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_dynamic_eq(AudioEngineHandle *engine, int enable, int band_count, const float *band_params)
     {
-        if (!engine) return;
-        viper::DynamicEqParams p;
-        p.enable = enable;
-        p.band_count = band_count;
-        if (band_params) {
-            int count = (band_count > 8) ? 8 : band_count;
-            for(int i=0; i<count; i++) {
-                p.bands[i].frequency = band_params[i*7+0];
-                p.bands[i].q = band_params[i*7+1];
-                p.bands[i].gain = band_params[i*7+2];
-                p.bands[i].threshold = band_params[i*7+3];
-                p.bands[i].attack = band_params[i*7+4];
-                p.bands[i].release = band_params[i*7+5];
-                p.bands[i].filter_type = (int)band_params[i*7+6];
-            }
-        }
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyDynamicEq(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_adaptive_loudness(AudioEngineHandle *engine, int enable, int mode, float strength, float attenuation_db)
     {
-        if (!engine) return;
-        viper::AdaptiveLoudnessParams p;
-        p.enable = (enable != 0);
-        p.mode = mode;
-        p.strength = strength;
-        p.attenuation_db = attenuation_db;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        engine->viper.ApplyAdaptiveLoudness(p);
+        // Safe no-op
     }
 
     AE_API void ae_viper_set_oversampling(AudioEngineHandle *engine, int factor)
     {
-        if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->viperMutex);
-        // Oversampling factor: 1 (off/1x), 2 (2x), 4 (4x)
-        if (factor == 1 || factor == 2 || factor == 4) {
-            engine->viper.SetOversamplingFactor(factor);
-        }
+        // Safe no-op
     }
 
     AE_API AETrackInfo ae_inspect_file(const char *file_path)

@@ -23,18 +23,10 @@ set(LIBSOXR_SOURCES
   "../third_party/libsoxr/src/vr-coefs.c"
   "../third_party/libsoxr/src/util32s.c"
 )
-file(GLOB VIPER_EFFECT_SRCS
-  "../ViPERDSP/viper/ViPER.cpp"
-  "../ViPERDSP/viper/effects/*.cpp"
-  "../ViPERDSP/viper/utils/*.cpp"
-  "../ViPERDSP/viper/utils/*.c"
-)
-
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../mp4_aac_decoder.cpp
   ../ffmpeg_stream_decoder.cpp
-  ${VIPER_EFFECT_SRCS}
   ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
   ${LIBSOXR_SOURCES}
@@ -42,6 +34,7 @@ add_library(audio_engine SHARED
 
 target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../dsp
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/libfaad
@@ -49,10 +42,6 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/src
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper
-  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/effects
-  ${CMAKE_CURRENT_SOURCE_DIR}/../ViPERDSP/viper/utils
 )
 
 target_compile_definitions(audio_engine PRIVATE

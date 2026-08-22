@@ -555,7 +555,43 @@ extern "C"
     AE_API uint64_t ae_resampler_get_input_latency(AEResampler *resampler);
     AE_API uint64_t ae_resampler_get_output_latency(AEResampler *resampler);
 
-    // ViPER DSP Oversampling
+    // ==========================================
+    // Native Clean-Room Audio DSP Suite
+    // ==========================================
+
+    // Audio Clarity Engine (0=TransientCrisp, 1=AirShelf, 2=PresenceExciter, 3=HarmonicBrilliance)
+    AE_API void ae_dsp_set_clarity_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_clarity_params(AudioEngineHandle *engine, int profile, float intensity);
+
+    // Harmonic Bass Engine (0=SubBassResonant, 1=PunchyBass, 2=HarmonicExciter, 3=PultecDeep)
+    AE_API void ae_dsp_set_bass_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_bass_params(AudioEngineHandle *engine, int profile, float cutoff_hz, float boost);
+
+    // Dynamic Transducer System (0=Earphone, 1=Headphone, 2=HighEndReference, 3=SpeakerMonitor)
+    AE_API void ae_dsp_set_dynamic_system_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_dynamic_system_params(AudioEngineHandle *engine, int profile, float strength);
+
+    // Analog Warmth (0=Triode12AX7, 1=MagneticTape, 2=VintagePreamp)
+    AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_analog_warmth_params(AudioEngineHandle *engine, int profile, float drive);
+
+    // Master DSP Reset
+    AE_API void ae_dsp_reset(AudioEngineHandle *engine);
+
+    // FFT Impulse Response Convolver
+    AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int ae_dsp_load_convolver_ir(AudioEngineHandle *engine, const float *samples, int frame_count, int channels);
+    AE_API void ae_dsp_clear_convolver_ir(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_convolver_mix(AudioEngineHandle *engine, float wet, float dry);
+    AE_API int ae_dsp_has_convolver_ir(AudioEngineHandle *engine);
+    AE_API int ae_dsp_get_convolver_kernel_length(AudioEngineHandle *engine);
+
+    // Master Peak Limiter & Output Level
+    AE_API void ae_dsp_set_master_limiter_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_master_limiter_params(AudioEngineHandle *engine, float ceiling_db, float output_gain_db, float release_ms);
+    AE_API float ae_dsp_get_limiter_gain_reduction_db(AudioEngineHandle *engine);
+
+    // Legacy / Compatibility Shims
     AE_API void ae_viper_set_oversampling(AudioEngineHandle *engine, int factor);
 
     // Native Track Inspection

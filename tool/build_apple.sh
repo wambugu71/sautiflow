@@ -13,12 +13,12 @@ else
   echo "libcurl not found: building without native URL byte-streaming"
 fi
 
-INCLUDES="-I. -Inative/apple/include -Ithird_party -Ithird_party/ffmpeg/include -Ithird_party/faad2/include -Ithird_party/faad2/libfaad -Ithird_party/libsamplerate/include -Ithird_party/libsoxr/include -Ithird_party/libsoxr/src -IViPERDSP/include -IViPERDSP/viper -IViPERDSP/viper/effects -IViPERDSP/viper/utils"
+INCLUDES="-I. -Idsp -Inative/apple/include -Ithird_party -Ithird_party/ffmpeg/include -Ithird_party/faad2/include -Ithird_party/faad2/libfaad -Ithird_party/libsamplerate/include -Ithird_party/libsoxr/include -Ithird_party/libsoxr/src"
 
 DEFINES="-DHAVE_INTTYPES_H=1 -DHAVE_MEMCPY=1 -DHAVE_STRING_H=1 -DHAVE_STDBOOL_H=1 -DHAVE_STRINGS_H=1 -DHAVE_SYS_TYPES_H=1 -DPACKAGE=\"libsamplerate\" -DVERSION=\"0.2.2\" -DPACKAGE_VERSION=\"2.11.1\" -DENABLE_SINC_BEST_CONVERTER=1 -DENABLE_SINC_MEDIUM_CONVERTER=1 -DENABLE_SINC_FAST_CONVERTER=1 -DMA_NO_ASSERT -DMA_DR_WAV_NO_ASSERT -DMA_DR_FLAC_NO_ASSERT -DMA_DR_MP3_NO_ASSERT -DSOXR_LIB=1 -DSAUTIFLOW_ENABLE_FFMPEG=1"
 
-C_SRCS=$(find third_party/faad2/libfaad third_party/libsamplerate/src third_party/libsoxr/src ViPERDSP/viper/utils -name "*.c" 2>/dev/null || true)
-CPP_SRCS="audio_engine.cpp mp4_aac_decoder.cpp ffmpeg_stream_decoder.cpp $(find ViPERDSP/viper -name "*.cpp" 2>/dev/null || true)"
+C_SRCS=$(find third_party/faad2/libfaad third_party/libsamplerate/src third_party/libsoxr/src -name "*.c" 2>/dev/null || true)
+CPP_SRCS="audio_engine.cpp mp4_aac_decoder.cpp ffmpeg_stream_decoder.cpp"
 
 echo "Building iOS device static library..."
 for src in $C_SRCS; do
