@@ -7,7 +7,6 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
-import 'sauti_dsp_screen.dart';
 import 'services/app_theme_service.dart';
 import 'services/fft_processor.dart';
 import 'widgets/glsl_audio_visualizer.dart';
@@ -342,7 +341,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
     const double controlBarHeight = 44.0;
     const double titleBarHeight = 50.0;
-    const double tabBarHeight = 48.0;
     const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
     final double expandedHeight = topPadding +
@@ -350,13 +348,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
         controlBarHeight +
         analyzerChartHeight +
         spectrumHeight +
-        dragHandleHeight +
-        tabBarHeight;
+        dragHandleHeight;
     final double collapsedHeight = topPadding +
         titleBarHeight +
         controlBarHeight +
-        dragHandleHeight +
-        tabBarHeight;
+        dragHandleHeight;
 
     // Helper to get active visualizer display label
     String activeVisualizerLabel = 'Bar Spectrum';
@@ -374,11 +370,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
       }
     }
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: bgColor,
-        body: NestedScrollView(
+    return Scaffold(
+      backgroundColor: bgColor,
+      body: NestedScrollView(
           headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               SliverAppBar(
@@ -653,16 +647,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           ),
                         ),
 
-                        // TabBar (always pinned at bottom of header)
-                        TabBar(
-                          indicatorColor: primaryColor,
-                          labelColor: Colors.white,
-                          unselectedLabelColor: Colors.white54,
-                          tabs: [
-                            Tab(text: 'Equalizer'),
-                            Tab(text: 'Sauti DSP'),
-                          ],
-                        ),
                       ],
                     );
                   },
@@ -670,19 +654,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
               ),
             ];
           },
-          body: TabBarView(
-            children: [
-              EqScreen(
-                effectsKnobKey: widget.effectsKnobKey,
-                player: widget.player,
-                analyzerEnabled: widget.analyzerEnabled,
-                analyzerType: widget.analyzerType,
-              ),
-              SautiDspScreen(player: widget.player),
-            ],
+          body: EqScreen(
+            effectsKnobKey: widget.effectsKnobKey,
+            player: widget.player,
+            analyzerEnabled: widget.analyzerEnabled,
+            analyzerType: widget.analyzerType,
           ),
         ),
-      ),
-    );
+      );
   }
 }
