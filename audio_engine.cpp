@@ -3916,11 +3916,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         config.resampling.pBackendUserData = &e->resampleAlgorithm;
                     }
                     config.seekPointCount = 100;
-                    const float pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
-                    if (pitch != 1.0f)
-                    {
-                        config.sampleRate = (ma_uint32)((float)e->sampleRate * pitch);
-                    }
 
                     auto *newDecoder = new ma_decoder{};
                     ma_result result = ma_decoder_init(push_stream_on_read, nullptr, &e->pushStreamForCurrent, &config, newDecoder);
@@ -4068,8 +4063,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (e->pitchResamplerInit)
                 {
-                    const float ratio = (pitch > 0.0001f) ? (1.0f / pitch) : 1.0f;
-                    ma_resampler_set_rate_ratio(&e->pitchResampler, ratio);
+                    ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
 
                     const ma_uint64 outNeeded = (ma_uint64)targetChunkFrames;
                     ma_uint64 inNeeded = 0;
@@ -6697,7 +6691,18 @@ extern "C"
             cfg.notificationCallback = device_notification_callback;
             cfg.pUserData = e;
 
-            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+            if (e->resampleAlgorithm > 0)
+            {
+                cfg.resampling.algorithm = ma_resample_algorithm_custom;
+                cfg.resampling.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
+                                                 ? &g_soxrResamplerVTable
+                                                 : &g_customResamplerVTable;
+                cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
+            }
+            else
+            {
+                cfg.resampling.algorithm = ma_resample_algorithm_linear;
+            }
 
             if (e->resampleAlgorithm == 1 /* Sinc Best Quality */ || e->resampleAlgorithm == 2 /* Sinc Medium Quality */)
             {
