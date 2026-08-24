@@ -8,7 +8,7 @@
 namespace sauti::dsp {
 
 // =============================================================================
-// MasterLimiterDSP: Professional Lookahead Peak Limiter with Smooth Envelope
+// MasterLimiterDSP: Lookahead Peak Limiter with Smooth Envelope
 // Follower, Soft-Knee Clamping, and De-Zippered Gain Smoothing
 // =============================================================================
 class MasterLimiterDSP {
@@ -101,8 +101,14 @@ public:
                 target_gain = current_ceiling_linear_ / envelope_;
             }
 
-            // Smooth gain changes to eliminate harmonic distortion during gain reduction
-            current_gain_ += 0.05f * (target_gain - current_gain_);
+            // Instant attack / smoothed release: engaging the reduction through a
+            // one-pole attack let the first milliseconds of every transient
+            // overshoot into the hard clamp.
+            if (target_gain < current_gain_) {
+                current_gain_ = target_gain;
+            } else {
+                current_gain_ += release_smooth_coeff_ * (target_gain - current_gain_);
+            }
 
             // 3. Read delayed sample from lookahead ring buffer
             float delayed_l = lookahead_buf_l_[lookahead_pos_];
@@ -125,7 +131,10 @@ public:
     }
 
 private:
-    bool enabled_ = true;
+    // Default OFF: a limiter with a -0.1 dBFS ceiling must never color playback
+    // unless the host explicitly opts in. It also adds ~1.5 ms of pipeline
+    // latency that position reporting has to compensate for.
+    bool enabled_ = false;
     float sample_rate_ = 48000.0f;
 
     float ceiling_db_ = -0.1f;
@@ -141,6 +150,7 @@ private:
     float release_ms_ = 60.0f;
     float attack_coeff_ = 0.1f;
     float release_coeff_ = 0.999f;
+    float release_smooth_coeff_ = 0.999f;
 
     float envelope_ = 0.0f;
     float current_gain_ = 1.0f;
@@ -158,11 +168,12 @@ private:
         lookahead_buf_r_.assign(lookahead_samples_, 0.0f);
         lookahead_pos_ = 0;
 
-        // Attack: ~1.0 ms
-        attack_coeff_ = std::exp(-1.0f / (sample_rate_ * 0.001f));
+        // Attack: instantaneous (see process); kept for API compatibility.
+        attack_coeff_ = 0.0f;
 
         // Release: release_ms_
         release_coeff_ = std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.001f)));
+        release_smooth_coeff_ = release_coeff_;
     }
 };
 

@@ -87,10 +87,10 @@ public:
     }
 
     void reset() {
-        std::memset(&filter_x_[0], 0, sizeof(filter_x_[0]));
-        std::memset(&filter_x_[1], 0, sizeof(filter_x_[1]));
-        std::memset(&filter_y_[0], 0, sizeof(filter_y_[0]));
-        std::memset(&filter_y_[1], 0, sizeof(filter_y_[1]));
+        filter_x_[0] = LadderChannel{};
+        filter_x_[1] = LadderChannel{};
+        filter_y_[0] = LadderChannel{};
+        filter_y_[1] = LadderChannel{};
 
         current_bass_gain_ = target_bass_gain_;
         current_side_gain_x_ = target_side_gain_x_;
@@ -210,7 +210,6 @@ private:
     }
 
     inline void processLadder(LadderChannel* ch, float sample, float low_ang, float upp_ang, float& out1, float& out2, float& out3) {
-        const float oldest = ch->in[2];
         ch->in[2] = ch->in[1];
         ch->in[1] = ch->in[0];
         ch->in[0] = sample;
@@ -228,7 +227,9 @@ private:
         ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + kDenormal;
 
         out1 = ch->x[3];            // Low-pass filtered sub-band
-        out2 = oldest - ch->y[3];   // High-pass residual
+        out2 = sample - ch->y[3];   // High-pass residual, taken against the same
+                                    // input sample for band alignment (the old
+                                    // 3-sample-old input smeared the crossover)
         out3 = ch->y[3] - ch->x[3]; // Mid-frequency band
     }
 
@@ -297,11 +298,17 @@ private:
     }
 
     void updateCoefficients() {
-        constexpr float PI = 3.14159265358979323846f;
-        target_low_ang_x_ = std::clamp(x_low_ * PI / sample_rate_, 0.0001f, 0.95f);
-        target_upp_ang_x_ = std::clamp(x_high_ * PI / sample_rate_, 0.0001f, 0.95f);
-        target_low_ang_y_ = std::clamp(y_low_ * PI / sample_rate_, 0.0001f, 0.95f);
-        target_upp_ang_y_ = std::clamp(y_high_ * PI / sample_rate_, 0.0001f, 0.95f);
+        // Exact one-pole smoothing coefficient: a = 1 - exp(-2*PI*f/fs).
+        // The previous linear f*PI/fs approximation overestimates the true
+        // cutoff (~57% high at audio rates).
+        const float coeff = 2.0f * 3.14159265358979323846f / sample_rate_;
+        auto onePoleCoeff = [coeff](float f) {
+            return std::clamp(1.0f - std::exp(-coeff * f), 0.0001f, 0.95f);
+        };
+        target_low_ang_x_ = onePoleCoeff(x_low_);
+        target_upp_ang_x_ = onePoleCoeff(x_high_);
+        target_low_ang_y_ = onePoleCoeff(y_low_);
+        target_upp_ang_y_ = onePoleCoeff(y_high_);
     }
 };
 

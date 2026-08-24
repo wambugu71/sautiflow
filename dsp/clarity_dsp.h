@@ -226,9 +226,6 @@ private:
             float low_l = x_low_b0_ * in_l + x_low_b1_ * x_low_x1_l_ + x_low_b2_ * x_low_x2_l_ - x_low_a1_ * x_low_y1_l_ - x_low_a2_ * x_low_y2_l_;
             x_low_x2_l_ = x_low_x1_l_; x_low_x1_l_ = in_l; x_low_y2_l_ = x_low_y1_l_; x_low_y1_l_ = low_l;
 
-            float mid_l = x_mid_b0_ * in_l + x_mid_b1_ * x_mid_x1_l_ + x_mid_b2_ * x_mid_x2_l_ - x_mid_a1_ * x_mid_y1_l_ - x_mid_a2_ * x_mid_y2_l_;
-            x_mid_x2_l_ = x_mid_x1_l_; x_mid_x1_l_ = in_l; x_mid_y2_l_ = x_mid_y1_l_; x_mid_y1_l_ = mid_l;
-
             float high_l = x_high_b0_ * in_l + x_high_b1_ * x_high_x1_l_ + x_high_b2_ * x_high_x2_l_ - x_high_a1_ * x_high_y1_l_ - x_high_a2_ * x_high_y2_l_;
             x_high_x2_l_ = x_high_x1_l_; x_high_x1_l_ = in_l; x_high_y2_l_ = x_high_y1_l_; x_high_y1_l_ = high_l;
 
@@ -236,11 +233,15 @@ private:
             float low_r = x_low_b0_ * in_r + x_low_b1_ * x_low_x1_r_ + x_low_b2_ * x_low_x2_r_ - x_low_a1_ * x_low_y1_r_ - x_low_a2_ * x_low_y2_r_;
             x_low_x2_r_ = x_low_x1_r_; x_low_x1_r_ = in_r; x_low_y2_r_ = x_low_y1_r_; x_low_y1_r_ = low_r;
 
-            float mid_r = x_mid_b0_ * in_r + x_mid_b1_ * x_mid_x1_r_ + x_mid_b2_ * x_mid_x2_r_ - x_mid_a1_ * x_mid_y1_r_ - x_mid_a2_ * x_mid_y2_r_;
-            x_mid_x2_r_ = x_mid_x1_r_; x_mid_x1_r_ = in_r; x_mid_y2_r_ = x_mid_y1_r_; x_mid_y1_r_ = mid_r;
-
             float high_r = x_high_b0_ * in_r + x_high_b1_ * x_high_x1_r_ + x_high_b2_ * x_high_x2_r_ - x_high_a1_ * x_high_y1_r_ - x_high_a2_ * x_high_y2_r_;
             x_high_x2_r_ = x_high_x1_r_; x_high_x1_r_ = in_r; x_high_y2_r_ = x_high_y1_r_; x_high_y1_r_ = high_r;
+
+            // Mid band derived by subtraction (in - low - high): guarantees the
+            // three bands sum back to the input exactly at unity gains. The old
+            // independent bandpass left spectral holes and produced magnitude
+            // ripple / clip risk when combined with the boost gains.
+            const float mid_l = in_l - low_l - high_l;
+            const float mid_r = in_r - low_r - high_r;
 
             float out_l = low_l + (mid_l * mid_gain) + (high_l * high_gain);
             float out_r = low_r + (mid_r * mid_gain) + (high_r * high_gain);

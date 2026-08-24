@@ -443,10 +443,10 @@ class AudioProfileService {
           'bassEnabled': true,
           'bassProfile': HarmonicBassProfile.pureBass.value,
           'bassCutoffHz': 60.0,
-          'bassBoost': 0.85,
+          'bassBoost': 0.50,
           'dynamicSystemEnabled': false,
-          'dynamicSystemProfile': TransducerProfile.extremeSubwoofer.value,
-          'dynamicSystemStrength': 0.75,
+          'dynamicSystemProfile': TransducerProfile.earphone.value,
+          'dynamicSystemStrength': 0.45,
         },
       ),
       AudioProfile(

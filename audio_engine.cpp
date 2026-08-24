@@ -51,6 +51,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <numeric>
 #include <random>
@@ -657,15 +658,9 @@ namespace
         *pFrameCountIn = (ma_uint64)srcData.input_frames_used;
         *pFrameCountOut = (ma_uint64)srcData.output_frames_gen;
 
-        static std::atomic<uint64_t> s_srcProcessCounter{0};
-        uint64_t count = s_srcProcessCounter.fetch_add(1);
-        if (count < 5 || count % 500 == 0)
-        {
-            engine_log("src_onProcess [#%llu]: conv=%d channels=%d ratio=%.4f inAvail=%llu inConsumed=%llu outReq=%llu outGen=%llu",
-                       (unsigned long long)count, backend->converterType, backend->channels, backend->ratio,
-                       (unsigned long long)inAvail, (unsigned long long)srcData.input_frames_used,
-                       (unsigned long long)outReq, (unsigned long long)srcData.output_frames_gen);
-        }
+        // No logging here: this runs on the realtime audio thread, and even a
+        // once-per-500-calls fprintf + fflush + global log mutex causes
+        // periodic latency spikes.
 
         return MA_SUCCESS;
     }
@@ -860,15 +855,7 @@ namespace
         *pFrameCountIn = (ma_uint64)idone;
         *pFrameCountOut = (ma_uint64)odone;
 
-        static std::atomic<uint64_t> s_soxrProcessCounter{0};
-        uint64_t count = s_soxrProcessCounter.fetch_add(1);
-        if (count < 5 || count % 500 == 0)
-        {
-            engine_log("soxr_onProcess [#%llu]: algo=%d channels=%d ratio=%.4f inAvail=%llu inConsumed=%llu outReq=%llu outGen=%llu",
-                       (unsigned long long)count, backend->algorithm, backend->channels, backend->ratio,
-                       (unsigned long long)inAvail, (unsigned long long)idone,
-                       (unsigned long long)outReq, (unsigned long long)odone);
-        }
+        // No logging here: realtime thread (see src_onProcess).
 
         return MA_SUCCESS;
     }
@@ -971,9 +958,11 @@ namespace
         float releaseCoeff = 0.0f;
         float gainEnvelope = 1.0f;
 
-        double getLatencySamples(int sampleRate) const
+        // This limiter is a zero-latency gain smoother (no delay line).
+        // Reporting attackMs here was fictional and shifted position reporting.
+        double getLatencySamples(int) const
         {
-            return (sampleRate > 0) ? ((double)attackMs * 0.001 * (double)sampleRate) : 0.0;
+            return 0.0;
         }
 
         void updateCoefficients(int sampleRate)
@@ -1073,6 +1062,9 @@ namespace
         std::atomic<float> peakLeftDBTP{-100.0f};
         std::atomic<float> peakRightDBTP{-100.0f};
         std::atomic<float> maxTruePeakDBTP{-100.0f};
+        // True sample peak (no interpolation) - reported honestly instead of the
+        // old "truepeak - 0.5 dB" fabrication.
+        std::atomic<float> samplePeakDBTP{-100.0f};
 
         void process(const float *interleaved, ma_uint32 frames, int channels)
         {
@@ -1080,12 +1072,16 @@ namespace
             const int ch = std::min(channels, 8);
 
             float maxL = 0.0f, maxR = 0.0f;
+            float maxSample = 0.0f;
+            float maxExtra = 0.0f;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
                 for (int c = 0; c < ch; ++c)
                 {
                     float x = interleaved[i * (size_t)channels + c];
+                    const float absX = std::abs(x);
+                    if (absX > maxSample) maxSample = absX;
                     history[c][histIdx] = x;
 
                     for (int p = 0; p < PHASES; ++p)
@@ -1097,9 +1093,11 @@ namespace
                             y += history[c][tapIdx] * polyphaseCoeffs[p][t];
                         }
                         float absY = std::abs(y);
+                        // Keep L/R metrics honest per channel; multichannel peaks
+                        // (c > 1) feed the aggregate instead of polluting "left".
                         if (c == 0 && absY > maxL) maxL = absY;
-                        if (c == 1 && absY > maxR) maxR = absY;
-                        if (c > 1 && absY > maxL) maxL = absY;
+                        else if (c == 1 && absY > maxR) maxR = absY;
+                        else if (c > 1 && absY > maxExtra) maxExtra = absY;
                     }
                 }
                 histIdx = (histIdx + 1) % TAPS;
@@ -1107,12 +1105,18 @@ namespace
 
             float leftDBTP  = (maxL > 1e-5f) ? 20.0f * std::log10(maxL) : -100.0f;
             float rightDBTP = (maxR > 1e-5f) ? 20.0f * std::log10(maxR) : -100.0f;
+            const float extraDBTP = (maxExtra > 1e-5f) ? 20.0f * std::log10(maxExtra) : -100.0f;
 
             float prevL = peakLeftDBTP.load(std::memory_order_relaxed);
             float prevR = peakRightDBTP.load(std::memory_order_relaxed);
             peakLeftDBTP.store(std::max(leftDBTP, prevL - 0.2f), std::memory_order_relaxed);
             peakRightDBTP.store(std::max(rightDBTP, prevR - 0.2f), std::memory_order_relaxed);
-            maxTruePeakDBTP.store(std::max(peakLeftDBTP.load(std::memory_order_relaxed), peakRightDBTP.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+            maxTruePeakDBTP.store(std::max({peakLeftDBTP.load(std::memory_order_relaxed),
+                                            peakRightDBTP.load(std::memory_order_relaxed),
+                                            extraDBTP}), std::memory_order_relaxed);
+
+            const float samplePeakDB = (maxSample > 1e-5f) ? 20.0f * std::log10(maxSample) : -100.0f;
+            samplePeakDBTP.store(std::max(samplePeakDB, samplePeakDBTP.load(std::memory_order_relaxed) - 0.2f), std::memory_order_relaxed);
         }
     };
 
@@ -1157,7 +1161,6 @@ namespace
             if (channels < 1 || delayBuffer.empty()) return;
             const float linearCeiling = std::pow(10.0f, ceilingDBTP / 20.0f);
 
-            const float attackCoeff = std::exp(-1.0f / (float)lookAheadSamples);
             const float releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
 
             float maxGRThisBlock = 1.0f;
@@ -1176,7 +1179,11 @@ namespace
 
                 if (targetGain < gainEnvelope)
                 {
-                    gainEnvelope = attackCoeff * gainEnvelope + (1.0f - attackCoeff) * targetGain;
+                    // Instant attack: a transient must be attenuated on the very
+                    // first sample it appears, otherwise the first ~1-2 ms shoot
+                    // past the ceiling and the final hard clamp does the work
+                    // (pumping / distortion).
+                    gainEnvelope = targetGain;
                 }
                 else
                 {
@@ -1270,7 +1277,14 @@ namespace
         size_t ringHead = 0;
         size_t totalBlocksCount = 0;
 
-        std::vector<double> accumulatedBlocks;
+        // Bounded history for integrated loudness / LRA gating.
+        // std::deque gives O(1) front eviction (the old vector erase-from-front
+        // was an O(N) memmove of up to ~108k doubles on the audio thread).
+        static constexpr size_t MAX_ACCUMULATED_BLOCKS = 18000; // 30 min @ 100 ms blocks
+        std::deque<double> accumulatedBlocks;
+        double absGateSum = 0.0;   // running sum of blocks passing the absolute gate
+        size_t absGateCount = 0;   // running count of blocks passing the absolute gate
+        uint32_t blocksSinceAnalysis = 0;
 
         std::atomic<float> momentaryLUFS{-100.0f};
         std::atomic<float> shortTermLUFS{-100.0f};
@@ -1294,6 +1308,9 @@ namespace
             totalBlocksCount = 0;
             for (size_t i = 0; i < RING_SIZE; ++i) blockRing[i] = {0.0, false};
             accumulatedBlocks.clear();
+            absGateSum = 0.0;
+            absGateCount = 0;
+            blocksSinceAnalysis = 0;
 
             momentaryLUFS.store(-100.0f, std::memory_order_relaxed);
             shortTermLUFS.store(-100.0f, std::memory_order_relaxed);
@@ -1360,36 +1377,74 @@ namespace
                         shortTermLUFS.store(stLufs, std::memory_order_relaxed);
                     }
 
+                    // Accumulate gated-block history with O(1) bookkeeping.
                     if (blockPower > 1e-10)
                     {
+                        constexpr double absThresholdPwr = 1.17762e-7; // -70 LUFS
                         accumulatedBlocks.push_back(blockPower);
-                        if (accumulatedBlocks.size() > 108000)
+                        if (blockPower >= absThresholdPwr)
                         {
-                            accumulatedBlocks.erase(accumulatedBlocks.begin(), accumulatedBlocks.begin() + 1000);
+                            absGateSum += blockPower;
+                            ++absGateCount;
+                        }
+                        if (accumulatedBlocks.size() > MAX_ACCUMULATED_BLOCKS)
+                        {
+                            const double oldest = accumulatedBlocks.front();
+                            accumulatedBlocks.pop_front(); // O(1) vs O(N) vector erase
+                            if (oldest >= absThresholdPwr && absGateCount > 0)
+                            {
+                                absGateSum -= oldest;
+                                --absGateCount;
+                            }
                         }
                     }
 
-                    if (!accumulatedBlocks.empty())
+                    // Integrated loudness / LRA are perceptually slow metrics.
+                    // Recomputing them on EVERY 100 ms block rescanned the whole
+                    // history twice and sorted up to ~108k doubles inside the audio
+                    // callback (multi-ms spikes). Throttle to once per second.
+                    ++blocksSinceAnalysis;
+                    const bool runGatedAnalysis =
+                        blocksSinceAnalysis >= 10 && !accumulatedBlocks.empty();
+
+                    if (runGatedAnalysis)
                     {
-                        constexpr double absThresholdPwr = 1.17762e-7;
-                        double pass1Sum = 0.0;
-                        size_t pass1Count = 0;
-                        for (double pwr : accumulatedBlocks)
+                        blocksSinceAnalysis = 0;
                         {
-                            if (pwr >= absThresholdPwr) { pass1Sum += pwr; pass1Count++; }
+                        constexpr double absThresholdPwr = 1.17762e-7;
+                        double ungatedMeanPwr = 0.0;
+                        bool pass2Skip = false;
+                        if (absGateCount > 0)
+                        {
+                            ungatedMeanPwr = absGateSum / (double)absGateCount;
+                        }
+                        else
+                        {
+                            double pass1Sum = 0.0;
+                            size_t pass1Count = 0;
+                            for (double pwr : accumulatedBlocks)
+                            {
+                                if (pwr >= absThresholdPwr) { pass1Sum += pwr; pass1Count++; }
+                            }
+                            if (pass1Count == 0)
+                            {
+                                ungatedMeanPwr = 0.0;
+                                pass2Skip = true;
+                            }
+                            else
+                            {
+                                ungatedMeanPwr = pass1Sum / (double)pass1Count;
+                            }
                         }
 
-                        if (pass1Count > 0)
+                        const double relThresholdLUFS = -0.691 + 10.0 * std::log10(ungatedMeanPwr > 1e-12 ? ungatedMeanPwr : 1e-12) - 10.0;
+                        const double relThresholdPwr = std::pow(10.0, (relThresholdLUFS + 0.691) / 10.0);
+
+                        double pass2Sum = 0.0;
+                        size_t pass2Count = 0;
+                        std::vector<double> pass2Powers;
+                        if (!pass2Skip)
                         {
-                            double ungatedMeanPwr = pass1Sum / (double)pass1Count;
-                            double ungatedLUFS = -0.691 + 10.0 * std::log10(ungatedMeanPwr);
-
-                            double relThresholdLUFS = ungatedLUFS - 10.0;
-                            double relThresholdPwr = std::pow(10.0, (relThresholdLUFS + 0.691) / 10.0);
-
-                            double pass2Sum = 0.0;
-                            size_t pass2Count = 0;
-                            std::vector<double> pass2Powers;
                             for (double pwr : accumulatedBlocks)
                             {
                                 if (pwr >= relThresholdPwr)
@@ -1399,28 +1454,29 @@ namespace
                                     pass2Powers.push_back(pwr);
                                 }
                             }
+                        }
 
-                            if (pass2Count > 0)
+                        if (pass2Count > 0)
+                        {
+                            double finalMeanPwr = pass2Sum / (double)pass2Count;
+                            float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
+                            integratedLUFS.store(intLufs, std::memory_order_relaxed);
+
+                            // Compute Loudness Range (LRA) between 10th percentile and 95th percentile
+                            if (pass2Powers.size() >= 20)
                             {
-                                double finalMeanPwr = pass2Sum / (double)pass2Count;
-                                float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
-                                integratedLUFS.store(intLufs, std::memory_order_relaxed);
+                                std::sort(pass2Powers.begin(), pass2Powers.end());
+                                size_t idx10 = (size_t)(0.10 * (double)pass2Powers.size());
+                                size_t idx95 = (size_t)(0.95 * (double)pass2Powers.size());
+                                if (idx95 >= pass2Powers.size()) idx95 = pass2Powers.size() - 1;
 
-                                // Compute Loudness Range (LRA) between 10th percentile and 95th percentile
-                                if (pass2Powers.size() >= 20)
-                                {
-                                    std::sort(pass2Powers.begin(), pass2Powers.end());
-                                    size_t idx10 = (size_t)(0.10 * (double)pass2Powers.size());
-                                    size_t idx95 = (size_t)(0.95 * (double)pass2Powers.size());
-                                    if (idx95 >= pass2Powers.size()) idx95 = pass2Powers.size() - 1;
-
-                                    double lufs10 = -0.691 + 10.0 * std::log10(pass2Powers[idx10]);
-                                    double lufs95 = -0.691 + 10.0 * std::log10(pass2Powers[idx95]);
-                                    float lra = (float)(lufs95 - lufs10);
-                                    if (lra < 0.0f) lra = 0.0f;
-                                    loudnessRangeLRA.store(lra, std::memory_order_relaxed);
-                                }
+                                double lufs10 = -0.691 + 10.0 * std::log10(pass2Powers[idx10]);
+                                double lufs95 = -0.691 + 10.0 * std::log10(pass2Powers[idx95]);
+                                float lra = (float)(lufs95 - lufs10);
+                                if (lra < 0.0f) lra = 0.0f;
+                                loudnessRangeLRA.store(lra, std::memory_order_relaxed);
                             }
+                        }
                         }
                     }
                 }
@@ -1471,6 +1527,14 @@ namespace
         inline float next()
         {
             current += step;
+            // Clamp to the target: linear stepping otherwise overshoots/undershoots
+            // and micro-oscillates around the setpoint forever.
+            const float tgt = target.load(std::memory_order_relaxed);
+            if ((step > 0.0f && current > tgt) || (step < 0.0f && current < tgt))
+            {
+                current = tgt;
+                step = 0.0f;
+            }
             return current;
         }
     };
@@ -1776,9 +1840,17 @@ namespace
                 float outL = monoBass + processHighL;
                 float outR = monoBass + processHighR;
 
-                // 5. Soft clip to prevent 0dBFS clipping (crackling) when width is extreme
-                outL = std::tanh(outL);
-                outR = std::tanh(outR);
+                // 5. Soft clip to prevent 0dBFS clipping (crackling) when width is
+                // extreme. Knee-limited so normal-level material passes untouched
+                // instead of being tanh-compressed.
+                if (outL > 0.95f)
+                    outL = 0.95f + 0.05f * std::tanh((outL - 0.95f) / 0.05f);
+                else if (outL < -0.95f)
+                    outL = -0.95f + 0.05f * std::tanh((outL + 0.95f) / 0.05f);
+                if (outR > 0.95f)
+                    outR = 0.95f + 0.05f * std::tanh((outR - 0.95f) / 0.05f);
+                else if (outR < -0.95f)
+                    outR = -0.95f + 0.05f * std::tanh((outR + 0.95f) / 0.05f);
 
                 interleaved[base] = outL;
                 interleaved[base + 1] = outR;
@@ -1927,6 +1999,9 @@ namespace
             cachedSampleRate = sampleRate;
             initWarpedPFB(&subband0, (float)sampleRate, 5, 2);
             assignPtrWarpedPFB(&subband1, 5, 2);
+            // The right-channel bank must analyze with the SAME warping factor;
+            // leaving it stale made L/R bands diverge at >= 88.2 kHz.
+            subband1.warpingFactor = subband0.warpingFactor;
 
             float ms = 1.2f; // 1.2 ms attack/release constant
             for (unsigned int i = 0; i < 5; i++)
@@ -2125,8 +2200,14 @@ namespace
                         x = x * (1.0f - shelfBlend) + shelfOut * shelfBlend;
                     }
 
-                    // Stage 3 — Soft-clip guard (prevents overs at high intensity)
-                    x = std::tanh(x);
+                    // Stage 3 — Soft-clip guard (prevents overs at high intensity).
+                    // Only engages above the knee: unconditionally passing the
+                    // whole mix through tanh compressed clean material and added
+                    // harmonic distortion even at tiny intensities.
+                    if (x > 0.95f)
+                        x = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
+                    else if (x < -0.95f)
+                        x = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
                     interleaved[idx] = x;
                 }
             }
@@ -2136,33 +2217,45 @@ namespace
     struct DitherProcessorState
     {
         float history[16][8] = {}; // Up to 16 channels, 8 taps history
-        uint32_t prngState = 0x12345678;
+        // One PRNG stream per channel: a single shared stream produced mono-
+        // correlated dither across channels (visible on up-mixes).
+        uint32_t prngState[16] = {
+            0x12345678, 0x23456789, 0x3456789A, 0x456789AB,
+            0x56789ABC, 0x6789ABCD, 0x789ABCDE, 0x89ABCDEF,
+            0x9ABCDEF0, 0xABCDEF01, 0xBCDEF012, 0xCDEF0123,
+            0xDEF01234, 0xEF012345, 0xF0123456, 0x01234567
+        };
 
         void reset()
         {
             std::memset(history, 0, sizeof(history));
         }
 
-        inline float getRpdfDither(float scale)
+        inline float getRpdfDither(float scale, int ch)
         {
-            prngState ^= prngState << 13;
-            prngState ^= prngState >> 17;
-            prngState ^= prngState << 5;
-            const float r = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f) - 0.5f;
+            uint32_t s = prngState[ch & 15];
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            prngState[ch & 15] = s;
+            const float r = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f) - 0.5f;
             return r * scale;
         }
 
-        inline float getTpdfDither(float scale)
+        inline float getTpdfDither(float scale, int ch)
         {
-            prngState ^= prngState << 13;
-            prngState ^= prngState >> 17;
-            prngState ^= prngState << 5;
-            const float r1 = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f);
+            uint32_t s = prngState[ch & 15];
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            prngState[ch & 15] = s;
+            const float r1 = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f);
 
-            prngState ^= prngState << 13;
-            prngState ^= prngState >> 17;
-            prngState ^= prngState << 5;
-            const float r2 = (float)(prngState & 0xFFFFFF) * (1.0f / 16777216.0f);
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            prngState[ch & 15] = s;
+            const float r2 = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f);
 
             return (r1 - r2) * scale;
         }
@@ -2194,7 +2287,7 @@ namespace
                     for (int c = 0; c < ch; ++c)
                     {
                         float x = inOutSamples[base + c];
-                        float d = getRpdfDither(ditherAmp);
+                        float d = getRpdfDither(ditherAmp, c);
                         inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
                     }
                 }
@@ -2211,7 +2304,7 @@ namespace
                     for (int c = 0; c < ch; ++c)
                     {
                         float x = inOutSamples[base + c];
-                        float d = getTpdfDither(ditherAmp);
+                        float d = getTpdfDither(ditherAmp, c);
                         inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
                     }
                 }
@@ -2252,7 +2345,7 @@ namespace
                                      a[2] * history[c][2] + a[3] * history[c][3] +
                                      a[4] * history[c][4];
 
-                    float dither = getTpdfDither(ditherAmp);
+                    float dither = getTpdfDither(ditherAmp, c);
                     float xShaped = x + feedback + dither;
 
                     float quantized = std::round(xShaped / lsbScale) * lsbScale;
@@ -2295,7 +2388,11 @@ namespace
             if (m_buffer.empty() || count == 0) return 0;
             const size_t w = m_writeIndex.load(std::memory_order_relaxed);
             const size_t r = m_readIndex.load(std::memory_order_acquire);
-            const size_t available = (m_capacityMask + 1) - (w - r);
+            // Saturating arithmetic: during a concurrent reset() the indices can
+            // be observed transiently inconsistent; clamp instead of wrapping
+            // around to a bogus huge "available" value.
+            const size_t used = (w >= r) ? (w - r) : 0;
+            const size_t available = (m_capacityMask + 1) - std::min(used, m_capacityMask + 1);
             const size_t toWrite = std::min(count, available);
             if (toWrite == 0) return 0;
 
@@ -2316,7 +2413,8 @@ namespace
             if (m_buffer.empty() || count == 0) return 0;
             const size_t r = m_readIndex.load(std::memory_order_relaxed);
             const size_t w = m_writeIndex.load(std::memory_order_acquire);
-            const size_t available = w - r;
+            // Saturating: see write().
+            const size_t available = (w >= r) ? (w - r) : 0;
             const size_t toRead = std::min(count, available);
             if (toRead == 0) return 0;
 
@@ -2337,7 +2435,7 @@ namespace
             if (m_buffer.empty()) return 0;
             const size_t w = m_writeIndex.load(std::memory_order_relaxed);
             const size_t r = m_readIndex.load(std::memory_order_relaxed);
-            return w - r;
+            return (w >= r) ? (w - r) : 0;
         }
 
         size_t available_write() const
@@ -2345,7 +2443,8 @@ namespace
             if (m_buffer.empty()) return 0;
             const size_t w = m_writeIndex.load(std::memory_order_relaxed);
             const size_t r = m_readIndex.load(std::memory_order_relaxed);
-            return (m_capacityMask + 1) - (w - r);
+            const size_t used = (w >= r) ? (w - r) : 0;
+            return (m_capacityMask + 1) - std::min(used, m_capacityMask + 1);
         }
 
         void reset()
@@ -2557,6 +2656,11 @@ struct AudioEngineHandle
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
     NetworkStreamState* fadingOutStream = nullptr;
 #endif
+    // Decoded old-track audio, produced by decode_producer_loop and consumed by
+    // the realtime callback. This keeps codec decoding (and possibly blocking
+    // network reads) OFF the audio thread during crossfades.
+    SPSCBuffer<float> crossfadeRingBuffer;
+    std::atomic<bool> crossfadeSourceEof{false};
 
     std::atomic<bool> pendingSeekValid{false};
     std::atomic<ma_uint64> pendingSeekFrame{0};
@@ -2605,15 +2709,20 @@ struct AudioEngineHandle
     LimiterState limiter;
     std::atomic<bool> clippingDetectionEnabled{false};
     std::atomic<uint64_t> clippedSamplesCount{0};
+    // Realtime callback starvation counter (previously hardcoded to 0).
+    std::atomic<uint64_t> underrunCount{0};
 
-    // Release 1 Quality Foundation Subsystems
-    std::atomic<bool> truePeakMeterEnabled{true};
+    // Release 1 Quality Foundation Subsystems.
+    // Metering is opt-in: both meters are heavy (true-peak polyphase interpolation,
+    // BS.1770 K-weighting + gated analysis) and previously ran unconditionally on
+    // the realtime thread even when nothing read their output.
+    std::atomic<bool> truePeakMeterEnabled{false};
     TruePeakMeterState truePeakMeter;
 
     std::atomic<bool> lookaheadLimiterEnabled{false};
     LookAheadLimiterState lookaheadLimiter;
 
-    std::atomic<bool> loudnessMeterEnabled{true};
+    std::atomic<bool> loudnessMeterEnabled{false};
     BS1770LoudnessMeter loudnessMeter;
 
     AutomatedParamFloat paramGain;
@@ -2927,6 +3036,9 @@ struct AudioEngineHandle
     // Push stream state
     PushStreamContext pushStreamForCurrent; // Single slot for now, for simplicity
     bool isPushStreamMode = false;
+    // Set by ae_stop() to unblock ae_push_stream_chunk() when the consumer
+    // stalls and the ring buffer stays full (prevents an unkillable wait).
+    std::atomic<bool> pushStreamAbort{false};
 };
 
 extern "C"
@@ -3471,6 +3583,39 @@ static void worker_loop(AudioEngineHandle *e)
                 computedNextIndex = next_index_locked(e);
             }
 
+            // Auto Sample-Rate Match must be applied BEFORE acquiring decoderMutex:
+            // restart_and_apply_config() locks decoderMutex internally, so calling it
+            // while holding the non-recursive mutex would self-deadlock. This mirrors
+            // the proven order used by execute_jump_direct().
+            if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
+            {
+                const int nativeRate = (int)newCurrent->outputSampleRate;
+                if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                {
+                    engine_log("Auto Sample-Rate Match: Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
+                    uninit_decoder_slot(
+                        e,
+                        newCurrent
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        , newCurrentStream
+#endif
+                    );
+                    newCurrent = nullptr;
+                    newCurrentLen = 0;
+                    e->outputSampleRate = nativeRate;
+                    restart_and_apply_config(e);
+                    (void)load_decoder_for_path(
+                        e,
+                        path,
+                        &newCurrent,
+                        &newCurrentLen
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        , &newCurrentStream
+#endif
+                    );
+                }
+            }
+
             {
                 std::lock_guard<std::mutex> d(e->decoderMutex);
                 if (e->hasCurrent)
@@ -3498,34 +3643,6 @@ static void worker_loop(AudioEngineHandle *e)
                     e->hasNext = false;
                 }
                 uninit_fading_out_slot_locked(e);
-
-                if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && newCurrent != nullptr)
-                {
-                    const int nativeRate = (int)newCurrent->outputSampleRate;
-                    if (nativeRate > 0 && nativeRate != e->outputSampleRate)
-                    {
-                        engine_log("Auto Sample-Rate Match: Track native rate is %d Hz (current DAC rate: %d Hz). Triggering full rate plan re-configuration...", nativeRate, e->outputSampleRate);
-                        uninit_decoder_slot(
-                            e,
-                            newCurrent
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                            , newCurrentStream
-#endif
-                        );
-                        newCurrent = nullptr;
-                        e->outputSampleRate = nativeRate;
-                        restart_and_apply_config(e);
-                        (void)load_decoder_for_path(
-                            e,
-                            path,
-                            &newCurrent,
-                            &newCurrentLen
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                            , &newCurrentStream
-#endif
-                        );
-                    }
-                }
 
                 if (newCurrent != nullptr)
                 {
@@ -3694,6 +3811,37 @@ static void worker_loop(AudioEngineHandle *e)
     }
 }
 
+// Defers the end-of-track callback until decoderMutex is released.
+// Invoking it while the producer thread holds decoderMutex lets the Dart
+// handler re-enter any ae_* API that locks the same non-recursive mutex and
+// self-deadlock. Declared as a loop-body local so every exit path (including
+// `continue`) fires the callback after the lock guard has been destroyed.
+struct DeferredEndCallback
+{
+    AudioEngineHandle *engine;
+    AE_EndCallback callback = nullptr;
+    void *userData = nullptr;
+
+    explicit DeferredEndCallback(AudioEngineHandle *e) : engine(e) {}
+
+    void arm()
+    {
+        if (engine != nullptr)
+        {
+            callback = engine->endCallback;
+            userData = engine->pEndCallbackUserData;
+        }
+    }
+
+    ~DeferredEndCallback()
+    {
+        if (callback != nullptr)
+        {
+            callback(userData, engine);
+        }
+    }
+};
+
 static void decode_producer_loop(AudioEngineHandle *e)
 {
     std::vector<float> tempChunk;
@@ -3702,6 +3850,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     while (!e->decodeProducerExit.load(std::memory_order_relaxed))
     {
         e->garbageQueue.drain();
+        DeferredEndCallback deferredEnd(e);
         try
         {
             if (!e->isPlaying.load(std::memory_order_relaxed) ||
@@ -3798,6 +3947,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         if (fadeFrames > 0 && (length - cursor) <= fadeFrames)
                         {
                             const ma_uint64 remain = length - cursor;
+                            // Reset the crossfade source ring BEFORE publishing
+                            // isCrossfading (release) so the realtime reader can
+                            // never observe stale audio from a previous fade.
+                            e->crossfadeRingBuffer.reset();
+                            e->crossfadeSourceEof.store(false, std::memory_order_relaxed);
                             e->isCrossfading.store(true, std::memory_order_release);
                             e->crossfadeFramesTotal.store(remain > 0 ? remain : fadeFrames, std::memory_order_relaxed);
                             e->crossfadeFramesRemaining.store(remain, std::memory_order_relaxed);
@@ -3839,7 +3993,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                             if (e->endCallback != nullptr)
                             {
-                                e->endCallback(e->pEndCallbackUserData, e);
+                                deferredEnd.arm();
                             }
 
                             request_preload(e);
@@ -4016,7 +4170,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 if (e->endCallback != nullptr)
                 {
-                    e->endCallback(e->pEndCallbackUserData, e);
+                    deferredEnd.arm();
                 }
 
                 if (e->hasNext)
@@ -4105,6 +4259,52 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (produced > 0)
         {
             e->pcmRingBuffer.write(tempChunk.data(), (size_t)produced * ch);
+        }
+
+        // Crossfade support: keep the SPSC crossfade ring topped up with
+        // decoded old-track audio so the realtime callback only ever reads
+        // pre-decoded samples (no codec work, no decoderMutex on the RT side).
+        if (e->isCrossfading.load(std::memory_order_acquire) && !e->crossfadeSourceEof.load(std::memory_order_relaxed))
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            ma_decoder *fadeOut = e->fadingOutDecoder;
+            if (fadeOut != nullptr)
+            {
+                const size_t wantFrames = 1024;
+                const size_t availSamples = e->crossfadeRingBuffer.available_write();
+                size_t fillFrames = std::min(wantFrames, availSamples / ch);
+                if (fillFrames > 0)
+                {
+                    ma_uint64 framesRead = 0;
+                    const ma_result rr = ma_decoder_read_pcm_frames(fadeOut, tempChunk.data(), (ma_uint64)fillFrames, &framesRead);
+                    if (framesRead > 0)
+                    {
+                        e->crossfadeRingBuffer.write(tempChunk.data(), (size_t)framesRead * ch);
+                    }
+                    if (rr == MA_AT_END || framesRead == 0)
+                    {
+                        e->crossfadeSourceEof.store(true, std::memory_order_release);
+                    }
+                }
+            }
+            else
+            {
+                e->crossfadeSourceEof.store(true, std::memory_order_release);
+            }
+        }
+
+        // Fade finished (or was aborted by a control path): retire the old
+        // decoder here. Decoder lifetime belongs to threads that may hold
+        // decoderMutex - never to the realtime callback.
+        if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
+            {
+                uninit_fading_out_slot_locked(e);
+                e->crossfadeRingBuffer.reset();
+                e->crossfadeSourceEof.store(false, std::memory_order_release);
+            }
         }
         }
         catch (...)
@@ -4214,24 +4414,33 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     if (produced > 0)
     {
         e->playedPcmFrames.fetch_add(produced, std::memory_order_relaxed);
+        // Telemetry: count realtime starvation honestly.
+        if (produced < frameCount)
+        {
+            e->underrunCount.fetch_add(frameCount - produced, std::memory_order_relaxed);
+        }
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
         
-        // MIXING FADEOUT DECODER (if active)
+        // MIXING FADEOUT DECODER (if active).
+        // The old track is decoded by decode_producer_loop into
+        // crossfadeRingBuffer; here we only consume pre-decoded samples.
+        // The realtime thread must never run codec decode or touch decoders:
+        // both cause glitches exactly when crossfading network streams.
         if (e->isCrossfading.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
             if (e->fadingOutDecoder != nullptr) {
-                // Read from the old track using pre-allocated mix buffer
+                // Read pre-decoded old-track audio from the SPSC ring (lock-free)
                 size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
                 if (e->crossfadeMixBuffer.size() < neededMixSamples)
                 {
                     neededMixSamples = e->crossfadeMixBuffer.size();
                 }
-                std::fill(e->crossfadeMixBuffer.begin(), e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
+                const size_t gotSamples = e->crossfadeRingBuffer.read(e->crossfadeMixBuffer.data(), neededMixSamples);
+                const ma_uint64 oldFramesRead = gotSamples / (size_t)e->channels;
+                std::fill(e->crossfadeMixBuffer.begin() + gotSamples,
+                          e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
                 float *mixBuf = e->crossfadeMixBuffer.data();
-                ma_uint64 oldFramesRead = 0;
-                ma_result mixResult = ma_decoder_read_pcm_frames(e->fadingOutDecoder, mixBuf, produced, &oldFramesRead);
-                
+
                 const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
                 const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
                 const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
@@ -4247,28 +4456,21 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     const size_t base = (size_t)i * (size_t)e->channels;
                     for (int c = 0; c < e->channels; ++c)
                     {
-                        // If we successfully read frames from the old track, add them with loudness gain alignment
+                        // If the ring supplied frames from the old track, add them with loudness gain alignment
                         float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                         float inSample  = processBuffer[base + (size_t)c] * inGain;
                         processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * tOut);
                     }
                     fadeRemaining -= 1;
                 }
-                e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
-                
-                if (fadeRemaining == 0 || oldFramesRead == 0 || mixResult == MA_AT_END) {
-                    // Crossfade complete
-                    uninit_decoder_slot(
-                        e,
-                        e->fadingOutDecoder
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                        , e->fadingOutStream
-#endif
-                    );
-                    e->fadingOutDecoder = nullptr;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    e->fadingOutStream = nullptr;
-#endif
+                e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_release);
+
+                if (fadeRemaining == 0 ||
+                    (gotSamples == 0 && e->crossfadeSourceEof.load(std::memory_order_acquire)))
+                {
+                    // Crossfade complete. Decoder teardown is handled by the
+                    // producer thread (it owns decoder lifetime); the realtime
+                    // side only drops out of the mixing path.
                     e->isCrossfading.store(false, std::memory_order_release);
                 }
             }
@@ -4453,15 +4655,23 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             if (e->eqEnabled)
                 e->eq.process(processBuffer, produced, e->channels);
 
-            // Native Clean-Room Audio DSP Suite
+            // Native Clean-Room Audio DSP Suite.
+            // The ae_dsp_set_* setters mutate these objects under dspMutex on the
+            // control thread; the realtime side must synchronize with them or read
+            // torn coefficients/state. Use try_lock so the audio thread never
+            // blocks on a contended setter - it simply bypasses for one block.
             if (e->channels >= 2)
             {
-                e->harmonicBassDsp.process(processBuffer, produced);
-                e->dynamicSystemDsp.process(processBuffer, produced);
-                e->analogWarmthDsp.process(processBuffer, produced);
-                e->clarityDsp.process(processBuffer, produced);
-                e->fftConvolverDsp.process(processBuffer, produced);
-                e->masterLimiterDsp.process(processBuffer, produced);
+                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+                if (dspLock.owns_lock())
+                {
+                    e->harmonicBassDsp.process(processBuffer, produced);
+                    e->dynamicSystemDsp.process(processBuffer, produced);
+                    e->analogWarmthDsp.process(processBuffer, produced);
+                    e->clarityDsp.process(processBuffer, produced);
+                    e->fftConvolverDsp.process(processBuffer, produced);
+                    e->masterLimiterDsp.process(processBuffer, produced);
+                }
             }
 
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
@@ -4586,7 +4796,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
     catch (...)
     {
-        std::memset(pOutput, 0, frameCount * (size_t)e->channels * sizeof(float));
+        // Silence the device buffer using its real negotiated format size.
+        // Assuming F32 here overruns the buffer by 2-4x when the device runs
+        // S16/U8/S24 formats (heap corruption).
+        std::memset(pOutput, 0, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels));
     }
 }
 
@@ -4695,6 +4908,7 @@ extern "C"
 
         engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
         e->pcmRingBuffer.init(192000);
+        e->crossfadeRingBuffer.init(192000);
         e->decodeProducerExit.store(false, std::memory_order_release);
         e->decodeProducerThread = std::thread(decode_producer_loop, e);
         e->worker = std::thread(worker_loop, e);
@@ -5079,6 +5293,16 @@ extern "C"
         bool pushInitialized = false;
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
+            // A finished, fully drained push-stream session must not trap the
+            // engine in push mode forever: fall back to normal playlist
+            // playback so subsequent ae_play() calls load tracks again.
+            if (e->isPushStreamMode && e->pushStreamForCurrent.isDone &&
+                (!e->pushStreamForCurrent.initialized ||
+                 ma_rb_available_read(&e->pushStreamForCurrent.rb) == 0))
+            {
+                e->isPushStreamMode = false;
+                e->pushStreamAbort.store(false, std::memory_order_relaxed);
+            }
             hasCurrent = e->hasCurrent;
             isPushMode = e->isPushStreamMode;
             pushInitialized = e->pushStreamForCurrent.initialized;
@@ -5147,6 +5371,9 @@ extern "C"
             return false;
         e->isPlaying.store(false, std::memory_order_relaxed);
         e->pendingAutoPlay.store(false, std::memory_order_relaxed);
+        // Unblock any ae_push_stream_chunk() caller spinning on a full ring
+        // buffer (previously the Dart isolate could block indefinitely).
+        e->pushStreamAbort.store(true, std::memory_order_release);
 
         std::lock_guard<std::mutex> d(e->decoderMutex);
         if (e->hasCurrent)
@@ -5783,10 +6010,7 @@ extern "C"
         {
             totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
         }
-        else if (e->limiterEnabled)
-        {
-            totalLatency += e->limiter.getLatencySamples(sr);
-        }
+        // The simple limiter has no delay line - it contributes no latency.
         if (e->stereoWidenEnabled)
         {
             totalLatency += e->stereoWiden.getLatencySamples(sr);
@@ -5804,6 +6028,25 @@ extern "C"
             else
             {
                 totalLatency += e->crossfeedNode.getLatencySamples();
+            }
+        }
+        // Clean-room DSP suite: report real pipeline latencies so position
+        // reporting / PDC stays aligned when these nodes are active.
+        {
+            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+            if (dspLock.owns_lock())
+            {
+                if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
+                {
+                    // Partitioned overlap-add convolver delays output by BLOCK_SIZE.
+                    totalLatency += (double)sauti::dsp::FFTConvolverDSP::BLOCK_SIZE;
+                }
+                if (e->masterLimiterDsp.isEnabled())
+                {
+                    // Look-ahead limiter delays the signal by its lookahead window
+                    // (~1.5 ms at the engine sample rate).
+                    totalLatency += 0.0015 * (double)sr;
+                }
             }
         }
         if (e->deviceResamplerInit)
@@ -6746,6 +6989,9 @@ extern "C"
     {
         if (e == nullptr)
             return;
+        // Swap both pointers atomically with respect to the producer thread,
+        // which snapshots them under decoderMutex before invoking.
+        std::lock_guard<std::mutex> d(e->decoderMutex);
         e->endCallback = callback;
         e->pEndCallbackUserData = pUserData;
     }
@@ -6774,10 +7020,9 @@ extern "C"
             return;
         if (engine->outputFormat == (AEAudioFormat)format)
             return;
-        if (ma_device_get_state(&engine->device) == ma_device_state_started)
-        {
-            ma_device_stop(&engine->device);
-        }
+        // No unlocked ma_device_stop() here: restart_and_apply_config() already
+        // stops/uninits the device while holding deviceMutex. Stopping outside
+        // the lock raced a concurrent control call into a double-uninit.
         engine->outputFormat = (AEAudioFormat)format;
         restart_and_apply_config(engine);
     }
@@ -6823,10 +7068,7 @@ extern "C"
             return;
         if (engine->outputChannels == channels)
             return;
-        if (ma_device_get_state(&engine->device) == ma_device_state_started)
-        {
-            ma_device_stop(&engine->device);
-        }
+        // See ae_set_output_format(): no unlocked stop; restart handles it under deviceMutex.
         engine->outputChannels = channels;
         restart_and_apply_config(engine);
     }
@@ -7276,6 +7518,7 @@ extern "C"
         // once data is available.
         // We can add a flag "needsDecoderInit" or just check if currentDecoder is null while isPushStreamMode is true.
 
+        engine->pushStreamAbort.store(false, std::memory_order_release);
         engine->isPushStreamMode = true;
 
         // Ensure hasCurrent is false so data_callback waits
@@ -7295,10 +7538,16 @@ extern "C"
         size_t written = 0;
         while (written < size)
         {
+            if (engine->pushStreamAbort.load(std::memory_order_acquire))
+            {
+                engine_log("ae_push_stream_chunk aborted with %zu/%zu bytes written", written, size);
+                return;
+            }
+
             void *pWrite = nullptr;
             size_t toWrite = size - written;
 
-            if (ma_rb_acquire_write(&engine->pushStreamForCurrent.rb, &toWrite, &pWrite) == MA_SUCCESS)
+            if (ma_rb_acquire_write(&engine->pushStreamForCurrent.rb, &toWrite, &pWrite) == MA_SUCCESS && toWrite > 0)
             {
                 std::memcpy(pWrite, data + written, toWrite);
                 ma_rb_commit_write(&engine->pushStreamForCurrent.rb, toWrite);
@@ -7306,7 +7555,13 @@ extern "C"
                 continue;
             }
 
-            // If buffer full, wait a bit
+            // Buffer full: wait briefly, but honor an abort request (ae_stop)
+            // so the calling isolate can never block indefinitely.
+            if (engine->pushStreamAbort.load(std::memory_order_acquire))
+            {
+                engine_log("ae_push_stream_chunk aborted with %zu/%zu bytes written", written, size);
+                return;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
 
@@ -8833,7 +9088,6 @@ extern "C"
             AETruePeakMetrics tp = ae_get_true_peak(engine);
             AELoudnessMetrics lm = ae_get_loudness_metrics(engine);
             t.true_peak_dbtp = tp.max_dbtp;
-            t.sample_peak_db = (tp.max_dbtp > -100.0f) ? (tp.max_dbtp - 0.5f) : -100.0f;
             t.momentary_lufs = lm.momentary_lufs;
             t.short_term_lufs = lm.short_term_lufs;
             t.integrated_lufs = lm.integrated_lufs;
@@ -8843,7 +9097,11 @@ extern "C"
             t.resampler_latency_ms = ae_get_resampling_policy_info(engine).resampler_latency_ms;
             t.total_engine_latency_ms = ae_get_engine_latency_ms(engine);
             t.clipped_samples_count = ae_get_clipped_samples_count(engine);
-            t.underrun_count = 0;
+            // Real measured values: sample peak from the meter (not a fabricated
+            // "truepeak - 0.5 dB") and the actual underrun counter.
+            const float samplePeak = engine->truePeakMeter.samplePeakDBTP.load(std::memory_order_relaxed);
+            t.sample_peak_db = samplePeak;
+            t.underrun_count = engine->underrunCount.load(std::memory_order_relaxed);
         }
         return t;
     }

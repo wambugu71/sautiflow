@@ -63,6 +63,8 @@ public:
         current_drive_ = target_drive_;
         tape_prev_l_ = 0.0f;
         tape_prev_r_ = 0.0f;
+        dc_x_l_ = 0.0f; dc_y_l_ = 0.0f;
+        dc_x_r_ = 0.0f; dc_y_r_ = 0.0f;
         anti_pop_ = 0.0f;
     }
 
@@ -83,6 +85,12 @@ public:
                 case AnalogWarmthProfile::Triode12AX7:
                     out_l = processTriode(in_l);
                     out_r = processTriode(in_r);
+                    // The asymmetric triode transfer injects a DC bias (the even-
+                    // order term is single-signed). Block it per channel with a
+                    // gentle 10 Hz one-pole highpass so downstream stages and the
+                    // DAC are not hit by thumps / bass shift at high drive.
+                    out_l = dc_block(out_l, dc_x_l_, dc_y_l_);
+                    out_r = dc_block(out_r, dc_x_r_, dc_y_r_);
                     break;
                 case AnalogWarmthProfile::MagneticTape:
                     out_l = processTape(in_l, tape_prev_l_);
@@ -121,6 +129,19 @@ private:
     float tape_prev_l_ = 0.0f;
     float tape_prev_r_ = 0.0f;
     float tape_damping_ = 0.15f;
+
+    // Per-channel DC blocker (10 Hz one-pole highpass) for the triode stage
+    float dc_x_l_ = 0.0f, dc_y_l_ = 0.0f;
+    float dc_x_r_ = 0.0f, dc_y_r_ = 0.0f;
+
+    // y[n] = x[n] - x[n-1] + R * y[n-1]
+    static inline float dc_block(float x, float& x1, float& y1) {
+        constexpr float R = 0.9974f; // ~10 Hz at 48 kHz
+        const float y = x - x1 + R * y1 + 1.0e-20f; // denormal flush
+        x1 = x;
+        y1 = y;
+        return y;
+    }
 
     // Fast rational Padé approximation for hyperbolic tangent (~5x faster than std::tanh)
     static inline float fast_tanh(float x) {

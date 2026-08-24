@@ -1223,13 +1223,6 @@ class _EqScreenState extends State<EqScreen>
                       Row(
                         children: [
                           const SizedBox(width: 4),
-                          M3EIconButton(
-                            icon: const Icon(Icons.info_outline_rounded,
-                                size: 19),
-                            variant: M3EIconButtonVariant.tonal,
-                            tooltip: 'Pipeline Info',
-                            onPressed: _showPipelineInfo,
-                          ),
                           const SizedBox(width: 4),
                           M3EIconButton(
                             icon: const Icon(Icons.refresh_rounded, size: 19),

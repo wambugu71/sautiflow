@@ -27,12 +27,17 @@ public:
 
     void setAlgorithm(CrossfeedAlgorithm algo)
     {
+        if (targetAlgorithm == algo)
+            return;
         targetAlgorithm = algo;
-        if (targetAlgorithm != CrossfeedAlgorithm::Off && currentAlgorithm == CrossfeedAlgorithm::Off)
-        {
-            currentAlgorithm = targetAlgorithm;
-            updateCoefficients();
-        }
+        // Switch immediately. The previous logic deferred the switch until
+        // currentMix < 0.001, which (with any normal mix setting) meant a
+        // runtime algorithm change was silently ignored forever.
+        // Reset only the per-algorithm filter/delay state so stale samples
+        // from the old topology are not smeared into the new one.
+        resetFiltersOnly();
+        currentAlgorithm = targetAlgorithm;
+        updateCoefficients();
     }
 
     void setSampleRate(double rate)
@@ -83,6 +88,19 @@ public:
 
     void reset()
     {
+        resetFiltersOnly();
+
+        currentMix = targetMix;
+        currentDelayMs = targetDelayMs;
+        currentCutoffHz = targetCutoffHz;
+        currentAlgorithm = targetAlgorithm;
+
+        updateCoefficients();
+    }
+
+private:
+    void resetFiltersOnly()
+    {
         std::fill(delayRingBufferL, delayRingBufferL + MAX_DELAY_SAMPLES, 0.0f);
         std::fill(delayRingBufferR, delayRingBufferR + MAX_DELAY_SAMPLES, 0.0f);
         writeIdx = 0;
@@ -93,14 +111,9 @@ public:
         bs2bAsisL = bs2bAsisR = 0.0f;
         bs2bHiStateL = bs2bHiStateR = 0.0f;
         bs2bLoStateL = bs2bLoStateR = 0.0f;
-
-        currentMix = targetMix;
-        currentDelayMs = targetDelayMs;
-        currentCutoffHz = targetCutoffHz;
-        currentAlgorithm = targetAlgorithm;
-
-        updateCoefficients();
     }
+
+public:
 
     void process(float *interleavedStereo, uint32_t frames, int channels = 2)
     {
@@ -123,11 +136,9 @@ public:
             currentDelayMs += alphaSmooth * (targetDelayMs - currentDelayMs);
             currentCutoffHz += alphaSmooth * (targetCutoffHz - currentCutoffHz);
 
-            if (currentAlgorithm != targetAlgorithm && currentMix < 0.001f)
-            {
-                currentAlgorithm = targetAlgorithm;
-                updateCoefficients();
-            }
+            // Algorithm switches are applied directly by setAlgorithm(); no
+            // deferred switching here (the old currentMix < 0.001 gate meant
+            // runtime changes never took effect with a normal mix level).
 
             if (currentAlgorithm == CrossfeedAlgorithm::Off)
             {

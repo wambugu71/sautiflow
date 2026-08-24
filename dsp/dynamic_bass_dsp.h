@@ -22,20 +22,14 @@ enum class BassEnhanceProfile {
 };
 
 // =============================================================================
-// 63-Tap Polyphase Filter Coefficients
-// Provides phase-coherent transient alignment for Pure Bass+ mode
+// 63-Tap Polyphase Filter
+//
+// The kernel is no longer a hardcoded table: the previous constants summed to
+// ~0.20 (-14 dB passband loss) and were non-symmetric (nonlinear phase), which
+// attenuated and phase-smeared the entire signal in Pure Bass+ mode. A unity-
+// gain, linear-phase Blackman-windowed sinc low-pass is designed at runtime in
+// updateFilters() instead (see buildPolyphaseKernel).
 // =============================================================================
-static constexpr float kPolyphaseCoefficients[63] = {
-    -0.002339f, -0.002073f, -0.001940f, -0.001675f, -0.001515f, -0.001329f, -0.001223f,
-    -0.001037f, -0.000904f, -0.000851f, -0.000532f, -0.000851f, -0.000106f, -0.001010f,
-     0.000558f, -0.001435f,  0.001302f, -0.001967f,  0.002259f, -0.002605f,  0.003216f,
-    -0.003562f,  0.004784f, -0.005475f,  0.007655f, -0.008506f,  0.017622f, -0.024639f,
-     0.028679f, -0.017303f, -0.032507f,  0.623321f,  0.184702f, -0.166867f,  0.025729f,
-    -0.078490f, -0.015735f, -0.041199f, -0.023151f, -0.031524f, -0.020121f, -0.024985f,
-    -0.017303f, -0.019616f, -0.015018f, -0.015204f, -0.012838f, -0.011881f, -0.010951f,
-    -0.009516f, -0.009090f, -0.007788f, -0.007442f, -0.006353f, -0.006087f, -0.005183f,
-    -0.004970f, -0.004253f, -0.003987f, -0.003482f, -0.003216f, -0.002871f, -0.002578f
-};
 
 // =============================================================================
 // HarmonicBassDSP: High-Fidelity Clean-Room Dynamic Bass & Subwoofer Suite
@@ -360,6 +354,7 @@ private:
     float fir_hist_r_[63] = {0.0f};
     size_t fir_head_l_ = 0;
     size_t fir_head_r_ = 0;
+    float polyphase_kernel_[63] = {0.0f};
 
     // 63-Sample Latency Compensation Delay Line (Pure Bass+)
     float bass_delay_ring_[63] = {0.0f};
@@ -449,31 +444,39 @@ private:
             const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
             const float lp_bass = static_cast<float>(mono_lp_biquad_.process(mono_in));
 
-            // 2. Push lowpass bass into 63-sample delay line (matches Polyphase latency)
+            // 2. Push lowpass bass into a delay line and tap it exactly on the
+            // FIR's constant 31-sample group delay (phase-aligned injection).
             bass_delay_ring_[bass_delay_head_] = lp_bass;
-            const size_t delayed_idx = (bass_delay_head_ + 1) % 63;
+            const size_t delayed_idx = (bass_delay_head_ + 32) % 63; // written 31 frames ago
             const float delayed_bass = bass_delay_ring_[delayed_idx];
-            bass_delay_head_ = delayed_idx;
+            bass_delay_head_ = (bass_delay_head_ + 1) % 63;
 
-            // 3. Polyphase 63-tap FIR convolution on Left channel
+            // 3. Polyphase 63-tap FIR convolution on Left channel.
+            // Walk the ring backwards without modulo-per-tap (the old
+            // (head + 63 - j) % 63 form cost a division per tap).
             fir_hist_l_[fir_head_l_] = in_l;
             float fir_out_l = 0.0f;
+            size_t idx_l = fir_head_l_;
             for (size_t j = 0; j < 63; j++) {
-                const size_t hist_idx = (fir_head_l_ + 63 - j) % 63;
-                fir_out_l += kPolyphaseCoefficients[j] * fir_hist_l_[hist_idx];
+                fir_out_l += polyphase_kernel_[j] * fir_hist_l_[idx_l];
+                idx_l = (idx_l == 0) ? 62 : idx_l - 1;
             }
             fir_head_l_ = (fir_head_l_ + 1) % 63;
 
             // 4. Polyphase 63-tap FIR convolution on Right channel
             fir_hist_r_[fir_head_r_] = in_r;
             float fir_out_r = 0.0f;
+            size_t idx_r = fir_head_r_;
             for (size_t j = 0; j < 63; j++) {
-                const size_t hist_idx = (fir_head_r_ + 63 - j) % 63;
-                fir_out_r += kPolyphaseCoefficients[j] * fir_hist_r_[hist_idx];
+                fir_out_r += polyphase_kernel_[j] * fir_hist_r_[idx_r];
+                idx_r = (idx_r == 0) ? 62 : idx_r - 1;
             }
             fir_head_r_ = (fir_head_r_ + 1) % 63;
 
-            // Write polyphase phase-shaped audio
+            // Write polyphase phase-shaped audio. The FIR is a unity-gain,
+            // linear-phase filter, so replacing the signal is now transparent
+            // up to its constant 31-sample group delay (compensated by the
+            // aligned bass delay line below).
             samples[2 * i]     = fir_out_l;
             samples[2 * i + 1] = fir_out_r;
 
@@ -620,6 +623,7 @@ private:
     void updateFilters() {
         // 1. Natural & Pure Bass Low-Pass Filter (Butterworth Q = 0.53 critically damped)
         mono_lp_biquad_.setLowPass(cutoff_hz_, sample_rate_, 0.53f);
+        buildPolyphaseKernel();
 
         // 2. Subwoofer Configuration (44 Hz peak + 80 Hz low peak + 380 Hz lowpass)
         const float effective_gain = 1.0f + boost_ * 9.0f; // 1.0x to 10.0x excursion gain
@@ -650,6 +654,48 @@ private:
         // 300 Hz Mud-Scoop (-0 dB to -4.5 dB cut at Q=1.2)
         const float pultec_scoop_db = -boost_ * 4.5f;
         calcPeakingEq(300.0f, 1.2f, pultec_scoop_db, pultec_scoop_b0_, pultec_scoop_b1_, pultec_scoop_b2_, pultec_scoop_a1_, pultec_scoop_a2_);
+    }
+
+    // =========================================================================
+    // Runtime-designed 63-tap linear-phase FIR for Pure Bass+ mode.
+    // Blackman-windowed sinc, normalized to unity DC gain and symmetric about
+    // the center tap (constant ~31-sample group delay). Replaces the old
+    // corrupt hardcoded table (-14 dB gain, nonlinear phase).
+    // =========================================================================
+    void buildPolyphaseKernel() {
+        constexpr int N = 63;
+        constexpr int M = N / 2; // center tap -> 31-sample group delay
+        constexpr double kPi = 3.14159265358979323846;
+        const double fc = std::min(20000.0, 0.475 * (double)sample_rate_) / (double)sample_rate_; // normalized cutoff (< Nyquist)
+
+        double sum = 0.0;
+        for (int n = 0; n < N; ++n) {
+            const double x = (double)(n - M);
+            double v;
+            if (std::fabs(x) < 1e-9) {
+                v = 2.0 * fc;
+            } else {
+                v = std::sin(2.0 * kPi * fc * x) / (kPi * x);
+            }
+            // Blackman window
+            const double w = 0.42
+                - 0.5 * std::cos(2.0 * kPi * (double)n / (double)(N - 1))
+                + 0.08 * std::cos(4.0 * kPi * (double)n / (double)(N - 1));
+            v *= w;
+            polyphase_kernel_[(size_t)n] = static_cast<float>(v);
+            sum += v;
+        }
+
+        if (sum > 1e-9) {
+            const float inv = static_cast<float>(1.0 / sum);
+            for (int n = 0; n < N; ++n) {
+                polyphase_kernel_[(size_t)n] *= inv;
+            }
+        } else {
+            // Degenerate fallback: pure identity at the center tap.
+            std::memset(polyphase_kernel_, 0, sizeof(polyphase_kernel_));
+            polyphase_kernel_[M] = 1.0f;
+        }
     }
 
     void calcLowshelf(float freq, float gain_db, float& b0, float& b1, float& b2, float& a1, float& a2) {
