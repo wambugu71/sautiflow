@@ -275,6 +275,11 @@ extern "C"
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels);
     AE_API int ae_get_output_channels(AudioEngineHandle *engine);
 
+    // User-configurable Output Buffer (0 frames / 0 count = auto-selected by engine/backend)
+    // Valid ranges: period_frames in [16, 16384], period_count in [2, 16]
+    AE_API void ae_set_output_buffer(AudioEngineHandle *engine, int period_frames, int period_count);
+    AE_API void ae_get_output_buffer(AudioEngineHandle *engine, int *out_period_frames, int *out_period_count);
+
     AE_API void ae_set_engine_resample_algorithm(AudioEngineHandle *engine, int algorithm);
     AE_API int ae_get_engine_resample_algorithm(AudioEngineHandle *engine);
 
@@ -371,6 +376,8 @@ extern "C"
     AE_API int  ae_get_loudness_normalizer_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_loudness_normalizer_target(AudioEngineHandle *engine, float target_lufs);
     AE_API float ae_get_loudness_normalizer_target(AudioEngineHandle *engine);
+    // Currently applied normalizer gain in dB (0 when disabled/bypassed).
+    AE_API float ae_get_loudness_normalizer_gain_db(AudioEngineHandle *engine);
 
     // True-Peak Meter & Look-Ahead True-Peak Limiter
     AE_API void ae_set_true_peak_meter_enabled(AudioEngineHandle *engine, int enabled);

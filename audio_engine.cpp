@@ -1291,8 +1291,8 @@ namespace
         std::atomic<float> integratedLUFS{-100.0f};
         std::atomic<float> loudnessRangeLRA{0.0f};
 
-        bool normalizerEnabled = false;
-        float normalizerTargetLUFS = -14.0f;
+        std::atomic<bool> normalizerEnabled{false};
+        std::atomic<float> normalizerTargetLUFS{-14.0f};
 
         void reset(int sampleRate)
         {
@@ -1485,11 +1485,11 @@ namespace
 
         float getNormalizerGainLinear()
         {
-            if (!normalizerEnabled) return 1.0f;
+            if (!normalizerEnabled.load(std::memory_order_relaxed)) return 1.0f;
             float currentIntegrated = integratedLUFS.load(std::memory_order_relaxed);
             if (currentIntegrated < -70.0f) return 1.0f;
 
-            float targetGainDB = normalizerTargetLUFS - currentIntegrated;
+            float targetGainDB = normalizerTargetLUFS.load(std::memory_order_relaxed) - currentIntegrated;
             targetGainDB = clampf(targetGainDB, -12.0f, 6.0f);
             return std::pow(10.0f, targetGainDB / 20.0f);
         }
@@ -2571,6 +2571,8 @@ struct AudioEngineHandle
     std::atomic<bool> use64BitProcessing{false};
     std::atomic<bool> autoSampleRateMatchEnabled{false};
     std::atomic<bool> rateTransitionInProgress{false};
+    std::atomic<int> userPeriodFrames{0};
+    std::atomic<int> userPeriodCount{0};
     // When worker_loop detects a native rate change, it sets this to the new
     // sample rate. The Dart control thread polls via ae_consume_pending_rate_change()
     // and triggers restart_and_apply_config from a safe context.
@@ -2727,6 +2729,9 @@ struct AudioEngineHandle
 
     AutomatedParamFloat paramGain;
     AutomatedParamFloat paramPan;
+    // Loudness Normalizer gain automation (BS.1770 integrated LUFS -> target).
+    // Ramped per-sample so slow loudness corrections never zipper or click.
+    AutomatedParamFloat paramNormalizerGain;
     std::atomic<float> parameterSmoothingMs{15.0f};
 
     // Stereo Widen Effect
@@ -3044,6 +3049,24 @@ struct AudioEngineHandle
 extern "C"
 {
     static void restart_and_apply_config(AudioEngineHandle *e);
+}
+
+static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
+{
+    if (!e)
+        return;
+    const int userFrames = e->userPeriodFrames.load(std::memory_order_relaxed);
+    const int userPeriods = e->userPeriodCount.load(std::memory_order_relaxed);
+
+    if (userFrames > 0)
+    {
+        cfg.periodSizeInFrames = (ma_uint32)userFrames;
+        cfg.periodSizeInMilliseconds = 0;
+    }
+    if (userPeriods > 0)
+    {
+        cfg.periods = (ma_uint32)userPeriods;
+    }
 }
 
 static void arm_transition_fade_in(AudioEngineHandle *e)
@@ -4503,17 +4526,55 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         {
             const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
 
-            // Volume (main gain × replay gain)
+            // Volume (main gain × replay gain × loudness-normalizer gain)
             {
-                const float rg = (e->isCrossfading.load(std::memory_order_relaxed) && e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed))
-                                 ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
+                const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
+                                             e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
+                const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
                 const float vol = e->gain.load(std::memory_order_relaxed) * rg;
-                if (vol != 1.0f)
+
+                // Loudness Normalizer: rides output gain toward the user target
+                // (BS.1770 integrated LUFS). Bypassed during loudness-aware
+                // crossfade mixing, where per-track ReplayGains already align
+                // loudness; AutomatedParamFloat re-ramps it smoothly afterwards.
+                float normTarget = 1.0f;
+                if (!crossfadeMixing &&
+                    e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
+                {
+                    normTarget = e->loudnessMeter.getNormalizerGainLinear();
+                }
+                e->paramNormalizerGain.setTarget(normTarget);
+                // next() is consumed per sample below, so ramp over the full
+                // sample count to keep the smoothing-time semantics correct.
+                const size_t normRampSamples = (size_t)produced * (size_t)e->channels;
+                e->paramNormalizerGain.prepareBlock((ma_uint32)normRampSamples,
+                                                    e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                                    e->sampleRate);
+
+                const size_t totalSamples = normRampSamples;
+                const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
+                                        std::fabs(normTarget - 1.0f) > 1e-4f;
+
+                if (normActive)
+                {
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] = (float)((double)processBuffer[i] *
+                                                       (double)vol *
+                                                       (double)e->paramNormalizerGain.next());
+                    }
+                    else
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] *= vol * e->paramNormalizerGain.next();
+                    }
+                }
+                else if (vol != 1.0f)
                 {
                     if (use64)
                     {
                         const double vol64 = (double)vol;
-                        const size_t totalSamples = (size_t)produced * (size_t)e->channels;
                         for (size_t i = 0; i < totalSamples; ++i)
                             processBuffer[i] = (float)((double)processBuffer[i] * vol64);
                     }
@@ -4686,7 +4747,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         } // End of !bypassAppDsp block
 
         // Read-only Metering Subsystems (Post-DSP / Pre-Output)
-        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed))
+        // The BS.1770 meter also feeds the Loudness Normalizer, so it must run
+        // whenever the normalizer is enabled even if the meter UI toggle is off.
+        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
+            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
         {
             e->loudnessMeter.process(processBuffer, produced, e->channels);
         }
@@ -4854,6 +4918,7 @@ extern "C"
         cfg.sampleRate = (ma_uint32)sample_rate;
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
+        apply_buffer_policy(e, cfg);
 
         if (e->resampleAlgorithm > 0)
         { // >0 uses custom libsamplerate / libsoxr algorithm
@@ -6657,6 +6722,8 @@ extern "C"
                 cfg.alsa.noMMap = 0;
                 cfg.noPreSilencedOutputBuffer = 0;
 
+                apply_buffer_policy(e, cfg);
+
                 if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
                 {
                     initOk = true;
@@ -6676,6 +6743,8 @@ extern "C"
                 cfg.wasapi.noAutoConvertSRC = 0;
                 cfg.wasapi.noDefaultQualitySRC = 0;
                 cfg.noPreSilencedOutputBuffer = 0;
+
+                apply_buffer_policy(e, cfg);
 
                 if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
                 {
@@ -7076,6 +7145,53 @@ extern "C"
     AE_API int ae_get_output_channels(AudioEngineHandle *engine)
     {
         return engine ? engine->outputChannels : 0;
+    }
+
+    AE_API void ae_set_output_buffer(AudioEngineHandle *engine, int period_frames, int period_count)
+    {
+        if (!engine)
+            return;
+
+        int clampedFrames = 0;
+        if (period_frames > 0)
+        {
+            clampedFrames = clampi(period_frames, 16, 16384);
+        }
+
+        int clampedCount = 0;
+        if (period_count > 0)
+        {
+            clampedCount = clampi(period_count, 2, 16);
+        }
+
+        if (engine->userPeriodFrames.load(std::memory_order_relaxed) == clampedFrames &&
+            engine->userPeriodCount.load(std::memory_order_relaxed) == clampedCount)
+        {
+            return;
+        }
+
+        engine->userPeriodFrames.store(clampedFrames, std::memory_order_relaxed);
+        engine->userPeriodCount.store(clampedCount, std::memory_order_relaxed);
+
+        restart_and_apply_config(engine);
+    }
+
+    AE_API void ae_get_output_buffer(AudioEngineHandle *engine, int *out_period_frames, int *out_period_count)
+    {
+        if (!engine)
+        {
+            if (out_period_frames) *out_period_frames = 0;
+            if (out_period_count) *out_period_count = 0;
+            return;
+        }
+        if (out_period_frames)
+        {
+            *out_period_frames = engine->userPeriodFrames.load(std::memory_order_relaxed);
+        }
+        if (out_period_count)
+        {
+            *out_period_count = engine->userPeriodCount.load(std::memory_order_relaxed);
+        }
     }
 
     AE_API void ae_set_engine_resample_algorithm(AudioEngineHandle *engine, int algorithm)
@@ -8961,22 +9077,30 @@ extern "C"
 
     AE_API void ae_set_loudness_normalizer_enabled(AudioEngineHandle *engine, int enabled)
     {
-        if (engine) engine->loudnessMeter.normalizerEnabled = (enabled != 0);
+        if (engine) engine->loudnessMeter.normalizerEnabled.store(enabled != 0, std::memory_order_relaxed);
     }
 
     AE_API int ae_get_loudness_normalizer_enabled(AudioEngineHandle *engine)
     {
-        return engine ? (engine->loudnessMeter.normalizerEnabled ? 1 : 0) : 0;
+        return engine ? (engine->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
 
     AE_API void ae_set_loudness_normalizer_target(AudioEngineHandle *engine, float target_lufs)
     {
-        if (engine) engine->loudnessMeter.normalizerTargetLUFS = clampf(target_lufs, -30.0f, -6.0f);
+        if (engine) engine->loudnessMeter.normalizerTargetLUFS.store(clampf(target_lufs, -30.0f, -6.0f), std::memory_order_relaxed);
     }
 
     AE_API float ae_get_loudness_normalizer_target(AudioEngineHandle *engine)
     {
-        return engine ? engine->loudnessMeter.normalizerTargetLUFS : -14.0f;
+        return engine ? engine->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed) : -14.0f;
+    }
+
+    AE_API float ae_get_loudness_normalizer_gain_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        const float g = engine->paramNormalizerGain.current;
+        if (g <= 1e-6f) return -120.0f;
+        return 20.0f * std::log10(g);
     }
 
     AE_API void ae_set_true_peak_meter_enabled(AudioEngineHandle *engine, int enabled)

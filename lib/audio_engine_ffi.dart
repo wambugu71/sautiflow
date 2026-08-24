@@ -903,6 +903,16 @@ typedef _SetOutputChannelsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetOutputChannelsDart = void Function(ffi.Pointer<ffi.Void>, int);
 
+typedef _SetOutputBufferNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
+typedef _SetOutputBufferDart = void Function(
+    ffi.Pointer<ffi.Void>, int, int);
+
+typedef _GetOutputBufferNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
+typedef _GetOutputBufferDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
+
 // Release 1 Quality Foundation Typedefs
 typedef _GetLoudnessMetricsNative = AELoudnessMetricsNative Function(
     ffi.Pointer<ffi.Void>);
@@ -921,6 +931,21 @@ typedef _SetLoudnessNormalizerTargetNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float);
 typedef _SetLoudnessNormalizerTargetDart = void Function(
     ffi.Pointer<ffi.Void>, double);
+
+typedef _GetLoudnessNormalizerEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLoudnessNormalizerEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _GetLoudnessNormalizerTargetNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLoudnessNormalizerTargetDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _GetLoudnessNormalizerGainDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLoudnessNormalizerGainDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
 
 typedef _GetTruePeakNative = AETruePeakMetricsNative Function(
     ffi.Pointer<ffi.Void>);
@@ -1677,6 +1702,16 @@ class AudioEngineFFI {
       'ae_get_output_channels',
     );
 
+    try {
+      _setOutputBuffer = _lib.lookupFunction<_SetOutputBufferNative,
+          _SetOutputBufferDart>('ae_set_output_buffer');
+      _getOutputBuffer = _lib.lookupFunction<_GetOutputBufferNative,
+          _GetOutputBufferDart>('ae_get_output_buffer');
+    } catch (_) {
+      _setOutputBuffer = null;
+      _getOutputBuffer = null;
+    }
+
     _setEngineResampleAlgorithm = _lib.lookupFunction<
         _SetEngineResampleAlgorithmNative,
         _SetEngineResampleAlgorithmDart>('ae_set_engine_resample_algorithm');
@@ -1845,6 +1880,18 @@ class AudioEngineFFI {
               _SetLoudnessNormalizerTargetNative,
               _SetLoudnessNormalizerTargetDart>(
           'ae_set_loudness_normalizer_target');
+      _getLoudnessNormalizerEnabled = _lib.lookupFunction<
+              _GetLoudnessNormalizerEnabledNative,
+              _GetLoudnessNormalizerEnabledDart>(
+          'ae_get_loudness_normalizer_enabled');
+      _getLoudnessNormalizerTarget = _lib.lookupFunction<
+              _GetLoudnessNormalizerTargetNative,
+              _GetLoudnessNormalizerTargetDart>(
+          'ae_get_loudness_normalizer_target');
+      _getLoudnessNormalizerGainDb = _lib.lookupFunction<
+              _GetLoudnessNormalizerGainDbNative,
+              _GetLoudnessNormalizerGainDbDart>(
+          'ae_get_loudness_normalizer_gain_db');
       _getTruePeak = _lib.lookupFunction<_GetTruePeakNative, _GetTruePeakDart>(
           'ae_get_true_peak');
       _setLookaheadLimiterEnabled = _lib.lookupFunction<
@@ -1864,6 +1911,9 @@ class AudioEngineFFI {
       _resetLoudnessMeter = null;
       _setLoudnessNormalizerEnabled = null;
       _setLoudnessNormalizerTarget = null;
+      _getLoudnessNormalizerEnabled = null;
+      _getLoudnessNormalizerTarget = null;
+      _getLoudnessNormalizerGainDb = null;
       _getTruePeak = null;
       _setLookaheadLimiterEnabled = null;
       _setLookaheadLimiterParams = null;
@@ -2052,6 +2102,8 @@ class AudioEngineFFI {
   late final _GetOutputRateDart _getOutputSampleRate;
   late final _SetOutputChannelsDart _setOutputChannels;
   late final _GetOutputChannelsDart _getOutputChannels;
+  _SetOutputBufferDart? _setOutputBuffer;
+  _GetOutputBufferDart? _getOutputBuffer;
 
   late final _SetEngineResampleAlgorithmDart _setEngineResampleAlgorithm;
   late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
@@ -2109,6 +2161,9 @@ class AudioEngineFFI {
   _ResetLoudnessMeterDart? _resetLoudnessMeter;
   _SetLoudnessNormalizerEnabledDart? _setLoudnessNormalizerEnabled;
   _SetLoudnessNormalizerTargetDart? _setLoudnessNormalizerTarget;
+  _GetLoudnessNormalizerEnabledDart? _getLoudnessNormalizerEnabled;
+  _GetLoudnessNormalizerTargetDart? _getLoudnessNormalizerTarget;
+  _GetLoudnessNormalizerGainDbDart? _getLoudnessNormalizerGainDb;
   _GetTruePeakDart? _getTruePeak;
   _SetLookaheadLimiterEnabledDart? _setLookaheadLimiterEnabled;
   _SetLookaheadLimiterParamsDart? _setLookaheadLimiterParams;
@@ -3143,6 +3198,29 @@ class AudioEngineFFI {
     return _getOutputChannels(_engine);
   }
 
+  /// Set custom fixed output buffer size (period frames) and period count.
+  /// Set [periodFrames] to 0 or [periodCount] to 0 to auto-select defaults.
+  void setOutputBuffer({int periodFrames = 0, int periodCount = 0}) {
+    if (_engine == ffi.nullptr) return;
+    _setOutputBuffer?.call(_engine, periodFrames, periodCount);
+  }
+
+  /// Get configured fixed output buffer parameters (periodFrames, periodCount).
+  ({int periodFrames, int periodCount}) getOutputBuffer() {
+    if (_engine == ffi.nullptr || _getOutputBuffer == null) {
+      return (periodFrames: 0, periodCount: 0);
+    }
+    final pF = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final pC = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    try {
+      _getOutputBuffer!(_engine, pF, pC);
+      return (periodFrames: pF.value, periodCount: pC.value);
+    } finally {
+      _free(pF.cast());
+      _free(pC.cast());
+    }
+  }
+
   void setPhaseInversion(
       {required bool invertLeft, required bool invertRight}) {
     if (_engine == ffi.nullptr) return;
@@ -3373,6 +3451,31 @@ class AudioEngineFFI {
     if (_setLoudnessNormalizerTarget != null && _engine != ffi.nullptr) {
       _setLoudnessNormalizerTarget!(_engine, targetLUFS);
     }
+  }
+
+  /// Returns true if the live loudness normalizer is currently enabled.
+  bool getLoudnessNormalizerEnabled() {
+    if (_getLoudnessNormalizerEnabled == null || _engine == ffi.nullptr) {
+      return false;
+    }
+    return _getLoudnessNormalizerEnabled!(_engine) != 0;
+  }
+
+  /// Returns the loudness normalizer target in LUFS (default -14.0).
+  double getLoudnessNormalizerTarget() {
+    if (_getLoudnessNormalizerTarget == null || _engine == ffi.nullptr) {
+      return -14.0;
+    }
+    return _getLoudnessNormalizerTarget!(_engine);
+  }
+
+  /// Returns the currently applied normalizer gain in dB
+  /// (0 when disabled or bypassed during crossfades).
+  double getLoudnessNormalizerGainDb() {
+    if (_getLoudnessNormalizerGainDb == null || _engine == ffi.nullptr) {
+      return 0.0;
+    }
+    return _getLoudnessNormalizerGainDb!(_engine);
   }
 
   /// Fetch 4x oversampled True-Peak metrics in dBTP.
