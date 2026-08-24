@@ -153,6 +153,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _channelGainLeftDb = 0.0;
   double _channelGainRightDb = 0.0;
 
+  // Fixed Output Buffer & Latency
+  int _outputBufferFrames = 0;
+  int _outputBufferPeriods = 0;
+
   // Neutron HiFi Engine Settings
   bool _use64BitProcessingEnabled = false;
   bool _autoBitPerfectEnabled = false;
@@ -278,6 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final phaseSaved = await AppStateService.instance.loadPhaseInversion();
     final lrSwap = await AppStateService.instance.loadLrSwap();
     final channelGains = await AppStateService.instance.loadChannelGains();
+    final bufferConfig = await AppStateService.instance.loadOutputBuffer();
     final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
     final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
     final waveformSaved =
@@ -322,6 +327,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _lrSwapEnabled = lrSwap;
       _channelGainLeftDb = channelGains.leftDb;
       _channelGainRightDb = channelGains.rightDb;
+      _outputBufferFrames = bufferConfig.periodFrames;
+      _outputBufferPeriods = bufferConfig.periodCount;
       _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
       _loudnessCrossfadeEnabled = loudnessCf;
@@ -358,6 +365,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.player.setChannelGainsDb(
       leftDb: _channelGainLeftDb,
       rightDb: _channelGainRightDb,
+    );
+    widget.player.setOutputBuffer(
+      periodFrames: _outputBufferFrames,
+      periodCount: _outputBufferPeriods,
     );
     _applySpeakerProtectionSettings();
   }
@@ -1422,6 +1433,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onTap: () =>
                       _showChannelsDialog(onDone: () => setSubState(() {})),
+                ),
+                const M3EDivider(),
+                M3EListItem(
+                  headline: 'Output Buffer & Latency',
+                  supportingText: 'Hardware period buffer frame size and periods',
+                  leading: _buildLeadingIcon(Icons.av_timer_rounded),
+                  trailing: SizedBox(
+                    width: 160,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _formatOutputBuffer(
+                                _outputBufferFrames, _outputBufferPeriods),
+                            style: TextStyle(color: _textDark, fontSize: 13),
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(Icons.chevron_right, color: _textDark, size: 20),
+                      ],
+                    ),
+                  ),
+                  onTap: () =>
+                      _showOutputBufferDialog(onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
                 Padding(
@@ -4826,6 +4864,160 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onDone?.call();
                     Navigator.pop(ctx);
                   },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatOutputBuffer(int frames, int periods) {
+    if (frames <= 0 || periods <= 0) {
+      return 'Auto (Default)';
+    }
+    return '$frames f • ${periods}x';
+  }
+
+  void _showOutputBufferDialog({VoidCallback? onDone}) {
+    final options = [
+      {
+        'frames': 0,
+        'periods': 0,
+        'name': 'Auto (Driver Default)',
+        'subtitle': 'System-negotiated period sizing (~10–25ms)',
+        'badge': 'Recommended',
+      },
+      {
+        'frames': 128,
+        'periods': 2,
+        'name': '128 frames • 2 periods (Ultra Low)',
+        'subtitle': '~2.7ms at 48kHz — Minimum latency for live response',
+        'badge': 'Ultra Low',
+      },
+      {
+        'frames': 256,
+        'periods': 2,
+        'name': '256 frames • 2 periods (Low Latency)',
+        'subtitle': '~5.3ms at 48kHz — Fast response for interactive playback',
+        'badge': 'Low Latency',
+      },
+      {
+        'frames': 512,
+        'periods': 2,
+        'name': '512 frames • 2 periods (Standard)',
+        'subtitle': '~10.7ms at 48kHz — Optimal balance of stability and latency',
+        'badge': 'Standard',
+      },
+      {
+        'frames': 1024,
+        'periods': 3,
+        'name': '1024 frames • 3 periods (High Stability)',
+        'subtitle': '~21.3ms at 48kHz — Resilient against CPU load & heavy DSP',
+        'badge': 'Safe',
+      },
+      {
+        'frames': 2048,
+        'periods': 4,
+        'name': '2048 frames • 4 periods (Max Reliability)',
+        'subtitle': '~42.6ms at 48kHz — Maximum underrun prevention',
+        'badge': 'Max Safe',
+      },
+    ];
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Fixed Output Buffer & Latency',
+          subtitle: 'Configure hardware period buffer size and periods',
+          height: MediaQuery.of(context).size.height * 0.78,
+          child: M3ECardList.builder(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (i) {
+              final item = options[i];
+              final f = item['frames'] as int;
+              final p = item['periods'] as int;
+              setDlgState(() {});
+              setState(() {
+                _outputBufferFrames = f;
+                _outputBufferPeriods = p;
+              });
+              widget.player.setOutputBuffer(
+                periodFrames: f,
+                periodCount: p,
+              );
+              AppStateService.instance.saveOutputBuffer(
+                periodFrames: f,
+                periodCount: p,
+              );
+              onDone?.call();
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, i) {
+              final item = options[i];
+              final f = item['frames'] as int;
+              final p = item['periods'] as int;
+              final name = item['name'] as String;
+              final subtitle = item['subtitle'] as String;
+              final isSelected =
+                  _outputBufferFrames == f && _outputBufferPeriods == p;
+              return M3EListItem(
+                headline: name,
+                supportingText: subtitle,
+                selected: isSelected,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (item['badge'] != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _primary.withAlpha(40),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          item['badge'] as String,
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    M3ERadio<bool>(
+                      value: true,
+                      groupValue: isSelected ? true : null,
+                      onChanged: (_) {
+                        setDlgState(() {});
+                        setState(() {
+                          _outputBufferFrames = f;
+                          _outputBufferPeriods = p;
+                        });
+                        widget.player.setOutputBuffer(
+                          periodFrames: f,
+                          periodCount: p,
+                        );
+                        AppStateService.instance.saveOutputBuffer(
+                          periodFrames: f,
+                          periodCount: p,
+                        );
+                        onDone?.call();
+                        Navigator.pop(ctx);
+                      },
+                    ),
+                  ],
                 ),
               );
             },

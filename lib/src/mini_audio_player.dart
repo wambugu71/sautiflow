@@ -328,6 +328,15 @@ class MiniAudioPlayer {
   /// Get output channel count.
   int getOutputChannels() => _engine.getOutputChannels();
 
+  /// Set custom fixed output buffer size (period frames) and period count.
+  /// Set [periodFrames] to 0 or [periodCount] to 0 to revert to auto/driver defaults.
+  void setOutputBuffer({int periodFrames = 0, int periodCount = 0}) =>
+      _engine.setOutputBuffer(periodFrames: periodFrames, periodCount: periodCount);
+
+  /// Get configured fixed output buffer parameters (periodFrames, periodCount).
+  ({int periodFrames, int periodCount}) getOutputBuffer() =>
+      _engine.getOutputBuffer();
+
   /// Set Phase Inversion (180° polarity flip) for Left and Right channels.
   void setPhaseInversion({required bool invertLeft, required bool invertRight}) =>
       _engine.setPhaseInversion(invertLeft: invertLeft, invertRight: invertRight);

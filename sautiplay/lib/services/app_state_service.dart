@@ -968,6 +968,28 @@ class AppStateService {
     return prefs.getBool(_kAutoBitPerfectEnabled) ?? false;
   }
 
+  // ─── Hardware Buffer Size & Latency Settings ──────────────────────────────
+  static const _kOutputBufferFrames = 'sp_output_buffer_frames';
+  static const _kOutputBufferPeriods = 'sp_output_buffer_periods';
+
+  Future<void> saveOutputBuffer({
+    required int periodFrames,
+    required int periodCount,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kOutputBufferFrames, periodFrames);
+    await prefs.setInt(_kOutputBufferPeriods, periodCount);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<({int periodFrames, int periodCount})> loadOutputBuffer() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      periodFrames: prefs.getInt(_kOutputBufferFrames) ?? 0,
+      periodCount: prefs.getInt(_kOutputBufferPeriods) ?? 0,
+    );
+  }
+
   // ── Release 1 Quality Foundation Settings ──────────────────────────────────
   static const _kLoudnessNormalizerEnabled = 'sp_loudness_normalizer_enabled';
   static const _kLoudnessNormalizerTarget = 'sp_loudness_normalizer_target';

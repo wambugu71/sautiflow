@@ -717,6 +717,31 @@ class IsolateAudioPlayer {
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
 
+  void setOutputBuffer({int periodFrames = 0, int periodCount = 0}) =>
+      _send({
+        'cmd': 'setOutputBuffer',
+        'periodFrames': periodFrames,
+        'periodCount': periodCount,
+      });
+
+  Future<({int periodFrames, int periodCount})> getOutputBuffer() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getOutputBuffer',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    final map = response as Map;
+    return (
+      periodFrames: (map['periodFrames'] as int?) ?? 0,
+      periodCount: (map['periodCount'] as int?) ?? 0,
+    );
+  }
+
   void setPhaseInversion(
           {required bool invertLeft, required bool invertRight}) =>
       _send({
@@ -1451,6 +1476,12 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
           break;
+        case 'setOutputBuffer':
+          player.setOutputBuffer(
+            periodFrames: message['periodFrames'] ?? 0,
+            periodCount: message['periodCount'] ?? 0,
+          );
+          break;
         case 'setPhaseInversion':
           player.setPhaseInversion(
             invertLeft: message['invertLeft'] == true,
@@ -1545,6 +1576,18 @@ void _isolateEntry(_IsolateInitData initData) {
               'channels': player.getOutputChannels(),
               'format': player.getOutputFormat().name,
               'sampleRate': player.getOutputSampleRate(),
+            });
+          } catch (e) {
+            replyTo.send({'error': e.toString()});
+          }
+          break;
+        case 'getOutputBuffer':
+          final SendPort replyTo = message['replyTo'];
+          try {
+            final buf = player.getOutputBuffer();
+            replyTo.send({
+              'periodFrames': buf.periodFrames,
+              'periodCount': buf.periodCount,
             });
           } catch (e) {
             replyTo.send({'error': e.toString()});
