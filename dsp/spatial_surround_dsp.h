@@ -471,13 +471,13 @@ public:
             default: break;
         }
 
-        // Anti-pop fade-in when first engaged.
+        // Anti-pop fade-in when first engaged (per-sample ramp, ~50 ms).
         if (anti_pop_ < 1.0f) {
-            anti_pop_ = std::min(1.0f, anti_pop_ + (1.0f / sample_rate_) * 200.0f); // ~5 ms ramp
-            const float k = anti_pop_;
-            for (uint32_t i = 0; i < frame_count; ++i) {
-                interleaved[2 * i]     *= k;
-                interleaved[2 * i + 1] *= k;
+            const float inc = 20.0f / sample_rate_; // 50 ms to full level
+            const uint32_t n = frame_count * 2u;
+            for (uint32_t i = 0; i < n; ++i) {
+                interleaved[i] *= anti_pop_;
+                anti_pop_ = std::min(1.0f, anti_pop_ + inc);
             }
         }
     }

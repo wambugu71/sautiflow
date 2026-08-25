@@ -260,6 +260,7 @@ class AppStateService {
 
   // ─── EQ – Reverb (Freeverb FDN) ───────────────────────────────────────────
   static const _kReverbExEnabled = 'sp_reverb_ex_enabled';
+  static const _kReverbExPreset = 'sp_reverb_ex_preset';
   static const _kReverbExMix = 'sp_reverb_ex_mix';
   static const _kReverbExRoomSize = 'sp_reverb_ex_room_size';
   static const _kReverbExDamping = 'sp_reverb_ex_damping';
@@ -268,6 +269,7 @@ class AppStateService {
 
   Future<void> saveReverb({
     required bool enabled,
+    required String preset,
     required double mix,
     required double roomSize,
     required double damping,
@@ -276,6 +278,7 @@ class AppStateService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kReverbExEnabled, enabled);
+    await prefs.setString(_kReverbExPreset, preset);
     await prefs.setDouble(_kReverbExMix, mix);
     await prefs.setDouble(_kReverbExRoomSize, roomSize);
     await prefs.setDouble(_kReverbExDamping, damping);
@@ -286,6 +289,7 @@ class AppStateService {
   Future<
       ({
         bool enabled,
+        String preset,
         double mix,
         double roomSize,
         double damping,
@@ -295,6 +299,7 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     return (
       enabled: prefs.getBool(_kReverbExEnabled) ?? false,
+      preset: prefs.getString(_kReverbExPreset) ?? 'Custom',
       mix: prefs.getDouble(_kReverbExMix) ?? 0.25,
       roomSize: prefs.getDouble(_kReverbExRoomSize) ?? 0.6,
       damping: prefs.getDouble(_kReverbExDamping) ?? 0.4,

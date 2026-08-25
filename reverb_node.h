@@ -32,7 +32,9 @@ public:
 
     ReverbNode()
     {
-        setSampleRate(48000.0);
+        // Build directly: setSampleRate() early-returns when the requested
+        // rate matches the default, which would leave every buffer empty.
+        buildBuffers();
         reset();
     }
 
@@ -139,6 +141,11 @@ public:
             return;
         }
         currentEnabled = true;
+
+        // Defensive: never touch the network if buffers were not built yet
+        // (e.g. racing a sample-rate rebuild on the control thread).
+        if (comb[0][0].buf.empty() || allpass[0][0].buf.empty())
+            return;
 
         // 15ms parameter smoothing time constant.
         const float alphaSmooth =
