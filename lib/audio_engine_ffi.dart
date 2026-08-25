@@ -785,6 +785,18 @@ typedef _GetReverbParamsExDart = void Function(
     ffi.Pointer<ffi.Float>,
     ffi.Pointer<ffi.Float>);
 
+// ae_set_reverb_gains(AudioEngineHandle*, wet, dry)
+typedef _SetReverbGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _SetReverbGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
+
+// ae_get_reverb_gains(AudioEngineHandle*, float* wet, float* dry)
+typedef _GetReverbGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+typedef _GetReverbGainsDart = void Function(ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
 typedef _SetEqGainsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
 typedef _SetEqGainsDart = void Function(
@@ -1483,20 +1495,10 @@ class AudioEngineFFI {
           _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
         'ae_set_next_replay_gain',
       );
-      _setCrossfadeSilenceThreshold =
-          _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
-        'ae_set_crossfade_silence_threshold',
-      );
-      _getCrossfadeSilenceThreshold = _lib
-          .lookupFunction<_GetDeviceLatencyMsNative, _GetDeviceLatencyMsDart>(
-        'ae_get_crossfade_silence_threshold',
-      );
     } catch (_) {
       _setLoudnessCrossfadeEnabled = null;
       _getLoudnessCrossfadeEnabled = null;
       _setNextReplayGain = null;
-      _setCrossfadeSilenceThreshold = null;
-      _getCrossfadeSilenceThreshold = null;
     }
 
     _setReverbEnabled =
@@ -1514,6 +1516,14 @@ class AudioEngineFFI {
     _getReverbParamsEx =
         _lib.lookupFunction<_GetReverbParamsExNative, _GetReverbParamsExDart>(
       'ae_get_reverb_params_ex',
+    );
+    _setReverbGains =
+        _lib.lookupFunction<_SetReverbGainsNative, _SetReverbGainsDart>(
+      'ae_set_reverb_gains',
+    );
+    _getReverbGains =
+        _lib.lookupFunction<_GetReverbGainsNative, _GetReverbGainsDart>(
+      'ae_get_reverb_gains',
     );
     _setEqEnabled = _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_eq_enabled',
@@ -2077,12 +2087,12 @@ class AudioEngineFFI {
   _SetIntDart? _setLoudnessCrossfadeEnabled;
   _GetIntDart? _getLoudnessCrossfadeEnabled;
   _SetSingleFloatDart? _setNextReplayGain;
-  _SetSingleFloatDart? _setCrossfadeSilenceThreshold;
-  _GetDeviceLatencyMsDart? _getCrossfadeSilenceThreshold;
   late final _SetFxEnabledDart _setReverbEnabled;
   late final _SetReverbParamsDart _setReverbParams;
   late final _SetReverbParamsExDart _setReverbParamsEx;
   late final _GetReverbParamsExDart _getReverbParamsEx;
+  late final _SetReverbGainsDart _setReverbGains;
+  late final _GetReverbGainsDart _getReverbGains;
   late final _SetFxEnabledDart _setEqEnabled;
   late final _SetEqGainsDart _setEqGains;
   late final _SetSingleFloatDart _setGain;
@@ -2620,18 +2630,6 @@ class AudioEngineFFI {
     _setNextReplayGain!(_engine, gainDb);
   }
 
-  void setCrossfadeSilenceThreshold(double thresholdDb) {
-    if (_engine == ffi.nullptr || _setCrossfadeSilenceThreshold == null) return;
-    _setCrossfadeSilenceThreshold!(_engine, thresholdDb);
-  }
-
-  double getCrossfadeSilenceThreshold() {
-    if (_engine == ffi.nullptr || _getCrossfadeSilenceThreshold == null) {
-      return -60.0;
-    }
-    return _getCrossfadeSilenceThreshold!(_engine);
-  }
-
   TrackNativeInfo? inspectFile(String path) {
     if (_inspectFile == null) return null;
     final c = _toNativeChar(path);
@@ -2842,6 +2840,29 @@ class AudioEngineFFI {
         ..free(dampPtr)
         ..free(predelayPtr)
         ..free(widthPtr);
+    }
+  }
+
+  /// Independent wet/dry output gains for the reverb (0.0 – 2.0 each,
+  /// >1.0 boosts). Overrides the crossfade mix.
+  void setReverbGains({required double wet, required double dry}) {
+    if (_engine == ffi.nullptr) return;
+    _setReverbGains(_engine, wet, dry);
+  }
+
+  ({double wet, double dry}) getReverbGains() {
+    if (_engine == ffi.nullptr) {
+      return (wet: 0.0, dry: 1.0);
+    }
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    try {
+      _getReverbGains(_engine, wetPtr, dryPtr);
+      return (wet: wetPtr.value, dry: dryPtr.value);
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr);
     }
   }
 

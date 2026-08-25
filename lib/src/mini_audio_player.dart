@@ -184,10 +184,6 @@ class MiniAudioPlayer {
       _engine.setLoudnessCrossfadeEnabled(enabled);
   bool getLoudnessCrossfadeEnabled() => _engine.getLoudnessCrossfadeEnabled();
   void setNextReplayGain(double gainDb) => _engine.setNextReplayGain(gainDb);
-  void setCrossfadeSilenceThreshold(double thresholdDb) =>
-      _engine.setCrossfadeSilenceThreshold(thresholdDb);
-  double getCrossfadeSilenceThreshold() =>
-      _engine.getCrossfadeSilenceThreshold();
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();
@@ -258,24 +254,33 @@ class MiniAudioPlayer {
     _engine.setReverbParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
-  /// Extended reverb (Freeverb FDN): room size, damping, pre-delay, width.
+  /// Extended reverb (Freeverb FDN): independent wet/dry gains, room size,
+  /// damping, pre-delay and width.
   void setReverbEx({
     required bool enabled,
-    double mix = 0.25,
+    double wet = 0.25,
+    double dry = 0.75,
     double roomSize = 0.6,
     double damping = 0.4,
     double preDelayMs = 20.0,
     double width = 1.0,
   }) {
     _engine.setReverbEnabled(enabled);
+    // setReverbParamsEx derives dry from mix, so apply the independent
+    // gains last to get the final wet/dry balance.
     _engine.setReverbParamsEx(
-      mix: mix,
+      mix: wet,
       roomSize: roomSize,
       damping: damping,
       preDelayMs: preDelayMs,
       width: width,
     );
+    _engine.setReverbGains(wet: wet, dry: dry);
   }
+
+  /// Live wet/dry gain update without touching the other reverb params.
+  void setReverbGains({required double wet, required double dry}) =>
+      _engine.setReverbGains(wet: wet, dry: dry);
 
   ReverbParamsEx getReverbParams() => _engine.getReverbParamsEx();
 

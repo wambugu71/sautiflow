@@ -166,8 +166,6 @@ extern "C"
     AE_API void ae_set_loudness_crossfade_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_loudness_crossfade_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_next_replay_gain(AudioEngineHandle *engine, float gain_db);
-    AE_API void ae_set_crossfade_silence_threshold(AudioEngineHandle *engine, float threshold_db);
-    AE_API float ae_get_crossfade_silence_threshold(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
@@ -177,6 +175,8 @@ extern "C"
     AE_API void ae_set_reverb_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_reverb_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
     AE_API void ae_set_reverb_params_ex(AudioEngineHandle *engine, float mix, float room_size, float damping, float pre_delay_ms, float width);
+    AE_API void ae_set_reverb_gains(AudioEngineHandle *engine, float wet, float dry);
+    AE_API void ae_get_reverb_gains(AudioEngineHandle *engine, float *out_wet, float *out_dry);
     AE_API void ae_get_reverb_params_ex(AudioEngineHandle *engine, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width);
     AE_API void ae_set_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);

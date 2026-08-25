@@ -2653,7 +2653,6 @@ struct AudioEngineHandle
     std::atomic<float> currentTrackReplayGain{1.0f};
     std::atomic<float> fadingOutReplayGain{1.0f};
     std::atomic<float> nextTrackReplayGain{1.0f};
-    std::atomic<float> crossfadeSilenceThresholdDb{-60.0f};
     std::atomic<ma_uint64> crossfadeFramesRemaining{0};
     std::atomic<ma_uint64> crossfadeFramesTotal{0};
     ma_decoder* fadingOutDecoder = nullptr;
@@ -2665,6 +2664,21 @@ struct AudioEngineHandle
     // network reads) OFF the audio thread during crossfades.
     SPSCBuffer<float> crossfadeRingBuffer;
     std::atomic<bool> crossfadeSourceEof{false};
+    // Graceful abort: when a user skip interrupts an ACTIVE crossfade, the
+    // outgoing track ramps to silence over a short window instead of cutting.
+    // Lifetime rules are unchanged - the producer thread still retires
+    // fadingOutDecoder once isCrossfading clears. Publish level/total BEFORE
+    // the active flag so the realtime side never reads partial state.
+    std::atomic<bool> crossfadeAbortActive{false};
+    std::atomic<float> crossfadeAbortStartLevel{0.0f};
+    std::atomic<ma_uint64> crossfadeAbortFramesTotal{0};
+    std::atomic<ma_uint64> crossfadeAbortFramesDone{0};
+    // Stall watchdog: if the fading-out source delivers nothing for ~250 ms
+    // (network stall / dead connection), latch it dead so the realtime side
+    // stops reading a sputtering ring and completes the fade as a clean
+    // fade-in instead of stuttering.
+    std::atomic<bool> crossfadeSourceDead{false};
+    std::atomic<ma_uint32> crossfadeStarveFrames{0};
 
     std::atomic<bool> pendingSeekValid{false};
     std::atomic<ma_uint64> pendingSeekFrame{0};
@@ -2734,6 +2748,8 @@ struct AudioEngineHandle
     // Loudness Normalizer gain automation (BS.1770 integrated LUFS -> target).
     // Ramped per-sample so slow loudness corrections never zipper or click.
     AutomatedParamFloat paramNormalizerGain;
+    // Smoothed user master gain (prevents zipper noise on volume changes)
+    AutomatedParamFloat paramUserGain;
     std::atomic<float> parameterSmoothingMs{15.0f};
 
     // Stereo Widen Effect
@@ -3332,8 +3348,50 @@ static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
         e->fadingOutStream = nullptr;
 #endif
+        // Never leave a stale abort ramp armed across fades
+        e->crossfadeAbortActive.store(false, std::memory_order_release);
+        e->crossfadeAbortFramesTotal.store(0, std::memory_order_relaxed);
+        e->crossfadeAbortFramesDone.store(0, std::memory_order_relaxed);
+        e->crossfadeSourceDead.store(false, std::memory_order_release);
+        e->crossfadeStarveFrames.store(0, std::memory_order_relaxed);
         e->isCrossfading.store(false, std::memory_order_release);
     }
+}
+
+// Arms a short (~120 ms) graceful fade-out of an ACTIVE crossfade so a user
+// skip doesn't hard-cut the outgoing track mid-fade. No-op when idle or
+// already aborting. The outgoing decoder stays alive until the realtime
+// mixer finishes the ramp; normal producer retirement then frees it.
+static void request_crossfade_abort(AudioEngineHandle *e)
+{
+    if (e == nullptr ||
+        e->fadingOutDecoder == nullptr ||
+        !e->isCrossfading.load(std::memory_order_acquire))
+    {
+        return;
+    }
+    if (e->crossfadeAbortActive.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    const ma_uint64 total = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
+    const ma_uint64 remaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
+    double progress = 0.0;
+    if (total > 0 && remaining <= total)
+    {
+        progress = (double)(total - remaining) / (double)total;
+    }
+
+    constexpr float halfPi = 1.57079632679f;
+    // Perceived level of the outgoing track right now (matches mixer curve)
+    const float startLevel = std::cos((float)progress * halfPi);
+
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    e->crossfadeAbortStartLevel.store(startLevel, std::memory_order_relaxed);
+    e->crossfadeAbortFramesDone.store(0, std::memory_order_relaxed);
+    e->crossfadeAbortFramesTotal.store((ma_uint64)((double)sr * 0.120), std::memory_order_release);
+    e->crossfadeAbortActive.store(true, std::memory_order_release);
 }
 
 
@@ -3675,7 +3733,10 @@ static void worker_loop(AudioEngineHandle *e)
                     );
                     e->hasNext = false;
                 }
-                uninit_fading_out_slot_locked(e);
+                // Skip during an active crossfade: ramp the outgoing track out
+                // gracefully instead of hard-cutting it. The producer thread
+                // retires the outgoing decoder once the ramp completes.
+                request_crossfade_abort(e);
 
                 if (newCurrent != nullptr)
                 {
@@ -3875,6 +3936,71 @@ struct DeferredEndCallback
     }
 };
 
+// Defined later in this file (inside the extern "C" section); used by the
+// early crossfade trigger to align the fade start with what listeners hear.
+extern "C" {
+static double calculate_total_pipeline_latency_samples(AudioEngineHandle *e);
+}
+
+// Keeps the crossfade source ring topped up with pre-decoded old-track audio
+// and retires the outgoing decoder once a fade finishes (or is aborted).
+// Producer-thread only; must be invoked on EVERY loop iteration BEFORE any
+// early-exit 'continue' (e.g. the pcmRingBuffer-full gate) so the realtime
+// mixer never starves mid-fade.
+static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &tempChunk)
+{
+    if (e == nullptr || tempChunk.empty())
+        return;
+
+    // Retire the old decoder once the fade is done. Decoder lifetime belongs
+    // to threads that may hold decoderMutex - never to the realtime callback.
+    if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
+    {
+        std::lock_guard<std::mutex> d(e->decoderMutex);
+        if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
+        {
+            uninit_fading_out_slot_locked(e);
+            e->crossfadeRingBuffer.reset();
+            e->crossfadeSourceEof.store(false, std::memory_order_release);
+        }
+        return;
+    }
+
+    if (!e->isCrossfading.load(std::memory_order_acquire) ||
+        e->crossfadeSourceEof.load(std::memory_order_relaxed) ||
+        e->crossfadeSourceDead.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+    std::lock_guard<std::mutex> d(e->decoderMutex);
+    ma_decoder *fadeOut = e->fadingOutDecoder;
+    if (fadeOut != nullptr)
+    {
+        const size_t wantFrames = 1024;
+        const size_t availSamples = e->crossfadeRingBuffer.available_write();
+        size_t fillFrames = std::min(wantFrames, availSamples / ch);
+        if (fillFrames > 0)
+        {
+            ma_uint64 framesRead = 0;
+            const ma_result rr = ma_decoder_read_pcm_frames(fadeOut, tempChunk.data(), (ma_uint64)fillFrames, &framesRead);
+            if (framesRead > 0)
+            {
+                e->crossfadeRingBuffer.write(tempChunk.data(), (size_t)framesRead * ch);
+            }
+            if (rr == MA_AT_END || framesRead == 0)
+            {
+                e->crossfadeSourceEof.store(true, std::memory_order_release);
+            }
+        }
+    }
+    else
+    {
+        e->crossfadeSourceEof.store(true, std::memory_order_release);
+    }
+}
+
 static void decode_producer_loop(AudioEngineHandle *e)
 {
     std::vector<float> tempChunk;
@@ -3894,6 +4020,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
             continue;
         }
+
+        // Top up / retire the crossfade source BEFORE any of the early-exit
+        // gates below: while the main ring is full the old path starved the
+        // outgoing track, causing audible stutter during crossfades.
+        service_crossfade_state(e, tempChunk);
 
         const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
         const size_t targetChunkFrames = 1024;
@@ -3962,27 +4093,85 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Early Crossfade Trigger
             if (e->crossfadeEnabled.load(std::memory_order_relaxed) && e->hasNext && !e->isCrossfading.load(std::memory_order_acquire))
             {
-                ma_uint64 cursor = 0;
-                if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &cursor) == MA_SUCCESS)
+                ma_uint64 length = e->currentLengthFrames;
+                if (length == 0 && e->currentDecoder != nullptr)
                 {
-                    ma_uint64 length = e->currentLengthFrames;
-                    if (length > 0 && cursor <= length)
+                    ma_uint64 len = 0;
+                    if (ma_decoder_get_length_in_pcm_frames(e->currentDecoder, &len) == MA_SUCCESS && len > 0)
+                    {
+                        e->currentLengthFrames = length = len;
+                    }
+                }
+                if (length > 0)
+                {
+                    // Trigger on the AUDIBLE playback position, not the decode
+                    // cursor: the decoder runs ahead of what listeners hear by
+                    // whatever is pre-buffered in pcmRingBuffer (up to ~4 s).
+                    // Using the decode cursor made the fade expire long before
+                    // the old track audibly ended, so the next track appeared to
+                    // start instantly with no fade-in.
+                    const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
+                    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                    const double latencySamples = calculate_total_pipeline_latency_samples(e);
+                    const double effectivePosF = (double)(baseFrame + played);
+                    const double audiblePosF = (effectivePosF > latencySamples) ? (effectivePosF - latencySamples) : 0.0;
+
+                    if (audiblePosF <= (double)length)
                     {
                         const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
                         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
                         const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
+                        const ma_uint64 remain = length - (ma_uint64)audiblePosF;
 
-                        if (fadeFrames > 0 && (length - cursor) <= fadeFrames)
+                        if (fadeFrames > 0 && remain <= fadeFrames)
                         {
-                            const ma_uint64 remain = length - cursor;
-                            // Reset the crossfade source ring BEFORE publishing
-                            // isCrossfading (release) so the realtime reader can
-                            // never observe stale audio from a previous fade.
+                            // Transfer the already-decoded old-track tail from
+                            // the main ring into the crossfade source ring
+                            // instead of rewinding the decoder: continuity is
+                            // preserved sample-exactly for ANY source, including
+                            // HTTP streams without range support and push/live
+                            // streams that cannot seek. The decoder cursor sits
+                            // exactly at the end of this buffered audio, so the
+                            // producer's subsequent reads continue seamlessly.
                             e->crossfadeRingBuffer.reset();
+                            e->ringBufferFlushing.store(true, std::memory_order_release);
+                            {
+                                size_t guard = 0;
+                                while (guard++ < 256)
+                                {
+                                    const size_t want = tempChunk.size() / ch;
+                                    const size_t room = e->crossfadeRingBuffer.available_write() / ch;
+                                    if (room == 0)
+                                        break;
+                                    const size_t gotSamples = e->pcmRingBuffer.read(
+                                        tempChunk.data(), std::min(want, room) * ch);
+                                    if (gotSamples == 0)
+                                        break;
+                                    e->crossfadeRingBuffer.write(tempChunk.data(), gotSamples);
+                                }
+                                // Pending resampler input still belongs to the OLD
+                                // stream; discard it so the new track decodes cleanly.
+                                if (e->pitchResamplerInit)
+                                {
+                                    ma_resampler_reset(&e->pitchResampler);
+                                    e->pitchInputUnconsumed = 0;
+                                }
+                                e->pcmRingBuffer.reset();
+                            }
+                            e->ringBufferFlushing.store(false, std::memory_order_release);
+
+                            // Reset watchdog state for this fade
+                            e->crossfadeSourceDead.store(false, std::memory_order_release);
+                            e->crossfadeStarveFrames.store(0, std::memory_order_relaxed);
+
+                            // Publish isCrossfading LAST (release) so the realtime
+                            // reader can never observe stale audio or counters
+                            // from a previous fade.
                             e->crossfadeSourceEof.store(false, std::memory_order_relaxed);
+                            const ma_uint64 fadeLen = (remain > 0) ? remain : fadeFrames;
                             e->isCrossfading.store(true, std::memory_order_release);
-                            e->crossfadeFramesTotal.store(remain > 0 ? remain : fadeFrames, std::memory_order_relaxed);
-                            e->crossfadeFramesRemaining.store(remain, std::memory_order_relaxed);
+                            e->crossfadeFramesTotal.store(fadeLen, std::memory_order_relaxed);
+                            e->crossfadeFramesRemaining.store(fadeLen, std::memory_order_relaxed);
 
                             e->fadingOutReplayGain.store(e->currentTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackReplayGain.store(e->nextTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -4287,52 +4476,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             e->pcmRingBuffer.write(tempChunk.data(), (size_t)produced * ch);
         }
-
-        // Crossfade support: keep the SPSC crossfade ring topped up with
-        // decoded old-track audio so the realtime callback only ever reads
-        // pre-decoded samples (no codec work, no decoderMutex on the RT side).
-        if (e->isCrossfading.load(std::memory_order_acquire) && !e->crossfadeSourceEof.load(std::memory_order_relaxed))
-        {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
-            ma_decoder *fadeOut = e->fadingOutDecoder;
-            if (fadeOut != nullptr)
-            {
-                const size_t wantFrames = 1024;
-                const size_t availSamples = e->crossfadeRingBuffer.available_write();
-                size_t fillFrames = std::min(wantFrames, availSamples / ch);
-                if (fillFrames > 0)
-                {
-                    ma_uint64 framesRead = 0;
-                    const ma_result rr = ma_decoder_read_pcm_frames(fadeOut, tempChunk.data(), (ma_uint64)fillFrames, &framesRead);
-                    if (framesRead > 0)
-                    {
-                        e->crossfadeRingBuffer.write(tempChunk.data(), (size_t)framesRead * ch);
-                    }
-                    if (rr == MA_AT_END || framesRead == 0)
-                    {
-                        e->crossfadeSourceEof.store(true, std::memory_order_release);
-                    }
-                }
-            }
-            else
-            {
-                e->crossfadeSourceEof.store(true, std::memory_order_release);
-            }
-        }
-
-        // Fade finished (or was aborted by a control path): retire the old
-        // decoder here. Decoder lifetime belongs to threads that may hold
-        // decoderMutex - never to the realtime callback.
-        if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
-        {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
-            if (!e->isCrossfading.load(std::memory_order_acquire) && e->fadingOutDecoder != nullptr)
-            {
-                uninit_fading_out_slot_locked(e);
-                e->crossfadeRingBuffer.reset();
-                e->crossfadeSourceEof.store(false, std::memory_order_release);
-            }
-        }
         }
         catch (...)
         {
@@ -4456,21 +4599,58 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         // both cause glitches exactly when crossfading network streams.
         if (e->isCrossfading.load(std::memory_order_acquire)) {
             if (e->fadingOutDecoder != nullptr) {
+                // Stall watchdog: once the source is latched dead (network
+                // stall / dropped connection), stop reading the sputtering
+                // ring entirely - the fade completes as a clean fade-in.
+                const bool sourceDead = e->crossfadeSourceDead.load(std::memory_order_acquire);
+
                 // Read pre-decoded old-track audio from the SPSC ring (lock-free)
                 size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
                 if (e->crossfadeMixBuffer.size() < neededMixSamples)
                 {
                     neededMixSamples = e->crossfadeMixBuffer.size();
                 }
-                const size_t gotSamples = e->crossfadeRingBuffer.read(e->crossfadeMixBuffer.data(), neededMixSamples);
+                size_t gotSamples = 0;
+                if (!sourceDead)
+                {
+                    gotSamples = e->crossfadeRingBuffer.read(e->crossfadeMixBuffer.data(), neededMixSamples);
+                }
                 const ma_uint64 oldFramesRead = gotSamples / (size_t)e->channels;
                 std::fill(e->crossfadeMixBuffer.begin() + gotSamples,
                           e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
                 float *mixBuf = e->crossfadeMixBuffer.data();
 
+                // Starvation accounting: silence gaps on the outgoing track are
+                // masked while tOut is low, but intermittent chunks early in the
+                // fade stutter audibly. Latch after ~250 ms of nothing.
+                if (!sourceDead && gotSamples == 0 &&
+                    !e->crossfadeSourceEof.load(std::memory_order_acquire))
+                {
+                    const ma_uint32 starved =
+                        e->crossfadeStarveFrames.fetch_add(produced, std::memory_order_relaxed) + produced;
+                    const int srForWatchdog = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    if (starved > (ma_uint32)(srForWatchdog / 4))
+                    {
+                        e->crossfadeSourceDead.store(true, std::memory_order_release);
+                        engine_log("Crossfade: outgoing source stalled; completing fade as fade-in.");
+                    }
+                }
+                else if (gotSamples > 0)
+                {
+                    e->crossfadeStarveFrames.store(0, std::memory_order_relaxed);
+                }
+
                 const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
                 const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
                 const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
+
+                // Graceful-abort ramp (user skipped mid-fade): the outgoing
+                // track follows a linear envelope from its current perceived
+                // level to zero instead of the cosine curve.
+                const bool aborting = e->crossfadeAbortActive.load(std::memory_order_acquire);
+                const float abortStartLevel = aborting ? e->crossfadeAbortStartLevel.load(std::memory_order_relaxed) : 0.0f;
+                const ma_uint64 abortFramesTotal = aborting ? e->crossfadeAbortFramesTotal.load(std::memory_order_relaxed) : 0;
+                ma_uint64 abortFramesDone = aborting ? e->crossfadeAbortFramesDone.load(std::memory_order_relaxed) : 0;
 
                 const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                 constexpr float halfPi = 1.57079632679f;
@@ -4478,7 +4658,18 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 {
                     const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
                     const float tIn = std::sin(t * halfPi);
-                    const float tOut = std::cos(t * halfPi);
+
+                    float outEnv;
+                    if (aborting && abortFramesTotal > 0)
+                    {
+                        outEnv = abortStartLevel * (1.0f - (float)abortFramesDone / (float)abortFramesTotal);
+                        outEnv = clampf(outEnv, 0.0f, 1.0f);
+                        abortFramesDone += 1;
+                    }
+                    else
+                    {
+                        outEnv = std::cos(t * halfPi);
+                    }
 
                     const size_t base = (size_t)i * (size_t)e->channels;
                     for (int c = 0; c < e->channels; ++c)
@@ -4486,14 +4677,33 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                         // If the ring supplied frames from the old track, add them with loudness gain alignment
                         float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                         float inSample  = processBuffer[base + (size_t)c] * inGain;
-                        processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * tOut);
+                        processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * outEnv);
                     }
                     fadeRemaining -= 1;
                 }
                 e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_release);
 
-                if (fadeRemaining == 0 ||
-                    (gotSamples == 0 && e->crossfadeSourceEof.load(std::memory_order_acquire)))
+                bool endCrossfade = false;
+                if (aborting)
+                {
+                    e->crossfadeAbortFramesDone.store((abortFramesDone < abortFramesTotal) ? abortFramesDone : abortFramesTotal, std::memory_order_release);
+                    // A zero-length ramp can't make progress in the sample loop
+                    // (e.g. fade counters were re-armed to 0); end immediately
+                    // rather than leaving a stale abort flag behind.
+                    if (abortFramesTotal == 0 || abortFramesDone >= abortFramesTotal)
+                    {
+                        e->crossfadeAbortActive.store(false, std::memory_order_release);
+                        e->crossfadeAbortFramesTotal.store(0, std::memory_order_relaxed);
+                        endCrossfade = true;
+                    }
+                }
+                else if (fadeRemaining == 0 ||
+                         (gotSamples == 0 && e->crossfadeSourceEof.load(std::memory_order_acquire)))
+                {
+                    endCrossfade = true;
+                }
+
+                if (endCrossfade)
                 {
                     // Crossfade complete. Decoder teardown is handled by the
                     // producer thread (it owns decoder lifetime); the realtime
@@ -4530,12 +4740,15 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         {
             const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
 
-            // Volume (main gain × replay gain × loudness-normalizer gain)
+            // Volume (user gain × replay gain × loudness-normalizer gain)
             {
                 const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
                                              e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
                 const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
-                const float vol = e->gain.load(std::memory_order_relaxed) * rg;
+
+                // User master gain rides AutomatedParamFloat so UI volume
+                // changes ramp smoothly instead of stepping block-wise.
+                e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
 
                 // Loudness Normalizer: rides output gain toward the user target
                 // (BS.1770 integrated LUFS). Bypassed during loudness-aware
@@ -4550,14 +4763,19 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->paramNormalizerGain.setTarget(normTarget);
                 // next() is consumed per sample below, so ramp over the full
                 // sample count to keep the smoothing-time semantics correct.
-                const size_t normRampSamples = (size_t)produced * (size_t)e->channels;
-                e->paramNormalizerGain.prepareBlock((ma_uint32)normRampSamples,
+                const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+                e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
+                                              e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                              e->sampleRate);
+                e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
                                                     e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                     e->sampleRate);
 
-                const size_t totalSamples = normRampSamples;
                 const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
                                         std::fabs(normTarget - 1.0f) > 1e-4f;
+                const float userGainTarget = e->paramUserGain.getTarget();
+                const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
+                                            std::fabs(userGainTarget - 1.0f) > 1e-6f;
 
                 if (normActive)
                 {
@@ -4565,27 +4783,43 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     {
                         for (size_t i = 0; i < totalSamples; ++i)
                             processBuffer[i] = (float)((double)processBuffer[i] *
-                                                       (double)vol *
+                                                       (double)e->paramUserGain.next() *
+                                                       (double)rg *
                                                        (double)e->paramNormalizerGain.next());
                     }
                     else
                     {
                         for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] *= vol * e->paramNormalizerGain.next();
+                            processBuffer[i] *= e->paramUserGain.next() * rg * e->paramNormalizerGain.next();
                     }
                 }
-                else if (vol != 1.0f)
+                else if (userGainActive)
                 {
                     if (use64)
                     {
-                        const double vol64 = (double)vol;
                         for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] = (float)((double)processBuffer[i] * vol64);
+                            processBuffer[i] = (float)((double)processBuffer[i] *
+                                                       (double)e->paramUserGain.next() *
+                                                       (double)rg);
                     }
                     else
                     {
-                        for (size_t i = 0; i < produced * e->channels; ++i)
-                            processBuffer[i] *= vol;
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] *= e->paramUserGain.next() * rg;
+                    }
+                }
+                else if (rg != 1.0f)
+                {
+                    if (use64)
+                    {
+                        const double rg64 = (double)rg;
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] = (float)((double)processBuffer[i] * rg64);
+                    }
+                    else
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] *= rg;
                     }
                 }
             }
@@ -5616,7 +5850,10 @@ extern "C"
                 );
                 e->hasNext = false;
             }
-            uninit_fading_out_slot_locked(e);
+            // Skip during an active crossfade: ramp the outgoing track out
+            // gracefully instead of hard-cutting it. The producer thread
+            // retires the outgoing decoder once the ramp completes.
+            request_crossfade_abort(e);
 
             e->currentDecoder = newCurrent;
             if (newCurrent != nullptr && newCurrent->outputSampleRate > 0)
@@ -6050,20 +6287,6 @@ extern "C"
         e->nextTrackReplayGain.store(linear, std::memory_order_relaxed);
     }
 
-    AE_API void ae_set_crossfade_silence_threshold(AudioEngineHandle *e, float threshold_db)
-    {
-        if (e == nullptr)
-            return;
-        e->crossfadeSilenceThresholdDb.store(threshold_db, std::memory_order_relaxed);
-    }
-
-    AE_API float ae_get_crossfade_silence_threshold(AudioEngineHandle *e)
-    {
-        if (e == nullptr)
-            return -60.0f;
-        return e->crossfadeSilenceThresholdDb.load(std::memory_order_relaxed);
-    }
-
     AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)
     {
         if (e == nullptr)
@@ -6284,13 +6507,31 @@ extern "C"
         e->reverbNode.setWidth(width);
     }
 
+    AE_API void ae_set_reverb_gains(AudioEngineHandle *e, float wet, float dry)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setWet(wet);
+        e->reverbNode.setDry(dry);
+    }
+
+    AE_API void ae_get_reverb_gains(AudioEngineHandle *e, float *out_wet, float *out_dry)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (out_wet) *out_wet = e->reverbNode.getWet();
+        if (out_dry) *out_dry = e->reverbNode.getDry();
+    }
+
     AE_API void ae_get_reverb_params_ex(AudioEngineHandle *e, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width)
     {
         if (e == nullptr)
             return;
         std::lock_guard<std::mutex> fx(e->fxMutex);
         if (out_enabled) *out_enabled = e->reverbEnabled ? 1 : 0;
-        if (out_mix) *out_mix = e->reverbNode.getMix();
+        if (out_mix) *out_mix = e->reverbNode.getWet();
         if (out_room_size) *out_room_size = e->reverbNode.getRoomSize();
         if (out_damping) *out_damping = e->reverbNode.getDamping();
         if (out_pre_delay_ms) *out_pre_delay_ms = e->reverbNode.getPreDelayMs();
@@ -6319,7 +6560,17 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        e->gain.store(clampf(gain, 0.0f, 8.0f), std::memory_order_relaxed);
+        const float g = clampf(gain, 0.0f, 8.0f);
+        e->gain.store(g, std::memory_order_relaxed);
+        // While stopped, snap the smoothed gain so playback doesn't briefly
+        // ramp in from the previous level (e.g. un-muting before play).
+        if (!e->isPlaying.load(std::memory_order_acquire))
+        {
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+            e->paramUserGain.setTarget(g);
+            e->paramUserGain.current = g;
+            e->paramUserGain.step = 0.0f;
+        }
     }
 
     // Applies a ReplayGain offset (in dB) on top of the main gain.
@@ -7193,7 +7444,13 @@ extern "C"
         {
             return engine->outputSampleRate;
         }
-        return engine->userOutputSampleRate;
+        // 0 = native/unset: report the ACTIVE hardware rate instead of the
+        // unset sentinel, so callers never see a bogus 0 Hz on a fresh engine.
+        if (engine->userOutputSampleRate != 0)
+            return engine->userOutputSampleRate;
+        if (engine->outputSampleRate != 0)
+            return engine->outputSampleRate;
+        return (int)engine->device.sampleRate;
     }
 
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels)
@@ -8677,6 +8934,18 @@ extern "C"
                     info.bit_depth = (int)((((b12 & 0x01) << 4) | ((b13 & 0xF0) >> 4)) + 1);
                     info.is_float = 0;
                     std::snprintf(info.format_name, sizeof(info.format_name), "FLAC");
+                    if (info.duration_secs <= 0.0 && info.sample_rate > 0)
+                    {
+                        uint64_t totalSamples = ((uint64_t)(b13 & 0x0F) << 32) |
+                                                ((uint64_t)bytes[pos+14] << 24) |
+                                                ((uint64_t)bytes[pos+15] << 16) |
+                                                ((uint64_t)bytes[pos+16] << 8) |
+                                                (uint64_t)bytes[pos+17];
+                        if (totalSamples > 0)
+                        {
+                            info.duration_secs = (double)totalSamples / (double)info.sample_rate;
+                        }
+                    }
                     break;
                 }
                 if (isLast) break;
