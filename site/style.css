@@ -1,13 +1,14 @@
+/* Sautiplay default app theme "Dark Blue" — mirrors lib/services/app_theme_service.dart */
 :root {
-  --bg: #0e1214;
-  --bg-raise: #131a1d;
-  --ink: #e8e3d8;
-  --ink-dim: #9aa39f;
-  --ink-faint: #5c6663;
-  --amber: #f2a03d;
-  --amber-deep: #c97e1f;
-  --rule: #262e31;
-  --rule-strong: #3a4447;
+  --bg: #0f172a;
+  --bg-raise: #1e293b;
+  --ink: #ffffff;
+  --ink-dim: #94a3b8;
+  --ink-faint: #64748b;
+  --amber: #38bdf8;
+  --amber-deep: #0284c7;
+  --rule: #22304a;
+  --rule-strong: #33456b;
   --serif-display: "Fraunces", Georgia, serif;
   --serif-body: "Newsreader", Georgia, serif;
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;

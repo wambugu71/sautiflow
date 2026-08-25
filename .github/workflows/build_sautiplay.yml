@@ -238,3 +238,20 @@ jobs:
             artifacts/sautiflow_macos/sautiflow_macos.zip
           draft: false
           prerelease: false
+
+      - name: Send Builds to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          format: html
+          message: |
+            🚀 <b>SautiFlow Release ${{ github.ref_name }}</b> is ready!
+            
+            📦 <b>Release:</b> https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+          document: |
+            artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk,
+            artifacts/sautiflow_android_armv7/sautiflow_android_armv7.apk,
+            artifacts/sautiflow_windows/sautiflow_windows.zip,
+            artifacts/sautiflow_linux/sautiflow_linux.tar.gz,
+            artifacts/sautiflow_macos/sautiflow_macos.zip

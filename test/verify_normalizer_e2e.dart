@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:sautiflow/audio_engine_ffi.dart';
 
 // Generates a 12s stereo WAV of pink-ish noise at ~-6 dBFS.

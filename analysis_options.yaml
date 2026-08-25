@@ -1,1 +1,9 @@
 include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - "dependencies/**"
+    - "test_extract_streams/**"
+    - "example/**"
+    - "sautiplay/**"
+    - "test_*.dart"

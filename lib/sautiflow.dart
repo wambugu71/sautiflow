@@ -2,6 +2,7 @@ library;
 
 export 'audio_engine_ffi.dart'
     show
+        AudioEngineFFI,
         AudioSource,
         PipelineAudioState,
         AudioFormat,

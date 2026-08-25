@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.21
+- **[Native Streaming Engine]** Integrated embedded FFmpeg (`libavformat` + `libavcodec` + `libswresample`) decoding backend into miniaudio with 10-second lock-free jitter ring buffer, live ICY metadata parsing, and seamless DSP/effects pipeline integration.
+- **[Zero-Latency Spatial Surround]** Added real-time 3D spatial surround suite (Field Expander, Haas Spatializer, ViPER Headphone Surround+, Matrix 5.1 HRTF) with per-sample anti-pop smoothing.
+- **[DSP Wet/Dry & Dynamics]** Parametric Reverb wet/dry gain staging, BS.1770 loudness normalizer telemetry, and psychoacoustic noise-shaping dither.
+- **[Sample-Accurate Crossfade]** Implemented non-blocking crossfade pipeline with graceful abort and stall watchdog.
+- **[DLNA & Cast]** Added cross-platform DLNA cast-out and integrated DLNA MediaRenderer receiver.
+- **[Sautiplay M3E Redesign]** Modernized UI with Material 3 Expressive carousels, reactive search with suggestions, and unified Dark Blue theme.
+- **[CI/CD Release Automation]** Automated multi-platform release build generation and instant Telegram channel release notifications.
+
 ## 0.6.20
 - **[DSP Engine & Audio Architecture]** Upgraded Sautiflow engine & Sautiplay app with 64-bit float DSP pipeline, Auto Bit-Perfect hardware matching, Ambiophonics. crossfeed, and psychoacoustic noise-shaping dither modes.
 - **[Dynamic Cover Art & Theme Engine]** Added Material 3 Isolate-driven Dynamic Cover Art color extraction (`ArtworkThemeService`) that extracts harmonious palette schemes from album art on the fly without UI stuttering.

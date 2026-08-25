@@ -1,3 +1,11 @@
+## v0.6.21 — 2026-08-26
+- Embedded FFmpeg native streaming backend for HLS, DASH, ICY radio & online URLs
+- Zero-latency 3D Spatial Surround Suite (Field Expander, Haas, ViPER, Matrix 5.1)
+- Reverb wet/dry parametric gain staging & BS.1770 loudness normalizer telemetry
+- Material 3 Expressive carousels on Home screen and reactive search with suggestions
+- DLNA cast-out and integrated DLNA MediaRenderer receiver
+- Automated CI/CD release builds and Telegram release notifications
+
 ## v0.6.20 — 2026-08-18
 - Reesigned the app with material 3 expressive components for a fresh look. 
 - Add developer info (name, copyright year) to Misc & System About section
