@@ -104,6 +104,9 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Color get _bgDark => context.bgDark;
   Color get _surfaceDark => context.cardDark;
   Color get _primary => context.primaryColor;
+  Color get _textPrimary => context.textPrimary;
+  Color get _textMuted => context.textMuted;
+  Color get _outline => context.outlineColor;
 
   // Extracted info
   String _title = '';
@@ -240,6 +243,21 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     return '$m:$s';
   }
 
+  void _playAll({bool shuffle = false}) {
+    if (widget.onPlayTracks == null || _tracks.isEmpty) return;
+    final tracks = shuffle
+        ? (List<TrackInfo>.from(_tracks)..shuffle())
+        : _tracks;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    widget.onPlayTracks!(tracks, initialIndex: 0);
+  }
+
+  void _playAt(int index) {
+    if (widget.onPlayTracks == null || _tracks.isEmpty) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    widget.onPlayTracks!(_tracks, initialIndex: index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -258,39 +276,37 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 slivers: [
                   // ── App Bar ──
                   SliverAppBar(
-                    backgroundColor: _bgDark.withValues(alpha: 0.9),
+                    backgroundColor: _bgDark,
+                    surfaceTintColor: Colors.transparent,
                     elevation: 0,
+                    scrolledUnderElevation: 0,
                     pinned: true,
-                    leading: M3EIconButton(
-                      icon: const Icon(Icons.arrow_back_rounded, size: 20),
-                      variant: M3EIconButtonVariant.tonal,
-                      onPressed: () => Navigator.of(context).pop(),
+                    leading: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Center(
+                        child: M3EIconButton(
+                          icon:
+                              const Icon(Icons.arrow_back_rounded, size: 20),
+                          variant: M3EIconButtonVariant.tonal,
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
                     ),
-                    centerTitle: true,
-                    title: Text(_screenLabel,
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: isDesktop ? 16 : 13,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 1.5)),
                   ),
 
-                  // ── Hero Section ──
-                  SliverToBoxAdapter(child: _buildHero(isDesktop: isDesktop)),
-
-                  // ── Track List Header ──
+                  // ── Hero ──
                   SliverToBoxAdapter(
-                      child: _buildTrackListHeader(isDesktop: isDesktop)),
+                      child: _buildHero(isDesktop: isDesktop)),
 
-                  // ── Tracks ──
+                  // ── Tracklist ──
                   if (_loading)
                     SliverFillRemaining(
                       hasScrollBody: false,
                       child: RepaintBoundary(
                         child: Center(
-                          child: M3ELoadingIndicator(
+                          child: M3EProgressIndicator.circularWavy(
                             color: _primary,
-                            containerColor: _primary.withValues(alpha: 0.15),
+                            trackColor: _primary.withValues(alpha: 0.15),
                           ),
                         ),
                       ),
@@ -303,14 +319,24 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                     SliverFillRemaining(
                         hasScrollBody: false,
                         child: _buildEmpty(isDesktop: isDesktop))
-                  else
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, i) =>
-                            _buildTrackRow(i, _tracks[i], isDesktop: isDesktop),
-                        childCount: _tracks.length,
+                  else ...[
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                          horizontal: isDesktop ? 32 : 16, vertical: 8),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, i) => _buildTrackRow(
+                            i,
+                            _tracks[i],
+                            isDesktop: isDesktop,
+                            isFirst: i == 0,
+                            isLast: i == _tracks.length - 1,
+                          ),
+                          childCount: _tracks.length,
+                        ),
                       ),
                     ),
+                  ],
 
                   // Bottom padding
                   const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -323,402 +349,438 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     );
   }
 
-  Widget _buildHero({bool isDesktop = false}) {
+  // ── Hero ───────────────────────────────────────────────────────────────────
+
+  Widget _buildHero({required bool isDesktop}) {
+    if (isDesktop) {
+      final details = _buildHeroDetails(isDesktop: true, centered: false);
+      final art = _buildHeroArt(size: 280.0);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            art,
+            const SizedBox(width: 36),
+            Expanded(child: details),
+          ],
+        ),
+      );
+    }
+
+    // ── Mobile: large artwork with the info overlaid on a bottom scrim ──
     return Padding(
-      padding: EdgeInsets.fromLTRB(isDesktop ? 64 : 24, isDesktop ? 32 : 8,
-          isDesktop ? 64 : 24, isDesktop ? 32 : 16),
-      child: isDesktop
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildHeroArt(isDesktop: isDesktop),
-                const SizedBox(width: 48),
-                Expanded(child: _buildHeroDetails(isDesktop: isDesktop)),
-              ],
-            )
-          : Column(
-              children: [
-                _buildHeroArt(isDesktop: isDesktop),
-                const SizedBox(height: 24),
-                _buildHeroDetails(isDesktop: isDesktop),
-              ],
-            ),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            children: [
+              // Artwork
+              AspectRatio(
+                aspectRatio: 1,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: _thumbnailUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: _thumbnailUrl!,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
+                          memCacheWidth: 700,
+                          memCacheHeight: 700,
+                          placeholder: (_, __) =>
+                              Container(color: _surfaceDark),
+                          errorWidget: (_, __, ___) =>
+                              Container(color: _surfaceDark),
+                        )
+                      : Container(color: _surfaceDark),
+                ),
+              ),
+              // Bottom scrim keeps the overlaid info legible
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      stops: const [0.0, 0.5],
+                      colors: [
+                        Colors.black.withValues(alpha: 0.85),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Info overlaid at the bottom of the artwork
+              Positioned(
+                left: 18,
+                right: 18,
+                bottom: 16,
+                child: _buildHeroDetails(
+                  isDesktop: false,
+                  centered: false,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildHeroActions(centered: true, isDesktop: false),
+        ],
+      ),
     );
   }
 
-  Widget _buildHeroArt({bool isDesktop = false}) {
-    return Center(
-      child: SizedBox(
-        width: isDesktop ? 300 : 220,
-        height: isDesktop ? 300 : 220,
-        child: M3EContainer(
-          Shapes.slanted,
-          color: _surfaceDark,
-          border: BorderSide(
-            color: _primary.withValues(alpha: 0.3),
-            width: 1.5,
+  Widget _buildHeroDetails({
+    required bool isDesktop,
+    required bool centered,
+  }) {
+    final CrossAxisAlignment align =
+        centered ? CrossAxisAlignment.center : CrossAxisAlignment.start;
+
+    final metaRow = Row(
+      mainAxisAlignment:
+          centered ? MainAxisAlignment.center : MainAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            _artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _textPrimary.withValues(alpha: 0.85),
+              fontSize: isDesktop ? 17 : 14.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+        ),
+        if (_year != null) ...[
+          _metaDot(),
+          Text(
+            _year!,
+            style: TextStyle(
+              color: _textMuted,
+              fontSize: isDesktop ? 15 : 13,
+            ),
+          ),
+        ],
+        if (_tracks.isNotEmpty) ...[
+          _metaDot(),
+          Text(
+            '${_tracks.length} songs',
+            style: TextStyle(
+              color: _textMuted,
+              fontSize: isDesktop ? 15 : 13,
+            ),
+          ),
+        ],
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: align,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Kind label
+        Text(
+          _screenLabel,
+          style: TextStyle(
+            color: _primary,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 6),
+        // Title
+        Text(
+          _title,
+          textAlign: centered ? TextAlign.center : TextAlign.left,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: _textPrimary,
+            fontSize: isDesktop ? 38 : 28,
+            fontWeight: FontWeight.w800,
+            height: 1.12,
+            letterSpacing: -0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
+        metaRow,
+        // Desktop keeps actions inline; mobile renders them separately
+        if (!centered) ...[
+          const SizedBox(height: 28),
+          _buildHeroActions(centered: false, isDesktop: true),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildHeroActions({
+    required bool centered,
+    required bool isDesktop,
+  }) {
+    final children = [
+      M3EButton.icon(
+        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+        label: const Text('Play'),
+        onPressed: () => _playAll(),
+      ),
+      const SizedBox(width: 10),
+      M3EButton.tonal(
+        onPressed: () => _playAll(shuffle: true),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.shuffle_rounded, size: 16),
+            SizedBox(width: 6),
+            Text('Shuffle'),
+          ],
+        ),
+      ),
+      const SizedBox(width: 10),
+      _buildLikeButton(isDesktop: isDesktop),
+    ];
+
+    if (centered) {
+      return Row(mainAxisAlignment: MainAxisAlignment.center, children: children);
+    }
+    return Row(children: children);
+  }
+
+  Widget _metaDot() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Container(
+        width: 3.5,
+        height: 3.5,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _textMuted.withValues(alpha: 0.6),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroArt({required double size}) {
+    Widget fallback = Container(
+      color: _surfaceDark,
+      child: Icon(
+        Icons.album_rounded,
+        color: _textMuted.withValues(alpha: 0.35),
+        size: 64,
+      ),
+    );
+
+    return RepaintBoundary(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
+            // Neutral shadow — no colored glow
             BoxShadow(
-              color: _primary.withValues(alpha: 0.25),
-              blurRadius: isDesktop ? 40 : 24,
-              offset: const Offset(0, 8),
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 32,
+              offset: const Offset(0, 10),
             ),
           ],
-          clipBehavior: Clip.antiAlias,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
           child: _thumbnailUrl != null
               ? CachedNetworkImage(
                   imageUrl: _thumbnailUrl!,
                   fit: BoxFit.cover,
                   memCacheWidth: 600,
                   memCacheHeight: 600,
-                  placeholder: (_, __) => Container(
-                    color: _surfaceDark,
-                    child: Center(
-                        child: Icon(Icons.album_rounded,
-                            color: Colors.white24, size: isDesktop ? 64 : 48)),
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    color: _surfaceDark,
-                    child: Center(
-                        child: Icon(Icons.album_rounded,
-                            color: Colors.white24, size: isDesktop ? 64 : 48)),
-                  ),
+                  placeholder: (_, __) => fallback,
+                  errorWidget: (_, __, ___) => fallback,
                 )
-              : Container(
-                  color: _surfaceDark,
-                  child: Center(
-                      child: Icon(Icons.album_rounded,
-                          color: Colors.white24, size: isDesktop ? 64 : 48)),
-                ),
+              : fallback,
         ),
       ),
     );
   }
 
-  Widget _buildHeroDetails({bool isDesktop = false}) {
-    return Column(
-      crossAxisAlignment:
-          isDesktop ? CrossAxisAlignment.start : CrossAxisAlignment.center,
-      children: [
-        // Title
-        Text(_title,
-            textAlign: isDesktop ? TextAlign.left : TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                color: Colors.white,
-                fontSize: isDesktop ? 42 : 26,
-                fontWeight: FontWeight.bold,
-                height: 1.2)),
-
-        SizedBox(height: isDesktop ? 16 : 8),
-
-        // Artist + Year
-        Row(
-          mainAxisAlignment:
-              isDesktop ? MainAxisAlignment.start : MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(_artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: isDesktop ? 20 : 16,
-                      fontWeight: FontWeight.w500)),
-            ),
-            if (_year != null) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Container(
-                  width: 4,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.3),
-                  ),
-                ),
-              ),
-              Text(_year!,
-                  style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: isDesktop ? 18 : 14)),
-            ],
-          ],
-        ),
-
-        SizedBox(height: isDesktop ? 48 : 28),
-
-        // Action buttons
-        Row(
-          mainAxisAlignment:
-              isDesktop ? MainAxisAlignment.start : MainAxisAlignment.center,
-          children: [
-            // Save
-            ValueListenableBuilder<List<LikedSong>>(
-              valueListenable: LikedSongsService.instance.likedSongsNotifier,
-              builder: (context, likedSongs, _) {
-                bool isSaved = false;
-                if (_tracks.isNotEmpty) {
-                  isSaved = _tracks.every((track) =>
-                      likedSongs.any((s) => s.videoId == track.videoId));
-                }
-                return _buildActionButton(
-                  icon: isSaved ? Icons.favorite : Icons.favorite_border,
-                  label: isSaved ? 'SAVED' : 'SAVE',
-                  iconColor: isSaved ? _primary : null,
-                  isDesktop: isDesktop,
-                  onTap: () async {
-                    if (_tracks.isEmpty) return;
-                    final messenger = ScaffoldMessenger.of(context);
-                    if (isSaved) {
-                      for (final track in _tracks) {
-                        await LikedSongsService.instance
-                            .removeLikedSong(track.videoId);
-                      }
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                              content: Text('Removed all from Liked Songs')),
-                        );
-                      }
-                    } else {
-                      for (final track in _tracks) {
-                        await LikedSongsService.instance.addLikedSong(LikedSong(
-                          videoId: track.videoId,
-                          title: track.title,
-                          artist: track.artist,
-                          thumbnailUrl: track.thumbnailUrl ?? _thumbnailUrl,
-                          durationSeconds: track.durationSeconds ?? 0,
-                          likedAt: DateTime.now(),
-                        ));
-                      }
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                              content: Text('Saved all to Liked Songs')),
-                        );
-                      }
-                    }
-                  },
-                );
-              },
-            ),
-            SizedBox(width: isDesktop ? 40 : 28),
-            // Play
-            GestureDetector(
-              onTap: () {
-                if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                  widget.onPlayTracks!(_tracks, initialIndex: 0);
-                }
-              },
-              child: Container(
-                width: isDesktop ? 84 : 72,
-                height: isDesktop ? 84 : 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _primary,
-                  boxShadow: [
-                    BoxShadow(
-                      color: _primary.withValues(alpha: 0.4),
-                      blurRadius: 24,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Icon(Icons.play_arrow,
-                    color: Colors.white, size: isDesktop ? 48 : 38),
-              ),
-            ),
-            SizedBox(width: isDesktop ? 40 : 28),
-            // Shuffle
-            _buildActionButton(
-              icon: Icons.shuffle,
-              label: 'SHUFFLE',
-              isDesktop: isDesktop,
-              onTap: () {
-                if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-                  final shuffledTracks = List<TrackInfo>.from(_tracks)
-                    ..shuffle();
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                  widget.onPlayTracks!(shuffledTracks, initialIndex: 0);
-                }
-              },
-              iconColor: _primary,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    Color? iconColor,
-    bool isDesktop = false,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: isDesktop ? 64 : 52,
-            height: isDesktop ? 64 : 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.05),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-            ),
-            child: Icon(icon,
-                color: iconColor ?? Colors.white54, size: isDesktop ? 32 : 26),
-          ),
-          SizedBox(height: isDesktop ? 8 : 6),
-          Text(label,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: isDesktop ? 11 : 9,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTrackListHeader({bool isDesktop = false}) {
-    return Padding(
-      padding:
-          EdgeInsets.fromLTRB(isDesktop ? 64 : 20, 16, isDesktop ? 64 : 20, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text('#   TITLE',
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.3),
-                  fontSize: isDesktop ? 13 : 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1)),
-          Icon(Icons.schedule,
-              size: isDesktop ? 20 : 16,
-              color: Colors.white.withValues(alpha: 0.3)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTrackRow(int index, TrackInfo track, {bool isDesktop = false}) {
-    const Shapes itemShape = Shapes.slanted;
-
-    return RepaintBoundary(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            if (widget.onPlayTracks != null && _tracks.isNotEmpty) {
-              Navigator.of(context).popUntil((route) => route.isFirst);
-              widget.onPlayTracks!(_tracks, initialIndex: index);
+  /// Heart toggle — same persistence logic as before, expressive chrome.
+  Widget _buildLikeButton({bool isDesktop = false}) {
+    return ValueListenableBuilder<List<LikedSong>>(
+      valueListenable: LikedSongsService.instance.likedSongsNotifier,
+      builder: (context, likedSongs, _) {
+        bool isSaved = false;
+        if (_tracks.isNotEmpty) {
+          isSaved = _tracks.every(
+              (track) => likedSongs.any((s) => s.videoId == track.videoId));
+        }
+        return M3EIconButton(
+          icon: Icon(isSaved ? Icons.favorite_rounded : Icons.favorite_border,
+              size: isDesktop ? 22 : 20),
+          variant:
+              isSaved ? M3EIconButtonVariant.filled : M3EIconButtonVariant.tonal,
+          onPressed: () async {
+            if (_tracks.isEmpty) return;
+            final messenger = ScaffoldMessenger.of(context);
+            if (isSaved) {
+              for (final track in _tracks) {
+                await LikedSongsService.instance
+                    .removeLikedSong(track.videoId);
+              }
+              if (mounted) {
+                messenger.showSnackBar(const SnackBar(
+                    content: Text('Removed all from Liked Songs')));
+              }
+            } else {
+              for (final track in _tracks) {
+                await LikedSongsService.instance.addLikedSong(LikedSong(
+                  videoId: track.videoId,
+                  title: track.title,
+                  artist: track.artist,
+                  thumbnailUrl: track.thumbnailUrl ?? _thumbnailUrl,
+                  durationSeconds: track.durationSeconds ?? 0,
+                  likedAt: DateTime.now(),
+                ));
+              }
+              if (mounted) {
+                messenger.showSnackBar(const SnackBar(
+                    content: Text('Saved all to Liked Songs')));
+              }
             }
           },
-          child: Container(
-            padding: EdgeInsets.symmetric(
-                horizontal: isDesktop ? 64 : 16, vertical: isDesktop ? 14 : 10),
-            child: Row(
-              children: [
-                // Track number
-                SizedBox(
-                  width: isDesktop ? 36 : 26,
-                  child: Text(
-                    '${index + 1}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        fontWeight: FontWeight.w600,
-                        fontSize: isDesktop ? 15 : 13),
-                  ),
-                ),
-                SizedBox(width: isDesktop ? 16 : 10),
+        );
+      },
+    );
+  }
 
-                // Artwork thumbnail with Expressive Shape
-                if (track.thumbnailUrl != null) ...[
+  // ── Track rows (connected corner cards, matching Library/Search) ──────────
+
+  Widget _buildTrackRow(
+    int index,
+    TrackInfo track, {
+    bool isDesktop = false,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
+
+    final Widget artwork = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: isDesktop ? 52 : 44,
+        height: isDesktop ? 52 : 44,
+        child: track.thumbnailUrl != null
+            ? CachedNetworkImage(
+                imageUrl: track.thumbnailUrl!,
+                fit: BoxFit.cover,
+                memCacheWidth: 120,
+                memCacheHeight: 120,
+                placeholder: (_, __) =>
+                    Container(color: _surfaceDark),
+                errorWidget: (_, __, ___) => Container(
+                  color: _surfaceDark,
+                  child: Icon(Icons.music_note_rounded,
+                      color: _textMuted.withValues(alpha: 0.4),
+                      size: isDesktop ? 22 : 18),
+                ),
+              )
+            : Container(
+                color: _surfaceDark,
+                child: Icon(Icons.music_note_rounded,
+                    color: _textMuted.withValues(alpha: 0.4),
+                    size: isDesktop ? 22 : 18),
+              ),
+      ),
+    );
+
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 3.0),
+        child: Material(
+          color: _surfaceDark,
+          shape: RoundedRectangleBorder(
+            borderRadius: borderRadius,
+            side: BorderSide(color: _outline.withValues(alpha: 0.12)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _playAt(index),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  // Track number
                   SizedBox(
-                    width: isDesktop ? 48 : 40,
-                    height: isDesktop ? 48 : 40,
-                    child: M3EContainer(
-                      itemShape,
-                      color: _surfaceDark,
-                      border: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        width: 1,
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 120,
-                        memCacheHeight: 120,
-                        placeholder: (_, __) => Container(
-                          color: _surfaceDark,
-                        ),
-                        errorWidget: (_, __, ___) => Container(
-                          color: _surfaceDark,
-                          child: Icon(Icons.music_note_rounded,
-                              color: Colors.white24, size: isDesktop ? 22 : 18),
-                        ),
+                    width: isDesktop ? 26 : 20,
+                    child: Text(
+                      '${index + 1}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _textMuted.withValues(alpha: 0.7),
+                        fontWeight: FontWeight.w600,
+                        fontSize: isDesktop ? 13 : 12,
                       ),
                     ),
                   ),
-                  SizedBox(width: isDesktop ? 16 : 10),
-                ],
-
-                // Song info
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: Colors.white,
+                  const SizedBox(width: 12),
+                  artwork,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _textPrimary,
                             fontWeight: FontWeight.w600,
-                            fontSize: isDesktop ? 16 : 14),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.45),
-                            fontSize: isDesktop ? 13 : 12),
-                      ),
-                    ],
+                            fontSize: isDesktop ? 15 : 13.5,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _textMuted,
+                            fontSize: isDesktop ? 13 : 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-
-                // Duration
-                Padding(
-                  padding: EdgeInsets.only(left: isDesktop ? 20 : 10),
-                  child: Text(
+                  const SizedBox(width: 8),
+                  Text(
                     _formatDuration(track.durationSeconds),
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        fontWeight: FontWeight.w500,
-                        fontSize: isDesktop ? 14 : 12),
+                      color: _textMuted,
+                      fontWeight: FontWeight.w500,
+                      fontSize: isDesktop ? 13 : 11.5,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  // ── States ────────────────────────────────────────────────────────────────
 
   Widget _buildError({bool isDesktop = false}) {
     return RepaintBoundary(
@@ -737,10 +799,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                   color: Colors.red.withValues(alpha: 0.3),
                   width: 1.2,
                 ),
-                child: Center(
+                child: const Center(
                   child: Icon(
                     Icons.error_outline_rounded,
-                    size: isDesktop ? 44 : 36,
+                    size: 38,
                     color: Colors.redAccent,
                   ),
                 ),
@@ -749,7 +811,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               Text(
                 'Failed to load tracks',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: _textPrimary,
                   fontSize: isDesktop ? 20 : 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -758,10 +820,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               Text(
                 _error ?? 'Unknown network error.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: isDesktop ? 14 : 12,
-                ),
+                style: TextStyle(color: _textMuted, fontSize: 13),
               ),
               SizedBox(height: isDesktop ? 24 : 18),
               M3EButton.icon(
@@ -809,7 +868,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             Text(
               'No tracks available',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
+                color: _textMuted,
                 fontSize: isDesktop ? 18 : 15,
                 fontWeight: FontWeight.w500,
               ),
