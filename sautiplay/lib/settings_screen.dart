@@ -3735,14 +3735,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 8. Last.fm Scrobbler Sub-Screen
   Widget _buildLastFmSubScreen() {
-    String? currentToken;
-    bool isAuthenticating = false;
-
     return AnimatedBuilder(
       animation: LastFmService.instance,
       builder: (context, _) {
         final lastFm = LastFmService.instance;
         const lastFmRed = Color(0xFFD51007);
+        final isAuthenticating = lastFm.isAuthenticating;
 
         return StatefulBuilder(
           builder: (context, setSubState) {
@@ -3813,13 +3811,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (!isAuthenticating) ...[
                               M3EButton.icon(
                                 onPressed: () async {
-                                  setSubState(() => isAuthenticating = true);
                                   final token = await lastFm.fetchRequestToken();
                                   if (token != null) {
-                                    currentToken = token;
                                     await lastFm.launchAuthorizationUrl(token);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                              'Authorize Sautiplay in your browser, then return here to finish.'),
+                                        ),
+                                      );
+                                    }
                                   } else {
-                                    setSubState(() => isAuthenticating = false);
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
@@ -3829,7 +3832,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       );
                                     }
                                   }
-                                  setSubState(() {});
                                 },
                                 icon: const Icon(Icons.login_rounded, size: 18),
                                 label: const Text('Connect Last.fm Account'),
@@ -3856,11 +3858,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       children: [
                                         Expanded(
                                           child: M3EButton.outlined(
-                                            onPressed: () {
-                                              setSubState(() {
-                                                isAuthenticating = false;
-                                                currentToken = null;
-                                              });
+                                            onPressed: () async {
+                                              await lastFm.cancelAuthentication();
                                             },
                                             child: const Text('Cancel'),
                                           ),
@@ -3869,14 +3868,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         Expanded(
                                           child: M3EButton(
                                             onPressed: () async {
-                                              if (currentToken == null) return;
-                                              final success = await lastFm
-                                                  .fetchSession(currentToken!);
+                                              final token = lastFm.pendingToken;
+                                              if (token == null) return;
+                                              final success =
+                                                  await lastFm.fetchSession(token);
                                               if (success) {
-                                                setSubState(() {
-                                                  isAuthenticating = false;
-                                                  currentToken = null;
-                                                });
                                                 if (context.mounted) {
                                                   ScaffoldMessenger.of(context)
                                                       .showSnackBar(

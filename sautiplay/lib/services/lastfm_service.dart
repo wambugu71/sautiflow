@@ -20,19 +20,23 @@ class LastFmService extends ChangeNotifier {
   static const String _kUsername = 'lastfm_username';
   static const String _kScrobbleEnabled = 'lastfm_scrobble_enabled';
   static const String _kNowPlayingEnabled = 'lastfm_nowplaying_enabled';
+  static const String _kPendingToken = 'lastfm_pending_token';
 
   final StreamController<String> _logController = StreamController<String>.broadcast();
   Stream<String> get logStream => _logController.stream;
 
   String? _sessionKey;
   String? _username;
+  String? _pendingToken;
   bool _scrobbleEnabled = true;
   bool _nowPlayingEnabled = true;
   bool _isInitialized = false;
 
   String? get sessionKey => _sessionKey;
   String? get username => _username;
+  String? get pendingToken => _pendingToken;
   bool get isLoggedIn => _sessionKey != null && _sessionKey!.isNotEmpty;
+  bool get isAuthenticating => !_isInitialized ? false : (_pendingToken != null && !isLoggedIn);
   bool get isScrobbleEnabled => _scrobbleEnabled;
   bool get isNowPlayingEnabled => _nowPlayingEnabled;
 
@@ -54,6 +58,7 @@ class LastFmService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _sessionKey = prefs.getString(_kSessionKey);
     _username = prefs.getString(_kUsername);
+    _pendingToken = prefs.getString(_kPendingToken);
     _scrobbleEnabled = prefs.getBool(_kScrobbleEnabled) ?? true;
     _nowPlayingEnabled = prefs.getBool(_kNowPlayingEnabled) ?? true;
     _isInitialized = true;
@@ -107,6 +112,11 @@ class LastFmService extends ChangeNotifier {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final token = data['token'] as String?;
+        if (token != null) {
+          _pendingToken = token;
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_kPendingToken, token);
+        }
         _log('[LastFm] Received auth token');
         return token;
       } else {
@@ -139,6 +149,16 @@ class LastFmService extends ChangeNotifier {
     }
   }
 
+  /// Cancels an in-progress authentication attempt and clears the pending token.
+  Future<void> cancelAuthentication() async {
+    if (_pendingToken == null) return;
+    _pendingToken = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kPendingToken);
+    _log('[LastFm] Authentication cancelled');
+    notifyListeners();
+  }
+
   /// Step 3: Exchanges the authorized token for a permanent session key.
   Future<bool> fetchSession(String token) async {
     try {
@@ -158,15 +178,18 @@ class LastFmService extends ChangeNotifier {
           final session = data['session'] as Map<String, dynamic>;
           _sessionKey = session['key'] as String?;
           _username = session['name'] as String?;
+          _pendingToken = null;
 
           final prefs = await SharedPreferences.getInstance();
           if (_sessionKey != null) await prefs.setString(_kSessionKey, _sessionKey!);
           if (_username != null) await prefs.setString(_kUsername, _username!);
+          await prefs.remove(_kPendingToken);
 
           notifyListeners();
           _log('[LastFm] Successfully authenticated as $_username');
           return true;
         }
+        _log('[LastFm] Session fetch failed: ${res.body}');
       } else {
         _log('[LastFm] Session fetch error (${res.statusCode}): ${res.body}');
       }
@@ -181,9 +204,11 @@ class LastFmService extends ChangeNotifier {
     _log('[LastFm] Logged out from $_username');
     _sessionKey = null;
     _username = null;
+    _pendingToken = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kSessionKey);
     await prefs.remove(_kUsername);
+    await prefs.remove(_kPendingToken);
     notifyListeners();
   }
 
