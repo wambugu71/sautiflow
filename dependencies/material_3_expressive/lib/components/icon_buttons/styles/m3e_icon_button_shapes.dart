@@ -1,0 +1,69 @@
+// Vendored from the `icon_button_m3e` package
+// (https://github.com/EmilyMoonstone/material_3_expressive/tree/main/packages/icon_button_m3e/lib).
+// The logic is kept identical to the reference implementation; only the public
+// identifiers carry the `M3E` prefix to match this package's conventions.
+
+import 'package:flutter/material.dart';
+
+import '../enums/m3e_icon_button_enums.dart';
+import 'm3e_icon_button_theme.dart';
+
+/// Shape resolution helpers: resting/pressed radii and toggle behavior.
+class M3EIconButtonShapes {
+  const M3EIconButtonShapes._();
+
+  /// restVariant.
+
+  static M3EIconButtonShapeVariant restVariant({
+    required bool isToggle,
+    required bool isSelected,
+    required M3EIconButtonShapeVariant baseVariant,
+  }) {
+    if (isToggle && isSelected) {
+      return baseVariant == M3EIconButtonShapeVariant.round
+          ? M3EIconButtonShapeVariant.square
+          : M3EIconButtonShapeVariant.round;
+    }
+    return baseVariant;
+  }
+
+  /// restingRadius.
+
+  static double restingRadius({
+    required M3EIconButtonTheme theme,
+    required M3EIconButtonSize size,
+    required M3EIconButtonShapeVariant variant,
+  }) {
+    return switch (variant) {
+      M3EIconButtonShapeVariant.round => theme.radiusRestRound(size),
+      M3EIconButtonShapeVariant.square => theme.radiusRestSquare(size),
+    };
+  }
+
+  /// Effective corner radius for the given material states.
+  ///
+  /// Pressed uses [M3EIconButtonTheme.radiusPressed]; hovered uses
+  /// [M3EIconButtonTheme.radiusHovered]; otherwise resting.
+  static double effectiveRadius({
+    required M3EIconButtonTheme theme,
+    required M3EIconButtonSize size,
+    required M3EIconButtonShapeVariant baseVariant,
+    required bool isToggle,
+    required bool isSelected,
+    required Set<WidgetState> states,
+  }) {
+    final variant = restVariant(
+      isToggle: isToggle,
+      isSelected: isSelected,
+      baseVariant: baseVariant,
+    );
+
+    if (states.contains(WidgetState.pressed)) {
+      return theme.radiusPressed(size);
+    }
+    if (states.contains(WidgetState.hovered)) {
+      return theme.radiusHovered(size);
+    }
+    return restingRadius(theme: theme, size: size, variant: variant);
+  }
+}

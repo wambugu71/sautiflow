@@ -4,12 +4,3 @@
 [submodule "third_party/libsamplerate"]
 	path = third_party/libsamplerate
 	url = https://github.com/libsndfile/libsamplerate.git
-[submodule "dependencies/dart_ytmusic_api"]
-	path = dependencies/dart_ytmusic_api
-	url = https://github.com/MusilyApp/dart_ytmusic_api.git
-[submodule "dependencies/youtube_explode_dart"]
-	path = dependencies/youtube_explode_dart
-	url = https://github.com/justacalico/youtube_explode_dart.git
-[submodule "dependencies/material_3_expressive"]
-	path = dependencies/material_3_expressive
-	url = https://github.com/wambugu71/material_3_expressive.git

@@ -1,0 +1,291 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show clampDouble;
+import 'package:flutter/material.dart';
+
+import '../../foundations/foundations.dart';
+import '../loading_indicator/m3e_loading_indicator.dart';
+import 'enums/m3e_refresh_status.dart';
+import 'styles/m3e_refresh_indicator_theme.dart';
+
+export 'enums/m3e_refresh_status.dart';
+export 'styles/m3e_refresh_indicator_theme.dart';
+
+part 'components/m3e_refresh_indicator_scroll.dart';
+part 'components/m3e_refresh_indicator_build.dart';
+
+enum _IndicatorType { material, expressive, contained, adaptive, noSpinner }
+
+/// A Material Design 3 expressive refresh indicator.
+///
+/// Expressive and contained variants use [M3ELoadingIndicator] for the spinner.
+class M3ERefreshIndicator extends StatefulWidget {
+  /// const.
+  const M3ERefreshIndicator({
+    super.key,
+    required this.child,
+    this.displacement = M3ERefreshIndicatorTheme.kDefaultDisplacement,
+    this.edgeOffset = M3ERefreshIndicatorTheme.kDefaultEdgeOffset,
+    required this.onRefresh,
+    this.color,
+    this.backgroundColor,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.semanticsLabel,
+    this.semanticsValue,
+    this.triggerMode = M3ERefreshTriggerMode.onEdge,
+    this.elevation = M3ERefreshIndicatorTheme.kDefaultElevation,
+    this.polygons,
+    this.indicatorConstraints,
+    this.onStatusChange,
+  }) : _indicatorType = _IndicatorType.expressive,
+       strokeWidth = 0.0,
+       assert(elevation >= 0.0, 'assertion failed'),
+       assert(!(polygons != null) || polygons.length > 1, 'assertion failed');
+
+  /// const.
+
+  const M3ERefreshIndicator.contained({
+    super.key,
+    required this.child,
+    this.displacement = M3ERefreshIndicatorTheme.kDefaultDisplacement,
+    this.edgeOffset = M3ERefreshIndicatorTheme.kDefaultEdgeOffset,
+    required this.onRefresh,
+    this.color,
+    this.backgroundColor,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.semanticsLabel,
+    this.semanticsValue,
+    this.triggerMode = M3ERefreshTriggerMode.onEdge,
+    this.elevation = M3ERefreshIndicatorTheme.kDefaultElevation,
+    this.polygons,
+    this.indicatorConstraints,
+    this.onStatusChange,
+  }) : _indicatorType = _IndicatorType.contained,
+       strokeWidth = 0.0,
+       assert(elevation >= 0.0, 'assertion failed'),
+       assert(!(polygons != null) || polygons.length > 1, 'assertion failed');
+
+  /// const.
+
+  const M3ERefreshIndicator.material({
+    super.key,
+    required this.child,
+    this.displacement = M3ERefreshIndicatorTheme.kDefaultDisplacement,
+    this.edgeOffset = M3ERefreshIndicatorTheme.kDefaultEdgeOffset,
+    required this.onRefresh,
+    this.color,
+    this.backgroundColor,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.semanticsLabel,
+    this.semanticsValue,
+    this.strokeWidth = RefreshProgressIndicator.defaultStrokeWidth,
+    this.triggerMode = M3ERefreshTriggerMode.onEdge,
+    this.elevation = M3ERefreshIndicatorTheme.kDefaultElevation,
+    this.onStatusChange,
+  }) : _indicatorType = _IndicatorType.material,
+       polygons = null,
+       indicatorConstraints = null,
+       assert(elevation >= 0.0, 'assertion failed');
+
+  /// const.
+
+  const M3ERefreshIndicator.adaptive({
+    super.key,
+    required this.child,
+    this.displacement = M3ERefreshIndicatorTheme.kDefaultDisplacement,
+    this.edgeOffset = M3ERefreshIndicatorTheme.kDefaultEdgeOffset,
+    required this.onRefresh,
+    this.color,
+    this.backgroundColor,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.semanticsLabel,
+    this.semanticsValue,
+    this.strokeWidth = RefreshProgressIndicator.defaultStrokeWidth,
+    this.triggerMode = M3ERefreshTriggerMode.onEdge,
+    this.elevation = M3ERefreshIndicatorTheme.kDefaultElevation,
+    this.onStatusChange,
+  }) : _indicatorType = _IndicatorType.adaptive,
+       polygons = null,
+       indicatorConstraints = null,
+       assert(elevation >= 0.0, 'assertion failed');
+
+  /// const.
+
+  const M3ERefreshIndicator.noSpinner({
+    super.key,
+    required this.child,
+    required this.onRefresh,
+    this.onStatusChange,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.semanticsLabel,
+    this.semanticsValue,
+    this.triggerMode = M3ERefreshTriggerMode.onEdge,
+    this.elevation = M3ERefreshIndicatorTheme.kDefaultElevation,
+  }) : _indicatorType = _IndicatorType.noSpinner,
+       displacement = 0.0,
+       edgeOffset = 0.0,
+       color = null,
+       backgroundColor = null,
+       strokeWidth = 0.0,
+       polygons = null,
+       indicatorConstraints = null,
+       assert(elevation >= 0.0, 'assertion failed');
+
+  /// final.
+
+  final Widget child;
+
+  /// final.
+  final double displacement;
+
+  /// final.
+  final double edgeOffset;
+
+  /// final.
+  final M3ERefreshCallback onRefresh;
+
+  /// final.
+  final ValueChanged<M3ERefreshStatus?>? onStatusChange;
+
+  /// final.
+  final Color? color;
+
+  /// final.
+  final Color? backgroundColor;
+
+  /// final.
+  final ScrollNotificationPredicate notificationPredicate;
+
+  /// final.
+  final String? semanticsLabel;
+
+  /// final.
+  final String? semanticsValue;
+
+  /// final.
+  final double strokeWidth;
+
+  /// final.
+  final M3ERefreshTriggerMode triggerMode;
+
+  /// final.
+  final double elevation;
+  final _IndicatorType _indicatorType;
+
+  /// final.
+  final List<RoundedPolygon>? polygons;
+
+  /// final.
+  final BoxConstraints? indicatorConstraints;
+
+  @override
+  M3ERefreshIndicatorState createState() => M3ERefreshIndicatorState();
+}
+
+/// class.
+
+class M3ERefreshIndicatorState extends State<M3ERefreshIndicator>
+    with TickerProviderStateMixin<M3ERefreshIndicator> {
+  late AnimationController _positionController;
+  late AnimationController _scaleController;
+  late Animation<double> _positionFactor;
+  late Animation<double> _scaleFactor;
+  late Animation<double> _value;
+  late Animation<Color?> _valueColor;
+
+  M3ERefreshStatus? _status;
+  late Future<void> _pendingRefreshFuture;
+  bool? _isIndicatorAtTop;
+  double? _dragOffset;
+  late Color _effectiveValueColor;
+  late Color _effectiveContainerColor;
+
+  static final Animatable<double> _threeQuarterTween = Tween<double>(
+    begin: 0,
+    end: 0.75,
+  );
+  static final Animatable<double> _kDragSizeFactorLimitTween = Tween<double>(
+    begin: 0,
+    end: M3ERefreshIndicatorTheme.kDragSizeFactorLimit,
+  );
+  static final Animatable<double> _oneToZeroTween = Tween<double>(
+    begin: 1,
+    end: 0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _positionController = AnimationController(vsync: this);
+    _positionFactor = _positionController.drive(_kDragSizeFactorLimitTween);
+    _value = _positionController.drive(_threeQuarterTween);
+    _scaleController = AnimationController(vsync: this);
+    _scaleFactor = _scaleController.drive(_oneToZeroTween);
+  }
+
+  @override
+  void didChangeDependencies() {
+    _setupColorTween();
+    super.didChangeDependencies();
+  }
+
+  @override
+  void didUpdateWidget(covariant M3ERefreshIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.color != widget.color) {
+      _setupColorTween();
+    }
+  }
+
+  @override
+  void dispose() {
+    _positionController.dispose();
+    _scaleController.dispose();
+    super.dispose();
+  }
+
+  /// Future.
+
+  Future<void> show({bool atTop = true}) {
+    if (_status != M3ERefreshStatus.refresh &&
+        _status != M3ERefreshStatus.snap) {
+      if (_status == null) {
+        _start(atTop ? AxisDirection.down : AxisDirection.up);
+      }
+      _show();
+    }
+    return _pendingRefreshFuture;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget child = NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification n) => _handleScrollNotification(n),
+      child: NotificationListener<OverscrollIndicatorNotification>(
+        onNotification: (OverscrollIndicatorNotification n) =>
+            _handleIndicatorNotification(n),
+        child: widget.child,
+      ),
+    );
+
+    return M3EComponentTheme(
+      builder: (BuildContext context) => Stack(
+        children: <Widget>[
+          child,
+          if (_status != null)
+            AnimatedBuilder(
+              animation: Listenable.merge(<Listenable>[
+                _positionController,
+                _scaleController,
+              ]),
+              builder: (BuildContext context, Widget? _) {
+                return _buildPositionedIndicator(context);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}

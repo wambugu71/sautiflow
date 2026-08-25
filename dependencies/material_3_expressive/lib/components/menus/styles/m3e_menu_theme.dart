@@ -1,0 +1,504 @@
+import 'package:flutter/widgets.dart';
+import 'package:material_3_expressive/components/dropdown_menus/m3e_dropdown_menus.dart'
+    show M3EDropdownMenu;
+import 'package:material_3_expressive/material_3_expressive.dart'
+    show M3EDropdownMenu;
+
+import '../../../foundations/foundations.dart';
+import '../enums/m3e_menu_color_style.dart';
+import '../enums/m3e_menu_item_shape.dart';
+
+/// Resolved colors for one [M3EMenuColorStyle].
+@immutable
+class M3EMenuColors {
+  /// M3EMenuColors.
+  const M3EMenuColors({
+    required this.container,
+    required this.content,
+    required this.iconContent,
+    required this.supportingContent,
+    required this.selectedContainer,
+    required this.selectedContent,
+    required this.stateLayer,
+    required this.divider,
+  });
+
+  /// Elevated surface fill (callout 4).
+  final Color container;
+
+  /// Idle item label (callout 2 / 9).
+  final Color content;
+
+  /// Idle leading / trailing icons (callouts 1, 6).
+  final Color iconContent;
+
+  /// Idle supporting text, shortcuts, section labels (callouts 5, 8, 10).
+  final Color supportingContent;
+
+  /// Selected item fill (callout 7).
+  final Color selectedContainer;
+
+  /// Selected item icon / label (callouts 8 selected, 11).
+  final Color selectedContent;
+
+  /// Hover / focus / pressed overlay ink (callout 3).
+  final Color stateLayer;
+
+  /// divider.
+
+  final Color divider;
+
+  @override
+  bool operator ==(Object other) {
+    return other is M3EMenuColors &&
+        other.container == container &&
+        other.content == content &&
+        other.iconContent == iconContent &&
+        other.supportingContent == supportingContent &&
+        other.selectedContainer == selectedContainer &&
+        other.selectedContent == selectedContent &&
+        other.stateLayer == stateLayer &&
+        other.divider == divider;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    container,
+    content,
+    iconContent,
+    supportingContent,
+    selectedContainer,
+    selectedContent,
+    stateLayer,
+    divider,
+  );
+}
+
+/// Theme values for `M3EMenu` (Compose `MenuDefaults` expressive tokens).
+@immutable
+class M3EMenuTheme extends M3EThemeExtension<M3EMenuTheme> {
+  /// M3EMenuTheme.
+  const M3EMenuTheme({
+    this.minWidth = 112,
+    this.maxWidth = 280,
+    this.maxHeight = 320,
+    this.verticalPadding = 8,
+    this.contentHorizontalPadding = 8,
+    this.anchorOffset = 4,
+    this.entryHeight = 48,
+    this.entryHorizontalPadding = 12,
+    this.iconSize = 24,
+    this.iconGap = 12,
+    this.groupSpacing = 8,
+    this.sectionGap = 8,
+    this.groupLabelHorizontalPadding = 12,
+    this.groupLabelVerticalPadding = 8,
+    this.elevation = M3EElevation.level2,
+    this.disabledOpacity = 0.38,
+    this.scrimAlpha = 0.0,
+    this.screenEdgePadding = 12,
+    this.containerRadius = 16,
+    this.itemRadius = 12,
+    this.backgroundColor,
+    this.openMotion = M3EMotion.expressiveSpatialDefault,
+    this.closeMotion = M3EMotion.expressiveSpatialDefault,
+    this.itemGap = 4,
+  });
+
+  /// defaults.
+
+  static const M3EMenuTheme defaults = M3EMenuTheme();
+
+  /// minWidth.
+
+  final double minWidth;
+
+  /// maxWidth.
+  final double maxWidth;
+
+  /// maxHeight.
+  final double maxHeight;
+
+  /// verticalPadding.
+  final double verticalPadding;
+
+  /// Inset of the item column from the left/right of each elevated surface.
+  final double contentHorizontalPadding;
+
+  /// anchorOffset.
+
+  final double anchorOffset;
+
+  /// entryHeight.
+  final double entryHeight;
+
+  /// entryHorizontalPadding.
+  final double entryHorizontalPadding;
+
+  /// iconSize.
+  final double iconSize;
+
+  /// iconGap.
+  final double iconGap;
+
+  /// Legacy alias for spacing near groups; prefer [sectionGap] between surfaces.
+  final double groupSpacing;
+
+  /// Vertical gap between elevated menu surfaces.
+  final double sectionGap;
+
+  /// groupLabelHorizontalPadding.
+
+  final double groupLabelHorizontalPadding;
+
+  /// groupLabelVerticalPadding.
+  final double groupLabelVerticalPadding;
+
+  /// elevation.
+  final double elevation;
+
+  /// disabledOpacity.
+  final double disabledOpacity;
+
+  /// scrimAlpha.
+  final double scrimAlpha;
+
+  /// screenEdgePadding.
+  final double screenEdgePadding;
+
+  /// Corner radius of each elevated menu surface.
+  final double containerRadius;
+
+  /// Corner radius of the item highlight / background.
+  final double itemRadius;
+
+  /// When non-null, overrides the scheme-derived menu surface color.
+  final Color? backgroundColor;
+
+  /// Spring for expand — same default as [M3EDropdownMenu.openMotion].
+  final M3ESpring openMotion;
+
+  /// Spring for collapse — same default as [M3EDropdownMenu.closeMotion].
+  final M3ESpring closeMotion;
+
+  /// Vertical space between items inside a surface.
+  final double itemGap;
+
+  /// The borderRadius.
+
+  BorderRadius get borderRadius => BorderRadius.circular(containerRadius);
+
+  /// The itemBorderRadius.
+
+  BorderRadius get itemBorderRadius => BorderRadius.circular(itemRadius);
+
+  /// Standalone / ungrouped item radius.
+  BorderRadius get standaloneItemShape => itemBorderRadius;
+
+  /// Leading item in a group — full radius (gapped items are not connected).
+  BorderRadius get leadingItemShape => itemBorderRadius;
+
+  /// The middleItemShape.
+
+  BorderRadius get middleItemShape => itemBorderRadius;
+
+  /// Trailing item in a group — full radius (gapped items are not connected).
+  BorderRadius get trailingItemShape => itemBorderRadius;
+
+  /// itemShape.
+
+  BorderRadius itemShape(M3EMenuItemShape shape) {
+    return switch (shape) {
+      M3EMenuItemShape.standalone => standaloneItemShape,
+      M3EMenuItemShape.leading => leadingItemShape,
+      M3EMenuItemShape.middle => middleItemShape,
+      M3EMenuItemShape.trailing => trailingItemShape,
+    };
+  }
+
+  /// Applies Compose-style leading/middle/trailing shapes for [index] in [count].
+  M3EMenuItemShape shapeForIndex(int index, int count) {
+    if (count <= 1) {
+      return M3EMenuItemShape.standalone;
+    }
+    if (index == 0) {
+      return M3EMenuItemShape.leading;
+    }
+    if (index == count - 1) {
+      return M3EMenuItemShape.trailing;
+    }
+    return M3EMenuItemShape.middle;
+  }
+
+  /// Color roles for [style].
+  M3EMenuColors colors(
+    M3EColorScheme scheme, [
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  ]) {
+    switch (style) {
+      case M3EMenuColorStyle.standard:
+        return M3EMenuColors(
+          container: backgroundColor ?? scheme.surfaceContainerLow,
+          content: scheme.onSurface,
+          iconContent: scheme.onSurfaceVariant,
+          supportingContent: scheme.onSurfaceVariant,
+          selectedContainer: scheme.tertiaryContainer,
+          selectedContent: scheme.onTertiaryContainer,
+          stateLayer: scheme.onSurface,
+          divider: scheme.outlineVariant,
+        );
+      case M3EMenuColorStyle.vibrant:
+        return M3EMenuColors(
+          container: backgroundColor ?? scheme.tertiaryContainer,
+          content: scheme.onTertiaryContainer,
+          iconContent: scheme.onTertiaryContainer,
+          supportingContent: scheme.onTertiaryContainer,
+          selectedContainer: scheme.tertiary,
+          selectedContent: scheme.onTertiary,
+          stateLayer: scheme.onTertiaryContainer,
+          divider: scheme.onTertiaryContainer.withValues(alpha: 0.24),
+        );
+    }
+  }
+
+  /// containerColor.
+
+  Color containerColor(
+    M3EColorScheme scheme, [
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  ]) => colors(scheme, style).container;
+
+  /// dividerColor.
+
+  Color dividerColor(
+    M3EColorScheme scheme, [
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  ]) => colors(scheme, style).divider;
+
+  /// selectedContainerColor.
+
+  Color selectedContainerColor(
+    M3EColorScheme scheme, [
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  ]) => colors(scheme, style).selectedContainer;
+
+  /// scrimColor.
+
+  Color scrimColor(M3EColorScheme scheme) =>
+      M3EColorUtils.withOpacity(scheme.scrim, scrimAlpha);
+
+  /// entryForegroundColor.
+
+  Color entryForegroundColor(
+    M3EColorScheme scheme, {
+    required bool enabled,
+    bool isDestructive = false,
+    bool selected = false,
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  }) {
+    final palette = colors(scheme, style);
+    if (!enabled) {
+      return M3EColorUtils.withOpacity(palette.content, disabledOpacity);
+    }
+    if (isDestructive) {
+      return scheme.error;
+    }
+    return selected ? palette.selectedContent : palette.content;
+  }
+
+  /// Leading / trailing icon color (callouts 1, 6, 11).
+  Color entryIconForegroundColor(
+    M3EColorScheme scheme, {
+    required bool enabled,
+    bool isDestructive = false,
+    bool selected = false,
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  }) {
+    final palette = colors(scheme, style);
+    if (!enabled) {
+      return M3EColorUtils.withOpacity(palette.iconContent, disabledOpacity);
+    }
+    if (isDestructive) {
+      return scheme.error;
+    }
+    return selected ? palette.selectedContent : palette.iconContent;
+  }
+
+  /// entryLabelStyle.
+
+  TextStyle entryLabelStyle(
+    M3ETypeScale type,
+    M3EColorScheme scheme, {
+    required bool enabled,
+    bool isDestructive = false,
+    bool selected = false,
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  }) => type.labelLarge.copyWith(
+    color: entryForegroundColor(
+      scheme,
+      enabled: enabled,
+      isDestructive: isDestructive,
+      selected: selected,
+      style: style,
+    ),
+  );
+
+  /// supportingTextStyle.
+
+  TextStyle supportingTextStyle(
+    M3ETypeScale type,
+    M3EColorScheme scheme, {
+    required bool enabled,
+    bool selected = false,
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  }) {
+    final palette = colors(scheme, style);
+    final Color base = selected
+        ? palette.selectedContent
+        : palette.supportingContent;
+    return type.labelMedium.copyWith(
+      color: enabled
+          ? base
+          : M3EColorUtils.withOpacity(palette.content, disabledOpacity),
+    );
+  }
+
+  /// trailingTextStyle.
+
+  TextStyle trailingTextStyle(
+    M3ETypeScale type,
+    M3EColorScheme scheme, {
+    required bool enabled,
+    bool selected = false,
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  }) => supportingTextStyle(
+    type,
+    scheme,
+    enabled: enabled,
+    selected: selected,
+    style: style,
+  );
+
+  /// groupLabelStyle.
+
+  TextStyle groupLabelStyle(
+    M3ETypeScale type,
+    M3EColorScheme scheme, [
+    M3EMenuColorStyle style = M3EMenuColorStyle.standard,
+  ]) =>
+      type.labelLarge.copyWith(color: colors(scheme, style).supportingContent);
+
+  @override
+  M3EMenuTheme copyWith({
+    double? minWidth,
+    double? maxWidth,
+    double? maxHeight,
+    double? verticalPadding,
+    double? contentHorizontalPadding,
+    double? anchorOffset,
+    double? entryHeight,
+    double? entryHorizontalPadding,
+    double? iconSize,
+    double? iconGap,
+    double? groupSpacing,
+    double? sectionGap,
+    double? groupLabelHorizontalPadding,
+    double? groupLabelVerticalPadding,
+    double? elevation,
+    double? disabledOpacity,
+    double? scrimAlpha,
+    double? screenEdgePadding,
+    double? containerRadius,
+    double? itemRadius,
+    Color? backgroundColor,
+    M3ESpring? openMotion,
+    M3ESpring? closeMotion,
+    double? itemGap,
+  }) {
+    return M3EMenuTheme(
+      minWidth: minWidth ?? this.minWidth,
+      maxWidth: maxWidth ?? this.maxWidth,
+      maxHeight: maxHeight ?? this.maxHeight,
+      verticalPadding: verticalPadding ?? this.verticalPadding,
+      contentHorizontalPadding:
+          contentHorizontalPadding ?? this.contentHorizontalPadding,
+      anchorOffset: anchorOffset ?? this.anchorOffset,
+      entryHeight: entryHeight ?? this.entryHeight,
+      entryHorizontalPadding:
+          entryHorizontalPadding ?? this.entryHorizontalPadding,
+      iconSize: iconSize ?? this.iconSize,
+      iconGap: iconGap ?? this.iconGap,
+      groupSpacing: groupSpacing ?? this.groupSpacing,
+      sectionGap: sectionGap ?? this.sectionGap,
+      groupLabelHorizontalPadding:
+          groupLabelHorizontalPadding ?? this.groupLabelHorizontalPadding,
+      groupLabelVerticalPadding:
+          groupLabelVerticalPadding ?? this.groupLabelVerticalPadding,
+      elevation: elevation ?? this.elevation,
+      disabledOpacity: disabledOpacity ?? this.disabledOpacity,
+      scrimAlpha: scrimAlpha ?? this.scrimAlpha,
+      screenEdgePadding: screenEdgePadding ?? this.screenEdgePadding,
+      containerRadius: containerRadius ?? this.containerRadius,
+      itemRadius: itemRadius ?? this.itemRadius,
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+      openMotion: openMotion ?? this.openMotion,
+      closeMotion: closeMotion ?? this.closeMotion,
+      itemGap: itemGap ?? this.itemGap,
+    );
+  }
+
+  @override
+  M3EMenuTheme lerp(M3EMenuTheme? other, double t) {
+    if (other is! M3EMenuTheme) {
+      return this;
+    }
+    return M3EMenuTheme(
+      minWidth: _lerpDouble(minWidth, other.minWidth, t)!,
+      maxWidth: _lerpDouble(maxWidth, other.maxWidth, t)!,
+      maxHeight: _lerpDouble(maxHeight, other.maxHeight, t)!,
+      verticalPadding: _lerpDouble(verticalPadding, other.verticalPadding, t)!,
+      contentHorizontalPadding: _lerpDouble(
+        contentHorizontalPadding,
+        other.contentHorizontalPadding,
+        t,
+      )!,
+      anchorOffset: _lerpDouble(anchorOffset, other.anchorOffset, t)!,
+      entryHeight: _lerpDouble(entryHeight, other.entryHeight, t)!,
+      entryHorizontalPadding: _lerpDouble(
+        entryHorizontalPadding,
+        other.entryHorizontalPadding,
+        t,
+      )!,
+      iconSize: _lerpDouble(iconSize, other.iconSize, t)!,
+      iconGap: _lerpDouble(iconGap, other.iconGap, t)!,
+      groupSpacing: _lerpDouble(groupSpacing, other.groupSpacing, t)!,
+      sectionGap: _lerpDouble(sectionGap, other.sectionGap, t)!,
+      groupLabelHorizontalPadding: _lerpDouble(
+        groupLabelHorizontalPadding,
+        other.groupLabelHorizontalPadding,
+        t,
+      )!,
+      groupLabelVerticalPadding: _lerpDouble(
+        groupLabelVerticalPadding,
+        other.groupLabelVerticalPadding,
+        t,
+      )!,
+      elevation: _lerpDouble(elevation, other.elevation, t)!,
+      disabledOpacity: _lerpDouble(disabledOpacity, other.disabledOpacity, t)!,
+      scrimAlpha: _lerpDouble(scrimAlpha, other.scrimAlpha, t)!,
+      screenEdgePadding: _lerpDouble(
+        screenEdgePadding,
+        other.screenEdgePadding,
+        t,
+      )!,
+      containerRadius: _lerpDouble(containerRadius, other.containerRadius, t)!,
+      itemRadius: _lerpDouble(itemRadius, other.itemRadius, t)!,
+      backgroundColor: Color.lerp(backgroundColor, other.backgroundColor, t),
+      openMotion: t < 0.5 ? openMotion : other.openMotion,
+      closeMotion: t < 0.5 ? closeMotion : other.closeMotion,
+      itemGap: _lerpDouble(itemGap, other.itemGap, t)!,
+    );
+  }
+
+  double? _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+}
