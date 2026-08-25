@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sautiplay — Audio Player for Audiophiles</title>
+<meta name="description" content="Sautiplay is a cross-platform audiophile music player. Bit-perfect output, multiband DSP, GLSL visualizers, DLNA, and more. Built on the Sautiflow engine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap masthead-row">
+    <a class="wordmark" href="#top">SAUTIPLAY<span class="reg">®</span></a>
+    <nav class="mono-nav">
+      <a href="#intro">Intro</a>
+      <a href="#features">Features</a>
+      <a href="#shots">Shots</a>
+      <a href="#download">Download</a>
+      <a href="#community">Community</a>
+    </nav>
+    <span class="ver-badge mono" id="ver-badge">v—</span>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero wrap">
+    <p class="mono kicker">MODEL SP-01 · HIGH-FIDELITY PLAYBACK UNIT · OWNER'S MANUAL</p>
+    <h1>Every sample,<br><em>exactly</em> as recorded.</h1>
+    <p class="lede">Sautiplay is a free, cross-platform music player built for people who read
+    spec sheets for fun. Bit-perfect output, laboratory-grade DSP, and twenty-two shader
+    visualizers — on Android and Windows today.</p>
+    <div class="hero-cta">
+      <a class="btn btn-solid" href="#download">Download latest ↓</a>
+      <a class="btn btn-line" href="https://github.com/wambugukinyua/sautiplay" target="_blank" rel="noopener">Source on GitHub ↗</a>
+    </div>
+    <dl class="hero-specs mono">
+      <div><dt>SAMPLE RATES</dt><dd>8 kHz – 384 kHz</dd></div>
+      <div><dt>DSP PATH</dt><dd>64-bit float</dd></div>
+      <div><dt>OUTPUT</dt><dd>Bit-perfect / WASAPI exclusive</dd></div>
+      <div><dt>CHANNELS</dt><dd>Mono → 7.1 surround</dd></div>
+    </dl>
+  </section>
+
+  <!-- ============ 01 INTRO ============ -->
+  <section id="intro" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">01</span>
+      <h2>Introduction</h2>
+    </header>
+    <div class="chapter-body two-col">
+      <div>
+        <p class="dropcap">Most players treat your library like cargo. Sautiplay treats it like a
+        signal chain. Under the hood runs <strong>Sautiflow</strong>, a custom audio engine built
+        on miniaudio, libsoxr, and libsamplerate — the same architecture whether you're on a
+        phone or a desktop tower.</p>
+        <p>The result is a player that resamples without pitch artifacts, seeks without stutters,
+        and switches DAC sample rates mid-session without dropping a frame. No ads, no accounts,
+        no telemetry. Your files, your network, your hardware.</p>
+        <p>Sautiplay is developed in the open. Every release is built by public CI from tagged
+        source, so what you install is what you can audit.</p>
+      </div>
+      <aside class="spec-card mono">
+        <h3>// ENGINE CARD</h3>
+        <ul>
+          <li><span>ENGINE</span><b>Sautiflow v0.6.x</b></li>
+          <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
+          <li><span>CORE</span><b>C++ · miniaudio</b></li>
+          <li><span>RESAMPLER</span><b>libsoxr · libsamplerate</b></li>
+          <li><span>LICENSE</span><b>Open source</b></li>
+          <li><span>BUILDS</span><b>GitHub Actions (public)</b></li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ 02 FEATURES ============ -->
+  <section id="features" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">02</span>
+      <h2>Feature Specification</h2>
+    </header>
+    <p class="chapter-sub">Grouped by subsystem. All DSP operates in real time with live parameter updates — no playback interruption.</p>
+
+    <div class="feat-grid">
+      <article class="feat">
+        <h3 class="mono">F/01 — SIGNAL PATH</h3>
+        <ul>
+          <li>Auto Bit-Perfect mode with exclusive-mode MMAP &amp; low-latency profiles</li>
+          <li>Hardware sample-rate matching; auto rate-switch for DACs</li>
+          <li>Loudness normalization to BS.1770-4 LUFS + true-peak limiter</li>
+          <li>Full-scale TPDF dithering, plugin delay compensation</li>
+        </ul>
+      </article>
+      <article class="feat">
+        <h3 class="mono">F/02 — DSP SUITE</h3>
+        <ul>
+          <li>3-band &amp; multiband parametric equalizers with live graphs</li>
+          <li>Crossfeed &amp; Ambiophonics R.A.C.E. with soundstage view</li>
+          <li>Convolver (impulse responses), DDC, reverb, delay, stereo widen</li>
+          <li>Polarity invert, L/R swap, per-channel gain; AutoEQ import</li>
+        </ul>
+      </article>
+      <article class="feat">
+        <h3 class="mono">F/03 — SOURCES &amp; STREAMING</h3>
+        <ul>
+          <li>YouTube Music search, streaming &amp; playlist import</li>
+          <li>DLNA cast-out plus built-in DLNA receiver (MediaRenderer)</li>
+          <li>FTP browsing, direct URL streams, disk-cached online playback</li>
+          <li>Last.fm scrobbling with persistent sign-in</li>
+        </ul>
+      </article>
+      <article class="feat">
+        <h3 class="mono">F/04 — LIBRARY &amp; UX</h3>
+        <ul>
+          <li>Gapless playback, loudness-aware crossfade, A-B repeat loop</li>
+          <li>Material 3 Expressive interface with dynamic theming</li>
+          <li>Lyrics view, M3U playlists, dedupe by file-content hash</li>
+          <li>Desktop system tray, native notifications, waveform extraction</li>
+        </ul>
+      </article>
+      <article class="feat feat-wide">
+        <h3 class="mono">F/05 — VISUALIZERS</h3>
+        <ul class="chip-list mono">
+          <li>Cyber Tunnel</li><li>Plasma Sphere</li><li>Neon Spectrum</li><li>Warp Vortex</li>
+          <li>Solar Flare</li><li>Cyber Grid</li><li>Quantum Nebula</li><li>Electric Ring</li>
+          <li>Bars 3D</li><li>Kaleidoscope</li><li>Lattice</li><li>Biolum Waves</li>
+          <li>Starburst</li><li>Matrix Rain</li><li>Vaporwave Sun</li><li>Cyber City</li>
+          <li>Quantum Aurora</li><li>Black Hole</li><li>Cymatics</li><li>Particle Vortex</li>
+          <li>DNA Helix</li><li>Supernova</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ 03 SCREENSHOTS ============ -->
+  <section id="shots" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">03</span>
+      <h2>Screenshots</h2>
+    </header>
+    <p class="chapter-sub">Captions pending — frames below are reserved placeholders.</p>
+    <div class="shot-grid">
+      <figure class="shot shot-phone">
+        <div class="frame phone-frame"><span class="mono placeholder-label">SCREENSHOT · HOME<br>AWAITING UPLOAD</span></div>
+        <figcaption class="mono">PLATE 01 — Home &amp; Library, Material 3 Expressive</figcaption>
+      </figure>
+      <figure class="shot shot-phone">
+        <div class="frame phone-frame"><span class="mono placeholder-label">SCREENSHOT · NOW PLAYING<br>AWAITING UPLOAD</span></div>
+        <figcaption class="mono">PLATE 02 — Now Playing &amp; Visualizer</figcaption>
+      </figure>
+      <figure class="shot shot-desktop">
+        <div class="frame desktop-frame"><span class="mono placeholder-label">SCREENSHOT · EQUALIZER / DESKTOP<br>AWAITING UPLOAD</span></div>
+        <figcaption class="mono">PLATE 03 — Equalizer &amp; DSP suite, desktop</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ 04 DOWNLOAD ============ -->
+  <section id="download" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">04</span>
+      <h2>Downloads</h2>
+    </header>
+    <p class="chapter-sub">Links are fetched live from GitHub Releases. Recommended build is highlighted for your platform.</p>
+
+    <div class="release-panel">
+      <div class="release-head mono">
+        <span id="rel-tag">LATEST RELEASE</span>
+        <span id="rel-date"></span>
+      </div>
+
+      <div id="assets" class="asset-list" aria-live="polite">
+        <div class="loading-state mono" id="rel-loading">
+          QUERYING GITHUB API<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+        </div>
+      </div>
+
+      <noscript><p class="mono noscript-note">JavaScript disabled — fetch all builds directly:
+        <a href="https://github.com/wambugukinyua/sautiplay/releases/latest" target="_blank" rel="noopener">github.com/wambugukinyua/sautiplay/releases/latest</a></p></noscript>
+
+      <p class="mono release-foot">All builds produced by public CI from tagged source.
+        Older versions: <a href="https://github.com/wambugukinyua/sautiplay/releases" target="_blank" rel="noopener">releases archive ↗</a></p>
+    </div>
+  </section>
+
+  <!-- ============ 05 COMMUNITY ============ -->
+  <section id="community" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">05</span>
+      <h2>Community</h2>
+    </header>
+    <div class="community-grid">
+      <a class="comm-card tg" href="https://t.me/sautiplay" target="_blank" rel="noopener">
+        <span class="mono comm-tag">TELEGRAM · CHANNEL</span>
+        <strong>t.me/sautiplay</strong>
+        <p>Release announcements, changelogs, and build notices.</p>
+      </a>
+      <a class="comm-card tg" href="https://t.me/+sautiplaychat" target="_blank" rel="noopener">
+        <span class="mono comm-tag">TELEGRAM · GROUP CHAT</span>
+        <strong>@sautiplay chat</strong>
+        <p>Support, feature requests, DSP talk. Bring your measurements.</p>
+      </a>
+      <a class="comm-card gh" href="https://github.com/wambugukinyua/sautiplay/issues" target="_blank" rel="noopener">
+        <span class="mono comm-tag">GITHUB · ISSUES</span>
+        <strong>Bug reports &amp; PRs</strong>
+        <p>The canonical tracker. Reproduction steps get fastest replies.</p>
+      </a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer wrap">
+  <div class="foot-row mono">
+    <span>SAUTIPLAY® — AUDIO PLAYER FOR AUDIOPHILES</span>
+    <span>ENGINE: <a href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SAUTIFLOW</a></span>
+    <span><a href="https://github.com/wambugukinyua/sautiplay" target="_blank" rel="noopener">SOURCE</a> · <a href="https://github.com/wambugukinyua/sautiplay/releases" target="_blank" rel="noopener">RELEASES</a></span>
+  </div>
+  <p class="mono foot-fineprint">Specs subject to change between releases. This manual was typeset with Fraunces, Newsreader &amp; JetBrains Mono.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
