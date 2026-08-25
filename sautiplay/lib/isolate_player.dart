@@ -300,7 +300,8 @@ class IsolateAudioPlayer {
 
   void setReverbEx({
     required bool enabled,
-    required double mix,
+    required double wet,
+    required double dry,
     required double roomSize,
     required double damping,
     required double preDelayMs,
@@ -309,12 +310,17 @@ class IsolateAudioPlayer {
     _send({
       'cmd': 'setReverbEx',
       'enabled': enabled,
-      'mix': mix,
+      'wet': wet,
+      'dry': dry,
       'roomSize': roomSize,
       'damping': damping,
       'preDelayMs': preDelayMs,
       'width': width,
     });
+  }
+
+  void setReverbGains({required double wet, required double dry}) {
+    _send({'cmd': 'setReverbGains', 'wet': wet, 'dry': dry});
   }
 
   void setLowpass({bool? enabled, double? cutoffHz}) {
@@ -1309,11 +1315,18 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setReverbEx':
           player.setReverbEx(
             enabled: message['enabled'] as bool? ?? false,
-            mix: (message['mix'] as num?)?.toDouble() ?? 0.25,
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.25,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.75,
             roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.6,
             damping: (message['damping'] as num?)?.toDouble() ?? 0.4,
             preDelayMs: (message['preDelayMs'] as num?)?.toDouble() ?? 20.0,
             width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setReverbGains':
+          player.setReverbGains(
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.25,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.75,
           );
           break;
         case 'setDelay':

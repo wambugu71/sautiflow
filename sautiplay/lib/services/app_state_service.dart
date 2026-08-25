@@ -261,7 +261,8 @@ class AppStateService {
   // ─── EQ – Reverb (Freeverb FDN) ───────────────────────────────────────────
   static const _kReverbExEnabled = 'sp_reverb_ex_enabled';
   static const _kReverbExPreset = 'sp_reverb_ex_preset';
-  static const _kReverbExMix = 'sp_reverb_ex_mix';
+  static const _kReverbExWet = 'sp_reverb_ex_wet';
+  static const _kReverbExDry = 'sp_reverb_ex_dry';
   static const _kReverbExRoomSize = 'sp_reverb_ex_room_size';
   static const _kReverbExDamping = 'sp_reverb_ex_damping';
   static const _kReverbExPreDelayMs = 'sp_reverb_ex_pre_delay_ms';
@@ -270,7 +271,8 @@ class AppStateService {
   Future<void> saveReverb({
     required bool enabled,
     required String preset,
-    required double mix,
+    required double wet,
+    required double dry,
     required double roomSize,
     required double damping,
     required double preDelayMs,
@@ -279,7 +281,8 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kReverbExEnabled, enabled);
     await prefs.setString(_kReverbExPreset, preset);
-    await prefs.setDouble(_kReverbExMix, mix);
+    await prefs.setDouble(_kReverbExWet, wet);
+    await prefs.setDouble(_kReverbExDry, dry);
     await prefs.setDouble(_kReverbExRoomSize, roomSize);
     await prefs.setDouble(_kReverbExDamping, damping);
     await prefs.setDouble(_kReverbExPreDelayMs, preDelayMs);
@@ -290,7 +293,8 @@ class AppStateService {
       ({
         bool enabled,
         String preset,
-        double mix,
+        double wet,
+        double dry,
         double roomSize,
         double damping,
         double preDelayMs,
@@ -300,7 +304,8 @@ class AppStateService {
     return (
       enabled: prefs.getBool(_kReverbExEnabled) ?? false,
       preset: prefs.getString(_kReverbExPreset) ?? 'Custom',
-      mix: prefs.getDouble(_kReverbExMix) ?? 0.25,
+      wet: prefs.getDouble(_kReverbExWet) ?? 0.25,
+      dry: prefs.getDouble(_kReverbExDry) ?? 0.75,
       roomSize: prefs.getDouble(_kReverbExRoomSize) ?? 0.6,
       damping: prefs.getDouble(_kReverbExDamping) ?? 0.4,
       preDelayMs: prefs.getDouble(_kReverbExPreDelayMs) ?? 20.0,

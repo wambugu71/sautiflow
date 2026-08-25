@@ -305,7 +305,8 @@ class _EqScreenState extends State<EqScreen>
   static const List<
       ({
         String name,
-        double mix,
+        double wet,
+        double dry,
         double roomSize,
         double damping,
         double preDelayMs,
@@ -313,7 +314,8 @@ class _EqScreenState extends State<EqScreen>
       })> _reverbPresets = [
     (
       name: 'Custom',
-      mix: 0.25,
+      wet: 0.25,
+      dry: 0.75,
       roomSize: 0.6,
       damping: 0.4,
       preDelayMs: 20.0,
@@ -321,7 +323,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Small Room',
-      mix: 0.20,
+      wet: 0.22,
+      dry: 1.0,
       roomSize: 0.25,
       damping: 0.55,
       preDelayMs: 8.0,
@@ -329,7 +332,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Live Club',
-      mix: 0.25,
+      wet: 0.28,
+      dry: 0.95,
       roomSize: 0.42,
       damping: 0.45,
       preDelayMs: 12.0,
@@ -337,7 +341,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Concert Hall',
-      mix: 0.30,
+      wet: 0.35,
+      dry: 0.90,
       roomSize: 0.72,
       damping: 0.35,
       preDelayMs: 25.0,
@@ -345,7 +350,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Cathedral',
-      mix: 0.40,
+      wet: 0.45,
+      dry: 0.85,
       roomSize: 0.95,
       damping: 0.20,
       preDelayMs: 60.0,
@@ -353,7 +359,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Studio Plate',
-      mix: 0.28,
+      wet: 0.32,
+      dry: 1.0,
       roomSize: 0.50,
       damping: 0.05,
       preDelayMs: 4.0,
@@ -361,7 +368,8 @@ class _EqScreenState extends State<EqScreen>
     ),
     (
       name: 'Ambient Drift',
-      mix: 0.45,
+      wet: 0.55,
+      dry: 0.70,
       roomSize: 0.85,
       damping: 0.10,
       preDelayMs: 45.0,
@@ -371,7 +379,8 @@ class _EqScreenState extends State<EqScreen>
 
   String _reverbPreset = 'Custom';
   bool _reverbEnabled = false;
-  double _reverbMix = 0.25;
+  double _reverbWet = 0.25;
+  double _reverbDry = 0.75;
   double _reverbRoomSize = 0.6;
   double _reverbDamping = 0.4;
   double _reverbPreDelayMs = 20.0;
@@ -558,7 +567,8 @@ class _EqScreenState extends State<EqScreen>
       // Reverb (Freeverb FDN)
       _reverbEnabled = reverb.enabled;
       _reverbPreset = reverb.preset;
-      _reverbMix = reverb.mix;
+      _reverbWet = reverb.wet;
+      _reverbDry = reverb.dry;
       _reverbRoomSize = reverb.roomSize;
       _reverbDamping = reverb.damping;
       _reverbPreDelayMs = reverb.preDelayMs;
@@ -809,7 +819,8 @@ class _EqScreenState extends State<EqScreen>
   void _updateReverb() {
     widget.player.setReverbEx(
       enabled: _reverbEnabled,
-      mix: _reverbMix,
+      wet: _reverbWet,
+      dry: _reverbDry,
       roomSize: _reverbRoomSize,
       damping: _reverbDamping,
       preDelayMs: _reverbPreDelayMs,
@@ -864,7 +875,8 @@ class _EqScreenState extends State<EqScreen>
     AppStateService.instance.saveReverb(
       enabled: _reverbEnabled,
       preset: _reverbPreset,
-      mix: _reverbMix,
+      wet: _reverbWet,
+      dry: _reverbDry,
       roomSize: _reverbRoomSize,
       damping: _reverbDamping,
       preDelayMs: _reverbPreDelayMs,
@@ -1121,14 +1133,16 @@ class _EqScreenState extends State<EqScreen>
 
       _reverbEnabled = false;
       _reverbPreset = 'Custom';
-      _reverbMix = 0.25;
+      _reverbWet = 0.25;
+      _reverbDry = 0.75;
       _reverbRoomSize = 0.6;
       _reverbDamping = 0.4;
       _reverbPreDelayMs = 20.0;
       _reverbWidth = 1.0;
       widget.player.setReverbEx(
         enabled: false,
-        mix: _reverbMix,
+        wet: _reverbWet,
+        dry: _reverbDry,
         roomSize: _reverbRoomSize,
         damping: _reverbDamping,
         preDelayMs: _reverbPreDelayMs,
@@ -2116,7 +2130,7 @@ class _EqScreenState extends State<EqScreen>
                       shape: Shapes.flower,
                       title: 'Reverb',
                       subtitle: _reverbEnabled
-                          ? '$_reverbPreset · Mix ${(_reverbMix * 100).toInt()}%'
+                          ? '$_reverbPreset · Wet ${(_reverbWet * 100).toInt()}% / Dry ${(_reverbDry * 100).toInt()}%'
                           : 'Disabled',
                       isEnabled: _reverbEnabled,
                       onToggle: (v) {
@@ -4395,7 +4409,8 @@ class _EqScreenState extends State<EqScreen>
     );
     setState(() {
       _reverbPreset = preset.name;
-      _reverbMix = preset.mix;
+      _reverbWet = preset.wet;
+      _reverbDry = preset.dry;
       _reverbRoomSize = preset.roomSize;
       _reverbDamping = preset.damping;
       _reverbPreDelayMs = preset.preDelayMs;
@@ -4461,20 +4476,23 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'MIX',
-              value: _reverbMix,
+              label: 'WET',
+              value: _reverbWet,
               min: 0.0,
-              max: 1.0,
+              max: 2.0,
               flatValue: 0.25,
               activeColor: _reverbEnabled ? primaryColor : Colors.white,
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() {
-                  _reverbMix = v;
+                  _reverbWet = v;
                   _reverbPreset = 'Custom';
                 });
-                if (_reverbEnabled) _updateReverb();
+                if (_reverbEnabled) {
+                  widget.player.setReverbGains(
+                      wet: _reverbWet, dry: _reverbDry);
+                }
                 _saveEqState();
               },
             ),
@@ -4552,6 +4570,27 @@ class _EqScreenState extends State<EqScreen>
                   _reverbPreset = 'Custom';
                 });
                 if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'DRY',
+              value: _reverbDry,
+              min: 0.0,
+              max: 2.0,
+              flatValue: 0.75,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() {
+                  _reverbDry = v;
+                  _reverbPreset = 'Custom';
+                });
+                if (_reverbEnabled) {
+                  widget.player.setReverbGains(
+                      wet: _reverbWet, dry: _reverbDry);
+                }
                 _saveEqState();
               },
             ),

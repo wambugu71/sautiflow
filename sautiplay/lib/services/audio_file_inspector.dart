@@ -93,7 +93,7 @@ class AudioFileInspector {
         final bytes = raf.readSync(readLen);
 
         if (ext == 'flac' || _indexOfBytes(bytes, [102, 76, 97, 67]) != -1) {
-          final info = _parseFlac(bytes);
+          final info = _parseFlac(bytes, fileSize);
           if (info != null) return info;
         }
 
@@ -146,7 +146,7 @@ class AudioFileInspector {
   }
 
   // ── FLAC Parser ──────────────────────────────────────────────────────────
-  static AudioFileInfo? _parseFlac(Uint8List bytes) {
+  static AudioFileInfo? _parseFlac(Uint8List bytes, int fileSizeBytes) {
     final flacOffset = _indexOfBytes(bytes, [102, 76, 97, 67]); // 'fLaC'
     if (flacOffset == -1) return null;
 
@@ -169,12 +169,23 @@ class AudioFileInspector {
           final sampleRate = (b10 << 12) | (b11 << 4) | ((b12 & 0xF0) >> 4);
           final channels = ((b12 & 0x0E) >> 1) + 1;
           final bitsPerSample = (((b12 & 0x01) << 4) | ((b13 & 0xF0) >> 4)) + 1;
+          final totalSamples = ((b13 & 0x0F) << 32) |
+              (bytes[pos + 14] << 24) |
+              (bytes[pos + 15] << 16) |
+              (bytes[pos + 16] << 8) |
+              bytes[pos + 17];
+
+          int bitrateKbps = 0;
+          if (totalSamples > 0 && sampleRate > 0 && fileSizeBytes > 0) {
+            final durationSecs = totalSamples / sampleRate;
+            bitrateKbps = ((fileSizeBytes * 8) / durationSecs / 1000).round();
+          }
 
           return AudioFileInfo(
             sampleRate: sampleRate > 0 ? sampleRate : 44100,
             bitDepth: bitsPerSample > 0 ? bitsPerSample : 16,
             channels: channels > 0 ? channels : 2,
-            bitrateKbps: 0,
+            bitrateKbps: bitrateKbps,
             codec: 'FLAC',
           );
         }

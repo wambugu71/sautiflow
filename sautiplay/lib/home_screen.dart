@@ -101,6 +101,39 @@ class _HomeScreenState extends State<HomeScreen>
     return thumbs.first.url;
   }
 
+  // ── Navigation helper (single entry point, unchanged behaviour) ──
+  void _openItem(dynamic item) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AlbumDetailScreen(
+          item: item,
+          onPlayTracks: widget.onPlayTracks,
+        ),
+      ),
+    );
+  }
+
+  // ── Expressive shape rotation per section for visual variety ──
+  static const List<Shapes> _tileShapes = [
+    Shapes.slanted,
+    Shapes.arch,
+    Shapes.gem,
+    Shapes.puffy,
+  ];
+
+  static Shapes _shapeFor(int sectionIndex) =>
+      _tileShapes[sectionIndex % _tileShapes.length];
+
+  // ── Carousel layout rotation per section (hero → contained → uncontained) ──
+  static const List<M3ECarouselType> _carouselTypes = [
+    M3ECarouselType.hero,
+    M3ECarouselType.contained,
+    M3ECarouselType.uncontained,
+  ];
+
+  static M3ECarouselType _carouselTypeFor(int sectionIndex) =>
+      _carouselTypes[sectionIndex % _carouselTypes.length];
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -113,9 +146,9 @@ class _HomeScreenState extends State<HomeScreen>
           body: _loading
               ? RepaintBoundary(
                   child: Center(
-                    child: M3ELoadingIndicator(
+                    child: M3EProgressIndicator.circularWavy(
                       color: _primary,
-                      containerColor: _primary.withValues(alpha: 0.15),
+                      trackColor: _primary.withValues(alpha: 0.15),
                     ),
                   ),
                 )
@@ -160,13 +193,15 @@ class _HomeScreenState extends State<HomeScreen>
           ),
 
         // ── Home Sections ──
-        for (final section in _sections) ...[
+        for (var i = 0; i < _sections.length; i++) ...[
           SliverToBoxAdapter(
-            child: _buildSectionHeader(section.title, isDesktop: false),
+            child: _buildSectionHeader(_sections[i].title, isDesktop: false),
           ),
           SliverToBoxAdapter(
-            child: _buildSectionContent(section),
+            child: _buildSectionContent(_sections[i],
+                sectionIndex: i, isDesktop: false),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
         ],
 
         // Bottom padding so content doesn't hide behind mini player
@@ -198,17 +233,18 @@ class _HomeScreenState extends State<HomeScreen>
           ),
 
         // ── Home Sections ──
-        for (final section in _sections) ...[
+        for (var i = 0; i < _sections.length; i++) ...[
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: _buildSectionHeader(section.title, isDesktop: true),
+              child: _buildSectionHeader(_sections[i].title, isDesktop: true),
             ),
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28.0),
-              child: _buildDesktopSectionContent(section),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildSectionContent(_sections[i],
+                  sectionIndex: i, isDesktop: true),
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 36)),
@@ -260,44 +296,53 @@ class _HomeScreenState extends State<HomeScreen>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              M3EIconButton(
-                icon: const Icon(Icons.stream_rounded, size: 20),
-                variant: M3EIconButtonVariant.tonal,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => StreamExtractionTestScreen(
-                        onPlayTracks: widget.onPlayTracks,
+              M3ETooltip(
+                message: 'Stream extractor',
+                child: M3EIconButton(
+                  icon: const Icon(Icons.stream_rounded, size: 20),
+                  variant: M3EIconButtonVariant.tonal,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StreamExtractionTestScreen(
+                          onPlayTracks: widget.onPlayTracks,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
               const SizedBox(width: 8),
-              M3EIconButton(
-                icon: const Icon(Icons.search_rounded, size: 20),
-                variant: M3EIconButtonVariant.tonal,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SearchScreen(
-                        onPlayTracks: widget.onPlayTracks,
+              M3ETooltip(
+                message: 'Search',
+                child: M3EIconButton(
+                  icon: const Icon(Icons.search_rounded, size: 20),
+                  variant: M3EIconButtonVariant.filled,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => SearchScreen(
+                          onPlayTracks: widget.onPlayTracks,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
               const SizedBox(width: 8),
-              M3EIconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                variant: M3EIconButtonVariant.tonal,
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-                  _loadHome();
-                },
+              M3ETooltip(
+                message: 'Refresh feed',
+                child: M3EIconButton(
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                  variant: M3EIconButtonVariant.tonal,
+                  onPressed: () {
+                    setState(() {
+                      _loading = true;
+                      _error = null;
+                    });
+                    _loadHome();
+                  },
+                ),
               ),
             ],
           ),
@@ -312,153 +357,129 @@ class _HomeScreenState extends State<HomeScreen>
     final thumb = _itemThumbnail(item);
 
     return RepaintBoundary(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => AlbumDetailScreen(
-                  item: item,
-                  onPlayTracks: widget.onPlayTracks,
+      child: M3ECard(
+        variant: M3ECardVariant.elevated,
+        onPressed: () => _openItem(item),
+        color: _surfaceDark,
+        borderRadius: BorderRadius.circular(24),
+        padding: EdgeInsets.all(isDesktop ? 18 : 14),
+        child: Row(
+          children: [
+            // Spotlight Artwork with Expressive Shape
+            RepaintBoundary(
+              child: SizedBox(
+                width: isDesktop ? 96 : 76,
+                height: isDesktop ? 96 : 76,
+                child: M3EContainer(
+                  Shapes.slanted,
+                  color: _surfaceDark,
+                  border: BorderSide(
+                    color: _primary.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: thumb != null
+                      ? CachedNetworkImage(
+                          imageUrl: thumb,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 200,
+                          memCacheHeight: 200,
+                          placeholder: (_, __) => Container(
+                            color: _surfaceBorder,
+                            child: const Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 28),
+                          ),
+                          errorWidget: (_, __, ___) => Container(
+                            color: _surfaceBorder,
+                            child: const Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 28),
+                          ),
+                        )
+                      : Container(
+                          color: _surfaceBorder,
+                          child: const Icon(Icons.music_note_rounded,
+                              color: Colors.white24, size: 28),
+                        ),
                 ),
               ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: EdgeInsets.all(isDesktop ? 20 : 14),
-            decoration: BoxDecoration(
-              color: _surfaceDark,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _surfaceBorder),
+            ),
+            const SizedBox(width: 16),
+            // Text Details
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _primary.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'FEATURED',
+                      style: TextStyle(
+                        color: _primary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: isDesktop ? 18 : 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: isDesktop ? 14 : 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Action Button with M3E Shape & Gradient
+            M3EContainer.circle(
+              width: 44,
+              height: 44,
+              gradient: LinearGradient(
+                colors: [
+                  _primary,
+                  _primary.withValues(alpha: 0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
+                  color: _primary.withValues(alpha: 0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
+              child: const Center(
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
             ),
-            child: Row(
-              children: [
-                // Spotlight Artwork with Expressive Shape
-                RepaintBoundary(
-                  child: SizedBox(
-                    width: isDesktop ? 96 : 76,
-                    height: isDesktop ? 96 : 76,
-                    child: M3EContainer(
-                      Shapes.slanted,
-                      color: _surfaceDark,
-                      border: BorderSide(
-                        color: _primary.withValues(alpha: 0.3),
-                        width: 1.5,
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: thumb != null
-                          ? CachedNetworkImage(
-                              imageUrl: thumb,
-                              fit: BoxFit.cover,
-                              memCacheWidth: 200,
-                              memCacheHeight: 200,
-                              placeholder: (_, __) => Container(
-                                color: _surfaceBorder,
-                                child: const Icon(Icons.music_note_rounded,
-                                    color: Colors.white24, size: 28),
-                              ),
-                              errorWidget: (_, __, ___) => Container(
-                                color: _surfaceBorder,
-                                child: const Icon(Icons.music_note_rounded,
-                                    color: Colors.white24, size: 28),
-                              ),
-                            )
-                          : Container(
-                              color: _surfaceBorder,
-                              child: const Icon(Icons.music_note_rounded,
-                                  color: Colors.white24, size: 28),
-                            ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                // Text Details
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _primary.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'FEATURED',
-                          style: TextStyle(
-                            color: _primary,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: _textPrimary,
-                          fontSize: isDesktop ? 18 : 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: isDesktop ? 14 : 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Action Button with M3E Shape & Gradient
-                M3EContainer.circle(
-                  width: 44,
-                  height: 44,
-                  gradient: LinearGradient(
-                    colors: [
-                      _primary,
-                      _primary.withValues(alpha: 0.8),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _primary.withValues(alpha: 0.4),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                  child: const Center(
-                    child: Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -491,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           const SizedBox(width: 10),
-          Expanded(
+          Flexible(
             child: Text(
               title,
               maxLines: 1,
@@ -504,175 +525,281 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
+          const SizedBox(width: 12),
+          // Editorial hairline that fades out towards the edge
+          Expanded(
+            child: Container(
+              height: 1.5,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    _textSecondary.withValues(alpha: 0.25),
+                    _textSecondary.withValues(alpha: 0.0),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildSectionContent(HomeSection section) {
+  Widget _buildSectionContent(
+    HomeSection section, {
+    int sectionIndex = 0,
+    bool isDesktop = false,
+  }) {
+    final M3ECarouselType type = _carouselTypeFor(sectionIndex);
+    final Shapes shape = _shapeFor(sectionIndex);
+
+    final double height = switch (type) {
+      M3ECarouselType.hero => isDesktop ? 340 : 296,
+      M3ECarouselType.contained => isDesktop ? 280 : 244,
+      M3ECarouselType.uncontained => isDesktop ? 276 : 248,
+    };
+
     return SizedBox(
-      height: 220,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: section.contents.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 14),
-        itemBuilder: (context, i) {
-          final item = section.contents[i];
-          return _buildContentTile(item, isDesktop: false);
+      height: height,
+      child: M3ECarousel(
+        type: type,
+        heroAlignment: M3ECarouselHeroAlignment.left,
+        isExtended: isDesktop,
+        uncontainedItemExtent: isDesktop ? 200 : 172,
+        uncontainedShrinkExtent: 150,
+        childElementBorderRadius: 22,
+        onTap: (i) {
+          if (i >= 0 && i < section.contents.length) {
+            _openItem(section.contents[i]);
+          }
         },
+        children: [
+          for (final item in section.contents)
+            type == M3ECarouselType.hero
+                ? _buildHeroTile(item)
+                : _buildCarouselTile(item),
+        ],
       ),
     );
   }
 
-  Widget _buildDesktopSectionContent(HomeSection section) {
-    return Wrap(
-      spacing: 20,
-      runSpacing: 24,
-      children: section.contents.map((item) {
-        return _buildContentTile(item, isDesktop: true);
-      }).toList(),
-    );
-  }
-
-  Widget _buildContentTile(dynamic item, {bool isDesktop = false}) {
+  /// Immersive full-bleed tile used by hero-type carousels.
+  Widget _buildHeroTile(dynamic item) {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
-    final cardWidth = isDesktop ? 180.0 : 144.0;
-    const Shapes itemShape = Shapes.slanted;
 
-    return RepaintBoundary(
-      child: InkWell(
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => AlbumDetailScreen(
-                item: item,
-                onPlayTracks: widget.onPlayTracks,
-              ),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: SizedBox(
-          width: cardWidth,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Expressive Artwork Card
-              Stack(
-                children: [
-                  AspectRatio(
-                    aspectRatio: 1,
-                    child: M3EContainer(
-                      itemShape,
-                      color: _surfaceDark,
-                      border: BorderSide(
-                        color: _primary.withValues(alpha: 0.2),
-                        width: 1.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                      clipBehavior: Clip.antiAlias,
-                      child: thumb != null
-                          ? CachedNetworkImage(
-                              imageUrl: thumb,
-                              fit: BoxFit.cover,
-                              memCacheWidth: 200,
-                              memCacheHeight: 200,
-                              placeholder: (_, __) => Container(
-                                color: _surfaceDark,
-                                child: const Center(
-                                  child: Icon(Icons.music_note_rounded,
-                                      color: Colors.white24, size: 30),
-                                ),
-                              ),
-                              errorWidget: (_, __, ___) => Container(
-                                color: _surfaceDark,
-                                child: const Center(
-                                  child: Icon(Icons.music_note_rounded,
-                                      color: Colors.white24, size: 30),
-                                ),
-                              ),
-                            )
-                          : const Center(
-                              child: Icon(Icons.music_note_rounded,
-                                  color: Colors.white24, size: 30),
-                            ),
-                    ),
-                  ),
-                  // Floating Play Badge
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            _primary,
-                            _primary.withValues(alpha: 0.85),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.4),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                  ),
+    return Padding(
+      padding: const EdgeInsets.all(4),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Full-bleed artwork
+          thumb != null
+              ? CachedNetworkImage(
+                  imageUrl: thumb,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 600,
+                  memCacheHeight: 600,
+                  placeholder: (_, __) => Container(color: _surfaceDark),
+                  errorWidget: (_, __, ___) => Container(color: _surfaceDark),
+                )
+              : Container(color: _surfaceDark),
+          // Bottom scrim keeps text legible over any artwork / theme
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.center,
+                colors: [
+                  Colors.black.withValues(alpha: 0.85),
+                  Colors.transparent,
                 ],
               ),
-              const SizedBox(height: 8),
-              // Title
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _textPrimary,
-                  fontSize: isDesktop ? 14 : 13,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const SizedBox(height: 2),
-              // Subtitle
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          // Title + artist overlaid at the bottom
+          Positioned(
+            left: 18,
+            right: 72,
+            bottom: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    shadows: [
+                      Shadow(
+                          color: Colors.black54,
+                          blurRadius: 12,
+                          offset: Offset(0, 2))
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Floating play badge
+          Positioned(
+            right: 14,
+            bottom: 14,
+            child: M3EContainer.circle(
+              width: 44,
+              height: 44,
+              gradient: LinearGradient(
+                colors: [
+                  _primary,
+                  _primary.withValues(alpha: 0.85),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _primary.withValues(alpha: 0.45),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              child: const Center(
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Standard artwork-top / text-bottom tile for contained & uncontained
+  /// carousels. The carousel clips each tile into an expressive card.
+  Widget _buildCarouselTile(dynamic item) {
+    final name = _itemName(item);
+    final subtitle = _itemSubtitle(item);
+    final thumb = _itemThumbnail(item);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Artwork fills the top of the tile; the carousel clips the card.
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                thumb != null
+                    ? CachedNetworkImage(
+                        imageUrl: thumb,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 300,
+                        memCacheHeight: 300,
+                        placeholder: (_, __) => Container(
+                          color: _surfaceBorder,
+                          child: const Center(
+                            child: Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 30),
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          color: _surfaceBorder,
+                          child: const Center(
+                            child: Icon(Icons.music_note_rounded,
+                                color: Colors.white24, size: 30),
+                          ),
+                        ),
+                      )
+                    : Container(
+                        color: _surfaceBorder,
+                        child: const Center(
+                          child: Icon(Icons.music_note_rounded,
+                              color: Colors.white24, size: 30),
+                        ),
+                      ),
+                // Floating play badge
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: M3EContainer.circle(
+                    width: 34,
+                    height: 34,
+                    gradient: LinearGradient(
+                      colors: [
+                        _primary,
+                        _primary.withValues(alpha: 0.85),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primary.withValues(alpha: 0.45),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                    child: const Center(
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Title
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _textPrimary,
+              fontSize: 13.5,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          // Subtitle
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
       ),
     );
   }

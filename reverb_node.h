@@ -59,7 +59,21 @@ public:
 
     void setMix(float m)
     {
-        targetMix = std::max(0.0f, std::min(m, 1.0f));
+        // Legacy crossfade mapping: mix blends between fully-dry and fully-wet.
+        setWet(m);
+        setDry(1.0f - m);
+    }
+
+    void setWet(float w)
+    {
+        // >1.0 allowed for send-style wet boost.
+        targetWet = std::max(0.0f, std::min(w, 2.0f));
+    }
+
+    void setDry(float d)
+    {
+        // >1.0 allowed for dry make-up gain.
+        targetDry = std::max(0.0f, std::min(d, 2.0f));
     }
 
     void setRoomSize(float r)
@@ -82,7 +96,8 @@ public:
         targetWidth = std::max(0.0f, std::min(w, 1.0f));
     }
 
-    float getMix() const { return targetMix; }
+    float getWet() const { return targetWet; }
+    float getDry() const { return targetDry; }
     float getRoomSize() const { return targetRoomSize; }
     float getDamping() const { return targetDamping; }
     float getPreDelayMs() const { return targetPreDelayMs; }
@@ -91,7 +106,7 @@ public:
     // Latency contributed by the pre-delay stage (samples).
     double getLatencySamples() const
     {
-        if (!targetEnabled && currentMix < 0.0001f)
+        if (!targetEnabled && currentWet < 0.0001f)
             return 0.0;
         return (double)(currentPreDelayMs * 0.001f) * sampleRate;
     }
@@ -122,7 +137,8 @@ public:
             }
         }
 
-        currentMix = targetMix;
+        currentWet = targetWet;
+        currentDry = targetDry;
         currentRoomSize = targetRoomSize;
         currentDamping = targetDamping;
         currentPreDelayMs = targetPreDelayMs;
@@ -135,7 +151,7 @@ public:
         if (!interleaved || frames == 0 || channels < 2)
             return;
 
-        if (!targetEnabled && currentMix < 0.0001f)
+        if (!targetEnabled && currentWet < 0.0001f)
         {
             currentEnabled = false;
             return;
@@ -156,7 +172,8 @@ public:
         for (uint32_t i = 0; i < frames; ++i)
         {
             // Smooth parameters toward targets.
-            currentMix += alphaSmooth * (targetMix - currentMix);
+            currentWet += alphaSmooth * (targetWet - currentWet);
+            currentDry += alphaSmooth * (targetDry - currentDry);
             currentRoomSize += alphaSmooth * (targetRoomSize - currentRoomSize);
             currentDamping += alphaSmooth * (targetDamping - currentDamping);
             currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
@@ -165,8 +182,8 @@ public:
             // Freeverb mappings.
             const float feedback = 0.7f + currentRoomSize * 0.28f;   // 0.70..0.98 decay
             const float damp = currentDamping * 0.4f;                // 0..0.4 damping
-            const float wetGain = currentMix * 0.30f;                // headroom-safe wet level
-            const float dryGain = 1.0f - currentMix;
+            const float wetGain = currentWet * 0.30f;                // headroom-safe wet level
+            const float dryGain = currentDry;
             const float wet1 = wetGain * (currentWidth / 2.0f + 0.5f);
             const float wet2 = wetGain * ((1.0f - currentWidth) / 2.0f);
 
@@ -288,8 +305,11 @@ private:
     bool targetEnabled = false;
     bool currentEnabled = false;
 
-    float targetMix = 0.0f;
-    float currentMix = 0.0f;
+    float targetWet = 0.0f;
+    float currentWet = 0.0f;
+
+    float targetDry = 1.0f;
+    float currentDry = 1.0f;
 
     float targetRoomSize = 0.5f;
     float currentRoomSize = 0.5f;
