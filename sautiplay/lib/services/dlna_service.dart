@@ -43,6 +43,7 @@ class DlnaService extends ChangeNotifier {
 
   final List<DlnaDeviceInfo> _devices = [];
   bool _isSearching = false;
+  String? _lastError;
   DlnaDeviceInfo? _activeRenderer;
 
   List<DlnaDeviceInfo> get devices => List.unmodifiable(_devices);
@@ -51,6 +52,7 @@ class DlnaService extends ChangeNotifier {
   List<DlnaDeviceInfo> get mediaRenderers =>
       _devices.where((d) => d.isMediaRenderer).toList();
   bool get isSearching => _isSearching;
+  String? get lastError => _lastError;
   DlnaDeviceInfo? get activeRenderer => _activeRenderer;
 
   /// Starts SSDP discovery for DLNA devices on the local Wi-Fi / network.
@@ -58,6 +60,7 @@ class DlnaService extends ChangeNotifier {
     if (_isSearching) return;
     _isSearching = true;
     _devices.clear();
+    _lastError = null;
     notifyListeners();
 
     if (Platform.isAndroid) {
@@ -70,7 +73,11 @@ class DlnaService extends ChangeNotifier {
 
     try {
       _dlnaManager = DLNAManager();
-      _deviceManager = await _dlnaManager!.start();
+      // reusePort (SO_REUSEPORT) avoids 'Address already in use' on Android
+      // when another app already holds UDP port 1900.
+      _deviceManager = await _dlnaManager!.start(
+        reusePort: Platform.isAndroid || Platform.isLinux || Platform.isMacOS,
+      );
 
       _deviceSubscription?.cancel();
       _deviceSubscription = _deviceManager!.devices.stream.listen(
@@ -99,6 +106,9 @@ class DlnaService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[DlnaService] Failed to start DLNA search: $e');
+      _lastError =
+          'DLNA discovery failed to start: check that Wi-Fi is on and this '
+          'device is on the same network as your DLNA hardware.';
       _isSearching = false;
       notifyListeners();
     }

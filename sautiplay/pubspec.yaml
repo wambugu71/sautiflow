@@ -55,7 +55,8 @@ dependencies:
 
   # Network Protocols (FTP & DLNA)
   ftpconnect: ^2.0.10
-  dlna_dart: ^0.1.1
+  dlna_dart:
+    path: ../dependencies/dlna_dart
   path_provider: ^2.1.5
 
 dependency_overrides:

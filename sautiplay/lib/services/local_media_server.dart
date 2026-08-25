@@ -112,29 +112,65 @@ class LocalMediaServer {
 
     _currentFilePath = filePath;
 
-    // We need to find the local IP address
-    String? localIp;
-    try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-      );
-      for (var interface in interfaces) {
-        for (var addr in interface.addresses) {
-          if (!addr.isLoopback && !addr.isLinkLocal) {
-            localIp = addr.address;
-            break;
-          }
-        }
-        if (localIp != null) break;
-      }
-    } catch (e) {
-      debugPrint('[LocalMediaServer] Failed to get local IP: $e');
-    }
-
+    String? localIp = await bestLanIpv4();
     localIp ??= '127.0.0.1';
 
     final ext = p.extension(filePath);
     return 'http://$localIp:$_port/stream$ext';
+  }
+
+  /// Picks the IPv4 address most likely reachable by other LAN devices.
+  /// On Android, the first non-loopback IPv4 interface is often the cellular
+  /// modem (rmnet/CCNAT), which peers cannot reach — prefer Wi-Fi / ethernet.
+  static Future<String?> bestLanIpv4() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
+
+      int scoreInterface(NetworkInterface iface) {
+        final name = iface.name.toLowerCase();
+        if (Platform.isAndroid) {
+          if (name.startsWith('wlan')) return 4;
+          if (name.startsWith('eth')) return 3;
+          if (name.startsWith('ap') || name.contains('swlan')) return 2;
+          if (name.startsWith('rmnet') ||
+              name.startsWith('ccmni') ||
+              name.startsWith('usb') ||
+              name.startsWith('tun')) {
+            return 0;
+          }
+        } else {
+          if (name.startsWith('eth') ||
+              name.startsWith('en') ||
+              name.contains('wi-fi') ||
+              name.contains('wifi') ||
+              name.contains('wireless')) {
+            return 4;
+          }
+        }
+        return 1;
+      }
+
+      final candidates = <(NetworkInterface, InternetAddress)>[];
+      for (var interface in interfaces) {
+        for (var addr in interface.addresses) {
+          if (!addr.isLoopback && !addr.isLinkLocal) {
+            candidates.add((interface, addr));
+          }
+        }
+      }
+
+      if (candidates.isEmpty) return null;
+      candidates.sort(
+          (a, b) => scoreInterface(b.$1).compareTo(scoreInterface(a.$1)));
+      debugPrint(
+          '[LocalMediaServer] Using local IP ${candidates.first.$2.address} (${candidates.first.$1.name})');
+      return candidates.first.$2.address;
+    } catch (e) {
+      debugPrint('[LocalMediaServer] Failed to get local IP: $e');
+      return null;
+    }
   }
 
   void stop() {

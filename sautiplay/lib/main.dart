@@ -39,6 +39,7 @@ import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
 import 'widgets/app_showcase.dart';
 import 'package:sautiplay/services/dlna_service.dart';
+import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
 import 'services/ftp_service.dart';
 import 'streaming_service.dart';
@@ -365,6 +366,51 @@ class _PlayerShellState extends State<PlayerShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndShowOnboarding();
     });
+
+    // DLNA receiver (act as a cast target for other devices)
+    unawaited(_initDlnaRenderer());
+  }
+
+  /// Plays a URL pushed from a DLNA controller (receiver mode).
+  void playDlnaCast(String url, String title, String artist) {
+    _playbackSessionId++;
+    final session = _playbackSessionId;
+    final src = AudioSource.network(url, title: title, artist: artist);
+
+    if (!mounted || _playbackSessionId != session) return;
+
+    setState(() {
+      _currentUiQueue.clear();
+      _currentUiQueue.add(TrackInfo(
+        videoId: url,
+        title: title,
+        artist: artist,
+        thumbnailUrl: null,
+      ));
+      _playlist.clear();
+      _playlist.add(src);
+    });
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: 0,
+      initialPosition: Duration.zero,
+      useLazyPreparation: true,
+    );
+  }
+
+  Future<void> _initDlnaRenderer() async {
+    await DlnaRendererService.instance.restoreName();
+    await DlnaRendererService.instance
+        .configure(bridge: _SautiRendererBridge(this));
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('dlna_receiver_enabled') == true) {
+      final ok = await DlnaRendererService.instance.start();
+      if (ok) {
+        _logs.insert(0,
+            '[dlna] Receiving casts as "${DlnaRendererService.instance.friendlyName}"');
+      }
+    }
   }
 
   void _extractArtworkTheme() {
@@ -562,6 +608,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _bufferingSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
+    DlnaRendererService.instance.stopInternal();
     _status.dispose();
     _player.dispose();
     super.dispose();
@@ -2737,11 +2784,54 @@ class _PlayerShellState extends State<PlayerShell> {
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
+               ],
+             ),
+           ),
+         );
+       },
+     );
+   }
+ }
+
+/// Bridges incoming DLNA cast requests into SautiPlay's player engine.
+class _SautiRendererBridge implements DlnaRendererBridge {
+  final _PlayerShellState state;
+  _SautiRendererBridge(this.state);
+
+  @override
+  Future<void> loadUrl(String url, {String? title, String? artist}) async {
+    state.playDlnaCast(
+      url,
+      title ?? 'DLNA Cast',
+      artist ?? 'DLNA',
+    );
+  }
+
+  @override
+  void play() => state._player.play();
+
+  @override
+  void pause() => state._player.pause();
+
+  @override
+  void stop() => state._player.stop();
+
+  @override
+  Future<void> seek(Duration position) async {
+    state._player.seekTo(position);
+  }
+
+  @override
+  void setVolume(double gain) => state._player.setGain(gain.clamp(0.0, 1.0));
+
+  @override
+  ({bool playing, Duration position, Duration duration}) snapshot() {
+    final st = state._status.value;
+    return (
+      playing: st.isPlaying,
+      position:
+          Duration(milliseconds: (st.positionSeconds * 1000).round()),
+      duration: Duration(seconds: st.durationSeconds.round()),
+    );
+  }
 }

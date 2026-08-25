@@ -7,8 +7,11 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:sautiflow/sautiflow.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
+import 'services/dlna_renderer_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
 
@@ -448,8 +451,13 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       Text(
                         dlna.isSearching
                             ? 'Searching Wi-Fi network for DLNA hardware…'
-                            : 'Found ${dlna.devices.length} total DLNA devices',
-                        style: TextStyle(color: _textDark, fontSize: 13),
+                            : dlna.lastError ??
+                                'Found ${dlna.devices.length} total DLNA devices',
+                        style: TextStyle(
+                            color: dlna.lastError != null && !dlna.isSearching
+                                ? Colors.orangeAccent
+                                : _textDark,
+                            fontSize: 13),
                       ),
                     ],
                   ),
@@ -477,6 +485,73 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                 ),
               ],
             ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // DLNA Receiver toggle (act as cast target)
+          ListenableBuilder(
+            listenable: DlnaRendererService.instance,
+            builder: (context, _) {
+              final renderer = DlnaRendererService.instance;
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _cardDark,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: renderer.isRunning
+                        ? _primary.withAlpha(90)
+                        : Colors.white.withAlpha(12),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.speaker_rounded,
+                        color: renderer.isRunning ? _primary : _textDark,
+                        size: 24),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Receive casts (act as DLNA speaker)',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text(
+                            renderer.isRunning
+                                ? 'Visible as "${renderer.friendlyName}" on this network'
+                                : 'Let phones, PCs and TVs cast audio to SautiPlay',
+                            style: TextStyle(
+                                color: renderer.isRunning
+                                    ? _primary
+                                    : _textDark,
+                                fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: renderer.isRunning,
+                      activeThumbColor: _primary,
+                      onChanged: (v) async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('dlna_receiver_enabled', v);
+                        if (v) {
+                          await DlnaRendererService.instance.start();
+                        } else {
+                          await DlnaRendererService.instance.stop();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
 
           const SizedBox(height: 24),
