@@ -62,7 +62,7 @@ void _soxr_deinterleave_f(float * * dest, /* Round/clipping not needed here */
 
 
 
-#if defined FE_INVALID && defined FPU_RINT32 && defined __STDC_VERSION__
+#if defined FE_INVALID && defined FPU_RINT32 && defined __STDC_VERSION__ && !defined(__clang__) && !defined(__GNUC__)
   #if __STDC_VERSION__ >= 199901L
     #pragma STDC FENV_ACCESS ON
   #endif
@@ -150,7 +150,7 @@ void _soxr_deinterleave_f(float * * dest, /* Round/clipping not needed here */
 #undef FLOATX
 #endif
 
-#if defined FE_INVALID && defined FPU_RINT32 && defined __STDC_VERSION__
+#if defined FE_INVALID && defined FPU_RINT32 && defined __STDC_VERSION__ && !defined(__clang__) && !defined(__GNUC__)
   #if __STDC_VERSION__ >= 199901L
     #pragma STDC FENV_ACCESS OFF
   #endif
