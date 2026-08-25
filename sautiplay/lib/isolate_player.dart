@@ -724,8 +724,24 @@ class IsolateAudioPlayer {
         'headRadiusCm': headRadiusCm,
       });
 
-  void loadConvolverIr(String path) =>
-      _send({'cmd': 'loadConvolverIr', 'path': path});
+  void loadConvolverIr(String path) {
+    if (path.startsWith('assets/')) {
+      _loadConvolverIrAsset(path);
+      return;
+    }
+    _send({'cmd': 'loadConvolverIr', 'path': path});
+  }
+
+  Future<void> _loadConvolverIrAsset(String assetKey) async {
+    try {
+      final data = await rootBundle.load(assetKey);
+      final bytes =
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      _send({'cmd': 'loadConvolverIrData', 'bytes': bytes});
+    } catch (e) {
+      debugPrint('loadConvolverIrAsset($assetKey) failed: $e');
+    }
+  }
 
   void clearConvolverIr() => _send({'cmd': 'clearConvolverIr'});
 
@@ -1935,6 +1951,15 @@ void _isolateEntry(_IsolateInitData initData) {
             player.dsp.loadImpulseResponse(samples, 2);
           } catch (e) {
             initData.sendPort.send('[log]loadConvolverIr Error: $e');
+          }
+          break;
+        case 'loadConvolverIrData':
+          try {
+            final bytes = message['bytes'] as Uint8List;
+            final samples = WavParser.parseBytes(bytes);
+            player.dsp.loadImpulseResponse(samples, 2);
+          } catch (e) {
+            initData.sendPort.send('[log]loadConvolverIrData Error: $e');
           }
           break;
         case 'clearConvolverIr':

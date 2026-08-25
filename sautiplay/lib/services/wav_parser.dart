@@ -3,9 +3,12 @@ import 'dart:typed_data';
 
 class WavParser {
   static Float32List parse(String path) {
-    final file = File(path);
-    final bytes = file.readAsBytesSync();
-    final data = ByteData.view(bytes.buffer);
+    final bytes = File(path).readAsBytesSync();
+    return parseBytes(bytes);
+  }
+
+  static Float32List parseBytes(Uint8List bytes) {
+    final data = ByteData.view(bytes.buffer, bytes.offsetInBytes);
 
     if (bytes.length < 44) {
       throw Exception('Invalid WAV file: too small');
@@ -42,6 +45,10 @@ class WavParser {
         // byteRate = data.getUint32(offset + 16, Endian.little);
         // blockAlign = data.getUint16(offset + 20, Endian.little);
         bitsPerSample = data.getUint16(offset + 22, Endian.little);
+        if (audioFormat == 65534 && chunkSize >= 40) {
+          // WAVE_FORMAT_EXTENSIBLE: real format code lives in SubFormat GUID
+          audioFormat = data.getUint16(offset + 32, Endian.little);
+        }
       } else if (chunkId == 'data') {
         dataOffset = offset + 8;
         dataSize = chunkSize;

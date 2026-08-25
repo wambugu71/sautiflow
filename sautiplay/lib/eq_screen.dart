@@ -302,6 +302,74 @@ class _EqScreenState extends State<EqScreen>
   double _stereoEnhancementMix = 0.5;
 
   // Reverb (Freeverb FDN)
+  static const List<
+      ({
+        String name,
+        double mix,
+        double roomSize,
+        double damping,
+        double preDelayMs,
+        double width
+      })> _reverbPresets = [
+    (
+      name: 'Custom',
+      mix: 0.25,
+      roomSize: 0.6,
+      damping: 0.4,
+      preDelayMs: 20.0,
+      width: 1.0
+    ),
+    (
+      name: 'Small Room',
+      mix: 0.20,
+      roomSize: 0.25,
+      damping: 0.55,
+      preDelayMs: 8.0,
+      width: 0.9
+    ),
+    (
+      name: 'Live Club',
+      mix: 0.25,
+      roomSize: 0.42,
+      damping: 0.45,
+      preDelayMs: 12.0,
+      width: 1.0
+    ),
+    (
+      name: 'Concert Hall',
+      mix: 0.30,
+      roomSize: 0.72,
+      damping: 0.35,
+      preDelayMs: 25.0,
+      width: 1.0
+    ),
+    (
+      name: 'Cathedral',
+      mix: 0.40,
+      roomSize: 0.95,
+      damping: 0.20,
+      preDelayMs: 60.0,
+      width: 1.0
+    ),
+    (
+      name: 'Studio Plate',
+      mix: 0.28,
+      roomSize: 0.50,
+      damping: 0.05,
+      preDelayMs: 4.0,
+      width: 1.0
+    ),
+    (
+      name: 'Ambient Drift',
+      mix: 0.45,
+      roomSize: 0.85,
+      damping: 0.10,
+      preDelayMs: 45.0,
+      width: 1.0
+    ),
+  ];
+
+  String _reverbPreset = 'Custom';
   bool _reverbEnabled = false;
   double _reverbMix = 0.25;
   double _reverbRoomSize = 0.6;
@@ -355,6 +423,27 @@ class _EqScreenState extends State<EqScreen>
   double _convolverWet = 1.0;
   double _convolverDry = 0.0;
 
+  /// Built-in HRIR (head-related impulse response) presets bundled as assets.
+  static const List<({String label, String asset})> _builtinHrirs = [
+    (label: 'Dolby Atmos', asset: 'assets/hrirs/atmos.wav'),
+    (label: 'DH+', asset: 'assets/hrirs/dh+.wav'),
+    (label: 'DH++', asset: 'assets/hrirs/dh++.wav'),
+    (label: 'DS3D', asset: 'assets/hrirs/ds3d.wav'),
+    (label: 'DS3D+', asset: 'assets/hrirs/ds3d+.wav'),
+    (label: 'DS3D++', asset: 'assets/hrirs/ds3d++.wav'),
+    (label: 'DS3D+++', asset: 'assets/hrirs/ds3d+++.wav'),
+    (label: 'DTS:X', asset: 'assets/hrirs/dtshx.wav'),
+    (label: 'DTS:X Lite', asset: 'assets/hrirs/dtshx-.wav'),
+    (label: 'GSX', asset: 'assets/hrirs/gsx.wav'),
+    (label: 'Sonic', asset: 'assets/hrirs/sonic.wav'),
+    (label: 'Sonic+', asset: 'assets/hrirs/sonic+.wav'),
+  ];
+
+  final List<M3EDropdownItem<String>> _hrirItems = [
+    for (final h in _builtinHrirs)
+      M3EDropdownItem(label: h.label, value: h.asset),
+  ];
+
   // 5b. Spatial Surround Suite
   bool _surroundEnabled = false;
   SurroundMode _surroundMode = SurroundMode.off;
@@ -375,6 +464,9 @@ class _EqScreenState extends State<EqScreen>
   StreamSubscription<PlayerStatus>? _statusSub;
 
   StateSetter? _subScreenSetState;
+
+  late final M3EDropdownController<String> _hrirDropdownController =
+      M3EDropdownController<String>();
 
   @override
   void setState(VoidCallback fn) {
@@ -465,6 +557,7 @@ class _EqScreenState extends State<EqScreen>
 
       // Reverb (Freeverb FDN)
       _reverbEnabled = reverb.enabled;
+      _reverbPreset = reverb.preset;
       _reverbMix = reverb.mix;
       _reverbRoomSize = reverb.roomSize;
       _reverbDamping = reverb.damping;
@@ -552,6 +645,16 @@ class _EqScreenState extends State<EqScreen>
       });
     }
 
+    // Sync built-in HRIR dropdown selection with a restored asset IR
+    if (mounted && _isBuiltinHrir(_convolverIrPath)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _hrirDropdownController
+          ..clearAll()
+          ..selectWhere((item) => item.value == _convolverIrPath);
+      });
+    }
+
     // Apply loaded state to the audio engine
     widget.player.setMultibandEqEnabled(_masterEqEnabled);
     widget.player.initMultibandEq(_eqFrequencies);
@@ -624,6 +727,22 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  bool _isBuiltinHrir(String? path) =>
+      path != null && _builtinHrirs.any((h) => h.asset == path);
+
+  void _onHrirPresetSelected(List<M3EDropdownItem<String>> selected) {
+    if (selected.isEmpty) return;
+    final item = selected.first;
+    if (item.value == _convolverIrPath) return;
+    setState(() {
+      _convolverIrPath = item.value;
+      _convolverIrFileName = item.label;
+      _convolverEnabled = true;
+    });
+    _updateConvolver();
+    _saveEqState();
+  }
+
   void _updateConvolver() {
     widget.player.setConvolverEnabled(_convolverEnabled);
     widget.player.setConvolverMix(wet: _convolverWet, dry: _convolverDry);
@@ -662,6 +781,7 @@ class _EqScreenState extends State<EqScreen>
       );
       if (result != null && result.files.single.path != null) {
         final path = result.files.single.path!;
+        _hrirDropdownController.clearAll();
         setState(() {
           _convolverIrPath = path;
           _convolverIrFileName = p.basename(path);
@@ -743,6 +863,7 @@ class _EqScreenState extends State<EqScreen>
     );
     AppStateService.instance.saveReverb(
       enabled: _reverbEnabled,
+      preset: _reverbPreset,
       mix: _reverbMix,
       roomSize: _reverbRoomSize,
       damping: _reverbDamping,
@@ -807,6 +928,7 @@ class _EqScreenState extends State<EqScreen>
   void dispose() {
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
+    _hrirDropdownController.dispose();
     widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
@@ -998,6 +1120,7 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setStereoEnhancement(enabled: false, mix: 0.5);
 
       _reverbEnabled = false;
+      _reverbPreset = 'Custom';
       _reverbMix = 0.25;
       _reverbRoomSize = 0.6;
       _reverbDamping = 0.4;
@@ -1062,6 +1185,7 @@ class _EqScreenState extends State<EqScreen>
       _convolverIrFileName = null;
       _convolverWet = 1.0;
       _convolverDry = 0.0;
+      _hrirDropdownController.clearAll();
       widget.player.setConvolverEnabled(false);
       widget.player.clearConvolverIr();
 
@@ -1992,7 +2116,7 @@ class _EqScreenState extends State<EqScreen>
                       shape: Shapes.flower,
                       title: 'Reverb',
                       subtitle: _reverbEnabled
-                          ? 'Mix ${(_reverbMix * 100).toInt()}% | Room ${(_reverbRoomSize * 100).toInt()}%'
+                          ? '$_reverbPreset · Mix ${(_reverbMix * 100).toInt()}%'
                           : 'Disabled',
                       isEnabled: _reverbEnabled,
                       onToggle: (v) {
@@ -3848,6 +3972,68 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        Text(
+          'Built-in HRIR Presets',
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 8),
+        M3EDropdownMenu<String>(
+          controller: _hrirDropdownController,
+          items: _hrirItems,
+          singleSelect: true,
+          onSelectionChanged: _onHrirPresetSelected,
+          fieldStyle: M3EDropdownFieldStyle(
+            backgroundColor: surfaceDarkerColor,
+            foregroundColor: Colors.white,
+            border: const BorderSide(color: Colors.white12),
+            focusedBorder: BorderSide(color: primaryColor),
+          ),
+          dropdownStyle: M3EDropdownPanelStyle(
+            backgroundColor: surfaceDarkerColor,
+          ),
+          itemStyle: M3EDropdownItemStyle(
+            textColor: Colors.white70,
+            selectedTextColor: primaryColor,
+          ),
+        ),
+        if (_isBuiltinHrir(_convolverIrPath)) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.surround_sound_rounded,
+                  color: primaryColor, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Using built-in preset: $_convolverIrFileName',
+                  style: TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.clear_rounded,
+                    color: Colors.white54, size: 18),
+                tooltip: 'Clear Preset',
+                onPressed: () {
+                  _hrirDropdownController.clearAll();
+                  setState(() {
+                    _convolverIrPath = null;
+                    _convolverIrFileName = null;
+                    _convolverEnabled = false;
+                  });
+                  widget.player.clearConvolverIr();
+                  _updateConvolver();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -3891,6 +4077,7 @@ class _EqScreenState extends State<EqScreen>
                       color: Colors.white54, size: 20),
                   tooltip: 'Clear File',
                   onPressed: () {
+                    _hrirDropdownController.clearAll();
                     setState(() {
                       _convolverIrPath = null;
                       _convolverIrFileName = null;
@@ -4201,13 +4388,31 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  void _applyReverbPreset(String name) {
+    final preset = _reverbPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _reverbPresets.first,
+    );
+    setState(() {
+      _reverbPreset = preset.name;
+      _reverbMix = preset.mix;
+      _reverbRoomSize = preset.roomSize;
+      _reverbDamping = preset.damping;
+      _reverbPreDelayMs = preset.preDelayMs;
+      _reverbWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
   Widget _buildReverbSection() {
     return _CollapsibleSection(
       icon: Center(
         child: Icon(Icons.wb_twilight_rounded, color: primaryColor, size: 20),
       ),
       title: 'Reverb',
-      subtitle: 'Freeverb room simulation with pre-delay & damping control',
+      subtitle:
+          'Freeverb room simulation with presets, pre-delay & damping control',
       isEnabled: _reverbEnabled,
       onToggle: (v) {
         setState(() => _reverbEnabled = v);
@@ -4215,6 +4420,43 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Reverb Preset',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _reverbPreset,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: _reverbPresets
+                    .map((p) => DropdownMenuItem(
+                          value: p.name,
+                          child: Text(p.name),
+                        ))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    _applyReverbPreset(val);
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -4228,7 +4470,10 @@ class _EqScreenState extends State<EqScreen>
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
-                setState(() => _reverbMix = v);
+                setState(() {
+                  _reverbMix = v;
+                  _reverbPreset = 'Custom';
+                });
                 if (_reverbEnabled) _updateReverb();
                 _saveEqState();
               },
@@ -4243,7 +4488,10 @@ class _EqScreenState extends State<EqScreen>
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
-                setState(() => _reverbRoomSize = v);
+                setState(() {
+                  _reverbRoomSize = v;
+                  _reverbPreset = 'Custom';
+                });
                 if (_reverbEnabled) _updateReverb();
                 _saveEqState();
               },
@@ -4258,7 +4506,10 @@ class _EqScreenState extends State<EqScreen>
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
-                setState(() => _reverbDamping = v);
+                setState(() {
+                  _reverbDamping = v;
+                  _reverbPreset = 'Custom';
+                });
                 if (_reverbEnabled) _updateReverb();
                 _saveEqState();
               },
@@ -4278,7 +4529,10 @@ class _EqScreenState extends State<EqScreen>
               activeColor: _reverbEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} ms',
               onChanged: (v) {
-                setState(() => _reverbPreDelayMs = v);
+                setState(() {
+                  _reverbPreDelayMs = v;
+                  _reverbPreset = 'Custom';
+                });
                 if (_reverbEnabled) _updateReverb();
                 _saveEqState();
               },
@@ -4293,7 +4547,10 @@ class _EqScreenState extends State<EqScreen>
               isPercentage: true,
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
-                setState(() => _reverbWidth = v);
+                setState(() {
+                  _reverbWidth = v;
+                  _reverbPreset = 'Custom';
+                });
                 if (_reverbEnabled) _updateReverb();
                 _saveEqState();
               },

@@ -75,6 +75,7 @@ flutter:
   assets:
     - assets/icon/
     - assets/CHANGELOG.md
+    - assets/hrirs/
   shaders:
     - shaders/audio_cyber_tunnel.frag
     - shaders/audio_plasma_sphere.frag
