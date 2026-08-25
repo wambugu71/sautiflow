@@ -113,17 +113,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ── Expressive shape rotation per section for visual variety ──
-  static const List<Shapes> _tileShapes = [
-    Shapes.slanted,
-    Shapes.arch,
-    Shapes.gem,
-    Shapes.puffy,
-  ];
-
-  static Shapes _shapeFor(int sectionIndex) =>
-      _tileShapes[sectionIndex % _tileShapes.length];
-
   // ── Carousel layout rotation per section (hero → contained → uncontained) ──
   static const List<M3ECarouselType> _carouselTypes = [
     M3ECarouselType.hero,
@@ -552,12 +541,11 @@ class _HomeScreenState extends State<HomeScreen>
     bool isDesktop = false,
   }) {
     final M3ECarouselType type = _carouselTypeFor(sectionIndex);
-    final Shapes shape = _shapeFor(sectionIndex);
 
     final double height = switch (type) {
-      M3ECarouselType.hero => isDesktop ? 340 : 296,
-      M3ECarouselType.contained => isDesktop ? 280 : 244,
-      M3ECarouselType.uncontained => isDesktop ? 276 : 248,
+      M3ECarouselType.hero => isDesktop ? 344 : 304,
+      M3ECarouselType.contained => isDesktop ? 288 : 252,
+      M3ECarouselType.uncontained => isDesktop ? 284 : 256,
     };
 
     return SizedBox(
@@ -576,231 +564,130 @@ class _HomeScreenState extends State<HomeScreen>
         },
         children: [
           for (final item in section.contents)
-            type == M3ECarouselType.hero
-                ? _buildHeroTile(item)
-                : _buildCarouselTile(item),
+            _buildOverlayTile(item,
+                compact: type != M3ECarouselType.hero),
         ],
       ),
     );
   }
 
-  /// Immersive full-bleed tile used by hero-type carousels.
-  Widget _buildHeroTile(dynamic item) {
+  /// Immersive full-bleed tile — name & artist overlaid on the artwork.
+  /// [compact] scales text/badge down for the smaller contained &
+  /// uncontained carousel cards; hero carousels use the large variant.
+  Widget _buildOverlayTile(dynamic item, {bool compact = false}) {
     final name = _itemName(item);
     final subtitle = _itemSubtitle(item);
     final thumb = _itemThumbnail(item);
 
-    return Padding(
-      padding: const EdgeInsets.all(4),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Full-bleed artwork
-          thumb != null
-              ? CachedNetworkImage(
-                  imageUrl: thumb,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 600,
-                  memCacheHeight: 600,
-                  placeholder: (_, __) => Container(color: _surfaceDark),
-                  errorWidget: (_, __, ___) => Container(color: _surfaceDark),
-                )
-              : Container(color: _surfaceDark),
-          // Bottom scrim keeps text legible over any artwork / theme
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.center,
-                colors: [
-                  Colors.black.withValues(alpha: 0.85),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-          ),
-          // Title + artist overlaid at the bottom
-          Positioned(
-            left: 18,
-            right: 72,
-            bottom: 16,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.3,
-                    shadows: [
-                      Shadow(
-                          color: Colors.black54,
-                          blurRadius: 12,
-                          offset: Offset(0, 2))
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+    final double inset = compact ? 12 : 18;
+    final double titleSize = compact ? 14 : 19;
+    final double subtitleSize = compact ? 11.5 : 12.5;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Full-bleed artwork
+        thumb != null
+            ? CachedNetworkImage(
+                imageUrl: thumb,
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                memCacheWidth: 600,
+                memCacheHeight: 600,
+                placeholder: (_, __) => Container(color: _surfaceDark),
+                errorWidget: (_, __, ___) => Container(color: _surfaceDark),
+              )
+            : Container(color: _surfaceDark),
+        // Bottom scrim keeps text legible over any artwork / theme
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              stops: compact
+                  ? const [0.0, 0.6]
+                  : const [0.0, 0.55],
+              colors: [
+                Colors.black.withValues(alpha: compact ? 0.85 : 0.88),
+                Colors.transparent,
               ],
             ),
           ),
-          // Floating play badge
-          Positioned(
-            right: 14,
-            bottom: 14,
-            child: M3EContainer.circle(
-              width: 44,
-              height: 44,
-              gradient: LinearGradient(
-                colors: [
-                  _primary,
-                  _primary.withValues(alpha: 0.85),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _primary.withValues(alpha: 0.45),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-              child: const Center(
-                child: Icon(
-                  Icons.play_arrow_rounded,
+        ),
+        // Title + artist overlaid at the bottom
+        Positioned(
+          left: inset,
+          right: inset + (compact ? 40 : 58),
+          bottom: inset,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
                   color: Colors.white,
-                  size: 24,
+                  fontSize: titleSize,
+                  height: 1.15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                  shadows: const [
+                    Shadow(
+                        color: Colors.black54,
+                        blurRadius: 12,
+                        offset: Offset(0, 2))
+                  ],
                 ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.78),
+                  fontSize: subtitleSize,
+                  height: 1.15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Floating play badge
+        Positioned(
+          right: compact ? 10 : 14,
+          bottom: compact ? 10 : 14,
+          child: M3EContainer.circle(
+            width: compact ? 32 : 44,
+            height: compact ? 32 : 44,
+            gradient: LinearGradient(
+              colors: [
+                _primary,
+                _primary.withValues(alpha: 0.85),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: compact ? 8 : 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+            child: Center(
+              child: Icon(
+                Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: compact ? 18 : 24,
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  /// Standard artwork-top / text-bottom tile for contained & uncontained
-  /// carousels. The carousel clips each tile into an expressive card.
-  Widget _buildCarouselTile(dynamic item) {
-    final name = _itemName(item);
-    final subtitle = _itemSubtitle(item);
-    final thumb = _itemThumbnail(item);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Artwork fills the top of the tile; the carousel clips the card.
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                thumb != null
-                    ? CachedNetworkImage(
-                        imageUrl: thumb,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 300,
-                        memCacheHeight: 300,
-                        placeholder: (_, __) => Container(
-                          color: _surfaceBorder,
-                          child: const Center(
-                            child: Icon(Icons.music_note_rounded,
-                                color: Colors.white24, size: 30),
-                          ),
-                        ),
-                        errorWidget: (_, __, ___) => Container(
-                          color: _surfaceBorder,
-                          child: const Center(
-                            child: Icon(Icons.music_note_rounded,
-                                color: Colors.white24, size: 30),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        color: _surfaceBorder,
-                        child: const Center(
-                          child: Icon(Icons.music_note_rounded,
-                              color: Colors.white24, size: 30),
-                        ),
-                      ),
-                // Floating play badge
-                Positioned(
-                  right: 8,
-                  bottom: 8,
-                  child: M3EContainer.circle(
-                    width: 34,
-                    height: 34,
-                    gradient: LinearGradient(
-                      colors: [
-                        _primary,
-                        _primary.withValues(alpha: 0.85),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _primary.withValues(alpha: 0.45),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                    child: const Center(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Title
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _textPrimary,
-              fontSize: 13.5,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.2,
-            ),
-          ),
-          const SizedBox(height: 2),
-          // Subtitle
-          Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
