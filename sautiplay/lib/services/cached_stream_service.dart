@@ -169,10 +169,14 @@ class CachedStreamService {
 
       final loadedItems = <CachedStreamItem>[];
       final seenPaths = <String>{};
+      final cacheRoot = cacheDirectory.path.toLowerCase();
 
       for (final raw in rawList) {
         try {
           final item = CachedStreamItem.fromJson(raw);
+          // Prune wrongly-registered local music files: only files inside the
+          // dedicated stream-cache folder are legitimate offline streams.
+          if (!item.filePath.toLowerCase().startsWith(cacheRoot)) continue;
           if (File(item.filePath).existsSync()) {
             loadedItems.add(item);
             seenPaths.add(item.filePath);

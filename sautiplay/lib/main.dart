@@ -507,6 +507,11 @@ class _PlayerShellState extends State<PlayerShell> {
       safetyAttenuationDb: spSaved.safetyAttenuationDb,
     );
 
+    // Apply saved resampler algorithm & dither mode
+    final ui = await AppStateService.instance.loadUiSettings();
+    _player.setEngineResampleAlgorithm(ui.resampleAlgorithm);
+    _player.setEngineDitherMode(ui.ditherMode);
+
     // Apply Sauti DSP Suite settings
     await EqScreen.applySavedStateToEngine(_player);
 
@@ -1187,6 +1192,10 @@ class _PlayerShellState extends State<PlayerShell> {
     String? streamUrl,
   }) {
     if (src.uri.scheme == 'file') {
+      // Never let genuinely local music files enter the online-stream cache;
+      // only offline copies of online streams belong here.
+      if (_isLocalTrack(track)) return;
+
       final filePath = _safeFilePathFromUri(src.uri);
       if (filePath != null &&
           filePath.isNotEmpty &&
@@ -1303,17 +1312,25 @@ class _PlayerShellState extends State<PlayerShell> {
     _cachedTrackIdsThisSession.add(videoId);
 
     if (source.uri.scheme == 'file') {
-      final filePath = _safeFilePathFromUri(source.uri);
-      if (filePath != null && File(filePath).existsSync()) {
-        CachedStreamService.instance.registerCachedStream(
-          videoId: videoId,
-          title: track.title,
-          artist: track.artist,
-          thumbnailUrl: track.thumbnailUrl,
-          durationSeconds: track.durationSeconds,
-          filePath: filePath,
-          fileSizeBytes: File(filePath).lengthSync(),
-        );
+      // Guard: only register files that are offline copies of ONLINE streams.
+      // A local song finishing playback (e.g. after switching away from an
+      // online playlist) must never be added to the stream cache.
+      if (_isLocalTrack(track)) {
+        debugPrint(
+            '[cache] Skipping cache registration for local track: ${track.title}');
+      } else {
+        final filePath = _safeFilePathFromUri(source.uri);
+        if (filePath != null && File(filePath).existsSync()) {
+          CachedStreamService.instance.registerCachedStream(
+            videoId: videoId,
+            title: track.title,
+            artist: track.artist,
+            thumbnailUrl: track.thumbnailUrl,
+            durationSeconds: track.durationSeconds,
+            filePath: filePath,
+            fileSizeBytes: File(filePath).lengthSync(),
+          );
+        }
       }
     } else if (source.uri.scheme == 'http' || source.uri.scheme == 'https') {
       _logs.insert(
