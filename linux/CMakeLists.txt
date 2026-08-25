@@ -85,7 +85,10 @@ endif()
 
 if(EXISTS "${_md_linux_ffmpeg_dir}/libavformat.so" OR EXISTS "${_md_linux_ffmpeg_dir}/libavformat.a")
   target_compile_definitions(audio_engine PRIVATE SAUTIFLOW_ENABLE_FFMPEG=1)
-  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/linux/include")
+  # Prebuilt FFmpeg headers live double-nested under native/linux/include.
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/linux/include/include/libavformat")
+    target_include_directories(audio_engine BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../native/linux/include/include")
+  elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/linux/include/libavformat")
     target_include_directories(audio_engine BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../native/linux/include")
   endif()
   target_link_directories(audio_engine PRIVATE ${_md_linux_ffmpeg_dir})

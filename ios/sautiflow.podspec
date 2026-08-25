@@ -16,14 +16,36 @@ A cross-platform miniaudio-backed native engine exposed to Flutter through Dart 
   s.libraries = 'c++', 'z'
   s.frameworks = 'AVFoundation', 'AudioToolbox', 'CoreAudio'
 
+  # FFmpeg prebuilts (built by tool/build_apple.sh): xcframework slices cover
+  # device (ios-arm64) and simulator (ios-arm64_x86_64-simulator).
+  repo_root = File.expand_path('..', __FILE__)
+  xcfw_dir = File.join(repo_root, 'native', 'apple', 'xcframeworks')
+  ffmpeg_libs = %w[libavformat libavcodec libavutil libswresample].select do |lib|
+    File.exist?(File.join(xcfw_dir, "#{lib}.xcframework"))
+  end
+  have_ffmpeg = ffmpeg_libs.size == 4
+
+  defines = 'HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1 PACKAGE="libsamplerate" VERSION="0.2.2" PACKAGE_VERSION="2.11.1" ENABLE_SINC_BEST_CONVERTER=1 ENABLE_SINC_MEDIUM_CONVERTER=1 ENABLE_SINC_FAST_CONVERTER=1 MA_NO_ASSERT MA_DR_WAV_NO_ASSERT MA_DR_FLAC_NO_ASSERT MA_DR_MP3_NO_ASSERT SOXR_LIB=1'
+  defines += ' SAUTIFLOW_ENABLE_FFMPEG=1' if have_ffmpeg
+
+  header_search_paths = '$(inherited) "${PODS_TARGET_SRCROOT}/.." "${PODS_TARGET_SRCROOT}/../dsp" "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/libfaad" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src"'
+  # Prebuilt FFmpeg headers live double-nested under native/apple/include.
+  if have_ffmpeg && File.directory?(File.join(repo_root, 'native', 'apple', 'include', 'include'))
+    header_search_paths += ' "${PODS_TARGET_SRCROOT}/../native/apple/include/include"'
+  end
+
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -O3 -ffast-math -ftree-vectorize',
-    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) HAVE_INTTYPES_H=1 HAVE_MEMCPY=1 HAVE_STRING_H=1 HAVE_STRINGS_H=1 HAVE_SYS_TYPES_H=1 PACKAGE="libsamplerate" VERSION="0.2.2" PACKAGE_VERSION="2.11.1" ENABLE_SINC_BEST_CONVERTER=1 ENABLE_SINC_MEDIUM_CONVERTER=1 ENABLE_SINC_FAST_CONVERTER=1 MA_NO_ASSERT MA_DR_WAV_NO_ASSERT MA_DR_FLAC_NO_ASSERT MA_DR_MP3_NO_ASSERT SOXR_LIB=1',
-    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/.." "${PODS_TARGET_SRCROOT}/../dsp" "${PODS_TARGET_SRCROOT}/../native/apple/include" "${PODS_TARGET_SRCROOT}/../third_party" "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/include" "${PODS_TARGET_SRCROOT}/../third_party/faad2/libfaad" "${PODS_TARGET_SRCROOT}/../third_party/libsamplerate/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/include" "${PODS_TARGET_SRCROOT}/../third_party/libsoxr/src"',
+    'GCC_PREPROCESSOR_DEFINITIONS' => "$(inherited) #{defines}",
+    'HEADER_SEARCH_PATHS' => header_search_paths,
     'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../third_party/ffmpeg/lib" "${PODS_TARGET_SRCROOT}/../native/apple"'
   }
+
+  if have_ffmpeg
+    s.vendored_frameworks = ffmpeg_libs.map { |lib| "native/apple/xcframeworks/#{lib}.xcframework" }
+  end
 
   s.swift_version = '5.0'
 end
