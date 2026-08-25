@@ -57,6 +57,40 @@ class CrossfeedParams {
       'cutoff: $cutoffHz Hz, compensation: $outputCompensation)';
 }
 
+/// Immutable value-class returned by [AudioEngine.getReverbParamsEx].
+class ReverbParamsEx {
+  const ReverbParamsEx({
+    this.enabled = false,
+    this.mix = 0.0,
+    this.roomSize = 0.5,
+    this.damping = 0.5,
+    this.preDelayMs = 20.0,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+
+  /// Dry/wet blend [0.0 – 1.0].
+  final double mix;
+
+  /// Decay / room size [0.0 – 1.0].
+  final double roomSize;
+
+  /// High-frequency absorption [0.0 – 1.0].
+  final double damping;
+
+  /// Pre-delay in milliseconds [0 – 250].
+  final double preDelayMs;
+
+  /// Stereo width [0.0 – 1.0].
+  final double width;
+
+  @override
+  String toString() =>
+      'ReverbParamsEx(enabled: $enabled, mix: $mix, roomSize: $roomSize, '
+      'damping: $damping, preDelayMs: $preDelayMs, width: $width)';
+}
+
 class EqBandConfig {
   const EqBandConfig({
     required this.type,
@@ -725,6 +759,31 @@ typedef _SetReverbParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
 typedef _SetReverbParamsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
+
+// ae_set_reverb_params_ex(AudioEngineHandle*, mix, room_size, damping, pre_delay_ms, width)
+typedef _SetReverbParamsExNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
+    ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetReverbParamsExDart = void Function(ffi.Pointer<ffi.Void>, double,
+    double, double, double, double);
+
+// ae_get_reverb_params_ex(AudioEngineHandle*, int* enabled, float* mix,
+//   float* room_size, float* damping, float* pre_delay_ms, float* width)
+typedef _GetReverbParamsExNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetReverbParamsExDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
 
 typedef _SetEqGainsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
@@ -1448,6 +1507,14 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetReverbParamsNative, _SetReverbParamsDart>(
       'ae_set_reverb_params',
     );
+    _setReverbParamsEx =
+        _lib.lookupFunction<_SetReverbParamsExNative, _SetReverbParamsExDart>(
+      'ae_set_reverb_params_ex',
+    );
+    _getReverbParamsEx =
+        _lib.lookupFunction<_GetReverbParamsExNative, _GetReverbParamsExDart>(
+      'ae_get_reverb_params_ex',
+    );
     _setEqEnabled = _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_eq_enabled',
     );
@@ -2014,6 +2081,8 @@ class AudioEngineFFI {
   _GetDeviceLatencyMsDart? _getCrossfadeSilenceThreshold;
   late final _SetFxEnabledDart _setReverbEnabled;
   late final _SetReverbParamsDart _setReverbParams;
+  late final _SetReverbParamsExDart _setReverbParamsEx;
+  late final _GetReverbParamsExDart _getReverbParamsEx;
   late final _SetFxEnabledDart _setEqEnabled;
   late final _SetEqGainsDart _setEqGains;
   late final _SetSingleFloatDart _setGain;
@@ -2727,6 +2796,53 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setReverbParams(_engine, mix, feedback, delayMs);
+  }
+
+  /// Extended reverb params (Freeverb FDN node).
+  ///
+  /// [mix] dry/wet blend 0..1, [roomSize] decay 0..1, [damping] high-frequency
+  /// absorption 0..1, [preDelayMs] 0..250, [width] stereo width 0..1.
+  void setReverbParamsEx({
+    required double mix,
+    required double roomSize,
+    double damping = 0.5,
+    double preDelayMs = 20.0,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setReverbParamsEx(_engine, mix, roomSize, damping, preDelayMs, width);
+  }
+
+  ReverbParamsEx getReverbParamsEx() {
+    if (_engine == ffi.nullptr) {
+      return const ReverbParamsEx();
+    }
+    final enabledPtr = calloc<ffi.Int32>();
+    final mixPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final predelayPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      _getReverbParamsEx(
+          _engine, enabledPtr, mixPtr, roomPtr, dampPtr, predelayPtr, widthPtr);
+      return ReverbParamsEx(
+        enabled: enabledPtr.value != 0,
+        mix: mixPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        preDelayMs: predelayPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(enabledPtr)
+        ..free(mixPtr)
+        ..free(roomPtr)
+        ..free(dampPtr)
+        ..free(predelayPtr)
+        ..free(widthPtr);
+    }
   }
 
   void setEqEnabled(bool enabled) {

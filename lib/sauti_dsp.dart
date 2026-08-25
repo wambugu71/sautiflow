@@ -53,9 +53,24 @@ enum AnalogWarmthProfile {
   const AnalogWarmthProfile(this.value);
 }
 
+/// Spatial Surround suite modes (see surround.md).
+enum SurroundMode {
+  off(0),
+  fieldExpander(1),
+  differentialHaas(2),
+  viperHeadphone(3),
+  matrix51Hrtf(4);
+
+  final int value;
+  const SurroundMode(this.value);
+}
+
 // Native FFI Typedefs
 typedef _DspSetEnabledNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _DspSetEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _DspSetSurroundModeNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetSurroundModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 typedef _DspSetClarityParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _DspSetClarityParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
@@ -93,6 +108,24 @@ typedef _DspGetConvolverKernelLengthDart = int Function(ffi.Pointer<ffi.Void>);
 typedef _DspGetLimiterGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
 typedef _DspGetLimiterGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
 
+typedef _DspSetSurroundParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetSurroundParamsDart = void Function(ffi.Pointer<ffi.Void>, double, double, double, double);
+
+typedef _DspSetSurroundParamsExNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float, ffi.Float, ffi.Float, ffi.Float, // field: width, crossover, diffuser, bass anchor
+    ffi.Float, ffi.Float, ffi.Float,           // haas: delay, depth, damping
+    ffi.Int32, ffi.Float, ffi.Float,           // vhs: preset, reflection gain, damping
+    ffi.Float, ffi.Float, ffi.Float, ffi.Float // matrix: center focus, boost, rear delay, head radius
+);
+typedef _DspSetSurroundParamsExDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double, double, double, double,
+    double, double, double,
+    int, double, double,
+    double, double, double, double
+);
+
 /// Clean-room high-fidelity DSP suite for SautiFlow.
 class SautiDsp {
   final ffi.DynamicLibrary _lib;
@@ -122,6 +155,11 @@ class SautiDsp {
   late final _DspSetEnabledDart _setMasterLimiterEnabled;
   late final _DspSetMasterLimiterParamsDart _setMasterLimiterParams;
   late final _DspGetLimiterGainReductionDbDart _getLimiterGainReductionDb;
+
+  late final _DspSetEnabledDart _setSurroundEnabled;
+  late final _DspSetSurroundModeDart _setSurroundMode;
+  late final _DspSetSurroundParamsDart _setSurroundParams;
+  late final _DspSetSurroundParamsExDart _setSurroundParamsEx;
 
   SautiDsp(this._lib, this._enginePtr) {
     _initFunctions();
@@ -158,6 +196,11 @@ class SautiDsp {
     _setMasterLimiterEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_master_limiter_enabled');
     _setMasterLimiterParams = _lib.lookupFunction<_DspSetMasterLimiterParamsNative, _DspSetMasterLimiterParamsDart>('ae_dsp_set_master_limiter_params');
     _getLimiterGainReductionDb = _lib.lookupFunction<_DspGetLimiterGainReductionDbNative, _DspGetLimiterGainReductionDbDart>('ae_dsp_get_limiter_gain_reduction_db');
+
+    _setSurroundEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_surround_enabled');
+    _setSurroundMode = _lib.lookupFunction<_DspSetSurroundModeNative, _DspSetSurroundModeDart>('ae_dsp_set_surround_mode');
+    _setSurroundParams = _lib.lookupFunction<_DspSetSurroundParamsNative, _DspSetSurroundParamsDart>('ae_dsp_set_surround_params');
+    _setSurroundParamsEx = _lib.lookupFunction<_DspSetSurroundParamsExNative, _DspSetSurroundParamsExDart>('ae_dsp_set_surround_params_ex');
   }
 
   /// Reset all internal DSP buffers and history states.
@@ -245,5 +288,57 @@ class SautiDsp {
   double get limiterGainReductionDb {
     if (_enginePtr == ffi.nullptr) return 0.0;
     return _getLimiterGainReductionDb(_enginePtr);
+  }
+
+  /// Spatial Surround Suite.
+  ///
+  /// [mode] selects the algorithm. The compact parameters map to:
+  ///  - [fieldWidth]: stereo field expansion ratio (0.0-2.5, default 1.4)
+  ///  - [roomLevel]: VHS+ room preset 1-5 (default 2)
+  ///  - [delayMs]: Haas precedence delay in ms, 1-25 (default 5.5)
+  ///  - [centerFocus]: Matrix 5.1 vocal centering 0.0-1.0 (default 0.6)
+  void setSurround({
+    required bool enabled,
+    SurroundMode mode = SurroundMode.off,
+    double fieldWidth = 1.4,
+    int roomLevel = 2,
+    double delayMs = 5.5,
+    double centerFocus = 0.6,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
+    _setSurroundMode(_enginePtr, mode.value);
+    _setSurroundParams(_enginePtr, fieldWidth, roomLevel.toDouble(), delayMs, centerFocus);
+  }
+
+  /// Full per-algorithm surround tuning.
+  void setSurroundEx({
+    required bool enabled,
+    required SurroundMode mode,
+    double fieldWidth = 1.4,
+    double fieldCrossoverHz = 160.0,
+    double fieldDiffuserMix = 0.5,
+    double bassAnchor = 0.9,
+    double haasDelayMs = 5.5,
+    double haasDepth = 0.4,
+    double haasDampingHz = 5000.0,
+    int vhsRoomPreset = 2,
+    double vhsReflectionGain = 0.45,
+    double vhsDamping = 0.25,
+    double centerFocus = 0.6,
+    double surroundBoost = 1.2,
+    double surroundDelayMs = 15.0,
+    double headRadiusCm = 8.75,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
+    _setSurroundMode(_enginePtr, mode.value);
+    _setSurroundParamsEx(
+      _enginePtr,
+      fieldWidth, fieldCrossoverHz, fieldDiffuserMix, bassAnchor,
+      haasDelayMs, haasDepth, haasDampingHz,
+      vhsRoomPreset.clamp(1, 5), vhsReflectionGain, vhsDamping,
+      centerFocus, surroundBoost, surroundDelayMs, headRadiusCm,
+    );
   }
 }

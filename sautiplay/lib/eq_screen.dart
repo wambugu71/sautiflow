@@ -119,6 +119,23 @@ class EqScreen extends StatefulWidget {
       player.loadConvolverIr(convolverIrPath);
     }
 
+    final surroundEnabled = masterEnabled && (state['surroundEnabled'] ?? false);
+    final surroundMode = SurroundMode.values.firstWhere(
+      (e) => e.value == (state['surroundMode'] ?? 0),
+      orElse: () => SurroundMode.off,
+    );
+    player.setSurround(
+      enabled: surroundEnabled,
+      mode: surroundMode,
+      fieldWidth:
+          (state['surroundFieldWidth'] as num?)?.toDouble() ?? 1.4,
+      vhsRoomPreset: (state['surroundRoomPreset'] as num?)?.toInt() ?? 2,
+      haasDelayMs:
+          (state['surroundHaasDelayMs'] as num?)?.toDouble() ?? 5.5,
+      centerFocus:
+          (state['surroundCenterFocus'] as num?)?.toDouble() ?? 0.6,
+    );
+
     player.setMasterLimiter(
       enabled: limiterEnabled,
       ceilingDb: limiterCeilingDb,
@@ -284,6 +301,14 @@ class _EqScreenState extends State<EqScreen>
   bool _stereoEnhancementEnabled = false;
   double _stereoEnhancementMix = 0.5;
 
+  // Reverb (Freeverb FDN)
+  bool _reverbEnabled = false;
+  double _reverbMix = 0.25;
+  double _reverbRoomSize = 0.6;
+  double _reverbDamping = 0.4;
+  double _reverbPreDelayMs = 20.0;
+  double _reverbWidth = 1.0;
+
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
   double _tuneLow = 0.0;
@@ -329,6 +354,14 @@ class _EqScreenState extends State<EqScreen>
   String? _convolverIrFileName;
   double _convolverWet = 1.0;
   double _convolverDry = 0.0;
+
+  // 5b. Spatial Surround Suite
+  bool _surroundEnabled = false;
+  SurroundMode _surroundMode = SurroundMode.off;
+  double _surroundFieldWidth = 1.4;
+  int _surroundRoomPreset = 2;
+  double _surroundHaasDelayMs = 5.5;
+  double _surroundCenterFocus = 0.6;
 
   // 6. Master Peak Limiter
   bool _masterLimiterEnabled = false;
@@ -382,6 +415,7 @@ class _EqScreenState extends State<EqScreen>
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
     final stereoEnhancement =
         await AppStateService.instance.loadStereoEnhancement();
+    final reverb = await AppStateService.instance.loadReverb();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final raceParams = await AppStateService.instance.loadRaceParams();
     final tuning = await AppStateService.instance.loadAudioTuning();
@@ -428,6 +462,14 @@ class _EqScreenState extends State<EqScreen>
       // DSP Stereo Enhancer
       _stereoEnhancementEnabled = stereoEnhancement.enabled;
       _stereoEnhancementMix = stereoEnhancement.mix;
+
+      // Reverb (Freeverb FDN)
+      _reverbEnabled = reverb.enabled;
+      _reverbMix = reverb.mix;
+      _reverbRoomSize = reverb.roomSize;
+      _reverbDamping = reverb.damping;
+      _reverbPreDelayMs = reverb.preDelayMs;
+      _reverbWidth = reverb.width;
 
       // Audio Tuning
       _audioTuningEnabled = tuning.enabled;
@@ -486,6 +528,20 @@ class _EqScreenState extends State<EqScreen>
         _convolverWet = (dspMap['convolverWet'] as num?)?.toDouble() ?? 1.0;
         _convolverDry = (dspMap['convolverDry'] as num?)?.toDouble() ?? 0.0;
 
+        _surroundEnabled = dspMap['surroundEnabled'] ?? false;
+        _surroundMode = SurroundMode.values.firstWhere(
+          (e) => e.value == (dspMap['surroundMode'] ?? 0),
+          orElse: () => SurroundMode.off,
+        );
+        _surroundFieldWidth =
+            (dspMap['surroundFieldWidth'] as num?)?.toDouble() ?? 1.4;
+        _surroundRoomPreset =
+            (dspMap['surroundRoomPreset'] as num?)?.toInt() ?? 2;
+        _surroundHaasDelayMs =
+            (dspMap['surroundHaasDelayMs'] as num?)?.toDouble() ?? 5.5;
+        _surroundCenterFocus =
+            (dspMap['surroundCenterFocus'] as num?)?.toDouble() ?? 0.6;
+
         _masterLimiterEnabled = dspMap['limiterEnabled'] ?? false;
         _masterLimiterCeilingDb =
             (dspMap['limiterCeilingDb'] as num?)?.toDouble() ?? -0.1;
@@ -514,6 +570,9 @@ class _EqScreenState extends State<EqScreen>
     if (_stereoEnhancementEnabled) {
       _updateStereoEnhancement();
     }
+    if (_reverbEnabled) {
+      _updateReverb();
+    }
     if (_audioTuningEnabled) {
       widget.player.setEqEnabled(true);
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
@@ -528,6 +587,7 @@ class _EqScreenState extends State<EqScreen>
     _updateDynamicSystem();
     _updateAnalogWarmth();
     _updateConvolver();
+    _updateSurround();
     _updateMasterLimiter();
   }
 
@@ -574,6 +634,17 @@ class _EqScreenState extends State<EqScreen>
     }
   }
 
+  void _updateSurround() {
+    widget.player.setSurround(
+      enabled: _surroundEnabled,
+      mode: _surroundMode,
+      fieldWidth: _surroundFieldWidth,
+      vhsRoomPreset: _surroundRoomPreset,
+      haasDelayMs: _surroundHaasDelayMs,
+      centerFocus: _surroundCenterFocus,
+    );
+  }
+
   void _updateMasterLimiter() {
     widget.player.setMasterLimiter(
       enabled: _masterLimiterEnabled,
@@ -612,6 +683,17 @@ class _EqScreenState extends State<EqScreen>
     widget.player.setStereoEnhancement(
       enabled: _stereoEnhancementEnabled,
       mix: _stereoEnhancementMix,
+    );
+  }
+
+  void _updateReverb() {
+    widget.player.setReverbEx(
+      enabled: _reverbEnabled,
+      mix: _reverbMix,
+      roomSize: _reverbRoomSize,
+      damping: _reverbDamping,
+      preDelayMs: _reverbPreDelayMs,
+      width: _reverbWidth,
     );
   }
 
@@ -659,6 +741,14 @@ class _EqScreenState extends State<EqScreen>
       enabled: _stereoEnhancementEnabled,
       mix: _stereoEnhancementMix,
     );
+    AppStateService.instance.saveReverb(
+      enabled: _reverbEnabled,
+      mix: _reverbMix,
+      roomSize: _reverbRoomSize,
+      damping: _reverbDamping,
+      preDelayMs: _reverbPreDelayMs,
+      width: _reverbWidth,
+    );
     AppStateService.instance.saveAudioTuning(
       enabled: _audioTuningEnabled,
       low: _tuneLow,
@@ -692,6 +782,12 @@ class _EqScreenState extends State<EqScreen>
       'convolverIrPath': _convolverIrPath,
       'convolverWet': _convolverWet,
       'convolverDry': _convolverDry,
+      'surroundEnabled': _surroundEnabled,
+      'surroundMode': _surroundMode.value,
+      'surroundFieldWidth': _surroundFieldWidth,
+      'surroundRoomPreset': _surroundRoomPreset,
+      'surroundHaasDelayMs': _surroundHaasDelayMs,
+      'surroundCenterFocus': _surroundCenterFocus,
       'limiterEnabled': _masterLimiterEnabled,
       'limiterCeilingDb': _masterLimiterCeilingDb,
       'limiterOutputGainDb': _masterLimiterOutputGainDb,
@@ -901,6 +997,21 @@ class _EqScreenState extends State<EqScreen>
       _stereoEnhancementMix = 0.5;
       widget.player.setStereoEnhancement(enabled: false, mix: 0.5);
 
+      _reverbEnabled = false;
+      _reverbMix = 0.25;
+      _reverbRoomSize = 0.6;
+      _reverbDamping = 0.4;
+      _reverbPreDelayMs = 20.0;
+      _reverbWidth = 1.0;
+      widget.player.setReverbEx(
+        enabled: false,
+        mix: _reverbMix,
+        roomSize: _reverbRoomSize,
+        damping: _reverbDamping,
+        preDelayMs: _reverbPreDelayMs,
+        width: _reverbWidth,
+      );
+
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
       _tuneLow = 0.0;
@@ -953,6 +1064,14 @@ class _EqScreenState extends State<EqScreen>
       _convolverDry = 0.0;
       widget.player.setConvolverEnabled(false);
       widget.player.clearConvolverIr();
+
+      _surroundEnabled = false;
+      _surroundMode = SurroundMode.off;
+      _surroundFieldWidth = 1.4;
+      _surroundRoomPreset = 2;
+      _surroundHaasDelayMs = 5.5;
+      _surroundCenterFocus = 0.6;
+      widget.player.setSurround(enabled: false, mode: SurroundMode.off);
 
       _masterLimiterEnabled = false;
       _masterLimiterCeilingDb = -0.1;
@@ -1764,10 +1883,94 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 5: Acoustic Space & Convolver
+            // Section 5: Acoustic Space, Convolver & Surround
+            SliverToBoxAdapter(
+              child: _buildSectionHeader('Convolver & Surround',
+                  icon: Icons.waves_rounded),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: M3ECardList(
+                  itemCount: 2,
+                  onTap: (index) {
+                    switch (index) {
+                      case 0:
+                        _openDetailScreen(
+                          'Convolver',
+                          Icons.waves_rounded,
+                          (_) => _buildConvolverSection(),
+                          shape: Shapes.c4SidedCookie,
+                        );
+                        break;
+                      case 1:
+                        _openDetailScreen(
+                          'Spatial Surround',
+                          Icons.surround_sound_rounded,
+                          (_) => _buildSurroundSection(),
+                          shape: Shapes.puffyDiamond,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.waves_rounded,
+                        shape: Shapes.c4SidedCookie,
+                        title: 'Convolver',
+                        subtitle: _convolverEnabled
+                            ? (_convolverIrFileName ?? 'Acoustic IR Active')
+                            : 'Disabled',
+                        isEnabled: _convolverEnabled,
+                        onToggle: (v) {
+                          setState(() => _convolverEnabled = v);
+                          _updateConvolver();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Convolver',
+                          Icons.waves_rounded,
+                          (_) => _buildConvolverSection(),
+                          shape: Shapes.c4SidedCookie,
+                        ),
+                      );
+                    }
+                    return _buildEffectTileCard(
+                      icon: Icons.surround_sound_rounded,
+                      shape: Shapes.puffyDiamond,
+                      title: 'Spatial Surround',
+                      subtitle: _surroundEnabled
+                          ? _getSurroundModeSubtitle()
+                          : 'Disabled',
+                      isEnabled: _surroundEnabled,
+                      onToggle: (v) {
+                        setState(() {
+                          _surroundEnabled = v;
+                          if (v && _surroundMode == SurroundMode.off) {
+                            _surroundMode = SurroundMode.fieldExpander;
+                          }
+                        });
+                        _updateSurround();
+                        _saveEqState();
+                      },
+                      onTapDetail: () => _openDetailScreen(
+                        'Spatial Surround',
+                        Icons.surround_sound_rounded,
+                        (_) => _buildSurroundSection(),
+                        shape: Shapes.puffyDiamond,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Section 6: Reverb
             SliverToBoxAdapter(
               child:
-                  _buildSectionHeader('Convolver', icon: Icons.waves_rounded),
+                  _buildSectionHeader('Reverb', icon: Icons.wb_twilight_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -1777,31 +1980,31 @@ class _EqScreenState extends State<EqScreen>
                   itemCount: 1,
                   onTap: (index) {
                     _openDetailScreen(
-                      'Convolver',
-                      Icons.waves_rounded,
-                      (_) => _buildConvolverSection(),
-                      shape: Shapes.c4SidedCookie,
+                      'Reverb',
+                      Icons.wb_twilight_rounded,
+                      (_) => _buildReverbSection(),
+                      shape: Shapes.flower,
                     );
                   },
                   itemBuilder: (context, index) {
                     return _buildEffectTileCard(
-                      icon: Icons.waves_rounded,
-                      shape: Shapes.c4SidedCookie,
-                      title: 'Convolver',
-                      subtitle: _convolverEnabled
-                          ? (_convolverIrFileName ?? 'Acoustic IR Active')
+                      icon: Icons.wb_twilight_rounded,
+                      shape: Shapes.flower,
+                      title: 'Reverb',
+                      subtitle: _reverbEnabled
+                          ? 'Mix ${(_reverbMix * 100).toInt()}% | Room ${(_reverbRoomSize * 100).toInt()}%'
                           : 'Disabled',
-                      isEnabled: _convolverEnabled,
+                      isEnabled: _reverbEnabled,
                       onToggle: (v) {
-                        setState(() => _convolverEnabled = v);
-                        _updateConvolver();
+                        setState(() => _reverbEnabled = v);
+                        _updateReverb();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Convolver',
-                        Icons.waves_rounded,
-                        (_) => _buildConvolverSection(),
-                        shape: Shapes.c4SidedCookie,
+                        'Reverb',
+                        Icons.wb_twilight_rounded,
+                        (_) => _buildReverbSection(),
+                        shape: Shapes.flower,
                       ),
                     );
                   },
@@ -1809,7 +2012,7 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
 
-            // Section 6: Master Dynamics & Protection
+            // Section 7: Master Dynamics & Protection
             SliverToBoxAdapter(
               child: _buildSectionHeader('Master Dynamics & Protection',
                   icon: Icons.shield_rounded),
@@ -3748,6 +3951,367 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  String _getSurroundModeName(SurroundMode mode) {
+    switch (mode) {
+      case SurroundMode.off:
+        return 'Off';
+      case SurroundMode.fieldExpander:
+        return 'Field Expander';
+      case SurroundMode.differentialHaas:
+        return 'Haas Spatializer';
+      case SurroundMode.viperHeadphone:
+        return 'Headphone Surround+';
+      case SurroundMode.matrix51Hrtf:
+        return 'Matrix 5.1 HRTF';
+    }
+  }
+
+  String _getSurroundModeSubtitle() {
+    switch (_surroundMode) {
+      case SurroundMode.off:
+        return 'Enabled';
+      case SurroundMode.fieldExpander:
+        return 'Field Expander | ${_surroundFieldWidth.toStringAsFixed(1)}x Width';
+      case SurroundMode.differentialHaas:
+        return 'Haas Spatializer | ${_surroundHaasDelayMs.toStringAsFixed(1)}ms';
+      case SurroundMode.viperHeadphone:
+        return 'Headphone Surround+ | Room $_surroundRoomPreset';
+      case SurroundMode.matrix51Hrtf:
+        return 'Matrix 5.1 HRTF | Focus ${(_surroundCenterFocus * 100).toInt()}%';
+    }
+  }
+
+  String _getSurroundModeDescription(SurroundMode mode) {
+    switch (mode) {
+      case SurroundMode.off:
+        return 'Select a surround algorithm';
+      case SurroundMode.fieldExpander:
+        return 'M/S soundstage expander with Schroeder diffuser. Keeps bass punch while widening the field. 100% mono compatible.';
+      case SurroundMode.differentialHaas:
+        return 'Haas precedence-effect spatializer. Cross-injected delayed audio creates vast concert-hall depth.';
+      case SurroundMode.viperHeadphone:
+        return 'Simulates studio monitors in an acoustically treated room via crossfeed & early reflections. Relieves listening fatigue.';
+      case SurroundMode.matrix51Hrtf:
+        return 'Pro Logic II dematrixing into 5 virtual speakers rendered through a parametric spherical-head HRTF. Zero latency.';
+    }
+  }
+
+  Widget _buildSurroundSection() {
+    const surroundColor = Color(0xFF7C6BFF);
+    return _CollapsibleSection(
+      icon: Center(
+        child:
+            Icon(Icons.surround_sound_rounded, color: surroundColor, size: 20),
+      ),
+      title: 'Spatial Surround',
+      subtitle: _getSurroundModeSubtitle(),
+      isEnabled: _surroundEnabled,
+      onToggle: (v) {
+        setState(() {
+          _surroundEnabled = v;
+          if (v && _surroundMode == SurroundMode.off) {
+            _surroundMode = SurroundMode.fieldExpander;
+          }
+        });
+        _updateSurround();
+        _saveEqState();
+      },
+      children: [
+        // Algorithm selector
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<SurroundMode>(
+              value: _surroundMode == SurroundMode.off
+                  ? SurroundMode.fieldExpander
+                  : _surroundMode,
+              dropdownColor: surfaceDarkerColor,
+              isExpanded: true,
+              icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600),
+              items: [
+                for (final mode in [
+                  SurroundMode.fieldExpander,
+                  SurroundMode.differentialHaas,
+                  SurroundMode.viperHeadphone,
+                  SurroundMode.matrix51Hrtf,
+                ])
+                  DropdownMenuItem(
+                    value: mode,
+                    child: Text(_getSurroundModeName(mode)),
+                  ),
+              ],
+              onChanged: (mode) {
+                if (mode == null) return;
+                setState(() {
+                  _surroundMode = mode;
+                  _surroundEnabled = true;
+                });
+                _updateSurround();
+                _saveEqState();
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(
+            _getSurroundModeDescription(_surroundMode),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 11.5,
+              height: 1.4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Mode-specific knobs
+        if (_surroundMode == SurroundMode.fieldExpander)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'FIELD WIDTH',
+                value: (_surroundFieldWidth - 0.5) / 2.0,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (1.4 - 0.5) / 2.0,
+                activeColor: _surroundEnabled ? surroundColor : Colors.white,
+                displayMultiplier: 2.0,
+                valueFormatter: (v) => '${(v * 2.0 + 0.5).toStringAsFixed(1)}x',
+                onChanged: (v) {
+                  setState(() => _surroundFieldWidth = 0.5 + v * 2.0);
+                  if (_surroundEnabled) _updateSurround();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'BASS ANCHOR',
+                value: 0.9,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.9,
+                activeColor: _surroundEnabled ? surroundColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (_) => 'Locked',
+                onChanged: (_) {},
+              ),
+            ],
+          )
+        else if (_surroundMode == SurroundMode.differentialHaas)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'HAAS DELAY',
+                value: (_surroundHaasDelayMs - 1.0) / 24.0,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (5.5 - 1.0) / 24.0,
+                activeColor: _surroundEnabled ? surroundColor : Colors.white,
+                displayMultiplier: 24.0,
+                valueFormatter: (v) =>
+                    '${(1.0 + v * 24.0).toStringAsFixed(1)}ms',
+                onChanged: (v) {
+                  setState(() => _surroundHaasDelayMs = 1.0 + v * 24.0);
+                  if (_surroundEnabled) _updateSurround();
+                  _saveEqState();
+                },
+              ),
+            ],
+          )
+        else if (_surroundMode == SurroundMode.viperHeadphone)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: (_surroundRoomPreset - 1) / 4.0,
+                min: 0.0,
+                max: 1.0,
+                flatValue: (2 - 1) / 4.0,
+                activeColor: _surroundEnabled ? surroundColor : Colors.white,
+                valueFormatter: (_) => 'Level $_surroundRoomPreset',
+                onChanged: (v) {
+                  setState(() {
+                    _surroundRoomPreset = 1 + ((v * 4).round()).clamp(0, 4);
+                  });
+                  if (_surroundEnabled) _updateSurround();
+                  _saveEqState();
+                },
+              ),
+            ],
+          )
+        else
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'CENTER FOCUS',
+                value: _surroundCenterFocus,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.6,
+                activeColor: _surroundEnabled ? surroundColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _surroundCenterFocus = v);
+                  if (_surroundEnabled) _updateSurround();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        const SizedBox(height: 14),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: surroundColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: surroundColor.withValues(alpha: 0.25)),
+            ),
+            child: Text(
+              'Zero-latency binaural/surround processing | Stereo (headphone) output',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 11,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReverbSection() {
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.wb_twilight_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Reverb',
+      subtitle: 'Freeverb room simulation with pre-delay & damping control',
+      isEnabled: _reverbEnabled,
+      onToggle: (v) {
+        setState(() => _reverbEnabled = v);
+        _updateReverb();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'MIX',
+              value: _reverbMix,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.25,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _reverbMix = v);
+                if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'ROOM SIZE',
+              value: _reverbRoomSize,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.6,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _reverbRoomSize = v);
+                if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'DAMPING',
+              value: _reverbDamping,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.4,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _reverbDamping = v);
+                if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'PRE-DELAY',
+              value: _reverbPreDelayMs,
+              min: 0.0,
+              max: 250.0,
+              flatValue: 20.0,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() => _reverbPreDelayMs = v);
+                if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'WIDTH',
+              value: _reverbWidth,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 1.0,
+              activeColor: _reverbEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() => _reverbWidth = v);
+                if (_reverbEnabled) _updateReverb();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Text(
+            'Tip: higher room size & lower damping give long, bright halls; '
+            'pre-delay keeps vocals clear of the tail.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+          ),
         ),
       ],
     );

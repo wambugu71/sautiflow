@@ -30,6 +30,7 @@
 
 #include "audio_engine.h"
 #include "crossfeed_node.h"
+#include "reverb_node.h"
 #include <samplerate.h>
 #include <soxr.h>
 #include "mp4_aac_decoder.h"
@@ -40,6 +41,7 @@
 #include "dsp/analog_warmth_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/master_limiter_dsp.h"
+#include "dsp/spatial_surround_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2752,6 +2754,10 @@ struct AudioEngineHandle
     bool crystalizerEnabled = false;
     CrystalizerState crystalizer;
 
+    // Reverb (Freeverb-style FDN)
+    bool reverbEnabled = false;
+    ReverbNode reverbNode;
+
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
     int outputSampleRate = 0;     // Active hardware DAC output rate (0 = native)
@@ -2805,6 +2811,7 @@ struct AudioEngineHandle
     sauti::dsp::AnalogWarmthDSP analogWarmthDsp;
     sauti::dsp::FFTConvolverDSP fftConvolverDsp;
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
+    sauti::dsp::SpatialSurroundDSP surroundDsp;
     std::mutex dspMutex;
 
     std::atomic<bool> analyzerEnabled{false};
@@ -3120,6 +3127,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->analogWarmthDsp.setSampleRate(srF);
     e->fftConvolverDsp.setSampleRate(srF);
     e->masterLimiterDsp.setSampleRate(srF);
+    e->surroundDsp.setSampleRate(srF);
 }
 
 static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
@@ -3209,6 +3217,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
             e->crossfeedNode.setSampleRate((double)sr);
         }
         e->crystalizer.init(sr);
+        e->reverbNode.setSampleRate((double)sr);
     }
 
     {
@@ -3220,6 +3229,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->analogWarmthDsp.setSampleRate(srF);
         e->fftConvolverDsp.setSampleRate(srF);
         e->masterLimiterDsp.setSampleRate(srF);
+        e->surroundDsp.setSampleRate(srF);
     }
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
@@ -4695,6 +4705,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 e->crystalizer.process(processBuffer, produced, e->channels);
             }
 
+            // Reverb (Freeverb-style FDN)
+            if (e->reverbEnabled)
+            {
+                e->reverbNode.process(processBuffer, produced, e->channels);
+            }
+
             // Multiband EQ and mixed multiband FX
             std::lock_guard<std::mutex> eqLock(e->eqMutex);
             if (e->multibandEqEnabled)
@@ -4724,6 +4740,10 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     e->dynamicSystemDsp.process(processBuffer, produced);
                     e->analogWarmthDsp.process(processBuffer, produced);
                     e->clarityDsp.process(processBuffer, produced);
+                    if (e->channels == 2)
+                    {
+                        e->surroundDsp.process(processBuffer, produced);
+                    }
                     e->fftConvolverDsp.process(processBuffer, produced);
                     e->masterLimiterDsp.process(processBuffer, produced);
                 }
@@ -6089,6 +6109,10 @@ extern "C"
                 totalLatency += e->crossfeedNode.getLatencySamples();
             }
         }
+        if (e->reverbEnabled)
+        {
+            totalLatency += e->reverbNode.getLatencySamples();
+        }
         // Clean-room DSP suite: report real pipeline latencies so position
         // reporting / PDC stays aligned when these nodes are active.
         {
@@ -6229,12 +6253,48 @@ extern "C"
 
     AE_API void ae_set_reverb_enabled(AudioEngineHandle *e, int enabled)
     {
-        (void)e; (void)enabled;
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbEnabled = (enabled != 0);
+        e->reverbNode.setEnabled(enabled != 0);
     }
 
     AE_API void ae_set_reverb_params(AudioEngineHandle *e, float mix, float feedback, float delay_ms)
     {
-        (void)e; (void)mix; (void)feedback; (void)delay_ms;
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        // Legacy 3-param API mapped onto the FDN node:
+        //   feedback -> room size (decay), delay_ms -> pre-delay.
+        e->reverbNode.setMix(mix);
+        e->reverbNode.setRoomSize(feedback);
+        e->reverbNode.setPreDelayMs(delay_ms * 0.25f);
+    }
+
+    AE_API void ae_set_reverb_params_ex(AudioEngineHandle *e, float mix, float room_size, float damping, float pre_delay_ms, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setMix(mix);
+        e->reverbNode.setRoomSize(room_size);
+        e->reverbNode.setDamping(damping);
+        e->reverbNode.setPreDelayMs(pre_delay_ms);
+        e->reverbNode.setWidth(width);
+    }
+
+    AE_API void ae_get_reverb_params_ex(AudioEngineHandle *e, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (out_enabled) *out_enabled = e->reverbEnabled ? 1 : 0;
+        if (out_mix) *out_mix = e->reverbNode.getMix();
+        if (out_room_size) *out_room_size = e->reverbNode.getRoomSize();
+        if (out_damping) *out_damping = e->reverbNode.getDamping();
+        if (out_pre_delay_ms) *out_pre_delay_ms = e->reverbNode.getPreDelayMs();
+        if (out_width) *out_width = e->reverbNode.getWidth();
     }
 
     AE_API void ae_set_eq_enabled(AudioEngineHandle *e, int enabled)
@@ -8392,6 +8452,91 @@ extern "C"
         engine->analogWarmthDsp.reset();
         engine->fftConvolverDsp.reset();
         engine->masterLimiterDsp.reset();
+        engine->surroundDsp.reset();
+    }
+
+    // Spatial Surround Suite
+    AE_API void ae_dsp_set_surround_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->surroundDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_surround_mode(AudioEngineHandle *engine, int mode)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (mode < 0 || mode > 4) mode = 0;
+        engine->surroundDsp.setMode(static_cast<sauti::dsp::SurroundMode>(mode));
+    }
+
+    AE_API void ae_dsp_set_surround_params(AudioEngineHandle *engine,
+                                           float width_expansion,
+                                           float room_level,
+                                           float delay_ms,
+                                           float center_focus)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->surroundDsp.setFieldWidth(width_expansion);
+        engine->surroundDsp.setVhsRoomPreset(static_cast<int>(room_level + 0.5f));
+        engine->surroundDsp.setHaasDelayMs(delay_ms);
+        engine->surroundDsp.setCenterFocus(center_focus);
+    }
+
+    AE_API void ae_dsp_get_surround_params(AudioEngineHandle *engine,
+                                           int *out_enabled,
+                                           int *out_mode,
+                                           float *out_width,
+                                           float *out_room_level,
+                                           float *out_delay_ms,
+                                           float *out_center_focus)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        const auto &dsp = engine->surroundDsp;
+        if (out_enabled)      *out_enabled = dsp.isEnabled() ? 1 : 0;
+        if (out_mode)         *out_mode = static_cast<int>(dsp.getMode());
+        if (out_width)        *out_width = dsp.getFieldWidth();
+        if (out_room_level)   *out_room_level = static_cast<float>(dsp.getVhsRoomPreset());
+        if (out_delay_ms)     *out_delay_ms = dsp.getHaasDelayMs();
+        if (out_center_focus) *out_center_focus = dsp.getCenterFocus();
+    }
+
+    AE_API void ae_dsp_set_surround_params_ex(AudioEngineHandle *engine,
+                                              float field_width,
+                                              float field_crossover_hz,
+                                              float field_diffuser_mix,
+                                              float bass_anchor,
+                                              float haas_delay_ms,
+                                              float haas_depth,
+                                              float haas_damping_hz,
+                                              int vhs_room_preset,
+                                              float vhs_reflection_gain,
+                                              float vhs_damping,
+                                              float center_focus,
+                                              float surround_boost,
+                                              float surround_delay_ms,
+                                              float head_radius_cm)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        auto &dsp = engine->surroundDsp;
+        dsp.setFieldWidth(field_width);
+        dsp.setFieldCrossoverHz(field_crossover_hz);
+        dsp.setFieldDiffuserMix(field_diffuser_mix);
+        dsp.setBassAnchor(bass_anchor);
+        dsp.setHaasDelayMs(haas_delay_ms);
+        dsp.setHaasDepth(haas_depth);
+        dsp.setHaasDampingHz(haas_damping_hz);
+        dsp.setVhsRoomPreset(vhs_room_preset);
+        dsp.setVhsReflectionGain(vhs_reflection_gain);
+        dsp.setVhsDamping(vhs_damping);
+        dsp.setCenterFocus(center_focus);
+        dsp.setSurroundBoost(surround_boost);
+        dsp.setSurroundDelayMs(surround_delay_ms);
+        dsp.setHeadRadiusCm(head_radius_cm);
     }
 
     // FFT Impulse Response Convolver

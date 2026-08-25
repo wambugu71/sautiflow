@@ -298,6 +298,25 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setReverbEx({
+    required bool enabled,
+    required double mix,
+    required double roomSize,
+    required double damping,
+    required double preDelayMs,
+    required double width,
+  }) {
+    _send({
+      'cmd': 'setReverbEx',
+      'enabled': enabled,
+      'mix': mix,
+      'roomSize': roomSize,
+      'damping': damping,
+      'preDelayMs': preDelayMs,
+      'width': width,
+    });
+  }
+
   void setLowpass({bool? enabled, double? cutoffHz}) {
     _send({'cmd': 'setLowpass', 'enabled': enabled, 'cutoffHz': cutoffHz});
   }
@@ -665,6 +684,45 @@ class IsolateAudioPlayer {
 
   void setConvolverEnabled(bool enabled) =>
       _send({'cmd': 'setConvolverEnabled', 'enabled': enabled});
+
+  /// Spatial Surround Suite (see surround.md).
+  void setSurround({
+    required bool enabled,
+    SurroundMode mode = SurroundMode.off,
+    double fieldWidth = 1.4,
+    double fieldCrossoverHz = 160.0,
+    double fieldDiffuserMix = 0.5,
+    double bassAnchor = 0.9,
+    double haasDelayMs = 5.5,
+    double haasDepth = 0.4,
+    double haasDampingHz = 5000.0,
+    int vhsRoomPreset = 2,
+    double vhsReflectionGain = 0.45,
+    double vhsDamping = 0.25,
+    double centerFocus = 0.6,
+    double surroundBoost = 1.2,
+    double surroundDelayMs = 15.0,
+    double headRadiusCm = 8.75,
+  }) =>
+      _send({
+        'cmd': 'setSurround',
+        'enabled': enabled,
+        'mode': mode.value,
+        'fieldWidth': fieldWidth,
+        'fieldCrossoverHz': fieldCrossoverHz,
+        'fieldDiffuserMix': fieldDiffuserMix,
+        'bassAnchor': bassAnchor,
+        'haasDelayMs': haasDelayMs,
+        'haasDepth': haasDepth,
+        'haasDampingHz': haasDampingHz,
+        'vhsRoomPreset': vhsRoomPreset,
+        'vhsReflectionGain': vhsReflectionGain,
+        'vhsDamping': vhsDamping,
+        'centerFocus': centerFocus,
+        'surroundBoost': surroundBoost,
+        'surroundDelayMs': surroundDelayMs,
+        'headRadiusCm': headRadiusCm,
+      });
 
   void loadConvolverIr(String path) =>
       _send({'cmd': 'loadConvolverIr', 'path': path});
@@ -1231,6 +1289,16 @@ void _isolateEntry(_IsolateInitData initData) {
               mix: message['mix'] ?? 0.25,
               feedback: message['feedback'] ?? 0.5,
               delayMs: message['delayMs'] ?? 50.0);
+          break;
+        case 'setReverbEx':
+          player.setReverbEx(
+            enabled: message['enabled'] as bool? ?? false,
+            mix: (message['mix'] as num?)?.toDouble() ?? 0.25,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.6,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.4,
+            preDelayMs: (message['preDelayMs'] as num?)?.toDouble() ?? 20.0,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
           break;
         case 'setDelay':
           player.setDelay(
@@ -1831,6 +1899,35 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setConvolverEnabled':
           player.dsp.setConvolverEnabled(message['enabled'] == true);
+          break;
+        case 'setSurround':
+          player.dsp.setSurroundEx(
+            enabled: message['enabled'] == true,
+            mode: SurroundMode.values.firstWhere(
+              (m) => m.value == message['mode'],
+              orElse: () => SurroundMode.off,
+            ),
+            fieldWidth: (message['fieldWidth'] as num?)?.toDouble() ?? 1.4,
+            fieldCrossoverHz:
+                (message['fieldCrossoverHz'] as num?)?.toDouble() ?? 160.0,
+            fieldDiffuserMix:
+                (message['fieldDiffuserMix'] as num?)?.toDouble() ?? 0.5,
+            bassAnchor: (message['bassAnchor'] as num?)?.toDouble() ?? 0.9,
+            haasDelayMs: (message['haasDelayMs'] as num?)?.toDouble() ?? 5.5,
+            haasDepth: (message['haasDepth'] as num?)?.toDouble() ?? 0.4,
+            haasDampingHz:
+                (message['haasDampingHz'] as num?)?.toDouble() ?? 5000.0,
+            vhsRoomPreset: (message['vhsRoomPreset'] as num?)?.toInt() ?? 2,
+            vhsReflectionGain:
+                (message['vhsReflectionGain'] as num?)?.toDouble() ?? 0.45,
+            vhsDamping: (message['vhsDamping'] as num?)?.toDouble() ?? 0.25,
+            centerFocus: (message['centerFocus'] as num?)?.toDouble() ?? 0.6,
+            surroundBoost:
+                (message['surroundBoost'] as num?)?.toDouble() ?? 1.2,
+            surroundDelayMs:
+                (message['surroundDelayMs'] as num?)?.toDouble() ?? 15.0,
+            headRadiusCm: (message['headRadiusCm'] as num?)?.toDouble() ?? 8.75,
+          );
           break;
         case 'loadConvolverIr':
           try {

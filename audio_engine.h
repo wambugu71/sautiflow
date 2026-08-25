@@ -176,6 +176,8 @@ extern "C"
 
     AE_API void ae_set_reverb_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_reverb_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
+    AE_API void ae_set_reverb_params_ex(AudioEngineHandle *engine, float mix, float room_size, float damping, float pre_delay_ms, float width);
+    AE_API void ae_get_reverb_params_ex(AudioEngineHandle *engine, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width);
     AE_API void ae_set_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
@@ -584,6 +586,61 @@ extern "C"
 
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
+
+    // ==========================================
+    // Spatial Surround Suite (see surround.md)
+    //   Mode 1 FieldExpander   : M/S soundstage expander + Schroeder diffuser
+    //   Mode 2 DifferentialHaas: Haas precedence cross-injection spatializer
+    //   Mode 3 ViperHeadphone  : VHS+ room crossfeed & early reflections
+    //   Mode 4 Matrix51Hrtf    : Pro Logic II dematrix -> binaural HRTF
+    // All modes are zero-latency and stereo (2-channel) only.
+    // ==========================================
+    typedef enum AESurroundMode
+    {
+        AE_SURROUND_OFF = 0,
+        AE_SURROUND_FIELD_EXPANDER = 1,
+        AE_SURROUND_DIFFERENTIAL_HAAS = 2,
+        AE_SURROUND_VIPER_HEADPHONE = 3,
+        AE_SURROUND_MATRIX_5_1_HRTF = 4
+    } AESurroundMode;
+
+    AE_API void ae_dsp_set_surround_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_surround_mode(AudioEngineHandle *engine, int mode);
+
+    // Compact setter mapped to the unified parameter table:
+    //   width_expansion -> field_width          [0.0, 2.5]  (default 1.4)
+    //   room_level      -> vhs_room_preset      [1, 5]      (default 2)
+    //   delay_ms        -> haas_delay_ms        [1, 25]     (default 5.5)
+    //   center_focus    -> matrix center focus  [0.0, 1.0]  (default 0.6)
+    AE_API void ae_dsp_set_surround_params(AudioEngineHandle *engine,
+                                           float width_expansion,
+                                           float room_level,
+                                           float delay_ms,
+                                           float center_focus);
+    AE_API void ae_dsp_get_surround_params(AudioEngineHandle *engine,
+                                           int *out_enabled,
+                                           int *out_mode,
+                                           float *out_width,
+                                           float *out_room_level,
+                                           float *out_delay_ms,
+                                           float *out_center_focus);
+
+    // Extended setter for full per-algorithm tuning.
+    AE_API void ae_dsp_set_surround_params_ex(AudioEngineHandle *engine,
+                                              float field_width,
+                                              float field_crossover_hz,
+                                              float field_diffuser_mix,
+                                              float bass_anchor,
+                                              float haas_delay_ms,
+                                              float haas_depth,
+                                              float haas_damping_hz,
+                                              int vhs_room_preset,
+                                              float vhs_reflection_gain,
+                                              float vhs_damping,
+                                              float center_focus,
+                                              float surround_boost,
+                                              float surround_delay_ms,
+                                              float head_radius_cm);
 
     // FFT Impulse Response Convolver
     AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled);

@@ -258,6 +258,27 @@ class MiniAudioPlayer {
     _engine.setReverbParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
+  /// Extended reverb (Freeverb FDN): room size, damping, pre-delay, width.
+  void setReverbEx({
+    required bool enabled,
+    double mix = 0.25,
+    double roomSize = 0.6,
+    double damping = 0.4,
+    double preDelayMs = 20.0,
+    double width = 1.0,
+  }) {
+    _engine.setReverbEnabled(enabled);
+    _engine.setReverbParamsEx(
+      mix: mix,
+      roomSize: roomSize,
+      damping: damping,
+      preDelayMs: preDelayMs,
+      width: width,
+    );
+  }
+
+  ReverbParamsEx getReverbParams() => _engine.getReverbParamsEx();
+
   void setOldEqEnabled(bool enabled) => _engine.setEqEnabled(enabled);
 
   void setOldEqGains({
