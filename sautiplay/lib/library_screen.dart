@@ -6,7 +6,6 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
@@ -89,7 +88,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   static const String _prefsKey = 'sautiplay_library_folders';
   static const String _cachedSongsKey = 'sautiplay_library_cached_songs';
 
-  Color get _bgDark => context.bgDark;
   Color get _surfaceDark => context.cardDark;
   Color get _primary => context.primaryColor;
   Color get _textPrimary => context.textPrimary;
@@ -1818,38 +1816,59 @@ class _LibraryScreenState extends State<LibraryScreen>
                               Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
-                                  Row(
-                                    children: [
-                                      if (!widget.isNested)
-                                        Text(
-                                          'Your Library',
-                                          style: TextStyle(
-                                            fontSize: isDesktop ? 30 : 22,
-                                            fontWeight: FontWeight.bold,
-                                            color: textLight,
-                                            letterSpacing: -0.5,
+                                  if (!widget.isNested)
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Your Library',
+                                            style: TextStyle(
+                                              fontSize: isDesktop ? 30 : 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: textLight,
+                                              letterSpacing: -0.5,
+                                            ),
                                           ),
-                                        ),
-                                    ],
-                                  ),
-                                  M3EMenu(
-                                    anchorBuilder: (context, open) => InkWell(
-                                      onTap: open,
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: surfaceColor,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.08)),
-                                        ),
-                                        child: Icon(Icons.add_rounded,
-                                            color: textLight,
-                                            size: isDesktop ? 22 : 20),
+                                          const SizedBox(height: 6),
+                                          // Library stat pill
+                                          Container(
+                                            padding: const EdgeInsets
+                                                .symmetric(
+                                                horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: primaryColor
+                                                  .withValues(alpha: 0.15),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: Text(
+                                              '${_allSongs.length} tracks · ${_m3uPlaylists.length} playlists',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: primaryColor,
+                                                fontSize: isDesktop ? 13 : 11.5,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: 0.2,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    )
+                                  else
+                                    const SizedBox.shrink(),
+                                  M3EMenu(
+                                    anchorBuilder: (context, open) =>
+                                        M3EIconButton(
+                                      icon: Icon(Icons.add_rounded,
+                                          size: isDesktop ? 22 : 20),
+                                      variant: M3EIconButtonVariant.filled,
+                                      onPressed: open,
                                     ),
                                     children: [
                                       M3EMenuGroup.entries(
@@ -1924,36 +1943,32 @@ class _LibraryScreenState extends State<LibraryScreen>
                               SizedBox(height: isDesktop ? 16 : 12),
                               // Segmented Control
                               RepaintBoundary(
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(
-                                      isDesktop ? 18 : 14),
-                                  child: M3ETabs(
-                                    variant: M3ETabsVariant.secondary,
-                                    selectedIndex: _tabIndex,
-                                    onTabSelected: (i) {
-                                      Future.microtask(() {
-                                        if (mounted) {
-                                          setState(() => _tabIndex = i);
-                                        }
-                                      });
-                                    },
-                                    tabs: const [
-                                      M3ETab(
-                                          label: 'Playlists',
-                                          icon:
-                                              Icon(Icons.queue_music_rounded)),
-                                      M3ETab(
-                                          label: 'Tracks',
-                                          icon: Icon(Icons.audiotrack_rounded)),
-                                      M3ETab(
-                                          label: 'Artists',
-                                          icon: Icon(
-                                              Icons.person_outline_rounded)),
-                                      M3ETab(
-                                          label: 'Albums',
-                                          icon: Icon(Icons.album_outlined)),
-                                    ],
-                                  ),
+                                child: M3ETabs(
+                                  variant: M3ETabsVariant.primary,
+                                  selectedIndex: _tabIndex,
+                                  onTabSelected: (i) {
+                                    Future.microtask(() {
+                                      if (mounted) {
+                                        setState(() => _tabIndex = i);
+                                      }
+                                    });
+                                  },
+                                  tabs: const [
+                                    M3ETab(
+                                        label: 'Playlists',
+                                        icon:
+                                            Icon(Icons.queue_music_rounded)),
+                                    M3ETab(
+                                        label: 'Tracks',
+                                        icon: Icon(Icons.audiotrack_rounded)),
+                                    M3ETab(
+                                        label: 'Artists',
+                                        icon: Icon(
+                                            Icons.person_outline_rounded)),
+                                    M3ETab(
+                                        label: 'Albums',
+                                        icon: Icon(Icons.album_outlined)),
+                                  ],
                                 ),
                               ),
                               if (_isScanning) ...[
@@ -1968,18 +1983,19 @@ class _LibraryScreenState extends State<LibraryScreen>
                                         color: primaryColor.withValues(
                                             alpha: 0.3)),
                                   ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: LoadingIndicatorM3E(
-                                          color: primaryColor,
-                                          containerColor:
-                                              primaryColor.withAlpha(40),
-                                        ),
-                                      ),
+                                   child: Row(
+                                     mainAxisSize: MainAxisSize.min,
+                                     children: [
+                                       SizedBox(
+                                         width: 18,
+                                         height: 18,
+                                         child:
+                                             M3EProgressIndicator.circularWavy(
+                                           color: primaryColor,
+                                           trackColor: primaryColor
+                                               .withValues(alpha: 0.15),
+                                         ),
+                                       ),
                                       const SizedBox(width: 8),
                                       Text(
                                         _scanStatus,
@@ -2010,9 +2026,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                       Container(
                         color: bgDark.withValues(alpha: 0.5),
                         child: Center(
-                          child: LoadingIndicatorM3E(
+                          child: M3EProgressIndicator.circularWavy(
                               color: primaryColor,
-                              containerColor: primaryColor.withAlpha(50)),
+                              trackColor: primaryColor.withValues(alpha: 0.15)),
                         ),
                       ),
                   ],
@@ -2427,7 +2443,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               vertical: isDesktop ? 12.0 : 6.0,
             ),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: primaryColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(isDesktop ? 16 : 14),
@@ -2438,36 +2454,40 @@ class _LibraryScreenState extends State<LibraryScreen>
               ),
               child: Row(
                 children: [
-                  IconButton(
+                  M3EIconButton(
                     icon: Icon(Icons.close_rounded,
-                        color: _textPrimary, size: isDesktop ? 24 : 20),
-                    tooltip: 'Exit Selection',
+                        size: isDesktop ? 22 : 20),
+                    variant: M3EIconButtonVariant.tonal,
                     onPressed: () => _toggleSelectionMode(false),
                   ),
-                  const SizedBox(width: 4),
-                  Expanded(
+                  const SizedBox(width: 6),
+                  // Selection count pill
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Text(
                       '${_selectedTrackPaths.length} Selected',
                       style: TextStyle(
                         color: _textPrimary,
                         fontWeight: FontWeight.bold,
-                        fontSize: isDesktop ? 16 : 14,
+                        fontSize: isDesktop ? 14 : 12.5,
                       ),
                     ),
                   ),
-                  IconButton(
+                  const Spacer(),
+                  M3EIconButton(
                     icon: Icon(
                       _selectedTrackPaths.length == _filteredSongs.length &&
                               _filteredSongs.isNotEmpty
                           ? Icons.deselect_rounded
                           : Icons.select_all_rounded,
-                      color: _textPrimary,
                       size: isDesktop ? 22 : 20,
                     ),
-                    tooltip:
-                        _selectedTrackPaths.length == _filteredSongs.length
-                            ? 'Deselect All'
-                            : 'Select All',
+                    variant: M3EIconButtonVariant.tonal,
                     onPressed: () {
                       if (_selectedTrackPaths.length ==
                           _filteredSongs.length) {
@@ -2477,22 +2497,25 @@ class _LibraryScreenState extends State<LibraryScreen>
                       }
                     },
                   ),
-                  IconButton(
+                  const SizedBox(width: 6),
+                  M3EIconButton(
                     icon: Icon(Icons.playlist_add_rounded,
-                        color: primaryColor, size: isDesktop ? 26 : 22),
-                    tooltip: 'Add to Playlist',
+                        size: isDesktop ? 22 : 20),
+                    variant: M3EIconButtonVariant.tonal,
                     onPressed: () => _showAddToPlaylistSheet(),
                   ),
-                  IconButton(
+                  const SizedBox(width: 6),
+                  M3EIconButton(
                     icon: Icon(Icons.queue_music_rounded,
-                        color: _textPrimary, size: isDesktop ? 22 : 20),
-                    tooltip: 'Queue Selected',
+                        size: isDesktop ? 22 : 20),
+                    variant: M3EIconButtonVariant.tonal,
                     onPressed: _queueSelectedTracks,
                   ),
-                  IconButton(
-                    icon: Icon(Icons.play_circle_fill_rounded,
-                        color: primaryColor, size: isDesktop ? 28 : 24),
-                    tooltip: 'Play Selected',
+                  const SizedBox(width: 6),
+                  M3EIconButton(
+                    icon: Icon(Icons.play_arrow_rounded,
+                        size: isDesktop ? 24 : 22),
+                    variant: M3EIconButtonVariant.filled,
                     onPressed: () => _playSelectedTracks(),
                   ),
                 ],
