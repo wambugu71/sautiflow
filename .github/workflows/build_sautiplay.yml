@@ -249,17 +249,17 @@ jobs:
           message: |
             🚀 <b>SautiFlow Release ${{ github.ref_name }}</b> is ready!
 
-            📦 <b>GitHub Release:</b>
+            📦 <b>Release Notes:</b>
             https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
 
-            📥 <b>Direct Downloads:</b>
-            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_android_arm64.apk">Android ARM64 APK</a>
-            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_android_armv7.apk">Android ARMv7 APK</a>
-            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_windows.zip">Windows ZIP</a>
-            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_linux.tar.gz">Linux tar.gz</a>
-            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_macos.zip">macOS ZIP</a>
+            💻 <b>Desktop Downloads:</b>
+            • <b>Windows:</b> <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_windows.zip">sautiflow_windows.zip</a>
+            • <b>Linux:</b> <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_linux.tar.gz">sautiflow_linux.tar.gz</a>
+            • <b>macOS:</b> <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_macos.zip">sautiflow_macos.zip</a>
 
-      - name: Send Android ARM64 APK to Telegram
+            📱 <i>Android APK files (.apk) uploading below:</i>
+
+      - name: Upload Android ARM64 APK to Telegram
         uses: appleboy/telegram-action@master
         continue-on-error: true
         with:
@@ -267,7 +267,7 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           document: artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk
 
-      - name: Send Android ARMv7 APK to Telegram
+      - name: Upload Android ARMv7 APK to Telegram
         uses: appleboy/telegram-action@master
         continue-on-error: true
         with:
