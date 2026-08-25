@@ -2290,7 +2290,12 @@ namespace
                     {
                         float x = inOutSamples[base + c];
                         float d = getRpdfDither(ditherAmp, c);
-                        inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
+                        float q = std::round((x + d) / lsbScale) * lsbScale;
+                        // Dither can push a near-full-scale sample past ±1.0;
+                        // clamp so the downstream converter doesn't wrap/clip.
+                        if (q > 1.0f) q = 1.0f;
+                        else if (q < -1.0f) q = -1.0f;
+                        inOutSamples[base + c] = q;
                     }
                 }
                 return;
@@ -2307,7 +2312,10 @@ namespace
                     {
                         float x = inOutSamples[base + c];
                         float d = getTpdfDither(ditherAmp, c);
-                        inOutSamples[base + c] = std::round((x + d) / lsbScale) * lsbScale;
+                        float q = std::round((x + d) / lsbScale) * lsbScale;
+                        if (q > 1.0f) q = 1.0f;
+                        else if (q < -1.0f) q = -1.0f;
+                        inOutSamples[base + c] = q;
                     }
                 }
                 return;
@@ -2351,7 +2359,16 @@ namespace
                     float xShaped = x + feedback + dither;
 
                     float quantized = std::round(xShaped / lsbScale) * lsbScale;
+                    if (quantized > 1.0f) quantized = 1.0f;
+                    else if (quantized < -1.0f) quantized = -1.0f;
                     float err = xShaped - quantized;
+
+                    // Anti-windup: when the clamp engages, the raw error is
+                    // huge and feeding it back makes the shaper overshoot to
+                    // the opposite rail (audible low-frequency buzzing on
+                    // full-scale material). Drop the error instead.
+                    if (quantized >= 1.0f || quantized <= -1.0f)
+                        err = 0.0f;
 
                     history[c][4] = history[c][3];
                     history[c][3] = history[c][2];
@@ -8103,6 +8120,17 @@ extern "C"
     {
         ma_resampler filter;
         int algorithmChoice = 1;
+        // Dither support: when ditherMode > 0 and the caller's format is an
+        // integer type, the underlying miniaudio resampler is configured as
+        // f32 internally; process() converts int->f32, dithers/quantizes on
+        // the target grid via DitherProcessorState, then converts back.
+        int requestedFormat = AE_FORMAT_F32;
+        int channels = 0;
+        int ditherMode = 0;
+        bool floatInternal = false;
+        std::vector<float> inFloat;
+        std::vector<float> outFloat;
+        DitherProcessorState dither;
     };
 
     // LPF1
@@ -8533,11 +8561,79 @@ extern "C"
         return ma_biquad_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
     }
 
+    // Exact inverses of miniaudio's X->f32 scalers (which divide by 2^(N-1)).
+    // ma_pcm_f32_to_X use an asymmetric "*((2^(N-1))-1) + truncate" fast path
+    // that shifts a quantization-grid signal by ~1 LSB of DC error, breaking a
+    // dithered int -> f32 -> int round trip. These convert with round-to-
+    // nearest against the original grid and clamp to the type's range.
+    static void f32ToIntExact(AEAudioFormat fmt, void *dst, const float *src, size_t count)
+    {
+        switch (fmt)
+        {
+        case AE_FORMAT_U8:
+        {
+            ma_uint8 *d = (ma_uint8 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrintf((src[i] + 1.0f) * 127.5f);
+                if (r < 0) r = 0;
+                else if (r > 255) r = 255;
+                d[i] = (ma_uint8)r;
+            }
+        }
+        break;
+        case AE_FORMAT_S16:
+        {
+            ma_int16 *d = (ma_int16 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrintf(src[i] * 32768.0f);
+                if (r < -32768) r = -32768;
+                else if (r > 32767) r = 32767;
+                d[i] = (ma_int16)r;
+            }
+        }
+        break;
+        case AE_FORMAT_S24:
+        {
+            ma_uint8 *d = (ma_uint8 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround((double)src[i] * 8388608.0);
+                if (r < -8388608LL) r = -8388608LL;
+                else if (r > 8388607LL) r = 8388607LL;
+                const ma_int32 t = (ma_int32)r;
+                d[(i * 3) + 0] = (ma_uint8)((t & 0x0000FF) >> 0);
+                d[(i * 3) + 1] = (ma_uint8)((t & 0x00FF00) >> 8);
+                d[(i * 3) + 2] = (ma_uint8)((t & 0xFF0000) >> 16);
+            }
+        }
+        break;
+        case AE_FORMAT_S32:
+        {
+            ma_int32 *d = (ma_int32 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround((double)src[i] * 2147483648.0);
+                if (r < (-2147483647LL - 1)) r = -2147483648LL;
+                else if (r > 2147483647LL) r = 2147483647LL;
+                d[i] = (ma_int32)r;
+            }
+        }
+        break;
+        default:
+            break;
+        }
+    }
+
     // Resampler
     AE_API AEResampler *ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode)
     {
         AEResampler *obj = new AEResampler();
         obj->algorithmChoice = algorithm;
+        obj->requestedFormat = format;
+        obj->channels = channels;
+        obj->ditherMode = dither_mode;
 
         ma_resample_algorithm algo = ma_resample_algorithm_linear;
         if (algorithm != AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR)
@@ -8545,7 +8641,13 @@ extern "C"
             algo = ma_resample_algorithm_custom;
         }
 
-        ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(format), channels, sample_rate_in, sample_rate_out, algo);
+        // Dithering requires a float processing domain so we can quantize on
+        // the target integer grid with dither/noise shaping. For F32 callers
+        // there is no quantization grid, so the mode stays a documented no-op.
+        obj->floatInternal = (dither_mode > 0 && format != AE_FORMAT_F32);
+        const int internalFormat = obj->floatInternal ? (int)AE_FORMAT_F32 : format;
+
+        ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(internalFormat), channels, sample_rate_in, sample_rate_out, algo);
         if (algo == ma_resample_algorithm_custom)
         {
             if (algorithm >= 7 && algorithm <= 10)
@@ -8558,9 +8660,6 @@ extern "C"
             }
             config.pBackendUserData = &obj->algorithmChoice;
         }
-
-        // This version of miniaudio (0.11.24) does not support ma_dither_mode natively.
-        // We ignore the dither_mode parameter here to maintain FFI ABI stability without compiler errors.
 
         if (ma_resampler_init(&config, nullptr, &obj->filter) != MA_SUCCESS)
         {
@@ -8581,6 +8680,51 @@ extern "C"
     {
         if (!obj)
             return 0;
+
+        // Dithered path (integer formats only): resample in the float domain,
+        // apply dither/noise-shaping on the target LSB grid, convert back.
+        if (obj->floatInternal && obj->ditherMode > 0)
+        {
+            const ma_uint64 inCount = in_frame_count ? *in_frame_count : 0;
+            const ma_uint64 outCap = out_frame_count ? *out_frame_count : 0;
+            const int ch = std::max(1, obj->channels);
+
+            if (inCount > 0)
+            {
+                obj->inFloat.resize((size_t)inCount * (size_t)ch);
+                switch ((AEAudioFormat)obj->requestedFormat)
+                {
+                case AE_FORMAT_U8:  ma_pcm_u8_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
+                case AE_FORMAT_S16: ma_pcm_s16_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
+                case AE_FORMAT_S24: ma_pcm_s24_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
+                case AE_FORMAT_S32: ma_pcm_s32_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
+                default: return 0;
+                }
+            }
+
+            obj->outFloat.resize((size_t)outCap * (size_t)ch);
+            ma_uint64 inF = inCount;
+            ma_uint64 outF = outCap;
+            ma_result result = ma_resampler_process_pcm_frames(
+                &obj->filter,
+                inCount > 0 ? obj->inFloat.data() : nullptr, &inF,
+                outCap > 0 ? obj->outFloat.data() : nullptr, &outF);
+
+            if (outF > 0)
+            {
+                obj->dither.process(obj->ditherMode, (AEAudioFormat)obj->requestedFormat,
+                                    obj->outFloat.data(), (size_t)outF * (size_t)ch, ch);
+                f32ToIntExact((AEAudioFormat)obj->requestedFormat, out_frames,
+                              obj->outFloat.data(), (size_t)outF * (size_t)ch);
+            }
+
+            if (in_frame_count)
+                *in_frame_count = inF;
+            if (out_frame_count)
+                *out_frame_count = outF;
+            return result == MA_SUCCESS;
+        }
+
         ma_uint64 in_count = in_frame_count ? *in_frame_count : 0;
         ma_uint64 out_count = out_frame_count ? *out_frame_count : 0;
         ma_result result = ma_resampler_process_pcm_frames(&obj->filter, in_frames, &in_count, out_frames, &out_count);

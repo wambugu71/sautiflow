@@ -554,6 +554,8 @@ extern "C"
     AE_API int ae_biquad_process(AEBiquad *filter, void *out_frames, const void *in_frames, uint64_t frame_count);
 
     // Resampler
+    // dither_mode: AEDitherMode applied when quantizing to an integer `format`
+    // (the resampler processes in the float domain internally). No-op for F32.
     AE_API AEResampler *ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode);
     AE_API void ae_resampler_destroy(AEResampler *resampler);
     AE_API int ae_resampler_process(AEResampler *resampler, const void *in_frames, uint64_t *in_frame_count, void *out_frames, uint64_t *out_frame_count);
