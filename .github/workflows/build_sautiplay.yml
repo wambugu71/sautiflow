@@ -239,19 +239,38 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Send Builds to Telegram
+      - name: Send Release Announcement to Telegram
         uses: appleboy/telegram-action@master
+        continue-on-error: true
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: html
           message: |
             🚀 <b>SautiFlow Release ${{ github.ref_name }}</b> is ready!
-            
-            📦 <b>Release:</b> https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
-          document: |
-            artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk,
-            artifacts/sautiflow_android_armv7/sautiflow_android_armv7.apk,
-            artifacts/sautiflow_windows/sautiflow_windows.zip,
-            artifacts/sautiflow_linux/sautiflow_linux.tar.gz,
-            artifacts/sautiflow_macos/sautiflow_macos.zip
+
+            📦 <b>GitHub Release:</b>
+            https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+
+            📥 <b>Direct Downloads:</b>
+            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_android_arm64.apk">Android ARM64 APK</a>
+            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_android_armv7.apk">Android ARMv7 APK</a>
+            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_windows.zip">Windows ZIP</a>
+            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_linux.tar.gz">Linux tar.gz</a>
+            • <a href="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/sautiflow_macos.zip">macOS ZIP</a>
+
+      - name: Send Android ARM64 APK to Telegram
+        uses: appleboy/telegram-action@master
+        continue-on-error: true
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          document: artifacts/sautiflow_android_arm64/sautiflow_android_arm64.apk
+
+      - name: Send Android ARMv7 APK to Telegram
+        uses: appleboy/telegram-action@master
+        continue-on-error: true
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          document: artifacts/sautiflow_android_armv7/sautiflow_android_armv7.apk
