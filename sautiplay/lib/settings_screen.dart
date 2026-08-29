@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sautiflow/sautiflow.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
@@ -3580,6 +3581,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   onTap: _showChangelogBottomSheet,
+                ),
+                const M3EDivider(),
+                M3EListItem(
+                  headline: 'Join Telegram Community',
+                  supportingText:
+                      'Discuss features, report issues & get early builds',
+                  leading: _buildLeadingIcon(
+                      Icons.send_rounded, const Color(0xFF229ED9)),
+                  trailing: Icon(Icons.open_in_new_rounded,
+                      color: _textDark, size: 20),
+                  onTap: () async {
+                    final uri = Uri.parse('https://t.me/+MilnrgkNkbFiYmY0');
+                    try {
+                      await launchUrl(uri,
+                          mode: LaunchMode.externalApplication);
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Could not open Telegram link')),
+                        );
+                      }
+                    }
+                  },
                 ),
               ],
             ),
