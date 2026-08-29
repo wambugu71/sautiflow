@@ -1047,6 +1047,177 @@ namespace
         }
     };
 
+    // Dynamic Range Compressor (zero-latency feed-forward design).
+    // dB-domain soft-knee transfer function, peak or RMS detector, linked or
+    // dual-mono gain computation, static or auto make-up gain, dry/wet mix.
+    struct CompressorState
+    {
+        static constexpr int MAX_CHANNELS = 16;
+
+        float thresholdDb = -20.0f; // [-60, 0] level where compression starts
+        float ratio = 4.0f;         // [1, 20]
+        float kneeDb = 6.0f;        // [0, 24] soft knee width
+        float attackMs = 10.0f;     // [0.1, 100]
+        float releaseMs = 100.0f;   // [10, 1000]
+        float makeupGainDb = 0.0f;  // [0, 24]
+        bool autoMakeup = false;    // derive makeup from threshold/ratio
+        int detector = 0;           // 0 = peak, 1 = RMS
+        bool stereoLink = true;     // linked / dual-mono gain computation
+        float mix = 1.0f;           // [0, 1] dry/wet
+
+        float attackCoeff = 0.0f;
+        float releaseCoeff = 0.0f;
+        float makeupGainLinear = 1.0f;
+        std::vector<float> rmsEnv;  // per-channel squared envelope (RMS detector)
+        std::vector<float> gainEnv; // per-channel smoothed gain
+        std::atomic<float> currentGainReductionDB{0.0f};
+
+        void updateCoefficients(int sampleRate)
+        {
+            if (sampleRate <= 0)
+                return;
+            attackCoeff = std::exp(-1.0f / (attackMs * 0.001f * (float)sampleRate));
+            releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
+        }
+
+        void updateParams(int sampleRate, int channels, float newThresholdDb, float newRatio,
+                          float newKneeDb, float newAttackMs, float newReleaseMs,
+                          float newMakeupGainDb, int newDetector, int newStereoLink,
+                          int newAutoMakeup, float newMix)
+        {
+            thresholdDb = clampf(newThresholdDb, -60.0f, 0.0f);
+            ratio = clampf(newRatio, 1.0f, 20.0f);
+            kneeDb = clampf(newKneeDb, 0.0f, 24.0f);
+            attackMs = clampf(newAttackMs, 0.1f, 100.0f);
+            releaseMs = clampf(newReleaseMs, 10.0f, 1000.0f);
+            makeupGainDb = clampf(newMakeupGainDb, 0.0f, 24.0f);
+            detector = (newDetector == 1) ? 1 : 0;
+            stereoLink = (newStereoLink != 0);
+            autoMakeup = (newAutoMakeup != 0);
+            mix = clampf(newMix, 0.0f, 1.0f);
+
+            // Auto makeup: rough fixed estimate of the average reduction
+            // (half of the max possible reduction at the threshold). Stable
+            // and click-free; fine trimming stays manual.
+            const float effMakeupDb = autoMakeup
+                ? (-thresholdDb * (1.0f - 1.0f / ratio) * 0.5f)
+                : makeupGainDb;
+            makeupGainLinear = std::pow(10.0f, effMakeupDb / 20.0f);
+
+            const int ch = std::max(1, channels);
+            if (rmsEnv.size() != (size_t)ch) rmsEnv.assign((size_t)ch, 0.0f);
+            if (gainEnv.size() != (size_t)ch) gainEnv.assign((size_t)ch, 1.0f);
+            updateCoefficients(sampleRate);
+        }
+
+        // dB-domain soft-knee transfer: output dB for input dB.
+        inline float transferDb(float inDb) const
+        {
+            const float halfKnee = kneeDb * 0.5f;
+            if (inDb <= thresholdDb - halfKnee)
+                return inDb;
+            if (inDb >= thresholdDb + halfKnee)
+                return thresholdDb + (inDb - thresholdDb) / ratio;
+            // Quadratic interpolation inside the knee
+            const float slope = 1.0f / ratio - 1.0f;
+            const float x = inDb - (thresholdDb - halfKnee);
+            return inDb + slope * (x * x) / (2.0f * kneeDb);
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        {
+            if (channels < 1)
+                return;
+            if (rmsEnv.size() != (size_t)channels || gainEnv.size() != (size_t)channels)
+            {
+                rmsEnv.assign((size_t)channels, 0.0f);
+                gainEnv.assign((size_t)channels, 1.0f);
+            }
+            updateCoefficients(sampleRate);
+
+            const bool isRms = (detector == 1);
+            const int ch = std::min(channels, MAX_CHANNELS);
+            const float kneeLo = thresholdDb - kneeDb * 0.5f;
+            float maxGrThisBlock = 1.0f;
+
+            for (ma_uint32 i = 0; i < frames; ++i)
+            {
+                const size_t base = (size_t)i * (size_t)channels;
+
+                // Detector: per-channel level in dB
+                float levelDb[MAX_CHANNELS];
+                for (int c = 0; c < ch; ++c)
+                {
+                    const float x = interleaved[base + (size_t)c];
+                    float lvl;
+                    if (isRms)
+                    {
+                        const float sq = x * x;
+                        rmsEnv[c] = (sq > rmsEnv[c])
+                            ? attackCoeff * rmsEnv[c] + (1.0f - attackCoeff) * sq
+                            : releaseCoeff * rmsEnv[c] + (1.0f - releaseCoeff) * sq;
+                        lvl = std::sqrt(rmsEnv[c]) + 1e-9f;
+                    }
+                    else
+                    {
+                        lvl = std::abs(x) + 1e-9f;
+                    }
+                    levelDb[c] = 20.0f * std::log10(lvl);
+                }
+
+                // Transfer function -> desired gain per channel
+                float targetGain[MAX_CHANNELS];
+                if (stereoLink)
+                {
+                    float maxDb = -120.0f;
+                    for (int c = 0; c < ch; ++c)
+                        if (levelDb[c] > maxDb) maxDb = levelDb[c];
+                    const float g = (maxDb <= kneeLo)
+                        ? 1.0f
+                        : std::pow(10.0f, (transferDb(maxDb) - maxDb) / 20.0f);
+                    for (int c = 0; c < ch; ++c) targetGain[c] = g;
+                }
+                else
+                {
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        targetGain[c] = (levelDb[c] <= kneeLo)
+                            ? 1.0f
+                            : std::pow(10.0f, (transferDb(levelDb[c]) - levelDb[c]) / 20.0f);
+                    }
+                }
+                for (int c = ch; c < channels; ++c) targetGain[c] = 1.0f;
+
+                // Smooth the gain matching attack/release, then apply
+                for (int c = 0; c < channels; ++c)
+                {
+                    const size_t idx = (size_t)c;
+                    float g = gainEnv[idx];
+                    const float t = targetGain[c];
+                    g = (t < g) ? attackCoeff * g + (1.0f - attackCoeff) * t
+                                : releaseCoeff * g + (1.0f - releaseCoeff) * t;
+                    gainEnv[idx] = g;
+
+                    if (g < maxGrThisBlock) maxGrThisBlock = g;
+
+                    const float x = interleaved[base + (size_t)c];
+                    const float wet = x * g * makeupGainLinear;
+                    interleaved[base + (size_t)c] = mix * wet + (1.0f - mix) * x;
+                }
+            }
+
+            const float grDB = (maxGrThisBlock < 1.0f)
+                ? 20.0f * std::log10(maxGrThisBlock) : 0.0f;
+            currentGainReductionDB.store(grDB, std::memory_order_relaxed);
+        }
+
+        void reset()
+        {
+            std::fill(rmsEnv.begin(), rmsEnv.end(), 0.0f);
+            std::fill(gainEnv.begin(), gainEnv.end(), 1.0f);
+        }
+    };
+
     struct TruePeakMeterState
     {
         static constexpr int TAPS = 12;
@@ -2781,6 +2952,10 @@ struct AudioEngineHandle
     // Audio Limiter & Clipping Detection
     bool limiterEnabled = false;
     LimiterState limiter;
+
+    // Dynamic Range Compressor
+    bool compressorEnabled = false;
+    CompressorState compressor;
     std::atomic<bool> clippingDetectionEnabled{false};
     std::atomic<uint64_t> clippedSamplesCount{0};
     // Realtime callback starvation counter (previously hardcoded to 0).
@@ -4792,110 +4967,115 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
 
+        // Master Volume & Gain Stage (user gain × replay gain × loudness-normalizer gain)
+        // Computed in 64-bit float (double precision) so that low-volume listening
+        // preserves dynamic range before the downstream TPDF/noise-shaped dither stage.
+        {
+            const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
+                               e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                               (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
+            const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
+                                         e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
+            const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
+
+            // User master gain rides AutomatedParamFloat so UI volume
+            // changes ramp smoothly instead of stepping block-wise.
+            e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
+
+            // Loudness Normalizer: rides output gain toward the user target
+            // (BS.1770 integrated LUFS). Bypassed during loudness-aware
+            // crossfade mixing, where per-track ReplayGains already align
+            // loudness; AutomatedParamFloat re-ramps it smoothly afterwards.
+            float normTarget = 1.0f;
+            if (!crossfadeMixing &&
+                e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
+            {
+                normTarget = e->loudnessMeter.getNormalizerGainLinear();
+            }
+            e->paramNormalizerGain.setTarget(normTarget);
+            // next() is consumed per sample below, so ramp over the full
+            // sample count to keep the smoothing-time semantics correct.
+            const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+            e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
+                                          e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                          e->sampleRate);
+            e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
+                                                e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                                e->sampleRate);
+
+            const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
+                                    std::fabs(normTarget - 1.0f) > 1e-4f;
+            const float userGainTarget = e->paramUserGain.getTarget();
+            const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
+                                        std::fabs(userGainTarget - 1.0f) > 1e-6f;
+
+            if (normActive)
+            {
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] = (float)((double)processBuffer[i] *
+                                                   (double)e->paramUserGain.next() *
+                                                   (double)rg *
+                                                   (double)e->paramNormalizerGain.next());
+                }
+                else
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] *= e->paramUserGain.next() * rg * e->paramNormalizerGain.next();
+                }
+            }
+            else if (userGainActive)
+            {
+                if (use64)
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] = (float)((double)processBuffer[i] *
+                                                   (double)e->paramUserGain.next() *
+                                                   (double)rg);
+                }
+                else
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] *= e->paramUserGain.next() * rg;
+                }
+            }
+            else if (rg != 1.0f)
+            {
+                if (use64)
+                {
+                    const double rg64 = (double)rg;
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] = (float)((double)processBuffer[i] * rg64);
+                }
+                else
+                {
+                    for (size_t i = 0; i < totalSamples; ++i)
+                        processBuffer[i] *= rg;
+                }
+            }
+        }
+
+        // Per-Channel Gain (L/R independent trim)
+        {
+            const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
+            const float rg = e->channelGainRight.load(std::memory_order_relaxed);
+            if (e->channels >= 2 && (lg != 1.0f || rg != 1.0f))
+            {
+                for (ma_uint32 i = 0; i < produced; ++i)
+                {
+                    processBuffer[i * (size_t)e->channels + 0] = (float)((double)processBuffer[i * (size_t)e->channels + 0] * (double)lg);
+                    processBuffer[i * (size_t)e->channels + 1] = (float)((double)processBuffer[i * (size_t)e->channels + 1] * (double)rg);
+                }
+            }
+        }
+
         const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
                                  !e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
 
         if (!bypassAppDsp)
         {
             const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed);
-
-            // Volume (user gain × replay gain × loudness-normalizer gain)
-            {
-                const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
-                                             e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
-                const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
-
-                // User master gain rides AutomatedParamFloat so UI volume
-                // changes ramp smoothly instead of stepping block-wise.
-                e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
-
-                // Loudness Normalizer: rides output gain toward the user target
-                // (BS.1770 integrated LUFS). Bypassed during loudness-aware
-                // crossfade mixing, where per-track ReplayGains already align
-                // loudness; AutomatedParamFloat re-ramps it smoothly afterwards.
-                float normTarget = 1.0f;
-                if (!crossfadeMixing &&
-                    e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
-                {
-                    normTarget = e->loudnessMeter.getNormalizerGainLinear();
-                }
-                e->paramNormalizerGain.setTarget(normTarget);
-                // next() is consumed per sample below, so ramp over the full
-                // sample count to keep the smoothing-time semantics correct.
-                const size_t totalSamples = (size_t)produced * (size_t)e->channels;
-                e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
-                                              e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                              e->sampleRate);
-                e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
-                                                    e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                                    e->sampleRate);
-
-                const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
-                                        std::fabs(normTarget - 1.0f) > 1e-4f;
-                const float userGainTarget = e->paramUserGain.getTarget();
-                const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
-                                            std::fabs(userGainTarget - 1.0f) > 1e-6f;
-
-                if (normActive)
-                {
-                    if (use64)
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] = (float)((double)processBuffer[i] *
-                                                       (double)e->paramUserGain.next() *
-                                                       (double)rg *
-                                                       (double)e->paramNormalizerGain.next());
-                    }
-                    else
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] *= e->paramUserGain.next() * rg * e->paramNormalizerGain.next();
-                    }
-                }
-                else if (userGainActive)
-                {
-                    if (use64)
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] = (float)((double)processBuffer[i] *
-                                                       (double)e->paramUserGain.next() *
-                                                       (double)rg);
-                    }
-                    else
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] *= e->paramUserGain.next() * rg;
-                    }
-                }
-                else if (rg != 1.0f)
-                {
-                    if (use64)
-                    {
-                        const double rg64 = (double)rg;
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] = (float)((double)processBuffer[i] * rg64);
-                    }
-                    else
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i)
-                            processBuffer[i] *= rg;
-                    }
-                }
-            }
-
-            // Per-Channel Gain (L/R independent trim)
-            {
-                const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
-                const float rg = e->channelGainRight.load(std::memory_order_relaxed);
-                if (e->channels >= 2 && (lg != 1.0f || rg != 1.0f))
-                {
-                    for (ma_uint32 i = 0; i < produced; ++i)
-                    {
-                        processBuffer[i * (size_t)e->channels + 0] *= lg;
-                        processBuffer[i * (size_t)e->channels + 1] *= rg;
-                    }
-                }
-            }
 
             // Custom Fading (Wait Fade)
             if (e->customFadeArmed.load(std::memory_order_acquire))
@@ -5043,6 +5223,12 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
+            // Dynamic Range Compressor (runs before the limiters so they catch overshoot)
+            if (e->compressorEnabled)
+            {
+                e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+            }
+
             // Limiter & Clipping Detection (run at the end of the chain before format conversion)
             if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
             {
@@ -5138,10 +5324,40 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
 
     // Dithering & Format Conversion
-    const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
-    if (ditherVal > 0 && e->outputFormat != AE_FORMAT_F32)
+    AEAudioFormat activeIntFormat = e->outputFormat;
+    if (activeIntFormat == AE_FORMAT_F32)
     {
-        e->ditherProcessor.process(ditherVal, e->outputFormat, finalDstBuffer, totalSamples, e->channels);
+        if (pDevice->playback.format == ma_format_s16)
+            activeIntFormat = AE_FORMAT_S16;
+        else if (pDevice->playback.format == ma_format_s24)
+            activeIntFormat = AE_FORMAT_S24;
+        else if (pDevice->playback.format == ma_format_s32)
+            activeIntFormat = AE_FORMAT_S32;
+        else if (pDevice->playback.format == ma_format_u8)
+            activeIntFormat = AE_FORMAT_U8;
+    }
+
+    const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
+    int effectiveDither = ditherVal;
+
+    // In integer exclusive modes (int16/int24), if volume is attenuated / non-unity,
+    // ensure TPDF dither is active so low-volume listening doesn't quantize badly.
+    if (effectiveDither == 0 && activeIntFormat != AE_FORMAT_F32)
+    {
+        const bool isIntExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                    (activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24);
+        const bool isVolumeAttenuated = std::fabs(e->paramUserGain.current - 1.0f) > 1e-4f ||
+                                       std::fabs(e->gain.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                       (e->replayGainLinear.load(std::memory_order_relaxed) != 1.0f);
+        if (isIntExclusive && isVolumeAttenuated)
+        {
+            effectiveDither = 2; // Mode 2: Triangle (TPDF 2.0 LSB p-p)
+        }
+    }
+
+    if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
+    {
+        e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels);
     }
 
     if (pDevice->playback.format == ma_format_s16)
@@ -7755,6 +7971,35 @@ extern "C"
             return;
         std::lock_guard<std::mutex> fx(engine->fxMutex);
         engine->limiter.updateParams(engine->sampleRate, threshold, attack_ms, release_ms);
+    }
+
+    // Dynamic Range Compressor
+    AE_API void ae_set_compressor_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine)
+            return;
+        engine->compressorEnabled = (enabled != 0);
+    }
+
+    // detector: 0 = peak, 1 = RMS. stereo_link: 1 = linked, 0 = dual mono.
+    // auto_makeup: derive makeup from threshold/ratio (overrides makeup_gain_db).
+    // mix: 0 = dry, 1 = fully compressed.
+    AE_API void ae_set_compressor_params(AudioEngineHandle *engine, float threshold_db, float ratio,
+                                         float knee_db, float attack_ms, float release_ms,
+                                         float makeup_gain_db, int detector, int stereo_link,
+                                         int auto_makeup, float mix)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> fx(engine->fxMutex);
+        engine->compressor.updateParams(engine->sampleRate, engine->channels, threshold_db, ratio,
+                                        knee_db, attack_ms, release_ms, makeup_gain_db,
+                                        detector, stereo_link, auto_makeup, mix);
+    }
+
+    AE_API float ae_get_compressor_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        return engine ? engine->compressor.currentGainReductionDB.load(std::memory_order_relaxed) : 0.0f;
     }
 
     AE_API void ae_set_clipping_detection_enabled(AudioEngineHandle *engine, int enabled)

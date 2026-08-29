@@ -1097,6 +1097,41 @@ typedef _SetLimiterParamsNative = ffi.Void Function(
 typedef _SetLimiterParamsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
+// Dynamic Range Compressor
+typedef _SetCompressorEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetCompressorEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _SetCompressorParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Float);
+typedef _SetCompressorParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    int,
+    int,
+    int,
+    double);
+
+typedef _GetCompressorGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetCompressorGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
 typedef _SetClippingDetectionEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetClippingDetectionEnabledDart = void Function(
@@ -1878,6 +1913,18 @@ class AudioEngineFFI {
     _setLimiterParams =
         _lib.lookupFunction<_SetLimiterParamsNative, _SetLimiterParamsDart>(
             'ae_set_limiter_params');
+
+    // Dynamic Range Compressor
+    _setCompressorEnabled =
+        _lib.lookupFunction<_SetCompressorEnabledNative, _SetCompressorEnabledDart>(
+            'ae_set_compressor_enabled');
+    _setCompressorParams =
+        _lib.lookupFunction<_SetCompressorParamsNative, _SetCompressorParamsDart>(
+            'ae_set_compressor_params');
+    _getCompressorGainReductionDb = _lib.lookupFunction<
+        _GetCompressorGainReductionDbNative,
+        _GetCompressorGainReductionDbDart>('ae_get_compressor_gain_reduction_db');
+
     _setClippingDetectionEnabled = _lib.lookupFunction<
         _SetClippingDetectionEnabledNative,
         _SetClippingDetectionEnabledDart>('ae_set_clipping_detection_enabled');
@@ -2203,6 +2250,10 @@ class AudioEngineFFI {
   // Limiter & Clipping Detection
   late final _SetLimiterEnabledDart _setLimiterEnabled;
   late final _SetLimiterParamsDart _setLimiterParams;
+
+  late final _SetCompressorEnabledDart _setCompressorEnabled;
+  late final _SetCompressorParamsDart _setCompressorParams;
+  late final _GetCompressorGainReductionDbDart _getCompressorGainReductionDb;
   late final _SetClippingDetectionEnabledDart _setClippingDetectionEnabled;
   late final _GetClippedSamplesCountDart _getClippedSamplesCount;
   late final _ResetClippedSamplesCountDart _resetClippedSamplesCount;
@@ -3532,6 +3583,50 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setLimiterParams(_engine, threshold, attackMs, releaseMs);
+  }
+
+  // ── Dynamic Range Compressor ──────────────────────────────────────────────
+
+  /// Enable or disable the compressor in the audio chain.
+  void setCompressorEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setCompressorEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  /// Configure the compressor parameters.
+  ///
+  /// [thresholdDb]  – level where compression starts in dB (-60 – 0, default -20).
+  /// [ratio]        – compression ratio 1:1 – 20:1 (default 4).
+  /// [kneeDb]       – soft knee width in dB (0 – 24, default 6).
+  /// [attackMs]     – attack time in ms (0.1 – 100, default 10).
+  /// [releaseMs]    – release time in ms (10 – 1000, default 100).
+  /// [makeupGainDb] – static make-up gain in dB (0 – 24, default 0).
+  /// [detector]     – 0 = peak, 1 = RMS (default peak).
+  /// [stereoLink]   – true = linked stereo gain, false = dual mono.
+  /// [autoMakeup]   – derive make-up gain from threshold/ratio.
+  /// [mix]          – dry/wet mix 0.0 – 1.0 (default 1.0 = fully compressed).
+  void setCompressorParams({
+    double thresholdDb = -20.0,
+    double ratio = 4.0,
+    double kneeDb = 6.0,
+    double attackMs = 10.0,
+    double releaseMs = 100.0,
+    double makeupGainDb = 0.0,
+    int detector = 0,
+    bool stereoLink = true,
+    bool autoMakeup = false,
+    double mix = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setCompressorParams(_engine, thresholdDb, ratio, kneeDb, attackMs,
+        releaseMs, makeupGainDb, detector, stereoLink ? 1 : 0,
+        autoMakeup ? 1 : 0, mix);
+  }
+
+  /// Current gain reduction applied by the compressor in dB.
+  double getCompressorGainReductionDB() {
+    if (_engine == ffi.nullptr) return 0.0;
+    return _getCompressorGainReductionDb(_engine);
   }
 
   /// Enable or disable clipping detection.

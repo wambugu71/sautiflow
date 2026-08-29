@@ -163,6 +163,135 @@ static void test_telemetry_fields()
     ae_destroy_engine(e);
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic Range Compressor end-to-end: plays a loud sine through the public
+// API and verifies the GR meter reports real compression, then verifies unity
+// gain when the material sits below the threshold.
+// ---------------------------------------------------------------------------
+static bool write_test_wav(const char *path, int sampleRate, int seconds, float amplitude)
+{
+    const int frames = sampleRate * seconds;
+    std::vector<int16_t> pcm((size_t)frames * 2);
+    for (int i = 0; i < frames; ++i)
+    {
+        const float s = amplitude * std::sin(2.0f * 3.14159265358979f * 440.0f * (float)i / (float)sampleRate);
+        const auto v = (int16_t)std::lround(s * 32767.0f);
+        pcm[(size_t)2 * i] = v;
+        pcm[(size_t)2 * i + 1] = v;
+    }
+
+#pragma pack(push, 1)
+    struct WavHeader
+    {
+        char riff[4];
+        uint32_t riffSize;
+        char wave[4];
+        char fmtId[4];
+        uint32_t fmtSize;
+        uint16_t audioFormat;
+        uint16_t channels;
+        uint32_t sampleRate;
+        uint32_t byteRate;
+        uint16_t blockAlign;
+        uint16_t bitsPerSample;
+        char dataId[4];
+        uint32_t dataBytes;
+    };
+#pragma pack(pop)
+
+    const uint32_t dataBytes = (uint32_t)pcm.size() * sizeof(int16_t);
+    WavHeader h{};
+    std::memcpy(h.riff, "RIFF", 4);
+    h.riffSize = 36 + dataBytes;
+    std::memcpy(h.wave, "WAVE", 4);
+    std::memcpy(h.fmtId, "fmt ", 4);
+    h.fmtSize = 16;
+    h.audioFormat = 1; // PCM
+    h.channels = 2;
+    h.sampleRate = (uint32_t)sampleRate;
+    h.byteRate = (uint32_t)sampleRate * 2 * sizeof(int16_t);
+    h.blockAlign = 2 * sizeof(int16_t);
+    h.bitsPerSample = 16;
+    std::memcpy(h.dataId, "data", 4);
+    h.dataBytes = dataBytes;
+
+    FILE *f = std::fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(&h, sizeof(h), 1, f) == 1 &&
+                    std::fwrite(pcm.data(), 1, dataBytes, f) == dataBytes;
+    std::fclose(f);
+    return ok;
+}
+
+static void test_compressor_gain_reduction()
+{
+    std::printf("\n== Dynamic Range Compressor end-to-end ==\n");
+
+    const char *wavPath = "compressor_test_tone.wav";
+    // 0.9 amplitude sine ~= -0.9 dBFS
+    CHECK(write_test_wav(wavPath, 44100, 1, 0.9f), "test WAV written");
+
+    AudioEngineHandle *e = ae_create_engine(44100, 2);
+    CHECK(e != nullptr, "engine created");
+    if (!e) { std::remove(wavPath); return; }
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    ae_set_loop_mode(e, 2 /* loop one: continuous audio for both phases */);
+
+    // Extreme settings: threshold -60 dB, ratio 20:1, hard knee, fast attack.
+    // Expected steady-state GR for a -0.9 dB input: ~-56 dB.
+    ae_set_compressor_params(e, -60.0f, 20.0f, 0.0f, 0.5f, 100.0f, 0.0f, 0, 1, 0, 1.0f);
+    ae_set_compressor_enabled(e, 1);
+    CHECK(ae_play(e), "playback started");
+
+    // Phase 1: compression engages on the loud tone. Gate on real playback
+    // progress, not just is_playing, because preload can precede audio flow.
+    float minGR = 0.0f;
+    bool tripped = false;
+    const auto deadline = Clock::now() + std::chrono::seconds(10);
+    while (Clock::now() < deadline)
+    {
+        const PlayerStatus st = ae_get_status(e);
+        if (st.is_playing && st.position_seconds > 0.03)
+        {
+            const float gr = ae_get_compressor_gain_reduction_db(e);
+            if (gr < minGR) minGR = gr;
+            if (minGR < -20.0f) { tripped = true; break; }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    char msg[160];
+    std::snprintf(msg, sizeof(msg), "loud tone compressed (min GR %.1f dB < -20 dB)", minGR);
+    CHECK(tripped, msg);
+
+    // Phase 2: same playback, threshold at the ceiling -> GR must return to
+    // unity. Catching the *return* proves the GR meter tracks live state.
+    ae_set_compressor_params(e, 0.0f, 20.0f, 0.0f, 0.5f, 100.0f, 0.0f, 0, 1, 0, 1.0f);
+    float maxGR = -999.0f;
+    bool restored = false;
+    const auto deadline2 = Clock::now() + std::chrono::seconds(10);
+    while (Clock::now() < deadline2)
+    {
+        const PlayerStatus st = ae_get_status(e);
+        if (st.is_playing && st.position_seconds > 0.03)
+        {
+            const float gr = ae_get_compressor_gain_reduction_db(e);
+            if (gr > maxGR) maxGR = gr;
+            if (maxGR > -1.0f) { restored = true; break; }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::snprintf(msg, sizeof(msg), "below-threshold tone passes unity (GR %.1f dB > -1 dB)", maxGR);
+    CHECK(restored, msg);
+
+    ae_stop(e);
+    ae_set_compressor_enabled(e, 0);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
+
 int main()
 {
     std::printf("==============================================\n");
@@ -174,6 +303,7 @@ int main()
     test_end_callback_race();
     test_push_stream_abort();
     test_telemetry_fields();
+    test_compressor_gain_reduction();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

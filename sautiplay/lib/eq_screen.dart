@@ -142,6 +142,23 @@ class EqScreen extends StatefulWidget {
       outputGainDb: limiterOutputGainDb,
       releaseMs: limiterReleaseMs,
     );
+
+    final compressor = await AppStateService.instance.loadCompressor();
+    player.setCompressorEnabled(compressor.enabled);
+    if (compressor.enabled) {
+      player.setCompressorParams(
+        thresholdDb: compressor.thresholdDb,
+        ratio: compressor.ratio,
+        kneeDb: compressor.kneeDb,
+        attackMs: compressor.attackMs,
+        releaseMs: compressor.releaseMs,
+        makeupGainDb: compressor.makeupGainDb,
+        detector: compressor.detector,
+        stereoLink: compressor.stereoLink,
+        autoMakeup: compressor.autoMakeup,
+        mix: compressor.mix,
+      );
+    }
   }
 
   @override
@@ -403,6 +420,129 @@ class _EqScreenState extends State<EqScreen>
   double _limiterAttackMs = 2.0; // 0.1 – 100 ms
   double _limiterReleaseMs = 50.0; // 10 – 1000 ms
 
+  // Dynamic Range Compressor
+  static const List<
+      ({
+        String name,
+        double thresholdDb,
+        double ratio,
+        double kneeDb,
+        double attackMs,
+        double releaseMs,
+        double makeupGainDb,
+        int detector,
+        bool stereoLink,
+        bool autoMakeup,
+        double mix,
+      })> _compressorPresets = [
+    (
+      name: 'Custom',
+      thresholdDb: -20.0,
+      ratio: 4.0,
+      kneeDb: 6.0,
+      attackMs: 10.0,
+      releaseMs: 100.0,
+      makeupGainDb: 0.0,
+      detector: 0,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Vocal Punch',
+      thresholdDb: -18.0,
+      ratio: 3.5,
+      kneeDb: 4.0,
+      attackMs: 15.0,
+      releaseMs: 80.0,
+      makeupGainDb: 2.0,
+      detector: 1,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Master Glue',
+      thresholdDb: -12.0,
+      ratio: 2.0,
+      kneeDb: 6.0,
+      attackMs: 30.0,
+      releaseMs: 120.0,
+      makeupGainDb: 1.0,
+      detector: 1,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Drum Tamer',
+      thresholdDb: -16.0,
+      ratio: 6.0,
+      kneeDb: 2.0,
+      attackMs: 5.0,
+      releaseMs: 50.0,
+      makeupGainDb: 3.0,
+      detector: 0,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Gentle Leveler',
+      thresholdDb: -24.0,
+      ratio: 2.5,
+      kneeDb: 8.0,
+      attackMs: 40.0,
+      releaseMs: 250.0,
+      makeupGainDb: 3.5,
+      detector: 1,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Bass Control',
+      thresholdDb: -20.0,
+      ratio: 4.0,
+      kneeDb: 5.0,
+      attackMs: 20.0,
+      releaseMs: 150.0,
+      makeupGainDb: 2.5,
+      detector: 1,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+    (
+      name: 'Hard Slam',
+      thresholdDb: -28.0,
+      ratio: 12.0,
+      kneeDb: 1.0,
+      attackMs: 1.0,
+      releaseMs: 40.0,
+      makeupGainDb: 6.0,
+      detector: 0,
+      stereoLink: true,
+      autoMakeup: false,
+      mix: 1.0,
+    ),
+  ];
+
+  String _compressorPreset = 'Custom';
+  bool _compressorEnabled = false;
+  double _compressorThresholdDb = -20.0;
+  double _compressorRatio = 4.0;
+  double _compressorKneeDb = 6.0;
+  double _compressorAttackMs = 10.0;
+  double _compressorReleaseMs = 100.0;
+  double _compressorMakeupGainDb = 0.0;
+  int _compressorDetector = 0; // 0=Peak, 1=RMS
+  bool _compressorStereoLink = true;
+  bool _compressorAutoMakeup = false;
+  double _compressorMix = 1.0;
+  double _compressorGainReductionDb = 0.0;
+  Timer? _compressorMeterTimer;
+
   // ── Sauti DSP Suite States ──
   // 1. Audio Clarity
   bool _clarityEnabled = false;
@@ -499,10 +639,38 @@ class _EqScreenState extends State<EqScreen>
       }
     });
 
+    _compressorMeterTimer =
+        Timer.periodic(const Duration(milliseconds: 60), (_) async {
+      if (!mounted) return;
+      if (_compressorEnabled && _isPlaying) {
+        final gr = await widget.player.getCompressorGainReductionDB();
+        if (mounted && (_compressorGainReductionDb - gr).abs() > 0.05) {
+          setState(() {
+            _compressorGainReductionDb = gr;
+          });
+        }
+      } else if (_compressorGainReductionDb != 0.0) {
+        if (mounted) {
+          setState(() {
+            _compressorGainReductionDb = 0.0;
+          });
+        }
+      }
+    });
+
     _eqSettingsSub =
         AppStateService.instance.eqSettingsChanged.stream.listen((_) {
       if (mounted) _loadPreferences();
     });
+  }
+
+  @override
+  void dispose() {
+    _compressorMeterTimer?.cancel();
+    _statusSub?.cancel();
+    _eqSettingsSub?.cancel();
+    _hrirDropdownController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPreferences() async {
@@ -521,6 +689,7 @@ class _EqScreenState extends State<EqScreen>
     final raceParams = await AppStateService.instance.loadRaceParams();
     final tuning = await AppStateService.instance.loadAudioTuning();
     final limiter = await AppStateService.instance.loadLimiter();
+    final compressor = await AppStateService.instance.loadCompressor();
 
     setState(() {
       _showWarningBanner = !hideBanner;
@@ -585,6 +754,19 @@ class _EqScreenState extends State<EqScreen>
       _limiterThreshold = limiter.threshold;
       _limiterAttackMs = limiter.attackMs;
       _limiterReleaseMs = limiter.releaseMs;
+
+      // Compressor
+      _compressorEnabled = compressor.enabled;
+      _compressorThresholdDb = compressor.thresholdDb;
+      _compressorRatio = compressor.ratio;
+      _compressorKneeDb = compressor.kneeDb;
+      _compressorAttackMs = compressor.attackMs;
+      _compressorReleaseMs = compressor.releaseMs;
+      _compressorMakeupGainDb = compressor.makeupGainDb;
+      _compressorDetector = compressor.detector;
+      _compressorStereoLink = compressor.stereoLink;
+      _compressorAutoMakeup = compressor.autoMakeup;
+      _compressorMix = compressor.mix;
     });
 
     // Load Sauti DSP Suite state
@@ -692,6 +874,9 @@ class _EqScreenState extends State<EqScreen>
     }
     if (_limiterEnabled) {
       _applyLimiter();
+    }
+    if (_compressorEnabled) {
+      _updateCompressor();
     }
 
     // Apply Sauti DSP suite
@@ -893,6 +1078,19 @@ class _EqScreenState extends State<EqScreen>
       threshold: _limiterThreshold,
       attackMs: _limiterAttackMs,
       releaseMs: _limiterReleaseMs,
+    );
+    AppStateService.instance.saveCompressor(
+      enabled: _compressorEnabled,
+      thresholdDb: _compressorThresholdDb,
+      ratio: _compressorRatio,
+      kneeDb: _compressorKneeDb,
+      attackMs: _compressorAttackMs,
+      releaseMs: _compressorReleaseMs,
+      makeupGainDb: _compressorMakeupGainDb,
+      detector: _compressorDetector,
+      stereoLink: _compressorStereoLink,
+      autoMakeup: _compressorAutoMakeup,
+      mix: _compressorMix,
     );
 
     // Save Sauti DSP Suite state
@@ -2160,10 +2358,18 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 2,
+                  itemCount: 3,
                   onTap: (index) {
                     switch (index) {
                       case 0:
+                        _openDetailScreen(
+                          'Dynamic Compressor',
+                          Icons.tune_rounded,
+                          (_) => _buildCompressorSection(),
+                          shape: Shapes.burst,
+                        );
+                        break;
+                      case 1:
                         _openDetailScreen(
                           'Master Peak Limiter',
                           Icons.shield_rounded,
@@ -2171,7 +2377,7 @@ class _EqScreenState extends State<EqScreen>
                           shape: Shapes.square,
                         );
                         break;
-                      case 1:
+                      case 2:
                         _openDetailScreen(
                           'Soft Anti-Clipping Limiter',
                           Icons.compress_rounded,
@@ -2183,6 +2389,28 @@ class _EqScreenState extends State<EqScreen>
                   },
                   itemBuilder: (context, index) {
                     if (index == 0) {
+                      return _buildEffectTileCard(
+                        icon: Icons.tune_rounded,
+                        shape: Shapes.burst,
+                        title: 'Dynamic Compressor',
+                        subtitle: _compressorEnabled
+                            ? '$_compressorPreset · ${_compressorThresholdDb.toInt()} dB / ${_compressorRatio.toStringAsFixed(1)}:1'
+                            : 'Disabled',
+                        isEnabled: _compressorEnabled,
+                        onToggle: (v) {
+                          setState(() => _compressorEnabled = v);
+                          _updateCompressor();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Dynamic Compressor',
+                          Icons.tune_rounded,
+                          (_) => _buildCompressorSection(),
+                          shape: Shapes.burst,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
                       return _buildEffectTileCard(
                         icon: Icons.shield_rounded,
                         shape: Shapes.square,
@@ -4765,6 +4993,519 @@ class _EqScreenState extends State<EqScreen>
                   : (_) {},
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  void _updateCompressor() {
+    widget.player.setCompressorEnabled(_compressorEnabled);
+    if (_compressorEnabled) {
+      widget.player.setCompressorParams(
+        thresholdDb: _compressorThresholdDb,
+        ratio: _compressorRatio,
+        kneeDb: _compressorKneeDb,
+        attackMs: _compressorAttackMs,
+        releaseMs: _compressorReleaseMs,
+        makeupGainDb: _compressorMakeupGainDb,
+        detector: _compressorDetector,
+        stereoLink: _compressorStereoLink,
+        autoMakeup: _compressorAutoMakeup,
+        mix: _compressorMix,
+      );
+    }
+  }
+
+  void _applyCompressorPreset(String name) {
+    final preset = _compressorPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _compressorPresets.first,
+    );
+    setState(() {
+      _compressorPreset = preset.name;
+      _compressorThresholdDb = preset.thresholdDb;
+      _compressorRatio = preset.ratio;
+      _compressorKneeDb = preset.kneeDb;
+      _compressorAttackMs = preset.attackMs;
+      _compressorReleaseMs = preset.releaseMs;
+      _compressorMakeupGainDb = preset.makeupGainDb;
+      _compressorDetector = preset.detector;
+      _compressorStereoLink = preset.stereoLink;
+      _compressorAutoMakeup = preset.autoMakeup;
+      _compressorMix = preset.mix;
+    });
+    if (_compressorEnabled) _updateCompressor();
+    _saveEqState();
+  }
+
+  Widget _buildCompressorSection() {
+    const compColor = Color(0xFF00E5FF);
+    final grDb = _compressorGainReductionDb.abs();
+    // Normalize GR to 0.0 .. 1.0 (range: 0 dB to 24 dB)
+    final grFraction = (grDb / 24.0).clamp(0.0, 1.0);
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.tune_rounded, color: compColor, size: 20),
+      ),
+      title: 'Dynamic Compressor',
+      subtitle: 'Soft-knee dynamics, peak/RMS detector & gain reduction',
+      isEnabled: _compressorEnabled,
+      onToggle: (v) {
+        setState(() => _compressorEnabled = v);
+        _updateCompressor();
+        _saveEqState();
+      },
+      children: [
+        // Live Gain Reduction Meter
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: compColor.withValues(
+                  alpha: _compressorEnabled ? 0.35 : 0.1),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _compressorEnabled && grDb > 0.1
+                              ? compColor
+                              : Colors.white24,
+                          boxShadow: _compressorEnabled && grDb > 0.1
+                              ? [
+                                  BoxShadow(
+                                    color: compColor.withValues(alpha: 0.6),
+                                    blurRadius: 6,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'GAIN REDUCTION',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    _compressorEnabled
+                        ? (grDb > 0.05
+                            ? '-${grDb.toStringAsFixed(1)} dB'
+                            : '0.0 dB')
+                        : 'OFF',
+                    style: TextStyle(
+                      color: _compressorEnabled && grDb > 0.1
+                          ? compColor
+                          : Colors.white38,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Meter Bar
+              Stack(
+                children: [
+                  // Track
+                  Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.white10,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  // Active GR Fill
+                  FractionallySizedBox(
+                    widthFactor: _compressorEnabled ? grFraction : 0.0,
+                    child: Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            compColor,
+                            Color(0xFFFF9100),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: compColor.withValues(alpha: 0.5),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // Scale Ticks
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('0',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                  Text('-3',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                  Text('-6',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                  Text('-12',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                  Text('-18',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                  Text('-24 dB',
+                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // Preset Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: _compressorPresets.map((preset) {
+              final isSelected = _compressorPreset == preset.name;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6.0),
+                child: M3EChip(
+                  label: preset.name,
+                  type: M3EChipType.filter,
+                  selected: isSelected,
+                  onPressed: () => _applyCompressorPreset(preset.name),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // Knobs Row 1: Threshold, Ratio, Makeup Gain
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'THRESHOLD',
+              value: _compressorThresholdDb,
+              min: -60.0,
+              max: 0.0,
+              flatValue: -20.0,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _compressorThresholdDb = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RATIO',
+              value: _compressorRatio,
+              min: 1.0,
+              max: 20.0,
+              flatValue: 4.0,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
+              onChanged: (v) {
+                setState(() {
+                  _compressorRatio = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAKEUP',
+              value: _compressorMakeupGainDb,
+              min: 0.0,
+              max: 24.0,
+              flatValue: 0.0,
+              activeColor: _compressorEnabled && !_compressorAutoMakeup
+                  ? compColor
+                  : Colors.white38,
+              valueFormatter: (v) => _compressorAutoMakeup
+                  ? 'AUTO'
+                  : '+${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                if (_compressorAutoMakeup) return;
+                setState(() {
+                  _compressorMakeupGainDb = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Knee, Attack, Release, Mix
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'KNEE',
+              value: _compressorKneeDb,
+              min: 0.0,
+              max: 24.0,
+              flatValue: 6.0,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _compressorKneeDb = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'ATTACK',
+              value: _compressorAttackMs,
+              min: 0.1,
+              max: 100.0,
+              flatValue: 10.0,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+              onChanged: (v) {
+                setState(() {
+                  _compressorAttackMs = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: _compressorReleaseMs,
+              min: 10.0,
+              max: 1000.0,
+              flatValue: 100.0,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() {
+                  _compressorReleaseMs = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MIX',
+              value: _compressorMix,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 1.0,
+              isPercentage: true,
+              activeColor: _compressorEnabled ? compColor : Colors.white38,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() {
+                  _compressorMix = v;
+                  _compressorPreset = 'Custom';
+                });
+                if (_compressorEnabled) _updateCompressor();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // Detector Mode Selector (Peak vs RMS) & Auto Makeup & Stereo Link
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Detector Mode',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Peak', style: TextStyle(fontSize: 12)),
+                        selected: _compressorDetector == 0,
+                        selectedColor: compColor.withValues(alpha: 0.3),
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() {
+                              _compressorDetector = 0;
+                              _compressorPreset = 'Custom';
+                            });
+                            if (_compressorEnabled) _updateCompressor();
+                            _saveEqState();
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('RMS', style: TextStyle(fontSize: 12)),
+                        selected: _compressorDetector == 1,
+                        selectedColor: compColor.withValues(alpha: 0.3),
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() {
+                              _compressorDetector = 1;
+                              _compressorPreset = 'Custom';
+                            });
+                            if (_compressorEnabled) _updateCompressor();
+                            _saveEqState();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white10, height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Auto Makeup Gain',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'Compensate volume based on threshold & ratio',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                  M3ESwitch(
+                    selectedIcon: Icon(Icons.check, color: primaryColor),
+                    value: _compressorAutoMakeup,
+                    onChanged: (v) {
+                      setState(() {
+                        _compressorAutoMakeup = v;
+                        _compressorPreset = 'Custom';
+                      });
+                      if (_compressorEnabled) _updateCompressor();
+                      _saveEqState();
+                    },
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white10, height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Stereo Link',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'Link L/R channels to prevent stereo image shifting',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                  M3ESwitch(
+                    selectedIcon: Icon(Icons.check, color: primaryColor),
+                    value: _compressorStereoLink,
+                    onChanged: (v) {
+                      setState(() {
+                        _compressorStereoLink = v;
+                        _compressorPreset = 'Custom';
+                      });
+                      if (_compressorEnabled) _updateCompressor();
+                      _saveEqState();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0x1A00E5FF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x4000E5FF)),
+            ),
+            child: Text(
+              'RMS mode: smooth musical leveling · Peak mode: aggressive punch & transient capture',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.65),
+                fontSize: 11,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ),
       ],
     );

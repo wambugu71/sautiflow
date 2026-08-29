@@ -570,6 +570,76 @@ class AppStateService {
     );
   }
 
+  // ─── EQ – Dynamic Range Compressor ─────────────────────────────────────────
+  static const _kCompressorEnabled = 'sp_compressor_enabled';
+  static const _kCompressorThreshold = 'sp_compressor_threshold_db';
+  static const _kCompressorRatio = 'sp_compressor_ratio';
+  static const _kCompressorKnee = 'sp_compressor_knee_db';
+  static const _kCompressorAttack = 'sp_compressor_attack_ms';
+  static const _kCompressorRelease = 'sp_compressor_release_ms';
+  static const _kCompressorMakeup = 'sp_compressor_makeup_db';
+  static const _kCompressorDetector = 'sp_compressor_detector';
+  static const _kCompressorStereoLink = 'sp_compressor_stereo_link';
+  static const _kCompressorAutoMakeup = 'sp_compressor_auto_makeup';
+  static const _kCompressorMix = 'sp_compressor_mix';
+
+  Future<void> saveCompressor({
+    required bool enabled,
+    required double thresholdDb,
+    required double ratio,
+    required double kneeDb,
+    required double attackMs,
+    required double releaseMs,
+    required double makeupGainDb,
+    required int detector,
+    required bool stereoLink,
+    required bool autoMakeup,
+    required double mix,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kCompressorEnabled, enabled);
+    await prefs.setDouble(_kCompressorThreshold, thresholdDb);
+    await prefs.setDouble(_kCompressorRatio, ratio);
+    await prefs.setDouble(_kCompressorKnee, kneeDb);
+    await prefs.setDouble(_kCompressorAttack, attackMs);
+    await prefs.setDouble(_kCompressorRelease, releaseMs);
+    await prefs.setDouble(_kCompressorMakeup, makeupGainDb);
+    await prefs.setInt(_kCompressorDetector, detector);
+    await prefs.setBool(_kCompressorStereoLink, stereoLink);
+    await prefs.setBool(_kCompressorAutoMakeup, autoMakeup);
+    await prefs.setDouble(_kCompressorMix, mix);
+  }
+
+  Future<
+      ({
+        bool enabled,
+        double thresholdDb,
+        double ratio,
+        double kneeDb,
+        double attackMs,
+        double releaseMs,
+        double makeupGainDb,
+        int detector,
+        bool stereoLink,
+        bool autoMakeup,
+        double mix,
+      })> loadCompressor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      enabled: prefs.getBool(_kCompressorEnabled) ?? false,
+      thresholdDb: prefs.getDouble(_kCompressorThreshold) ?? -20.0,
+      ratio: prefs.getDouble(_kCompressorRatio) ?? 4.0,
+      kneeDb: prefs.getDouble(_kCompressorKnee) ?? 6.0,
+      attackMs: prefs.getDouble(_kCompressorAttack) ?? 10.0,
+      releaseMs: prefs.getDouble(_kCompressorRelease) ?? 100.0,
+      makeupGainDb: prefs.getDouble(_kCompressorMakeup) ?? 0.0,
+      detector: prefs.getInt(_kCompressorDetector) ?? 0,
+      stereoLink: prefs.getBool(_kCompressorStereoLink) ?? true,
+      autoMakeup: prefs.getBool(_kCompressorAutoMakeup) ?? false,
+      mix: prefs.getDouble(_kCompressorMix) ?? 1.0,
+    );
+  }
+
   // ─── EQ – Parametric EQ ───────────────────────────────────────────────────
   static const _kParametricEqEnabled = 'sp_parametric_eq_enabled';
   static const _kParametricEqBands = 'sp_parametric_eq_bands'; // JSON list

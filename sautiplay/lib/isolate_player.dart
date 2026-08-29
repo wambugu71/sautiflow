@@ -383,6 +383,51 @@ class IsolateAudioPlayer {
 
   int _clippedSamplesCount = 0;
 
+  // --- Dynamic Range Compressor ---
+
+  void setCompressorEnabled(bool enabled) =>
+      _send({'cmd': 'setCompressorEnabled', 'enabled': enabled});
+
+  void setCompressorParams({
+    double thresholdDb = -20.0,
+    double ratio = 4.0,
+    double attackMs = 10.0,
+    double releaseMs = 100.0,
+    double makeupGainDb = 0.0,
+    double kneeDb = 6.0,
+    int detector = 0,
+    bool stereoLink = true,
+    bool autoMakeup = false,
+    double mix = 1.0,
+  }) =>
+      _send({
+        'cmd': 'setCompressorParams',
+        'thresholdDb': thresholdDb,
+        'ratio': ratio,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'makeupGainDb': makeupGainDb,
+        'kneeDb': kneeDb,
+        'detector': detector,
+        'stereoLink': stereoLink,
+        'autoMakeup': autoMakeup,
+        'mix': mix,
+      });
+
+  Future<double> getCompressorGainReductionDB() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getCompressorGainReductionDB',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      return 0.0;
+    }
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
   void setLimiterEnabled(bool enabled) =>
       _send({'cmd': 'setLimiterEnabled', 'enabled': enabled});
 
@@ -1894,6 +1939,35 @@ void _isolateEntry(_IsolateInitData initData) {
           player.pushStream(url: message['url']).catchError((e) {
             initData.sendPort.send('[log]PushStream Error: $e');
           });
+          break;
+        case 'setCompressorEnabled':
+          player.setCompressorEnabled(message['enabled'] == true);
+          break;
+        case 'setCompressorParams':
+          player.setCompressorParams(
+            thresholdDb:
+                (message['thresholdDb'] as num?)?.toDouble() ?? -20.0,
+            ratio: (message['ratio'] as num?)?.toDouble() ?? 4.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 10.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 100.0,
+            makeupGainDb:
+                (message['makeupGainDb'] as num?)?.toDouble() ?? 0.0,
+            kneeDb: (message['kneeDb'] as num?)?.toDouble() ?? 6.0,
+            detector: (message['detector'] as int?) ?? 0,
+            stereoLink: message['stereoLink'] != false,
+            autoMakeup: message['autoMakeup'] == true,
+            mix: (message['mix'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'getCompressorGainReductionDB':
+          final SendPort? replyTo = message['replyTo'] as SendPort?;
+          if (replyTo != null) {
+            try {
+              replyTo.send(player.getCompressorGainReductionDB());
+            } catch (e) {
+              replyTo.send({'error': e.toString()});
+            }
+          }
           break;
         case 'setLimiterEnabled':
           player.setLimiterEnabled(message['enabled'] == true);

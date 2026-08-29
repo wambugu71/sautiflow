@@ -124,6 +124,7 @@ class AudioProfileService {
     player.setCustomLpf1(enabled: false, cutoffHz: 500.0);
     player.setCustomHpf1(enabled: false, cutoffHz: 120.0);
     player.setLimiterEnabled(false);
+    player.setCompressorEnabled(false);
 
     // Reset & disable all Sauti DSP Suite modules directly in engine
     player.resetDsp();
@@ -162,6 +163,19 @@ class AudioProfileService {
       AppStateService.instance.saveCustomHpf(enabled: false, cutoff: 120.0),
       AppStateService.instance.saveLimiter(
           enabled: false, threshold: 0.95, attackMs: 2.0, releaseMs: 50.0),
+      AppStateService.instance.saveCompressor(
+        enabled: false,
+        thresholdDb: -20.0,
+        ratio: 4.0,
+        kneeDb: 6.0,
+        attackMs: 10.0,
+        releaseMs: 100.0,
+        makeupGainDb: 0.0,
+        detector: 0,
+        stereoLink: true,
+        autoMakeup: false,
+        mix: 1.0,
+      ),
     ]);
   }
 
@@ -338,6 +352,49 @@ class AudioProfileService {
           threshold: threshold,
           attackMs: attack,
           releaseMs: release,
+        );
+      }
+
+      if (dsp.containsKey('compressor')) {
+        final c = dsp['compressor'] as Map;
+        final enabled = c['enabled'] ?? false;
+        final thresholdDb = (c['thresholdDb'] as num?)?.toDouble() ?? -20.0;
+        final ratio = (c['ratio'] as num?)?.toDouble() ?? 4.0;
+        final kneeDb = (c['kneeDb'] as num?)?.toDouble() ?? 6.0;
+        final attackMs = (c['attackMs'] as num?)?.toDouble() ?? 10.0;
+        final releaseMs = (c['releaseMs'] as num?)?.toDouble() ?? 100.0;
+        final makeupGainDb = (c['makeupGainDb'] as num?)?.toDouble() ?? 0.0;
+        final detector = (c['detector'] as num?)?.toInt() ?? 0;
+        final stereoLink = c['stereoLink'] != false;
+        final autoMakeup = c['autoMakeup'] == true;
+        final mix = (c['mix'] as num?)?.toDouble() ?? 1.0;
+        player.setCompressorEnabled(enabled);
+        if (enabled) {
+          player.setCompressorParams(
+            thresholdDb: thresholdDb,
+            ratio: ratio,
+            kneeDb: kneeDb,
+            attackMs: attackMs,
+            releaseMs: releaseMs,
+            makeupGainDb: makeupGainDb,
+            detector: detector,
+            stereoLink: stereoLink,
+            autoMakeup: autoMakeup,
+            mix: mix,
+          );
+        }
+        await AppStateService.instance.saveCompressor(
+          enabled: enabled,
+          thresholdDb: thresholdDb,
+          ratio: ratio,
+          kneeDb: kneeDb,
+          attackMs: attackMs,
+          releaseMs: releaseMs,
+          makeupGainDb: makeupGainDb,
+          detector: detector,
+          stereoLink: stereoLink,
+          autoMakeup: autoMakeup,
+          mix: mix,
         );
       }
     }

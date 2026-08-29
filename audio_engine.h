@@ -317,6 +317,14 @@ extern "C"
     // Audio Limiter & Clipping Detection
     AE_API void ae_set_limiter_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms);
+
+    // Dynamic Range Compressor
+    // detector: 0 = peak, 1 = RMS. stereo_link: 1 = linked, 0 = dual mono.
+    // auto_makeup: derive makeup from threshold/ratio (overrides makeup_gain_db).
+    // mix: 0 = dry, 1 = fully compressed.
+    AE_API void ae_set_compressor_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_set_compressor_params(AudioEngineHandle *engine, float threshold_db, float ratio, float knee_db, float attack_ms, float release_ms, float makeup_gain_db, int detector, int stereo_link, int auto_makeup, float mix);
+    AE_API float ae_get_compressor_gain_reduction_db(AudioEngineHandle *engine);
     AE_API void ae_set_clipping_detection_enabled(AudioEngineHandle *engine, int enabled);
     AE_API uint64_t ae_get_clipped_samples_count(AudioEngineHandle *engine);
     AE_API void ae_reset_clipped_samples_count(AudioEngineHandle *engine);

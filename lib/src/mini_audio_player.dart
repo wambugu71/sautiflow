@@ -742,6 +742,53 @@ class MiniAudioPlayer {
   /// Reset the clipped-sample counter to zero.
   void resetClippedSamplesCount() => _engine.resetClippedSamplesCount();
 
+  // --- Dynamic Range Compressor ---
+
+  /// Enable or disable the compressor.
+  void setCompressorEnabled(bool enabled) =>
+      _engine.setCompressorEnabled(enabled);
+
+  /// Configure compressor parameters.
+  ///
+  /// [thresholdDb]  – level where compression starts in dB (-60 – 0, default -20).
+  /// [ratio]        – compression ratio 1:1 – 20:1 (default 4).
+  /// [kneeDb]       – soft knee width in dB (0 – 24, default 6).
+  /// [attackMs]     – attack time in ms (0.1 – 100, default 10).
+  /// [releaseMs]    – release time in ms (10 – 1000, default 100).
+  /// [makeupGainDb] – static make-up gain in dB (0 – 24, default 0).
+  /// [detector]     – 0 = peak, 1 = RMS (default peak).
+  /// [stereoLink]   – true = linked stereo gain, false = dual mono.
+  /// [autoMakeup]   – derive make-up gain from threshold/ratio.
+  /// [mix]          – dry/wet mix 0.0 – 1.0 (default 1.0 = fully compressed).
+  void setCompressorParams({
+    double thresholdDb = -20.0,
+    double ratio = 4.0,
+    double kneeDb = 6.0,
+    double attackMs = 10.0,
+    double releaseMs = 100.0,
+    double makeupGainDb = 0.0,
+    int detector = 0,
+    bool stereoLink = true,
+    bool autoMakeup = false,
+    double mix = 1.0,
+  }) =>
+      _engine.setCompressorParams(
+        thresholdDb: thresholdDb,
+        ratio: ratio,
+        kneeDb: kneeDb,
+        attackMs: attackMs,
+        releaseMs: releaseMs,
+        makeupGainDb: makeupGainDb,
+        detector: detector,
+        stereoLink: stereoLink,
+        autoMakeup: autoMakeup,
+        mix: mix,
+      );
+
+  /// Current gain reduction in dB applied by the compressor.
+  double getCompressorGainReductionDB() =>
+      _engine.getCompressorGainReductionDB();
+
   // ── Release 1 Quality Foundation API ────────────────────────────────────────
 
   /// Fetch live ITU-R BS.1770-4 / EBU R128 loudness metrics.
