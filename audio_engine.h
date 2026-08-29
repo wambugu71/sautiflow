@@ -586,6 +586,12 @@ extern "C"
     AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_analog_warmth_params(AudioEngineHandle *engine, int profile, float drive);
 
+    // Split-Band / Wideband De-Esser (0=SplitBand, 1=WideBand)
+    AE_API void ae_dsp_set_de_esser_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_de_esser_params(AudioEngineHandle *engine, int mode, float intensity);
+    AE_API void ae_dsp_set_de_esser_params_ex(AudioEngineHandle *engine, int mode, float frequency_hz, float threshold_db, float ratio, float max_reduction_db, float attack_ms, float release_ms);
+    AE_API float ae_dsp_get_de_esser_gain_reduction_db(AudioEngineHandle *engine);
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
 

@@ -53,6 +53,15 @@ enum AnalogWarmthProfile {
   const AnalogWarmthProfile(this.value);
 }
 
+/// De-Esser operating modes.
+enum DeEsserMode {
+  splitBand(0),
+  wideBand(1);
+
+  final int value;
+  const DeEsserMode(this.value);
+}
+
 /// Spatial Surround suite modes (see surround.md).
 enum SurroundMode {
   off(0),
@@ -83,6 +92,33 @@ typedef _DspSetDynamicSystemParamsDart = void Function(ffi.Pointer<ffi.Void>, in
 
 typedef _DspSetAnalogWarmthParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _DspSetAnalogWarmthParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+
+typedef _DspSetDeEsserParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetDeEsserParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+
+typedef _DspSetDeEsserParamsExNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float
+);
+typedef _DspSetDeEsserParamsExDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    int,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double
+);
+
+typedef _DspGetDeEsserGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetDeEsserGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _DspLoadConvolverIrNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32, ffi.Int32);
 typedef _DspLoadConvolverIrDart = int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int);
@@ -145,6 +181,11 @@ class SautiDsp {
   late final _DspSetEnabledDart _setAnalogWarmthEnabled;
   late final _DspSetAnalogWarmthParamsDart _setAnalogWarmthParams;
 
+  late final _DspSetEnabledDart _setDeEsserEnabled;
+  late final _DspSetDeEsserParamsDart _setDeEsserParams;
+  late final _DspSetDeEsserParamsExDart _setDeEsserParamsEx;
+  late final _DspGetDeEsserGainReductionDbDart _getDeEsserGainReductionDb;
+
   late final _DspSetEnabledDart _setConvolverEnabled;
   late final _DspLoadConvolverIrDart _loadConvolverIr;
   late final _DspClearConvolverIrDart _clearConvolverIr;
@@ -185,6 +226,11 @@ class SautiDsp {
 
     _setAnalogWarmthEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_analog_warmth_enabled');
     _setAnalogWarmthParams = _lib.lookupFunction<_DspSetAnalogWarmthParamsNative, _DspSetAnalogWarmthParamsDart>('ae_dsp_set_analog_warmth_params');
+
+    _setDeEsserEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_de_esser_enabled');
+    _setDeEsserParams = _lib.lookupFunction<_DspSetDeEsserParamsNative, _DspSetDeEsserParamsDart>('ae_dsp_set_de_esser_params');
+    _setDeEsserParamsEx = _lib.lookupFunction<_DspSetDeEsserParamsExNative, _DspSetDeEsserParamsExDart>('ae_dsp_set_de_esser_params_ex');
+    _getDeEsserGainReductionDb = _lib.lookupFunction<_DspGetDeEsserGainReductionDbNative, _DspGetDeEsserGainReductionDbDart>('ae_dsp_get_de_esser_gain_reduction_db');
 
     _setConvolverEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_convolver_enabled');
     _loadConvolverIr = _lib.lookupFunction<_DspLoadConvolverIrNative, _DspLoadConvolverIrDart>('ae_dsp_load_convolver_ir');
@@ -235,6 +281,48 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setAnalogWarmthEnabled(_enginePtr, enabled ? 1 : 0);
     _setAnalogWarmthParams(_enginePtr, profile.value, drive);
+  }
+
+  /// Split-Band / Wideband De-Esser.
+  void setDeEsser({
+    required bool enabled,
+    DeEsserMode mode = DeEsserMode.splitBand,
+    double intensity = 0.5,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDeEsserEnabled(_enginePtr, enabled ? 1 : 0);
+    _setDeEsserParams(_enginePtr, mode.value, intensity);
+  }
+
+  /// Full manual parameter tuning for De-Esser.
+  void setDeEsserEx({
+    required bool enabled,
+    DeEsserMode mode = DeEsserMode.splitBand,
+    double frequencyHz = 5500.0,
+    double thresholdDb = -22.0,
+    double ratio = 4.0,
+    double maxReductionDb = 12.0,
+    double attackMs = 1.0,
+    double releaseMs = 35.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDeEsserEnabled(_enginePtr, enabled ? 1 : 0);
+    _setDeEsserParamsEx(
+      _enginePtr,
+      mode.value,
+      frequencyHz,
+      thresholdDb,
+      ratio,
+      maxReductionDb,
+      attackMs,
+      releaseMs,
+    );
+  }
+
+  /// Current real-time gain reduction of De-Esser in dB.
+  double get deEsserGainReductionDb {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getDeEsserGainReductionDb(_enginePtr);
   }
 
   /// Partitioned FFT Impulse Response Convolver.

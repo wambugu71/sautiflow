@@ -39,6 +39,7 @@
 #include "dsp/dynamic_bass_dsp.h"
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/analog_warmth_dsp.h"
+#include "dsp/de_esser_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/master_limiter_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
@@ -2880,6 +2881,7 @@ struct AudioEngineHandle
     sauti::dsp::HarmonicBassDSP harmonicBassDsp;
     sauti::dsp::DynamicSystemDSP dynamicSystemDsp;
     sauti::dsp::AnalogWarmthDSP analogWarmthDsp;
+    sauti::dsp::DeEsserDSP deEsserDsp;
     sauti::dsp::FFTConvolverDSP fftConvolverDsp;
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
@@ -3196,6 +3198,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->harmonicBassDsp.setSampleRate(srF);
     e->dynamicSystemDsp.setSampleRate(srF);
     e->analogWarmthDsp.setSampleRate(srF);
+    e->deEsserDsp.setSampleRate(srF);
     e->fftConvolverDsp.setSampleRate(srF);
     e->masterLimiterDsp.setSampleRate(srF);
     e->surroundDsp.setSampleRate(srF);
@@ -3298,6 +3301,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->harmonicBassDsp.setSampleRate(srF);
         e->dynamicSystemDsp.setSampleRate(srF);
         e->analogWarmthDsp.setSampleRate(srF);
+        e->deEsserDsp.setSampleRate(srF);
         e->fftConvolverDsp.setSampleRate(srF);
         e->masterLimiterDsp.setSampleRate(srF);
         e->surroundDsp.setSampleRate(srF);
@@ -5029,6 +5033,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     e->dynamicSystemDsp.process(processBuffer, produced);
                     e->analogWarmthDsp.process(processBuffer, produced);
                     e->clarityDsp.process(processBuffer, produced);
+                    e->deEsserDsp.process(processBuffer, produced);
                     if (e->channels == 2)
                     {
                         e->surroundDsp.process(processBuffer, produced);
@@ -8880,6 +8885,43 @@ extern "C"
         engine->analogWarmthDsp.setDrive(drive);
     }
 
+    // Split-Band / Wideband De-Esser
+    AE_API void ae_dsp_set_de_esser_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->deEsserDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_de_esser_params(AudioEngineHandle *engine, int mode, float intensity)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (mode < 0 || mode > 1) mode = 0;
+        engine->deEsserDsp.setMode(static_cast<sauti::dsp::DeEsserMode>(mode));
+        engine->deEsserDsp.setIntensity(intensity);
+    }
+
+    AE_API void ae_dsp_set_de_esser_params_ex(AudioEngineHandle *engine, int mode, float frequency_hz, float threshold_db, float ratio, float max_reduction_db, float attack_ms, float release_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (mode < 0 || mode > 1) mode = 0;
+        engine->deEsserDsp.setMode(static_cast<sauti::dsp::DeEsserMode>(mode));
+        engine->deEsserDsp.setFrequencyHz(frequency_hz);
+        engine->deEsserDsp.setThresholdDb(threshold_db);
+        engine->deEsserDsp.setRatio(ratio);
+        engine->deEsserDsp.setMaxReductionDb(max_reduction_db);
+        engine->deEsserDsp.setAttackMs(attack_ms);
+        engine->deEsserDsp.setReleaseMs(release_ms);
+    }
+
+    AE_API float ae_dsp_get_de_esser_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        return engine->deEsserDsp.getGainReductionDb();
+    }
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine)
     {
@@ -8889,6 +8931,7 @@ extern "C"
         engine->harmonicBassDsp.reset();
         engine->dynamicSystemDsp.reset();
         engine->analogWarmthDsp.reset();
+        engine->deEsserDsp.reset();
         engine->fftConvolverDsp.reset();
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();

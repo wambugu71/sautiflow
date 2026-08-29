@@ -26,6 +26,7 @@
 #include "dsp/clarity_dsp.h"
 #include "dsp/analog_warmth_dsp.h"
 #include "dsp/dynamic_system_dsp.h"
+#include "dsp/de_esser_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -501,6 +502,155 @@ static void test_oversampled_saturation()
     }
 }
 
+// -----------------------------------------------------------------------------
+// DeEsserDSP Unit Tests
+// -----------------------------------------------------------------------------
+static void test_de_esser_dsp()
+{
+    std::printf("\n== DeEsserDSP Split-Band & WideBand Verification ==\n");
+
+    // 1. Crossover perfect reconstruction at unity / inactive state
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(48000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setMode(sauti::dsp::DeEsserMode::SplitBand);
+        deEsser.setFrequencyHz(5500.0f);
+        deEsser.setIntensity(0.0f); // Inactive / 0dB reduction
+        deEsser.reset();
+
+        const uint32_t N = 2048;
+        std::vector<float> inBuf(2 * N, 0.0f);
+        std::vector<float> procBuf(2 * N, 0.0f);
+
+        for (uint32_t i = 0; i < N; ++i) {
+            float t = (float)i / 48000.0f;
+            float s = 0.2f * std::sin(2.0f * (float)M_PI * 100.0f * t)
+                    + 0.2f * std::sin(2.0f * (float)M_PI * 1000.0f * t)
+                    + 0.2f * std::sin(2.0f * (float)M_PI * 5500.0f * t)
+                    + 0.2f * std::sin(2.0f * (float)M_PI * 12000.0f * t);
+            inBuf[2 * i]     = s;
+            inBuf[2 * i + 1] = s;
+            procBuf[2 * i]   = s;
+            procBuf[2 * i + 1] = s;
+        }
+
+        // Settle anti-pop crossfader
+        deEsser.process(procBuf.data(), N);
+
+        // Process test block
+        for (size_t i = 0; i < inBuf.size(); ++i) procBuf[i] = inBuf[i];
+        deEsser.process(procBuf.data(), N);
+
+        float maxErr = 0.0f;
+        for (uint32_t i = 100; i < N; ++i) {
+            maxErr = std::max(maxErr, std::abs(procBuf[2 * i] - inBuf[2 * i]));
+            maxErr = std::max(maxErr, std::abs(procBuf[2 * i + 1] - inBuf[2 * i + 1]));
+        }
+
+        char msg[128];
+        std::snprintf(msg, sizeof(msg), "Split-band complementary flat sum max error = %.2e (want < 1e-4)", maxErr);
+        CHECK(maxErr < 1e-4f, msg);
+    }
+
+    // 2. Selective Sibilance Attenuation (SplitBand Mode)
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(48000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setMode(sauti::dsp::DeEsserMode::SplitBand);
+        deEsser.setFrequencyHz(6000.0f);
+        deEsser.setThresholdDb(-24.0f);
+        deEsser.setRatio(6.0f);
+        deEsser.setMaxReductionDb(12.0f);
+        deEsser.reset();
+
+        const uint32_t N = 2048;
+        // Case A: Continuous hot 6kHz sibilance stream (amplitude 0.6 => -4.4 dBFS)
+        std::vector<float> sibBuf(2 * N, 0.0f);
+        for (int k = 0; k < 5; ++k) {
+            for (uint32_t i = 0; i < N; ++i) {
+                float s = 0.6f * std::sin(2.0f * (float)M_PI * 6000.0f * (float)i / 48000.0f);
+                sibBuf[2 * i]     = s;
+                sibBuf[2 * i + 1] = s;
+            }
+            deEsser.process(sibBuf.data(), N);
+        }
+
+        float grDb = deEsser.getGainReductionDb();
+        char grMsg[128];
+        std::snprintf(grMsg, sizeof(grMsg), "DeEsser engages gain reduction on hot 6kHz sibilance (GR=%.1f dB, want > 3.0)", grDb);
+        CHECK(grDb > 3.0f, grMsg);
+
+        // Measure compressed amplitude of 6kHz tone
+        float maxSib = 0.0f;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            maxSib = std::max(maxSib, std::abs(sibBuf[2 * i]));
+        }
+        CHECK(maxSib < 0.45f, "Hot 6kHz sibilance is attenuated (< 0.45 from 0.60)");
+
+        // Case B: 200 Hz Low-frequency bass tone (SplitBand mode should NOT compress 200 Hz)
+        deEsser.reset();
+        std::vector<float> bassBuf(2 * N, 0.0f);
+        for (int k = 0; k < 5; ++k) {
+            for (uint32_t i = 0; i < N; ++i) {
+                float s = 0.6f * std::sin(2.0f * (float)M_PI * 200.0f * (float)i / 48000.0f);
+                bassBuf[2 * i]     = s;
+                bassBuf[2 * i + 1] = s;
+            }
+            deEsser.process(bassBuf.data(), N);
+        }
+
+        float maxBass = 0.0f;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            maxBass = std::max(maxBass, std::abs(bassBuf[2 * i]));
+        }
+        CHECK(nearlyEqual(maxBass, 0.6f, 0.05f), "SplitBand mode leaves low frequencies unattenuated (~0.60)");
+    }
+
+    // 3. WideBand Mode ducking
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(48000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setMode(sauti::dsp::DeEsserMode::WideBand);
+        deEsser.setThresholdDb(-20.0f);
+        deEsser.setRatio(4.0f);
+        deEsser.reset();
+
+        const uint32_t N = 2048;
+        std::vector<float> buf(2 * N, 0.0f);
+        for (int k = 0; k < 5; ++k) {
+            for (uint32_t i = 0; i < N; ++i) {
+                float s = 0.7f * std::sin(2.0f * (float)M_PI * 6000.0f * (float)i / 48000.0f);
+                buf[2 * i]     = s;
+                buf[2 * i + 1] = s;
+            }
+            deEsser.process(buf.data(), N);
+        }
+        CHECK(deEsser.getGainReductionDb() > 2.0f, "WideBand mode detects sibilance and attenuates");
+    }
+
+    // 4. Numerical Stability (No NaN/Inf on extreme inputs / sample rate change)
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(96000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setIntensity(1.0f);
+        deEsser.reset();
+
+        const uint32_t N = 1024;
+        std::vector<float> hotBuf(2 * N, 5.0f); // Hot 5.0 magnitude input
+        deEsser.process(hotBuf.data(), N);
+
+        bool hasNaN = false;
+        for (float val : hotBuf) {
+            if (std::isnan(val) || std::isinf(val)) hasNaN = true;
+        }
+        CHECK(!hasNaN, "DeEsserDSP contains no NaN/Inf with extreme input at 96kHz");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -508,7 +658,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -518,6 +668,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "clarity") test_clarity_presence_reconstruction();
     if (only.empty() || only == "dynsys") test_dynamic_system_cutoff_and_stability();
     if (only.empty() || only == "oversample") test_oversampled_saturation();
+    if (only.empty() || only == "deesser") test_de_esser_dsp();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

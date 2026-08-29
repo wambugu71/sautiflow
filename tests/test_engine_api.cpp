@@ -69,12 +69,17 @@ static void test_dsp_setters_smoke()
         ae_dsp_set_dynamic_system_params(e, i % 6, (i % 100) / 100.0f);
         ae_dsp_set_analog_warmth_enabled(e, i & 1);
         ae_dsp_set_analog_warmth_params(e, i % 3, (i % 100) / 100.0f);
+        ae_dsp_set_de_esser_enabled(e, i & 1);
+        ae_dsp_set_de_esser_params(e, i % 2, (i % 100) / 100.0f);
+        ae_dsp_set_de_esser_params_ex(e, i % 2, 5000.0f + (i % 2000), -20.0f, 4.0f, 12.0f, 1.0f, 35.0f);
         ae_dsp_set_master_limiter_enabled(e, 0); // stays opt-in
         if (i % 50 == 0) ae_dsp_reset(e);
     }
     CHECK(ok, "400+ concurrent-ish setter calls survived");
 
-    // Master limiter must be OFF by default -> zero reported gain reduction.
+    // De-Esser & Master limiter default checks
+    CHECK(ae_dsp_get_de_esser_gain_reduction_db(e) == 0.0f,
+          "de-esser inactive by default (GR = 0 dB)");
     CHECK(ae_dsp_get_limiter_gain_reduction_db(e) == 0.0f,
           "master limiter inactive by default (GR = 0 dB)");
 

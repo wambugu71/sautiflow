@@ -688,6 +688,40 @@ class IsolateAudioPlayer {
         'drive': drive,
       });
 
+  void setDeEsser({
+    required bool enabled,
+    DeEsserMode mode = DeEsserMode.splitBand,
+    double intensity = 0.5,
+  }) =>
+      _send({
+        'cmd': 'setDeEsser',
+        'enabled': enabled,
+        'mode': mode.value,
+        'intensity': intensity,
+      });
+
+  void setDeEsserEx({
+    required bool enabled,
+    DeEsserMode mode = DeEsserMode.splitBand,
+    double frequencyHz = 5500.0,
+    double thresholdDb = -22.0,
+    double ratio = 4.0,
+    double maxReductionDb = 12.0,
+    double attackMs = 1.0,
+    double releaseMs = 35.0,
+  }) =>
+      _send({
+        'cmd': 'setDeEsserEx',
+        'enabled': enabled,
+        'mode': mode.value,
+        'frequencyHz': frequencyHz,
+        'thresholdDb': thresholdDb,
+        'ratio': ratio,
+        'maxReductionDb': maxReductionDb,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+      });
+
   void setConvolverEnabled(bool enabled) =>
       _send({'cmd': 'setConvolverEnabled', 'enabled': enabled});
 
@@ -1924,6 +1958,32 @@ void _isolateEntry(_IsolateInitData initData) {
               orElse: () => AnalogWarmthProfile.triode12AX7,
             ),
             drive: (message['drive'] as num?)?.toDouble() ?? 0.5,
+          );
+          break;
+        case 'setDeEsser':
+          player.dsp.setDeEsser(
+            enabled: message['enabled'] == true,
+            mode: DeEsserMode.values.firstWhere(
+              (m) => m.value == message['mode'],
+              orElse: () => DeEsserMode.splitBand,
+            ),
+            intensity: (message['intensity'] as num?)?.toDouble() ?? 0.5,
+          );
+          break;
+        case 'setDeEsserEx':
+          player.dsp.setDeEsserEx(
+            enabled: message['enabled'] == true,
+            mode: DeEsserMode.values.firstWhere(
+              (m) => m.value == message['mode'],
+              orElse: () => DeEsserMode.splitBand,
+            ),
+            frequencyHz: (message['frequencyHz'] as num?)?.toDouble() ?? 5500.0,
+            thresholdDb: (message['thresholdDb'] as num?)?.toDouble() ?? -22.0,
+            ratio: (message['ratio'] as num?)?.toDouble() ?? 4.0,
+            maxReductionDb:
+                (message['maxReductionDb'] as num?)?.toDouble() ?? 12.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 1.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 35.0,
           );
           break;
         case 'setConvolverEnabled':
