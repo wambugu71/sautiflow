@@ -44,6 +44,8 @@
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/master_limiter_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
+#include "dsp/denormals.h"
+#include "dsp/subsonic_filter.h"
 
 #include <algorithm>
 #include <atomic>
@@ -641,6 +643,15 @@ namespace
         if (!backend || !backend->state || !pFrameCountIn || !pFrameCountOut)
             return MA_ERROR;
 
+        if (std::fabs(backend->ratio - 1.0f) < 1.0e-5f && pFramesIn != nullptr && pFramesOut != nullptr)
+        {
+            ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+            std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)backend->channels * sizeof(float));
+            *pFrameCountIn = toCopy;
+            *pFrameCountOut = toCopy;
+            return MA_SUCCESS;
+        }
+
         ma_uint64 inAvail = *pFrameCountIn;
         ma_uint64 outReq = *pFrameCountOut;
 
@@ -845,6 +856,15 @@ namespace
         SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
         if (!backend || !backend->handle || !pFrameCountIn || !pFrameCountOut)
             return MA_ERROR;
+
+        if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr)
+        {
+            ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+            std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)backend->channels * sizeof(float));
+            *pFrameCountIn = toCopy;
+            *pFrameCountOut = toCopy;
+            return MA_SUCCESS;
+        }
 
         ma_uint64 inAvail = *pFrameCountIn;
         ma_uint64 outReq = *pFrameCountOut;
@@ -3016,7 +3036,7 @@ struct AudioEngineHandle
     int eqBandCount = 0;
     std::mutex eqMutex; // Protect EQ config changes
 
-    int resampleAlgorithm = 0; // AE_RESAMPLE_ALGORITHM_LINEAR
+    int resampleAlgorithm = 8; // Default to AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE (mode 8)
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
@@ -3062,6 +3082,7 @@ struct AudioEngineHandle
     sauti::dsp::FFTConvolverDSP fftConvolverDsp;
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
+    sauti::dsp::SubsonicFilter subsonicFilter;
     std::mutex dspMutex;
 
     std::atomic<bool> analyzerEnabled{false};
@@ -3380,6 +3401,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->fftConvolverDsp.setSampleRate(srF);
     e->masterLimiterDsp.setSampleRate(srF);
     e->surroundDsp.setSampleRate(srF);
+    e->subsonicFilter.setSampleRate(srF);
 }
 
 static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
@@ -3484,6 +3506,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->fftConvolverDsp.setSampleRate(srF);
         e->masterLimiterDsp.setSampleRate(srF);
         e->surroundDsp.setSampleRate(srF);
+        e->subsonicFilter.setSampleRate(srF);
     }
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
@@ -4241,6 +4264,7 @@ static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &te
 
 static void decode_producer_loop(AudioEngineHandle *e)
 {
+    sauti::dsp::ScopedDenormalsDisable denormalsScope;
     std::vector<float> tempChunk;
     tempChunk.resize(4096 * 2);
 
@@ -4741,6 +4765,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     try
     {
+        sauti::dsp::ScopedDenormalsDisable denormalsScope;
         float *processBuffer = nullptr;
     ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
 
@@ -5151,6 +5176,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
 
+            // Subsonic DC / Infrasonic Rumble Clean-Room Filter (18 Hz Butterworth HPF)
+            e->subsonicFilter.process(processBuffer, produced, e->channels);
+
             if (e->crossfeedEnabled)
             {
                 // Preset 4 = RACE (legacy CrossfeedState), all other algorithms use CrossfeedNode
@@ -5460,18 +5488,10 @@ extern "C"
         cfg.pUserData = e;
         apply_buffer_policy(e, cfg);
 
-        if (e->resampleAlgorithm > 0)
-        { // >0 uses custom libsamplerate / libsoxr algorithm
-            cfg.resampling.algorithm = ma_resample_algorithm_custom;
-            cfg.resampling.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                             ? &g_soxrResamplerVTable
-                                             : &g_customResamplerVTable;
-            cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
-        }
-        else
-        {
-            cfg.resampling.algorithm = ma_resample_algorithm_linear;
-        }
+        // The OS hardware device handle uses standard miniaudio direct/linear fallback,
+        // while all internal track decoding & rate conversion use the high-precision
+        // SoXR VHQ Minimum Phase / Sinc engine (e->pitchResampler & e->deviceResampler).
+        cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
         if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
         {
@@ -7294,18 +7314,9 @@ extern "C"
             cfg.notificationCallback = device_notification_callback;
             cfg.pUserData = e;
 
-            if (e->resampleAlgorithm > 0)
-            {
-                cfg.resampling.algorithm = ma_resample_algorithm_custom;
-                cfg.resampling.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                                 ? &g_soxrResamplerVTable
-                                                 : &g_customResamplerVTable;
-                cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
-            }
-            else
-            {
-                cfg.resampling.algorithm = ma_resample_algorithm_linear;
-            }
+            // The hardware device uses standard linear fallback, while Sautiflow's
+            // internal engine resamplers use SoXR VHQ Minimum Phase (e->resampleAlgorithm).
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
             if (e->resampleAlgorithm == 1 /* Sinc Best Quality */ || e->resampleAlgorithm == 2 /* Sinc Medium Quality */)
             {
@@ -9243,6 +9254,7 @@ extern "C"
         engine->fftConvolverDsp.reset();
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();
+        engine->subsonicFilter.reset();
     }
 
     // Spatial Surround Suite

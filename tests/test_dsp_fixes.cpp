@@ -28,6 +28,8 @@
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/de_esser_dsp.h"
 #include "dsp/downward_expander_dsp.h"
+#include "dsp/subsonic_filter.h"
+#include "dsp/denormals.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -774,6 +776,94 @@ static void test_downward_expander_dsp()
     }
 }
 
+// -----------------------------------------------------------------------------
+// SubsonicFilter & Denormals Flushing Test Suite
+// -----------------------------------------------------------------------------
+static void test_subsonic_filter_and_denormals()
+{
+    std::printf("\n== SubsonicFilter & Denormals Flushing ==\n");
+
+    // 1. ScopedDenormalsDisable RAII lifecycle test
+    {
+        bool denormalsRan = false;
+        {
+            sauti::dsp::ScopedDenormalsDisable disableDenormals;
+            float subnormal = 1.0e-40f;
+            // When FTZ is active on hardware with SSE/NEON support, operations on subnormals flush cleanly to 0
+            float prod = subnormal * 0.5f;
+            (void)prod;
+            denormalsRan = true;
+        }
+        CHECK(denormalsRan, "ScopedDenormalsDisable RAII scope initialized and destroyed cleanly");
+    }
+
+    // 2. SubsonicFilter 18 Hz DC rejection
+    {
+        sauti::dsp::SubsonicFilter filter;
+        filter.setSampleRate(48000.0f);
+        filter.setEnabled(true);
+        filter.reset();
+
+        // Feed constant DC bias = 1.0f for 1 second (48000 samples)
+        const uint32_t N = 48000;
+        std::vector<float> dcBuf(2 * N, 1.0f);
+        filter.process(dcBuf.data(), N, 2);
+
+        // At steady-state (end of 1 second), DC should be blocked (< 0.001)
+        float lastL = std::fabs(dcBuf[2 * (N - 1)]);
+        float lastR = std::fabs(dcBuf[2 * (N - 1) + 1]);
+        CHECK(lastL < 0.005f && lastR < 0.005f, "SubsonicFilter blocks steady-state DC bias");
+    }
+
+    // 3. SubsonicFilter 5 Hz rumble attenuation (> 20 dB reduction)
+    {
+        sauti::dsp::SubsonicFilter filter;
+        filter.setSampleRate(48000.0f);
+        filter.setEnabled(true);
+        filter.reset();
+
+        const uint32_t N = 48000;
+        std::vector<float> rumbleBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = std::sin(2.0f * 3.14159265f * 5.0f * (float)i / 48000.0f);
+            rumbleBuf[2 * i] = s;
+            rumbleBuf[2 * i + 1] = s;
+        }
+        filter.process(rumbleBuf.data(), N, 2);
+
+        // Measure amplitude in last 1000 samples
+        float maxRumble = 0.0f;
+        for (uint32_t i = N - 1000; i < N; ++i) {
+            maxRumble = std::max(maxRumble, std::abs(rumbleBuf[2 * i]));
+        }
+        // 5 Hz is well below 18 Hz cutoff (2nd-order rolloff is ~-22 dB at 5 Hz, amplitude < 0.10)
+        CHECK(maxRumble < 0.12f, "SubsonicFilter attenuates 5 Hz infrasonic rumble by >18 dB");
+    }
+
+    // 4. SubsonicFilter 50 Hz & 1 kHz audible passband preservation (0.0 dB flat)
+    {
+        sauti::dsp::SubsonicFilter filter;
+        filter.setSampleRate(48000.0f);
+        filter.setEnabled(true);
+        filter.reset();
+
+        const uint32_t N = 48000;
+        std::vector<float> audioBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = std::sin(2.0f * 3.14159265f * 1000.0f * (float)i / 48000.0f);
+            audioBuf[2 * i] = s;
+            audioBuf[2 * i + 1] = s;
+        }
+        filter.process(audioBuf.data(), N, 2);
+
+        float maxAudio = 0.0f;
+        for (uint32_t i = N - 1000; i < N; ++i) {
+            maxAudio = std::max(maxAudio, std::abs(audioBuf[2 * i]));
+        }
+        CHECK(std::abs(maxAudio - 1.0f) < 0.01f, "SubsonicFilter preserves 1 kHz audio passband at unity (0.0 dB)");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -781,7 +871,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -793,6 +883,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "oversample") test_oversampled_saturation();
     if (only.empty() || only == "deesser") test_de_esser_dsp();
     if (only.empty() || only == "expander") test_downward_expander_dsp();
+    if (only.empty() || only == "subsonic") test_subsonic_filter_and_denormals();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

@@ -31,7 +31,21 @@ extern "C" {
 }
 #endif
 
+#include "dsp/denormals.h"
+
 namespace sautiflow {
+
+static void configure_audiophile_swr_opts(SwrContext* swrCtx) {
+    if (!swrCtx) return;
+    // Attempt SoXR engine if compiled in libswresample, fallback gracefully
+    av_opt_set_int(swrCtx, "resampler", 1 /* SWR_ENGINE_SOXR */, 0);
+    // 32-tap high-precision sinc filter
+    av_opt_set_int(swrCtx, "filter_size", 32, 0);
+    av_opt_set_double(swrCtx, "cutoff", 0.99, 0);
+    av_opt_set_int(swrCtx, "precision", 28, 0);
+    // Minimum phase to eliminate pre-ringing on transients
+    av_opt_set_int(swrCtx, "phase", 0, 0);
+}
 
 static std::atomic<FFmpegStreamSource*> g_activeStreamSource{nullptr};
 
@@ -322,6 +336,7 @@ void FFmpegStreamSource::update_icy_metadata() {
 }
 
 void FFmpegStreamSource::demux_and_decode_thread_func() {
+    sauti::dsp::ScopedDenormalsDisable denormalsScope;
     bool isNetwork = is_network_url(m_url.c_str());
     AVDictionary* opts = nullptr;
 
@@ -450,6 +465,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         av_channel_layout_uninit(&outLayout);
 
         if (ret >= 0 && m_swrCtx) {
+            configure_audiophile_swr_opts(m_swrCtx);
             swr_init(m_swrCtx);
             SF_LOG("[ffmpeg] Step 4/5 SUCCESS: Initial SwrContext configured (%d Hz -> %d Hz, %d ch)\n",
                    m_codecCtx->sample_rate, m_targetSampleRate, m_targetChannels);
@@ -589,7 +605,10 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                             nullptr
                         );
                         av_channel_layout_uninit(&outLayout);
-                        if (m_swrCtx) swr_init(m_swrCtx);
+                        if (m_swrCtx) {
+                            configure_audiophile_swr_opts(m_swrCtx);
+                            swr_init(m_swrCtx);
+                        }
                     }
 
                     if (!m_swrCtx) continue;
