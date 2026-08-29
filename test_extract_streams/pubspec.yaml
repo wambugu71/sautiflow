@@ -8,7 +8,7 @@ environment:
 
 dependencies:
   youtube_explode_dart:
-    path: ../sautiplay/dependencies/youtube_explode_dart
+    path: ../dependencies/youtube_explode_dart
   dart_ytmusic_api:
-    path: ../sautiplay/dependencies/dart_ytmusic_api
+    path: ../dependencies/dart_ytmusic_api
   http: ^1.2.0

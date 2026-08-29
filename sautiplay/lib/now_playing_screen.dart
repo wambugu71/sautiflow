@@ -4,18 +4,15 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
-import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_lyric/flutter_lyric.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
-import 'effects_screen.dart';
 import 'isolate_player.dart';
 import 'models/liked_song.dart';
 import 'queue_screen.dart';
@@ -25,6 +22,7 @@ import 'services/audio_file_inspector.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/fft_processor.dart';
 import 'services/liked_songs_service.dart';
+import 'services/lyrics_service.dart';
 import 'services/waveform_extractor_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
@@ -102,18 +100,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   StreamSubscription? _analyzerSub;
   FftProcessor? _fftProcessor;
 
-  final bool _showLyrics = false;
+  bool _showLyrics = false;
   String? _lyricsRaw;
   bool _isLoadingLyrics = false;
   bool _showLyricsOverlayOnAlbumArt = false;
   bool _isCustomLyricsLoaded = false;
   String? _customLyricsFileName;
+  int _lyricsRequestId = 0;
 
   // ── Live hardware specs (updates on route change) ─────────────────────────
   AudioHardwareSpecs? _hardwareSpecs;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
-  final LyricController _lyricController = LyricController();
-  final YTMusic _ytMusic = YTMusic();
 
   int _fileSizeBytes = 0;
   String _originalBitDepth = '';
@@ -164,7 +161,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     super.initState();
     _pageController = PageController(initialPage: 0);
     _isAnalyzerEnabled = widget.analyzerEnabled;
-    _ytMusic.initialize();
     _fetchLyrics();
     _fetchAudioProperties();
     _loadPlaybackSpeed();
@@ -282,6 +278,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _abPointAMs = null;
       _abPointBMs = null;
       widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
+
+      // Immediately clear previous song's lyrics so they don't linger
+      _isCustomLyricsLoaded = false;
+      _customLyricsFileName = null;
+      _lyricsRaw = null;
+      _isLoadingLyrics = true;
+      if (mounted) setState(() {});
+
+      _fetchLyrics();
+      _fetchAudioProperties();
+
       if (_useWaveformSeekBar) {
         _updateCurrentTrackWaveform();
       }
@@ -303,11 +310,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _isAnalyzerEnabled = widget.analyzerEnabled;
       _setupAnalyzer(_isAnalyzerEnabled);
     }
+    final currentIdx = widget.statusNotifier.value.currentIndex;
+    final oldTitle = oldWidget.getTitle(currentIdx);
+    final newTitle = widget.getTitle(currentIdx);
+
     if (oldWidget.videoId != widget.videoId ||
-        oldWidget.sourceType != widget.sourceType) {
+        oldWidget.sourceType != widget.sourceType ||
+        oldWidget.artist != widget.artist ||
+        oldTitle != newTitle) {
       _pendingSeekMs = null;
       _isDragging = false;
       _seekTimeoutTimer?.cancel();
+      _lyricsRaw = null;
+      _isLoadingLyrics = true;
       _fetchAudioProperties();
       _fetchLyrics();
       if (_useWaveformSeekBar) {
@@ -506,63 +521,85 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _fetchLyrics() async {
-    final vId = widget.videoId;
-    if (vId == null ||
-        vId.isEmpty ||
-        widget.sourceType == 'local' ||
-        vId.contains(r'\') ||
-        vId.contains('/') ||
-        vId.contains('.')) {
-      return;
+    final requestId = ++_lyricsRequestId;
+
+    if (_isCustomLyricsLoaded) return;
+
+    final status = widget.statusNotifier.value;
+    final currentIdx = status.currentIndex;
+
+    String? trackTitle;
+    String? trackArtist = widget.artist;
+    String? trackVideoId = widget.videoId;
+    String? trackFilePath;
+    int? trackDuration = widget.durationOverride ??
+        (status.durationSeconds > 0 ? status.durationSeconds.toInt() : null);
+
+    if (widget.queue.isNotEmpty &&
+        currentIdx >= 0 &&
+        currentIdx < widget.queue.length) {
+      final track = widget.queue[currentIdx];
+      trackTitle = track.title;
+      if (track.artist.isNotEmpty && track.artist != 'Unknown Artist') {
+        trackArtist = track.artist;
+      }
+      if (track.videoId.isNotEmpty) {
+        trackVideoId = track.videoId;
+      }
+      if (track.durationSeconds != null && track.durationSeconds! > 0) {
+        trackDuration = track.durationSeconds;
+      }
     }
+
+    trackTitle ??= widget.getTitle(currentIdx);
+
+    // If trackVideoId looks like a local file path, move to trackFilePath
+    if (trackVideoId != null &&
+        (trackVideoId.contains('/') ||
+            trackVideoId.contains(r'\') ||
+            trackVideoId.startsWith('file://'))) {
+      trackFilePath = trackVideoId;
+      trackVideoId = null;
+    }
+
     try {
-      if (mounted) setState(() => _isLoadingLyrics = true);
-      final raw = await _ytMusic.getLyrics(vId).timeout(const Duration(seconds: 8));
-      if (raw != null && raw.isNotEmpty && mounted) {
+      if (mounted) {
         setState(() {
-          _lyricsRaw = raw;
+          _isLoadingLyrics = true;
+          _lyricsRaw = null;
         });
-        _processLyrics(raw);
+      }
+
+      final lyrics = await LyricsService.instance.fetchLyricsForTrack(
+        videoId: trackVideoId,
+        title: trackTitle,
+        artist: trackArtist,
+        filePath: trackFilePath,
+        durationSeconds: trackDuration,
+      );
+
+      // Discard if user already changed song while request was in flight
+      if (requestId != _lyricsRequestId) {
+        debugPrint(
+            '[NowPlaying] Discarding stale lyrics response for request #$requestId (active: #$_lyricsRequestId)');
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _lyricsRaw = lyrics;
+          _isLoadingLyrics = false;
+        });
       }
     } catch (e) {
-      debugPrint('[NowPlaying] Failed to fetch lyrics: $e');
-    } finally {
-      if (mounted) setState(() => _isLoadingLyrics = false);
+      debugPrint('[NowPlaying] Lyrics fetch notice: $e');
+      if (requestId == _lyricsRequestId && mounted) {
+        setState(() {
+          _isLoadingLyrics = false;
+          _lyricsRaw = null;
+        });
+      }
     }
-  }
-
-  void _processLyrics(String rawLyrics) {
-    final overrideSecs = widget.durationOverride;
-    final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
-        ? overrideSecs.toDouble()
-        : widget.statusNotifier.value.durationSeconds;
-
-    final durationMs = (baseDurationSecs * 1000).round();
-    final lrcString = _generateFakeLrc(rawLyrics, durationMs);
-    _lyricController.loadLyric(lrcString);
-  }
-
-  String _generateFakeLrc(String text, int totalDurationMs) {
-    final lines = text
-        .split('\n')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    if (lines.isEmpty || totalDurationMs <= 0) return '';
-
-    final msPerLine = (totalDurationMs / lines.length).floor();
-    final sb = StringBuffer();
-
-    for (int i = 0; i < lines.length; i++) {
-      final currentMs = i * msPerLine;
-      final dur = Duration(milliseconds: currentMs);
-      final mm = dur.inMinutes.remainder(60).toString().padLeft(2, '0');
-      final ss = (dur.inSeconds % 60).toString().padLeft(2, '0');
-      final xx = ((dur.inMilliseconds % 1000) ~/ 10).toString().padLeft(2, '0');
-      sb.writeln('[$mm:$ss.$xx] ${lines[i]}');
-    }
-
-    return sb.toString();
   }
 
   Future<void> _pickLrcFile() async {
@@ -587,25 +624,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           return;
         }
 
-        String lrcToLoad = content;
-        final hasTimestamp = RegExp(r'\[\d{2,}:\d{2}').hasMatch(content);
-        if (!hasTimestamp) {
-          final overrideSecs = widget.durationOverride;
-          final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
-              ? overrideSecs.toDouble()
-              : widget.statusNotifier.value.durationSeconds;
-          final durationMs = (baseDurationSecs * 1000).round();
-          lrcToLoad = _generateFakeLrc(content, durationMs);
-        }
-
-        _lyricController.loadLyric(lrcToLoad);
-
         if (mounted) {
           setState(() {
             _lyricsRaw = content;
             _isCustomLyricsLoaded = true;
             _customLyricsFileName = result.files.single.name;
             _showLyricsOverlayOnAlbumArt = true;
+            _showLyrics = true;
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -650,6 +675,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _isCustomLyricsLoaded = false;
       _customLyricsFileName = null;
       _showLyricsOverlayOnAlbumArt = false;
+      _lyricsRaw = null;
     });
     _fetchLyrics();
   }
@@ -883,14 +909,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Positioned.fill(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 40, 12, 12),
-                    child: SyncedLyricsWidget(
-                      lyricsRaw: _lyricsRaw ?? '',
-                      currentPosition:
-                          Duration(milliseconds: displayPosMs.toInt()),
-                      onSeek: (targetTime) {
-                        widget.player.seekTo(targetTime);
-                      },
-                    ),
+                    child: _isLoadingLyrics
+                        ? Center(
+                            child: LoadingIndicatorM3E(
+                              color:
+                                  AppThemeService.instance.currentData.primary,
+                              containerColor: AppThemeService
+                                  .instance.currentData.primary
+                                  .withAlpha(50),
+                            ),
+                          )
+                        : SyncedLyricsWidget(
+                            lyricsRaw: _lyricsRaw ?? '',
+                            currentPosition:
+                                Duration(milliseconds: displayPosMs.toInt()),
+                            onSeek: (targetTime) {
+                              widget.player.seekTo(targetTime);
+                            },
+                            onImportLrc: _pickLrcFile,
+                            onRetryFetch: _fetchLyrics,
+                          ),
                   ),
                 ),
                 Positioned(
@@ -929,6 +967,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ),
                       ),
                       const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.file_upload_outlined,
+                            size: 18, color: Colors.white70),
+                        onPressed: _pickLrcFile,
+                        tooltip: 'Import .lrc / .txt',
+                      ),
+                      if (_isCustomLyricsLoaded)
+                        IconButton(
+                          icon: const Icon(Icons.cleaning_services_outlined,
+                              size: 18, color: Colors.redAccent),
+                          onPressed: _clearCustomLyrics,
+                          tooltip: 'Reset to Default Lyrics',
+                        ),
                       IconButton(
                         icon: const Icon(Icons.close,
                             size: 18, color: Colors.white70),
@@ -1448,9 +1499,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? _dragPositionMs.clamp(0.0, maxMs)
             : (_pendingSeekMs?.clamp(0.0, maxMs) ?? posMs.clamp(0.0, maxMs));
 
-        _lyricController
-            .setProgress(Duration(milliseconds: displayPosMs.toInt()));
-
         final rawTitle = widget.getTitle(status.currentIndex);
         final title = _customTitle ?? rawTitle;
         final subtitle = _customArtist ?? widget.artist;
@@ -1460,7 +1508,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final Shapes albumArtShape = AppThemeService.instance.albumArtShape;
         const Color surfaceColor = Color(0xFF18232E);
         const Color textLight = Colors.white;
-        final Color textDark = AppThemeService.instance.currentData.textDark;
 
         return Theme(
           data: ThemeData.dark().copyWith(
@@ -1502,22 +1549,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               child: LoadingIndicatorM3E(
                                   color: primaryColor,
                                   containerColor: primaryColor.withAlpha(50)))
-                          : _lyricsRaw == null
-                              ? Center(
-                                  child: Text(
-                                    'No lyrics available',
-                                    style: TextStyle(
-                                        color: textDark, fontSize: 16),
-                                  ),
-                                )
-                              : SyncedLyricsWidget(
-                                  lyricsRaw: _lyricsRaw!,
-                                  currentPosition: Duration(
-                                      milliseconds: displayPosMs.toInt()),
-                                  onSeek: (targetTime) {
-                                    widget.player.seekTo(targetTime);
-                                  },
-                                );
+                          : SyncedLyricsWidget(
+                              lyricsRaw: _lyricsRaw ?? '',
+                              currentPosition: Duration(
+                                  milliseconds: displayPosMs.toInt()),
+                              onSeek: (targetTime) {
+                                widget.player.seekTo(targetTime);
+                              },
+                              onImportLrc: _pickLrcFile,
+                              onRetryFetch: _fetchLyrics,
+                            );
 
                       Widget content;
                       if (isDesktop) {
@@ -1974,6 +2015,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         .setShuffleModeEnabled(
                                                             !status
                                                                 .shuffleEnabled);
+                                                  },
+                                                ),
+                                                M3EToolbarAction(
+                                                  icon: _showLyrics
+                                                      ? Icons.lyrics_rounded
+                                                      : Icons.lyrics_outlined,
+                                                  onPressed: () {
+                                                    setState(() =>
+                                                        _showLyrics =
+                                                            !_showLyrics);
                                                   },
                                                 ),
                                                 M3EToolbarWidget(
@@ -2486,6 +2537,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                                 Row(
                                                   children: [
+                                                    M3EIconButton(
+                                                      variant:
+                                                          (_showLyricsOverlayOnAlbumArt ||
+                                                                  _showLyrics)
+                                                              ? M3EIconButtonVariant
+                                                                  .filled
+                                                              : M3EIconButtonVariant
+                                                                  .tonal,
+                                                      icon: Icon(
+                                                        (_showLyricsOverlayOnAlbumArt ||
+                                                                _showLyrics)
+                                                            ? Icons
+                                                                .lyrics_rounded
+                                                            : Icons
+                                                                .lyrics_outlined,
+                                                        color:
+                                                            (_showLyricsOverlayOnAlbumArt ||
+                                                                    _showLyrics)
+                                                                ? Colors.white
+                                                                : primaryColor,
+                                                      ),
+                                                      onPressed: () {
+                                                        setState(() {
+                                                          _showLyricsOverlayOnAlbumArt =
+                                                              !_showLyricsOverlayOnAlbumArt;
+                                                          _showLyrics =
+                                                              _showLyricsOverlayOnAlbumArt;
+                                                        });
+                                                      },
+                                                    ),
+                                                    const SizedBox(width: 8),
                                                     M3EIconButton(
                                                       variant:
                                                           M3EIconButtonVariant
