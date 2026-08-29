@@ -1,3 +1,13 @@
+## v0.6.22 — 2026-08-30
+- Real-time Synced Lyrics: Auto-scrolling lyrics with viewport line centering and interactive timestamp seeking
+- Online & Offline Lyrics: YouTube Music API timed lyrics integration and companion .lrc / .txt local file import
+- Studio Dynamic Range Compressor: Pro-grade dynamics control with interactive transfer curve and auto-makeup
+- Downward Expander & Noise Reducer: Adaptive noise floor cleanup and silent background reduction
+- Split-Band & Wide-Band De-Esser: Precise vocal sibilance suppression
+- Subsonic 18Hz Filter: Driver protection against DC rumble and low-frequency distortion
+- 2x Polyphase Oversampling: High-fidelity anti-aliasing for saturation stages
+- 3D Metallic Audio Knobs: Premium tactile controls with glowing indicator needles
+
 ## v0.6.21 — 2026-08-26
 - Embedded FFmpeg native streaming backend for HLS, DASH, ICY radio & online URLs
 - Zero-latency 3D Spatial Surround Suite (Field Expander, Haas, ViPER, Matrix 5.1)

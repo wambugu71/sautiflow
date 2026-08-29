@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.22
+- **[Real-time Synced Lyrics Engine]** Integrated online YouTube Music timed lyrics fetching and offline companion `.lrc` / `.txt` local file import with auto-scroll active line viewport centering, interactive click-to-seek, and frosted album art overlay.
+- **[Dynamic Studio DSP Suite]** Added full Studio Dynamic Range Compressor (threshold, ratio, attack, release, knee, auto-makeup gain), Downward Expander & Adaptive Noise Floor Reducer, and Split-Band / Wide-Band De-Esser.
+- **[Subsonic Protection & Quality Foundation]** Implemented 18Hz clean-room high-pass subsonic filter, 2x polyphase half-band oversampling for saturation stages, multi-arch DAZ/FTZ denormals flushing (x86_64 and ARM64/NEON), and libsoxr Very High Quality sinc resampler defaults.
+- **[UI/UX Material 3 Expressive]** Redesigned 3D beveled dark metallic `ModernAudioKnob` with radial glow, optimized mobile album art layering, and added Telegram community links to settings.
+
 ## 0.6.21
 - **[Native Streaming Engine]** Integrated embedded FFmpeg (`libavformat` + `libavcodec` + `libswresample`) decoding backend into miniaudio with 10-second lock-free jitter ring buffer, live ICY metadata parsing, and seamless DSP/effects pipeline integration.
 - **[Zero-Latency Spatial Surround]** Added real-time 3D spatial surround suite (Field Expander, Haas Spatializer, ViPER Headphone Surround+, Matrix 5.1 HRTF) with per-sample anti-pop smoothing.
