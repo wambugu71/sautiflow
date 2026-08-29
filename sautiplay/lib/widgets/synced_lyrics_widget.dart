@@ -189,72 +189,77 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
 
       // Empty lyrics state
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: widget.activeColor.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.lyrics_outlined,
-                  size: 32,
+                  size: 24,
                   color: widget.activeColor,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 'No Lyrics Available',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.9),
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                'Import a .lrc/.txt file or fetch online via YTMusic',
+                'Import a .lrc/.txt file or fetch online',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: widget.inactiveColor,
-                  fontSize: 12,
+                  fontSize: 11,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
-                runSpacing: 8,
+                runSpacing: 6,
                 alignment: WrapAlignment.center,
                 children: [
                   if (widget.onImportLrc != null)
                     ElevatedButton.icon(
                       onPressed: widget.onImportLrc,
-                      icon: const Icon(Icons.add, size: 16),
+                      icon: const Icon(Icons.add, size: 14),
                       label: const Text('Import .lrc / .txt',
-                          style: TextStyle(fontSize: 12)),
+                          style: TextStyle(fontSize: 11)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: widget.activeColor.withValues(alpha: 0.2),
                         foregroundColor: widget.activeColor,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   if (widget.onRetryFetch != null)
                     OutlinedButton.icon(
                       onPressed: widget.onRetryFetch,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      icon: const Icon(Icons.refresh_rounded, size: 14),
                       label: const Text('Search Online',
-                          style: TextStyle(fontSize: 12)),
+                          style: TextStyle(fontSize: 11)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white70,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                 ],

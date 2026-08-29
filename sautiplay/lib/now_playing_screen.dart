@@ -1767,7 +1767,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 // Lyrics Overlay on Album Art
                                                 _buildAlbumArtLyricsOverlay(
                                                   borderRadius: 32.0,
-                                                  bottomOffset: 130.0,
+                                                  bottomOffset: 0.0,
                                                   displayPosMs: displayPosMs,
                                                 ),
                                                 // Text Info (Title, Artist)
@@ -2410,7 +2410,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         ),*/
                                           _buildAlbumArtLyricsOverlay(
                                             borderRadius: 24.0,
-                                            bottomOffset: 100.0,
+                                            bottomOffset: 0.0,
                                             displayPosMs: displayPosMs,
                                           ),
                                           Positioned(
