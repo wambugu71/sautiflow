@@ -877,6 +877,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required double borderRadius,
     required double bottomOffset,
     required double displayPosMs,
+    String? title,
   }) {
     if (!_showLyricsOverlayOnAlbumArt) return const SizedBox.shrink();
 
@@ -888,11 +889,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: RepaintBoundary(
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(borderRadius),
-              bottom: Radius.circular(bottomOffset > 0 ? 16.0 : borderRadius),
-            ),
-            color: Colors.black.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(borderRadius),
+            color: Colors.black.withValues(alpha: 0.94),
             border: Border.all(
               color: AppThemeService.instance.currentData.primary
                   .withValues(alpha: 0.4),
@@ -900,15 +898,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(borderRadius),
-              bottom: Radius.circular(bottomOffset > 0 ? 16.0 : borderRadius),
-            ),
+            borderRadius: BorderRadius.circular(borderRadius),
             child: Stack(
               children: [
                 Positioned.fill(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 40, 12, 12),
+                    padding: const EdgeInsets.fromLTRB(12, 44, 12, 12),
                     child: _isLoadingLyrics
                         ? Center(
                             child: LoadingIndicatorM3E(
@@ -937,36 +932,44 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   right: 8,
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppThemeService.instance.currentData.primary
-                              .withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.lyrics,
-                                size: 12,
-                                color: AppThemeService
-                                    .instance.currentData.primary),
-                            const SizedBox(width: 4),
-                            Text(
-                              _isCustomLyricsLoaded
-                                  ? (_customLyricsFileName ?? 'Custom LRC')
-                                  : 'Synced Lyrics',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white70,
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppThemeService.instance.currentData.primary
+                                .withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.lyrics,
+                                  size: 12,
+                                  color: AppThemeService
+                                      .instance.currentData.primary),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  _isCustomLyricsLoaded
+                                      ? (_customLyricsFileName ?? 'Custom LRC')
+                                      : (title != null && title.isNotEmpty
+                                          ? title
+                                          : 'Synced Lyrics'),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white70,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.file_upload_outlined,
                             size: 18, color: Colors.white70),
@@ -1764,12 +1767,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   ),
                                                 ),
                                               ),*/
-                                                // Lyrics Overlay on Album Art
-                                                _buildAlbumArtLyricsOverlay(
-                                                  borderRadius: 32.0,
-                                                  bottomOffset: 0.0,
-                                                  displayPosMs: displayPosMs,
-                                                ),
                                                 // Text Info (Title, Artist)
                                                 Positioned(
                                                   left: 32,
@@ -1918,6 +1915,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       ),
                                                     ],
                                                   ),
+                                                ),
+                                                // Lyrics Overlay on Album Art (Topmost)
+                                                _buildAlbumArtLyricsOverlay(
+                                                  borderRadius: 32.0,
+                                                  bottomOffset: 0.0,
+                                                  displayPosMs: displayPosMs,
+                                                  title: title,
                                                 ),
                                               ],
                                             ),
@@ -2408,11 +2412,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             ),
                                           ),
                                         ),*/
-                                          _buildAlbumArtLyricsOverlay(
-                                            borderRadius: 24.0,
-                                            bottomOffset: 0.0,
-                                            displayPosMs: displayPosMs,
-                                          ),
                                           Positioned(
                                             left: 16,
                                             bottom: 56,
@@ -2582,6 +2581,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               ],
                                             ),
+                                          ),
+                                          // Lyrics Overlay on Album Art (Topmost layer)
+                                          _buildAlbumArtLyricsOverlay(
+                                            borderRadius: 24.0,
+                                            bottomOffset: 0.0,
+                                            displayPosMs: displayPosMs,
+                                            title: title,
                                           ),
                                         ],
                                       ),

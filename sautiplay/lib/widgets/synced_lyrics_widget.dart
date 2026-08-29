@@ -110,6 +110,8 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
     _updateActiveIndex();
   }
 
+  static const double _kLineHeight = 52.0;
+
   void _updateActiveIndex() {
     if (_lines.isEmpty) return;
     int active = -1;
@@ -125,11 +127,10 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
     if (active != _lastActiveIndex) {
       _lastActiveIndex = active;
       if (active >= 0 && _scrollController.hasClients) {
-        const double itemHeight = 48.0;
-        final targetOffset = (active * itemHeight) - 80;
+        final targetOffset = active * _kLineHeight;
         _scrollController.animateTo(
           targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
         );
       }
@@ -270,44 +271,60 @@ class _SyncedLyricsWidgetState extends State<SyncedLyricsWidget> {
       );
     }
 
-    return ListView.builder(
-      controller: _scrollController,
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 16),
-      itemCount: _lines.length,
-      itemBuilder: (context, index) {
-        final line = _lines[index];
-        final isActive = index == _lastActiveIndex;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportHeight = constraints.maxHeight;
+        final verticalPadding = (viewportHeight / 2.0) - (_kLineHeight / 2.0);
 
-        return GestureDetector(
-          onTap: () {
-            widget.onSeek?.call(line.time);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-            alignment: Alignment.center,
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 250),
-              style: TextStyle(
-                fontSize: isActive ? widget.fontSize + 3.5 : widget.fontSize,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-                color: isActive ? widget.activeColor : widget.inactiveColor,
-                height: 1.4,
-                shadows: isActive
-                    ? [
-                        Shadow(
-                          color: widget.activeColor.withValues(alpha: 0.6),
-                          blurRadius: 12,
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                line.text,
-                textAlign: TextAlign.center,
-              ),
-            ),
+        return ListView.builder(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.symmetric(
+            vertical: verticalPadding > 0 ? verticalPadding : 60.0,
+            horizontal: 16.0,
           ),
+          itemCount: _lines.length,
+          itemExtent: _kLineHeight,
+          itemBuilder: (context, index) {
+            final line = _lines[index];
+            final isActive = index == _lastActiveIndex;
+
+            return GestureDetector(
+              onTap: () {
+                widget.onSeek?.call(line.time);
+              },
+              child: Container(
+                height: _kLineHeight,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+                alignment: Alignment.center,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 250),
+                  style: TextStyle(
+                    fontSize:
+                        isActive ? widget.fontSize + 4.0 : widget.fontSize,
+                    fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                    color: isActive ? widget.activeColor : widget.inactiveColor,
+                    height: 1.3,
+                    shadows: isActive
+                        ? [
+                            Shadow(
+                              color: widget.activeColor.withValues(alpha: 0.7),
+                              blurRadius: 14,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    line.text,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
