@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include "oversampler.h"
 
 namespace sauti::dsp {
 
@@ -11,12 +12,13 @@ enum class AudioClarityProfile {
     TransientCrisp = 0,      // Rate-of-change pre-emphasis with Nyquist anti-aliasing reconstruction
     AirShelf = 1,            // 12 kHz ultra-high shelf for upper harmonic sparkle and breath
     PresenceExciter = 2,      // 3-way multi-band crossover with selective upper-mid and high excitation
-    HarmonicBrilliance = 3   // Aural Exciter (3.5 kHz HPF sidechain -> non-linear harmonic synthesis)
+    HarmonicBrilliance = 3   // Aural Exciter (3.5 kHz HPF sidechain -> oversampled non-linear harmonic synthesis)
 };
 
 // =============================================================================
 // AudioClarityDSP: Professional High-Frequency Enhancer & Multi-Band Exciter
-// with De-Zippered Parameter Smoothing and Anti-Pop Crossfading
+// with 2x Polyphase Half-Band Oversampling on Harmonic Brilliance,
+// De-Zippered Parameter Smoothing, and Anti-Pop Crossfading.
 // =============================================================================
 class AudioClarityDSP {
 public:
@@ -32,6 +34,8 @@ public:
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateFilters();
+        oversampler_.init(static_cast<int>(sample_rate_), 4096);
+        sidechain_buf_.resize(4096 * 2, 0.0f);
     }
 
     void setEnabled(bool enabled) {
@@ -91,6 +95,7 @@ public:
 
         current_intensity_ = target_intensity_;
         anti_pop_ = 0.0f;
+        oversampler_.reset();
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -122,6 +127,10 @@ private:
     float current_intensity_ = 0.5f;
     float smoothing_coeff_ = 0.002f;
     float anti_pop_ = 0.0f;
+
+    // 2x Polyphase Half-Band Oversampler for Harmonic Brilliance
+    PolyphaseOversampler2x oversampler_;
+    std::vector<float> sidechain_buf_;
 
     // --- Profile 1: Transient Crisp (Differential Enhancer + Reconstruction Filter) ---
     float prev_sample_l_ = 0.0f;
@@ -236,10 +245,7 @@ private:
             float high_r = x_high_b0_ * in_r + x_high_b1_ * x_high_x1_r_ + x_high_b2_ * x_high_x2_r_ - x_high_a1_ * x_high_y1_r_ - x_high_a2_ * x_high_y2_r_;
             x_high_x2_r_ = x_high_x1_r_; x_high_x1_r_ = in_r; x_high_y2_r_ = x_high_y1_r_; x_high_y1_r_ = high_r;
 
-            // Mid band derived by subtraction (in - low - high): guarantees the
-            // three bands sum back to the input exactly at unity gains. The old
-            // independent bandpass left spectral holes and produced magnitude
-            // ripple / clip risk when combined with the boost gains.
+            // Mid band derived by subtraction (in - low - high) for flat sum
             const float mid_l = in_l - low_l - high_l;
             const float mid_r = in_r - low_r - high_r;
 
@@ -257,21 +263,22 @@ private:
         }
     }
 
-    // --- Profile 4: Harmonic Brilliance (Aural Exciter: 3.5 kHz HPF -> Soft Asymmetric Saturation) ---
+    // --- Profile 4: Harmonic Brilliance (Aural Exciter: 3.5 kHz HPF -> 2x Oversampled Soft Asymmetric Saturation) ---
     float brill_hp_b0_ = 1.0f, brill_hp_b1_ = 0.0f, brill_hp_b2_ = 0.0f;
     float brill_hp_a1_ = 0.0f, brill_hp_a2_ = 0.0f;
     float brill_hp_x1_l_ = 0.0f, brill_hp_x2_l_ = 0.0f, brill_hp_y1_l_ = 0.0f, brill_hp_y2_l_ = 0.0f;
     float brill_hp_x1_r_ = 0.0f, brill_hp_x2_r_ = 0.0f, brill_hp_y1_r_ = 0.0f, brill_hp_y2_r_ = 0.0f;
 
     void processHarmonicBrilliance(float* samples, uint32_t frame_count) {
-        for (uint32_t i = 0; i < frame_count; i++) {
-            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const float mix = current_intensity_ * 0.45f;
+        if (sidechain_buf_.size() < frame_count * 2) {
+            sidechain_buf_.resize(frame_count * 2);
+        }
 
+        // 1. High-pass filter sidechain at 3.5 kHz (native rate)
+        for (uint32_t i = 0; i < frame_count; i++) {
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];
 
-            // 3.5 kHz High-Pass filter
             float hp_l = brill_hp_b0_ * in_l + brill_hp_b1_ * brill_hp_x1_l_ + brill_hp_b2_ * brill_hp_x2_l_
                        - brill_hp_a1_ * brill_hp_y1_l_ - brill_hp_a2_ * brill_hp_y2_l_;
             brill_hp_x2_l_ = brill_hp_x1_l_; brill_hp_x1_l_ = in_l;
@@ -282,12 +289,40 @@ private:
             brill_hp_x2_r_ = brill_hp_x1_r_; brill_hp_x1_r_ = in_r;
             brill_hp_y2_r_ = brill_hp_y1_r_; brill_hp_y1_r_ = hp_r;
 
-            // Asymmetric even+odd harmonic saturation
+            sidechain_buf_[2 * i]     = hp_l;
+            sidechain_buf_[2 * i + 1] = hp_r;
+        }
+
+        // 2. Upsample sidechain 2x
+        float* os_hp = oversampler_.upsample(sidechain_buf_.data(), frame_count);
+        if (!os_hp) return;
+
+        const uint32_t os_frames = frame_count * 2;
+        for (uint32_t i = 0; i < os_frames; i++) {
+            float hp_l = os_hp[2 * i];
+            float hp_r = os_hp[2 * i + 1];
+
+            // Asymmetric even+odd harmonic saturation in the oversampled domain
             float harm_l = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
             float harm_r = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
 
-            float out_l = in_l + harm_l * mix;
-            float out_r = in_r + harm_r * mix;
+            os_hp[2 * i]     = harm_l;
+            os_hp[2 * i + 1] = harm_r;
+        }
+
+        // 3. Decimate and anti-alias filter generated harmonics back to native rate
+        oversampler_.downsample(os_hp, sidechain_buf_.data(), frame_count);
+
+        // 4. Mix back into dry signal at native rate with smoothed intensity
+        for (uint32_t i = 0; i < frame_count; i++) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            const float mix = current_intensity_ * 0.45f;
+
+            float in_l = samples[2 * i];
+            float in_r = samples[2 * i + 1];
+
+            float out_l = in_l + sidechain_buf_[2 * i] * mix;
+            float out_r = in_r + sidechain_buf_[2 * i + 1] * mix;
 
             if (anti_pop_ < 1.0f) {
                 out_l = in_l + anti_pop_ * (out_l - in_l);

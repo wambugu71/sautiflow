@@ -62,7 +62,8 @@ foreach ($f in $cFiles) {
 
 $cppFiles = @(
     "audio_engine.cpp",
-    "mp4_aac_decoder.cpp"
+    "mp4_aac_decoder.cpp",
+    "ffmpeg_stream_decoder.cpp"
 )
 
 Write-Host "Compiling C++ files with g++..."
@@ -78,8 +79,12 @@ if ($LASTEXITCODE -ne 0) { throw "g++ failed on test/quality_foundation_test.cpp
 
 Write-Host "Linking test_quality_foundation.exe..."
 $allObjs = Get-ChildItem -Path "$objDir/*.o" | Select-Object -ExpandProperty FullName
-g++ -std=c++20 -O2 -o test_quality_foundation.exe @allObjs -static-libgcc -static-libstdc++ -lwinmm -lm
+g++ -std=c++20 -O2 -o test_quality_foundation.exe @allObjs `
+    -Lthird_party/ffmpeg/lib -lavformat -lavcodec -lavutil -lswresample `
+    -static-libgcc -static-libstdc++ -lwinmm -lws2_32 -lbcrypt -lsecur32 -lm
 if ($LASTEXITCODE -ne 0) { throw "Linking test_quality_foundation.exe failed" }
+
+Copy-Item av*.dll, sw*.dll -Destination . -Force -ErrorAction SilentlyContinue
 
 Write-Host "Build complete! Running test_quality_foundation.exe..."
 ./test_quality_foundation.exe

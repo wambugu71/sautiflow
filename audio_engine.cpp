@@ -2097,6 +2097,7 @@ namespace
         bool highShelfEnabled = true; // enable Stage 2 air shelf
         float highShelfGainDb = 2.0f; // [0.0, 6.0] shelf boost in dB
         int cachedSampleRate = 0;
+        sauti::dsp::PolyphaseOversampler2x oversampler;
 
         // Per-channel previous sample for derivative calculation (up to 8 ch)
         float prevSample[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
@@ -2151,6 +2152,7 @@ namespace
             cachedSampleRate = sampleRate;
             std::fill(prevSample, prevSample + 8, 0.f);
             shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
+            oversampler.init(sampleRate, 4096);
         }
 
         void updateParams(int sampleRate, float newIntensity, bool newShelfEnabled, float newShelfGainDb)
@@ -2164,6 +2166,7 @@ namespace
                 highShelfGainDb = clampedGain;
                 cachedSampleRate = sampleRate;
                 shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
+                oversampler.init(sampleRate, 4096);
             }
         }
 
@@ -2175,7 +2178,7 @@ namespace
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
-            if (intensity <= 0.0f)
+            if (intensity <= 0.0f || !interleaved || frames == 0)
                 return;
 
             const int ch = std::min(channels, 8);
@@ -2202,15 +2205,50 @@ namespace
                         x = x * (1.0f - shelfBlend) + shelfOut * shelfBlend;
                     }
 
-                    // Stage 3 — Soft-clip guard (prevents overs at high intensity).
-                    // Only engages above the knee: unconditionally passing the
-                    // whole mix through tanh compressed clean material and added
-                    // harmonic distortion even at tiny intensities.
-                    if (x > 0.95f)
-                        x = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
-                    else if (x < -0.95f)
-                        x = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
                     interleaved[idx] = x;
+                }
+            }
+
+            // Stage 3 — 2x Oversampled Soft-Clip Guard (prevents overs without harmonic aliasing)
+            if (channels == 2)
+            {
+                bool needsClip = false;
+                for (ma_uint32 i = 0; i < frames * 2; ++i)
+                {
+                    if (std::abs(interleaved[i]) > 0.95f)
+                    {
+                        needsClip = true;
+                        break;
+                    }
+                }
+
+                if (needsClip)
+                {
+                    float *os = oversampler.upsample(interleaved, frames);
+                    if (os)
+                    {
+                        const uint32_t osSamples = frames * 4;
+                        for (uint32_t j = 0; j < osSamples; ++j)
+                        {
+                            float v = os[j];
+                            if (v > 0.95f)
+                                os[j] = 0.95f + 0.05f * std::tanh((v - 0.95f) / 0.05f);
+                            else if (v < -0.95f)
+                                os[j] = -0.95f + 0.05f * std::tanh((v + 0.95f) / 0.05f);
+                        }
+                        oversampler.downsample(os, interleaved, frames);
+                    }
+                }
+            }
+            else
+            {
+                for (ma_uint32 i = 0; i < frames * channels; ++i)
+                {
+                    float x = interleaved[i];
+                    if (x > 0.95f)
+                        interleaved[i] = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
+                    else if (x < -0.95f)
+                        interleaved[i] = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
                 }
             }
         }

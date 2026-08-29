@@ -387,6 +387,120 @@ static void test_dynamic_system_cutoff_and_stability()
     }
 }
 
+// -----------------------------------------------------------------------------
+// Oversampled Saturation Stages Verification
+// -----------------------------------------------------------------------------
+static void test_oversampled_saturation()
+{
+    std::printf("\n== Oversampled Saturation (AnalogWarmth & Clarity & HalfBand) ==\n");
+
+    // 1. HalfBandFilter2x & PolyphaseOversampler2x impulse response and unity gain
+    {
+        sauti::dsp::PolyphaseOversampler2x os;
+        os.init(48000, 1024);
+        os.reset();
+
+        const uint32_t N = 256;
+        std::vector<float> in(2 * N, 0.0f);
+        in[2 * 20] = 1.0f;     // Left impulse
+        in[2 * 20 + 1] = 0.5f; // Right impulse
+
+        float* up = os.upsample(in.data(), N);
+        CHECK(up != nullptr, "PolyphaseOversampler2x upsample returned valid buffer");
+
+        std::vector<float> out(2 * N, 0.0f);
+        os.downsample(up, out.data(), N);
+
+        // Find peak tap and sum (DC gain) in impulse response
+        float peakL = 0.0f, peakR = 0.0f;
+        double sumL = 0.0, sumR = 0.0;
+        int peakIdxL = -1;
+
+        for (uint32_t i = 0; i < N; ++i) {
+            sumL += out[2 * i];
+            sumR += out[2 * i + 1];
+            if (out[2 * i] > peakL) { peakL = out[2 * i]; peakIdxL = (int)i; }
+            if (out[2 * i + 1] > peakR) { peakR = out[2 * i + 1]; }
+        }
+
+        char msgL[128], msgR[128], msgDelay[128];
+        std::snprintf(msgL, sizeof(msgL), "Oversampler DC gain L=%.4f (want ~1.0)", sumL);
+        std::snprintf(msgR, sizeof(msgR), "Oversampler DC gain R=%.4f (want ~0.5)", sumR);
+        std::snprintf(msgDelay, sizeof(msgDelay), "Oversampler cascade group delay = %d frames (want 30)", peakIdxL);
+        CHECK(nearlyEqual((float)sumL, 1.0f, 0.02f), msgL);
+        CHECK(nearlyEqual((float)sumR, 0.5f, 0.02f), msgR);
+        CHECK(peakIdxL == 30, msgDelay);
+    }
+
+    // 2. AnalogWarmthDSP oversampled processing with zero drive (transparency)
+    {
+        sauti::dsp::AnalogWarmthDSP warmth;
+        warmth.setSampleRate(44100.0f);
+        warmth.setEnabled(true);
+        warmth.setProfile(sauti::dsp::AnalogWarmthProfile::Triode12AX7);
+        warmth.setDrive(0.0f);
+        warmth.reset();
+
+        const uint32_t N = 1024;
+        std::vector<float> buf(2 * N, 0.0f);
+
+        // Stream 40 continuous blocks of 1 kHz sine wave to settle anti-pop & reach steady state
+        for (int k = 0; k < 40; ++k) {
+            for (uint32_t i = 0; i < N; ++i) {
+                float t = (float)(k * N + i) / 44100.0f;
+                float s = 0.4f * std::sin(2.0f * 3.14159265f * 1000.0f * t);
+                buf[2 * i] = s;
+                buf[2 * i + 1] = s;
+            }
+            warmth.process(buf.data(), N);
+        }
+
+        bool hasNaN = false;
+        float maxVal = 0.0f;
+        for (size_t i = 0; i < buf.size(); ++i) {
+            if (std::isnan(buf[i]) || std::isinf(buf[i])) hasNaN = true;
+            if (std::abs(buf[i]) > maxVal) maxVal = std::abs(buf[i]);
+        }
+
+        char msgAmp[128];
+        std::snprintf(msgAmp, sizeof(msgAmp), "AnalogWarmthDSP zero-drive 1kHz peak amplitude = %.4f (want ~0.40)", maxVal);
+        CHECK(!hasNaN, "AnalogWarmthDSP oversampled output contains no NaN/Inf");
+        CHECK(nearlyEqual(maxVal, 0.40f, 0.03f), msgAmp);
+    }
+
+    // 3. AudioClarityDSP Harmonic Brilliance oversampled processing
+    {
+        sauti::dsp::AudioClarityDSP clarity;
+        clarity.setSampleRate(44100.0f);
+        clarity.setEnabled(true);
+        clarity.setProfile(sauti::dsp::AudioClarityProfile::HarmonicBrilliance);
+        clarity.setIntensity(0.75f);
+        clarity.reset();
+
+        const uint32_t N = 2048;
+        std::vector<float> buf(2 * N, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            // High frequency input tone above 3.5kHz cutoff
+            float s = 0.3f * std::sin(2.0f * 3.14159265f * 8000.0f * (float)i / 44100.0f);
+            buf[2 * i] = s;
+            buf[2 * i + 1] = s;
+        }
+
+        clarity.process(buf.data(), N);
+        for (int k = 0; k < 10; ++k) clarity.process(buf.data(), N);
+
+        bool hasNaN = false;
+        float maxVal = 0.0f;
+        for (size_t i = 0; i < buf.size(); ++i) {
+            if (std::isnan(buf[i]) || std::isinf(buf[i])) hasNaN = true;
+            if (std::abs(buf[i]) > maxVal) maxVal = std::abs(buf[i]);
+        }
+
+        CHECK(!hasNaN, "AudioClarityDSP HarmonicBrilliance oversampled output contains no NaN/Inf");
+        CHECK(maxVal > 0.3f, "AudioClarityDSP HarmonicBrilliance excites high frequencies");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -394,7 +508,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -403,6 +517,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "warmth") test_analog_warmth_no_dc_offset();
     if (only.empty() || only == "clarity") test_clarity_presence_reconstruction();
     if (only.empty() || only == "dynsys") test_dynamic_system_cutoff_and_stability();
+    if (only.empty() || only == "oversample") test_oversampled_saturation();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

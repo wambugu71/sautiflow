@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include "oversampler.h"
 
 namespace sauti::dsp {
 
@@ -14,7 +15,8 @@ enum class AnalogWarmthProfile {
 
 // =============================================================================
 // AnalogWarmthDSP: High-Fidelity Non-Linear Analog Modeling Suite
-// with De-Zippered Parameter Smoothing and Anti-Pop Crossfading
+// Wrapped in 2x Polyphase Half-Band Oversampling to eliminate harmonic aliasing,
+// with De-Zippered Parameter Smoothing and Anti-Pop Crossfading.
 // =============================================================================
 class AnalogWarmthDSP {
 public:
@@ -28,8 +30,11 @@ public:
         if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
-        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
+        // 30ms parameter smoothing coefficient at 2x oversampled rate
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_ * 2.0f));
+        dc_r_ = 1.0f - (2.0f * 3.14159265358979323846f * 10.0f / sample_rate_);
         updateTapeFilter();
+        oversampler_.init(static_cast<int>(sample_rate_), 4096);
     }
 
     void setEnabled(bool enabled) {
@@ -66,18 +71,26 @@ public:
         dc_x_l_ = 0.0f; dc_y_l_ = 0.0f;
         dc_x_r_ = 0.0f; dc_y_r_ = 0.0f;
         anti_pop_ = 0.0f;
+        oversampler_.reset();
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
-        for (uint32_t i = 0; i < frame_count; i++) {
-            // Parameter de-zippering / smoothing per sample
+        // 1. Upsample 2x to oversampled domain
+        float* oversampled = oversampler_.upsample(interleaved_samples, frame_count);
+        if (!oversampled) return;
+
+        const uint32_t oversampled_frames = frame_count * 2;
+
+        // 2. Process nonlinear saturation profiles at 2x rate
+        for (uint32_t i = 0; i < oversampled_frames; i++) {
+            // Parameter de-zippering / smoothing per 2x sample
             current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
 
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
+            float in_l = oversampled[2 * i];
+            float in_r = oversampled[2 * i + 1];
             float out_l = in_l;
             float out_r = in_r;
 
@@ -85,12 +98,6 @@ public:
                 case AnalogWarmthProfile::Triode12AX7:
                     out_l = processTriode(in_l);
                     out_r = processTriode(in_r);
-                    // The asymmetric triode transfer injects a DC bias (the even-
-                    // order term is single-signed). Block it per channel with a
-                    // gentle 10 Hz one-pole highpass so downstream stages and the
-                    // DAC are not hit by thumps / bass shift at high drive.
-                    out_l = dc_block(out_l, dc_x_l_, dc_y_l_);
-                    out_r = dc_block(out_r, dc_x_r_, dc_y_r_);
                     break;
                 case AnalogWarmthProfile::MagneticTape:
                     out_l = processTape(in_l, tape_prev_l_);
@@ -100,6 +107,27 @@ public:
                     out_l = processPreamp(in_l);
                     out_r = processPreamp(in_r);
                     break;
+            }
+
+            oversampled[2 * i]     = out_l;
+            oversampled[2 * i + 1] = out_r;
+        }
+
+        // 3. Decimate and anti-alias filter back to 1x rate
+        oversampler_.downsample(oversampled, interleaved_samples, frame_count);
+
+        // 4. Post-processing at native rate (DC blocking & anti-pop crossfading)
+        for (uint32_t i = 0; i < frame_count; i++) {
+            float in_l = interleaved_samples[2 * i];
+            float in_r = interleaved_samples[2 * i + 1];
+            float out_l = in_l;
+            float out_r = in_r;
+
+            if (profile_ == AnalogWarmthProfile::Triode12AX7) {
+                // The asymmetric triode transfer injects a DC bias. Block it per
+                // channel with a gentle 10 Hz one-pole highpass.
+                out_l = dc_block(out_l, dc_x_l_, dc_y_l_, dc_r_);
+                out_r = dc_block(out_r, dc_x_r_, dc_y_r_, dc_r_);
             }
 
             // Anti-pop smooth crossfade on activation / preset change
@@ -122,8 +150,11 @@ private:
 
     float target_drive_ = 0.5f;
     float current_drive_ = 0.5f;
-    float smoothing_coeff_ = 0.002f;
+    float smoothing_coeff_ = 0.001f;
     float anti_pop_ = 0.0f;
+
+    // 2x Polyphase Half-Band Oversampler
+    PolyphaseOversampler2x oversampler_;
 
     // Tape simulation high-frequency damping
     float tape_prev_l_ = 0.0f;
@@ -133,10 +164,10 @@ private:
     // Per-channel DC blocker (10 Hz one-pole highpass) for the triode stage
     float dc_x_l_ = 0.0f, dc_y_l_ = 0.0f;
     float dc_x_r_ = 0.0f, dc_y_r_ = 0.0f;
+    float dc_r_ = 0.99869f;
 
     // y[n] = x[n] - x[n-1] + R * y[n-1]
-    static inline float dc_block(float x, float& x1, float& y1) {
-        constexpr float R = 0.9974f; // ~10 Hz at 48 kHz
+    static inline float dc_block(float x, float& x1, float& y1, float R) {
         const float y = x - x1 + R * y1 + 1.0e-20f; // denormal flush
         x1 = x;
         y1 = y;
@@ -183,7 +214,7 @@ private:
         // Tape S-curve saturation
         float sat = fast_tanh(driven);
 
-        // Gentle high-frequency damping (simulating tape head magnetic gap losses)
+        // Gentle high-frequency damping (simulating tape head magnetic gap losses at 2x rate)
         float smoothed = sat * (1.0f - tape_damping_) + prev_state * tape_damping_;
         prev_state = sat;
 
@@ -203,8 +234,8 @@ private:
     }
 
     void updateTapeFilter() {
-        // Higher sampling rates need slightly higher damping coefficients to sound identical
-        tape_damping_ = std::clamp(6000.0f / sample_rate_, 0.05f, 0.25f);
+        // High-frequency damping calibrated for 2x oversampled rate
+        tape_damping_ = std::clamp(6000.0f / (sample_rate_ * 2.0f), 0.025f, 0.25f);
     }
 };
 
