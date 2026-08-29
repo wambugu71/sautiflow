@@ -1,4 +1,4 @@
-const REPO = "wambugukinyua/sautiplay";
+const REPO = "wambugu71/sautiflow";
 const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 
@@ -83,7 +83,7 @@ async function loadLatestRelease() {
         Check <a href="${RELEASES_URL}" target="_blank" rel="noopener">GitHub Releases ↗</a></div>`;
     }
   } catch (err) {
-    badge.textContent = "v0.6.x";
+    badge.textContent = "v0.6.21";
     list.innerHTML = `
       <div class="empty-state mono">NO PUBLIC RELEASE PUBLISHED YET.<br><br>
       The moment the first tag lands on GitHub, download links appear here automatically.<br><br>
@@ -94,3 +94,52 @@ async function loadLatestRelease() {
 }
 
 loadLatestRelease();
+
+// ---------- screenshot lightbox (native <dialog>, no dependencies) ----------
+(function () {
+  const dialog = document.getElementById("lightbox");
+  if (!dialog || typeof dialog.showModal !== "function") return;
+  const img = document.getElementById("lightbox-img");
+  const cap = document.getElementById("lightbox-caption");
+  const shots = Array.from(document.querySelectorAll(".shot-btn"));
+  if (!shots.length) return;
+
+  let current = 0;
+  let lastTrigger = null;
+
+  function show(i) {
+    current = (i + shots.length) % shots.length;
+    const btn = shots[current];
+    img.src = btn.dataset.full;
+    img.alt = btn.querySelector("img").alt;
+    cap.textContent = btn.dataset.caption;
+  }
+
+  shots.forEach((btn, i) => {
+    btn.addEventListener("click", () => {
+      lastTrigger = btn;
+      show(i);
+      dialog.showModal();
+    });
+  });
+
+  dialog.querySelector(".lb-close").addEventListener("click", () => dialog.close());
+  dialog.querySelectorAll(".lb-nav").forEach((b) => {
+    b.addEventListener("click", () => show(current + parseInt(b.dataset.dir, 10)));
+  });
+
+  // backdrop click closes
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+
+  // keyboard prev/next when open
+  dialog.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") show(current - 1);
+    if (e.key === "ArrowRight") show(current + 1);
+  });
+
+  dialog.addEventListener("close", () => {
+    if (lastTrigger) lastTrigger.focus();
+  });
+})();

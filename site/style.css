@@ -18,6 +18,8 @@
 
 html { scroll-behavior: smooth; }
 
+.chapter { scroll-margin-top: 76px; }
+
 body {
   background: var(--bg);
   color: var(--ink);
@@ -286,34 +288,33 @@ body {
 .chip-list li:hover { border-color: var(--amber); color: var(--amber) !important; }
 
 /* ---------- screenshots ---------- */
-.shot-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
-  gap: 24px;
-  align-items: end;
+.shot { margin: 0; }
+.shot-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg-raise);
+  cursor: zoom-in;
+  transition: border-color 120ms ease;
 }
-@media (max-width: 800px) { .shot-grid { grid-template-columns: 1fr; } }
-.frame {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  background:
-    repeating-linear-gradient(45deg, transparent 0 14px, rgba(255,255,255,0.02) 14px 15px),
-    var(--bg-raise);
-  border: 1px dashed var(--rule-strong);
+.shot-btn:hover { border-color: var(--amber); }
+.shot-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.frame { position: relative; overflow: hidden; }
+.frame img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  display: block;
 }
-.placeholder-label {
-  font-size: 0.62rem;
-  color: var(--ink-faint);
-  line-height: 2;
-  text-transform: uppercase;
-}
-.phone-frame { aspect-ratio: 9 / 19; width: 100%; }
-.desktop-frame { aspect-ratio: 16 / 9.5; width: 100%; }
+.phone-frame { aspect-ratio: 9 / 20; width: 100%; }
+.desktop-frame { aspect-ratio: 16 / 9; width: 100%; }
 .shot figcaption {
   margin-top: 12px;
-  font-size: 0.64rem;
+  font-size: 0.68rem;
   color: var(--ink-faint);
   text-transform: uppercase;
 }
@@ -324,6 +325,88 @@ body {
   border-top: 2px solid var(--amber);
   vertical-align: middle;
   margin-right: 8px;
+}
+
+.phone-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(150px, 17vw, 200px);
+  gap: 22px;
+  overflow-x: auto;
+  padding: 2px 2px 14px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+.phone-strip .shot { scroll-snap-align: start; }
+
+.desktop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 26px;
+  margin-top: 34px;
+}
+
+/* ---------- lightbox ---------- */
+.lightbox {
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 28px;
+  max-width: min(94vw, 1200px);
+  width: fit-content;
+}
+.lightbox::backdrop {
+  background: rgba(2, 6, 23, 0.9);
+}
+.lightbox #lightbox-img {
+  display: block;
+  max-width: 100%;
+  max-height: 74vh;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--rule);
+}
+.lb-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px;
+}
+.lb-close:hover { color: var(--amber); }
+.lb-caption {
+  margin-top: 14px;
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  text-align: center;
+}
+.lb-nav-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.lb-nav {
+  background: none;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink-dim);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.lb-nav:hover { border-color: var(--amber); color: var(--amber); }
+.lightbox .lb-nav:focus-visible,
+.lightbox .lb-close:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
 }
 
 /* ---------- downloads ---------- */
@@ -394,6 +477,12 @@ body {
 .dots i:nth-child(2) { animation-delay: 0.2s; }
 .dots i:nth-child(3) { animation-delay: 0.4s; }
 @keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .dots i { animation: none; }
+  .btn, .comm-card, .asset, .shot-btn { transition: none; }
+}
 
 .release-foot {
   padding: 16px 24px;
