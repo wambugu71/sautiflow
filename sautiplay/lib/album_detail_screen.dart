@@ -370,63 +370,56 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
     // ── Mobile: large artwork with the info overlaid on a bottom scrim ──
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Stack(
         children: [
-          Stack(
-            children: [
-              // Artwork
-              AspectRatio(
-                aspectRatio: 1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: _thumbnailUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: _thumbnailUrl!,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                          memCacheWidth: 700,
-                          memCacheHeight: 700,
-                          placeholder: (_, __) =>
-                              Container(color: _surfaceDark),
-                          errorWidget: (_, __, ___) =>
-                              Container(color: _surfaceDark),
-                        )
-                      : Container(color: _surfaceDark),
-                ),
-              ),
-              // Bottom scrim keeps the overlaid info legible
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      stops: const [0.0, 0.5],
-                      colors: [
-                        Colors.black.withValues(alpha: 0.85),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Info overlaid at the bottom of the artwork
-              Positioned(
-                left: 18,
-                right: 18,
-                bottom: 16,
-                child: _buildHeroDetails(
-                  isDesktop: false,
-                  centered: false,
-                ),
-              ),
-            ],
+          // Artwork
+          AspectRatio(
+            aspectRatio: 1,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: _thumbnailUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: _thumbnailUrl!,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                      memCacheWidth: 700,
+                      memCacheHeight: 700,
+                      placeholder: (_, __) =>
+                          Container(color: _surfaceDark),
+                      errorWidget: (_, __, ___) =>
+                          Container(color: _surfaceDark),
+                    )
+                  : Container(color: _surfaceDark),
+            ),
           ),
-          const SizedBox(height: 20),
-          _buildHeroActions(centered: true, isDesktop: false),
+          // Bottom scrim keeps the overlaid info legible
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  stops: const [0.0, 0.65],
+                  colors: [
+                    Colors.black.withValues(alpha: 0.85),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Info overlaid at the bottom of the artwork
+          Positioned(
+            left: 18,
+            right: 18,
+            bottom: 16,
+            child: _buildHeroDetails(
+              isDesktop: false,
+              centered: false,
+            ),
+          ),
         ],
       ),
     );
@@ -510,10 +503,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         ),
         const SizedBox(height: 10),
         metaRow,
-        // Desktop keeps actions inline; mobile renders them separately
+        // Actions
         if (!centered) ...[
-          const SizedBox(height: 28),
-          _buildHeroActions(centered: false, isDesktop: true),
+          SizedBox(height: isDesktop ? 28 : 16),
+          _buildHeroActions(centered: false, isDesktop: isDesktop),
         ],
       ],
     );
