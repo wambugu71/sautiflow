@@ -6135,72 +6135,158 @@ class _KnobPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
+    final radius = math.min(size.width, size.height) / 2;
 
-    final trackPaint = Paint()
-      ..color = inactiveColor
+    // 1. Ambient Drop Shadow underneath the knob
+    final shadowRadius = radius - (size.width * 0.03);
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.5)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.08);
+    canvas.drawCircle(
+      center + Offset(0, size.width * 0.04),
+      shadowRadius,
+      shadowPaint,
+    );
+
+    // 2. Beveled Outer Collar / Chassis
+    final outerRadius = radius - 1.5;
+    final innerRadius = outerRadius * 0.77;
+    final outerRect = Rect.fromCircle(center: center, radius: outerRadius);
+
+    // Slanted 3D metallic bevel gradient (top-right highlight to bottom-left shadow)
+    final bevelPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(0.3, -1.0),
+        end: Alignment(-0.3, 1.0),
+        colors: [
+          Color(0xFF5A5E66), // Top/top-right metallic highlight
+          Color(0xFF45484F),
+          Color(0xFF2E3035),
+          Color(0xFF1E2023),
+          Color(0xFF141517), // Deep bottom-left shadow
+        ],
+        stops: [0.0, 0.22, 0.50, 0.78, 1.0],
+      ).createShader(outerRect);
+    canvas.drawCircle(center, outerRadius, bevelPaint);
+
+    // Outer rim stroke highlight/shadow
+    final outerRimPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
+      ..strokeWidth = 1.0
+      ..shader = const LinearGradient(
+        begin: Alignment(0.2, -1.0),
+        end: Alignment(-0.2, 1.0),
+        colors: [
+          Color(0xFF6C717A), // Top rim sheen
+          Color(0xFF383A3F),
+          Color(0xFF141517), // Bottom rim shadow
+        ],
+      ).createShader(outerRect);
+    canvas.drawCircle(center, outerRadius, outerRimPaint);
 
+    // 3. Recessed Inner Face / Dish
+    final innerRect = Rect.fromCircle(center: center, radius: innerRadius);
+    final dishPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(0.0, -1.0),
+        end: Alignment(0.0, 1.0),
+        colors: [
+          Color(0xFF3A3C42), // Top illuminated gunmetal
+          Color(0xFF2C2E33),
+          Color(0xFF1E2023),
+          Color(0xFF151618), // Deep matte charcoal bottom
+        ],
+        stops: [0.0, 0.32, 0.68, 1.0],
+      ).createShader(innerRect);
+    canvas.drawCircle(center, innerRadius - 0.5, dishPaint);
+
+    // Inner shadow at the top of the recessed dish (shadow cast by collar)
+    canvas.save();
+    canvas.clipPath(
+      Path()
+        ..addOval(
+          Rect.fromCircle(center: center, radius: innerRadius - 0.5),
+        ),
+    );
+    final innerTopShadowPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: const Alignment(0.0, -0.15),
+        colors: [
+          Colors.black.withValues(alpha: 0.85),
+          Colors.black.withValues(alpha: 0.0),
+        ],
+      ).createShader(innerRect);
+    canvas.drawRect(innerRect, innerTopShadowPaint);
+    canvas.restore();
+
+    // 4. Inner Socket Crease and Bottom Reflection Ring
+    final innerCreasePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..color = const Color(0xFF090A0C);
+    canvas.drawCircle(center, innerRadius, innerCreasePaint);
+
+    final innerRimHighlightPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.transparent,
+          Colors.white.withValues(alpha: 0.16),
+        ],
+      ).createShader(innerRect);
+    canvas.drawArc(
+      innerRect,
+      0.0,
+      math.pi,
+      false,
+      innerRimHighlightPaint,
+    );
+
+    // 5. Indicator Needle / Pointer
     final startAngle = math.pi * 0.75;
     final sweepAngle = math.pi * 1.5;
+    final clampedNorm = normalizedValue.clamp(0.0, 1.0);
+    final currentAngle = startAngle + (sweepAngle * clampedNorm);
 
-    // Draw background arc
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius - 2),
-      startAngle,
-      sweepAngle,
-      false,
-      trackPaint,
+    final outerTickR = innerRadius - (size.width * 0.02);
+    final innerTickR = innerRadius * 0.50;
+
+    final outerPt = Offset(
+      center.dx + outerTickR * math.cos(currentAngle),
+      center.dy + outerTickR * math.sin(currentAngle),
+    );
+    final innerPt = Offset(
+      center.dx + innerTickR * math.cos(currentAngle),
+      center.dy + innerTickR * math.sin(currentAngle),
     );
 
-    // Draw active arc
-    final activePaint = Paint()
-      ..color = activeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
+    final strokeWidth = math.max(2.4, size.width * 0.045);
+
+    // Needle soft glow pass
+    final glowPaint = Paint()
+      ..color = activeColor.withValues(alpha: 0.45)
+      ..strokeWidth = strokeWidth + 2.2
       ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 1);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+    canvas.drawLine(innerPt, outerPt, glowPaint);
 
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius - 2),
-      startAngle,
-      sweepAngle * normalizedValue,
-      false,
-      activePaint,
-    );
-
-    // Draw knob circle
-    final basePaint = Paint()
-      ..color = const Color(0xFF1E1E2C)
-      ..style = PaintingStyle.fill;
-
-    // Darker rim
-    final rimPaint = Paint()
-      ..color = Colors.black26
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    canvas.drawCircle(center, radius - 8, basePaint);
-    canvas.drawCircle(center, radius - 8, rimPaint);
-
-    // Draw tick
-    final tickPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    final currentAngle = startAngle + (sweepAngle * normalizedValue);
-    final tickRadius = radius - 14;
-    final tickX = center.dx + tickRadius * math.cos(currentAngle);
-    final tickY = center.dy + tickRadius * math.sin(currentAngle);
-
-    canvas.drawCircle(Offset(tickX, tickY), 3, tickPaint);
+    // Needle sharp neon bar pass
+    final needlePaint = Paint()
+      ..color = activeColor
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(innerPt, outerPt, needlePaint);
   }
 
   @override
   bool shouldRepaint(covariant _KnobPainter oldDelegate) {
-    return oldDelegate.normalizedValue != normalizedValue;
+    return oldDelegate.normalizedValue != normalizedValue ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.inactiveColor != inactiveColor;
   }
 }
 
