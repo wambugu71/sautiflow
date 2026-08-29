@@ -62,6 +62,18 @@ enum DeEsserMode {
   const DeEsserMode(this.value);
 }
 
+/// Downward Expander & Noise Floor Reducer presets.
+enum DownwardExpanderPreset {
+  vinylClean(0),
+  tapeHiss(1),
+  gentleExpansion(2),
+  dynamicGate(3),
+  custom(4);
+
+  final int value;
+  const DownwardExpanderPreset(this.value);
+}
+
 /// Spatial Surround suite modes (see surround.md).
 enum SurroundMode {
   off(0),
@@ -119,6 +131,36 @@ typedef _DspSetDeEsserParamsExDart = void Function(
 
 typedef _DspGetDeEsserGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
 typedef _DspGetDeEsserGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
+
+typedef _DspSetExpanderPresetNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetExpanderPresetDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _DspSetExpanderParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetExpanderParamsDart = void Function(ffi.Pointer<ffi.Void>, double, double, double, double, double);
+
+typedef _DspSetExpanderParamsExNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float
+);
+typedef _DspSetExpanderParamsExDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double
+);
+
+typedef _DspGetExpanderGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetExpanderGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
 
 typedef _DspLoadConvolverIrNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32, ffi.Int32);
 typedef _DspLoadConvolverIrDart = int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int);
@@ -186,6 +228,12 @@ class SautiDsp {
   late final _DspSetDeEsserParamsExDart _setDeEsserParamsEx;
   late final _DspGetDeEsserGainReductionDbDart _getDeEsserGainReductionDb;
 
+  late final _DspSetEnabledDart _setExpanderEnabled;
+  late final _DspSetExpanderPresetDart _setExpanderPreset;
+  late final _DspSetExpanderParamsDart _setExpanderParams;
+  late final _DspSetExpanderParamsExDart _setExpanderParamsEx;
+  late final _DspGetExpanderGainReductionDbDart _getExpanderGainReductionDb;
+
   late final _DspSetEnabledDart _setConvolverEnabled;
   late final _DspLoadConvolverIrDart _loadConvolverIr;
   late final _DspClearConvolverIrDart _clearConvolverIr;
@@ -231,6 +279,12 @@ class SautiDsp {
     _setDeEsserParams = _lib.lookupFunction<_DspSetDeEsserParamsNative, _DspSetDeEsserParamsDart>('ae_dsp_set_de_esser_params');
     _setDeEsserParamsEx = _lib.lookupFunction<_DspSetDeEsserParamsExNative, _DspSetDeEsserParamsExDart>('ae_dsp_set_de_esser_params_ex');
     _getDeEsserGainReductionDb = _lib.lookupFunction<_DspGetDeEsserGainReductionDbNative, _DspGetDeEsserGainReductionDbDart>('ae_dsp_get_de_esser_gain_reduction_db');
+
+    _setExpanderEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_expander_enabled');
+    _setExpanderPreset = _lib.lookupFunction<_DspSetExpanderPresetNative, _DspSetExpanderPresetDart>('ae_dsp_set_expander_preset');
+    _setExpanderParams = _lib.lookupFunction<_DspSetExpanderParamsNative, _DspSetExpanderParamsDart>('ae_dsp_set_expander_params');
+    _setExpanderParamsEx = _lib.lookupFunction<_DspSetExpanderParamsExNative, _DspSetExpanderParamsExDart>('ae_dsp_set_expander_params_ex');
+    _getExpanderGainReductionDb = _lib.lookupFunction<_DspGetExpanderGainReductionDbNative, _DspGetExpanderGainReductionDbDart>('ae_dsp_get_expander_gain_reduction_db');
 
     _setConvolverEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_convolver_enabled');
     _loadConvolverIr = _lib.lookupFunction<_DspLoadConvolverIrNative, _DspLoadConvolverIrDart>('ae_dsp_load_convolver_ir');
@@ -323,6 +377,87 @@ class SautiDsp {
   double get deEsserGainReductionDb {
     if (_enginePtr == ffi.nullptr) return 0.0;
     return _getDeEsserGainReductionDb(_enginePtr);
+  }
+
+  /// Downward Expander & Adaptive Noise Floor Reducer (ideal for vinyl/tape rips).
+  void setDownwardExpander({
+    required bool enabled,
+    DownwardExpanderPreset preset = DownwardExpanderPreset.vinylClean,
+    double? thresholdDb,
+    double? ratio,
+    double? rangeDb,
+    double? attackMs,
+    double? releaseMs,
+    double? kneeDb,
+    double? sidechainHpfHz,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setExpanderEnabled(_enginePtr, enabled ? 1 : 0);
+    _setExpanderPreset(_enginePtr, preset.value);
+    if (preset == DownwardExpanderPreset.custom ||
+        thresholdDb != null ||
+        ratio != null ||
+        rangeDb != null ||
+        attackMs != null ||
+        releaseMs != null ||
+        kneeDb != null ||
+        sidechainHpfHz != null) {
+      _setExpanderParamsEx(
+        _enginePtr,
+        thresholdDb ?? -52.0,
+        ratio ?? 1.8,
+        rangeDb ?? -16.0,
+        attackMs ?? 12.0,
+        releaseMs ?? 280.0,
+        kneeDb ?? 6.0,
+        sidechainHpfHz ?? 50.0,
+      );
+    }
+  }
+
+  /// Full manual parameter tuning for Downward Expander.
+  void setDownwardExpanderEx({
+    required bool enabled,
+    double thresholdDb = -52.0,
+    double ratio = 1.8,
+    double rangeDb = -16.0,
+    double attackMs = 12.0,
+    double releaseMs = 280.0,
+    double kneeDb = 6.0,
+    double sidechainHpfHz = 50.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setExpanderEnabled(_enginePtr, enabled ? 1 : 0);
+    _setExpanderParamsEx(
+      _enginePtr,
+      thresholdDb,
+      ratio,
+      rangeDb,
+      attackMs,
+      releaseMs,
+      kneeDb,
+      sidechainHpfHz,
+    );
+  }
+
+  /// Compact parameter setter for Downward Expander.
+  void setDownwardExpanderParams({
+    required bool enabled,
+    double thresholdDb = -52.0,
+    double ratio = 1.8,
+    double rangeDb = -16.0,
+    double attackMs = 12.0,
+    double releaseMs = 280.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setExpanderEnabled(_enginePtr, enabled ? 1 : 0);
+    _setExpanderParams(_enginePtr, thresholdDb, ratio, rangeDb, attackMs, releaseMs);
+  }
+
+  /// Current real-time gain reduction of Downward Expander in dB.
+  double get downwardExpanderGainReductionDb {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getExpanderGainReductionDb(_enginePtr);
   }
 
   /// Partitioned FFT Impulse Response Convolver.

@@ -600,6 +600,13 @@ extern "C"
     AE_API void ae_dsp_set_de_esser_params_ex(AudioEngineHandle *engine, int mode, float frequency_hz, float threshold_db, float ratio, float max_reduction_db, float attack_ms, float release_ms);
     AE_API float ae_dsp_get_de_esser_gain_reduction_db(AudioEngineHandle *engine);
 
+    // Downward Expander & Noise Floor Reducer (0=VinylClean, 1=TapeHiss, 2=GentleExpansion, 3=DynamicGate, 4=Custom)
+    AE_API void ae_dsp_set_expander_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_expander_preset(AudioEngineHandle *engine, int preset);
+    AE_API void ae_dsp_set_expander_params(AudioEngineHandle *engine, float threshold_db, float ratio, float range_db, float attack_ms, float release_ms);
+    AE_API void ae_dsp_set_expander_params_ex(AudioEngineHandle *engine, float threshold_db, float ratio, float range_db, float attack_ms, float release_ms, float knee_db, float sidechain_hpf_hz);
+    AE_API float ae_dsp_get_expander_gain_reduction_db(AudioEngineHandle *engine);
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
 

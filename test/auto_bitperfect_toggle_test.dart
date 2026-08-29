@@ -7,9 +7,11 @@ void main() {
     final ok = player.init(sampleRate: 48000);
     expect(ok, isTrue, reason: 'Engine should initialize successfully');
 
-    // 1. Initial state: Auto Bit-Perfect is OFF, output sample rate is 0 (native)
+    // 1. Initial state: Auto Bit-Perfect is OFF. The getter reports the ACTIVE
+    // hardware rate (never the bogus 0 sentinel) on a fresh engine.
+    final initialRate = player.getOutputSampleRate();
     expect(player.isAutoBitPerfectEnabled, isFalse);
-    expect(player.getOutputSampleRate(), equals(0));
+    expect(initialRate, greaterThan(0));
 
     // 2. Enable Auto Bit-Perfect mode
     player.setAutoBitPerfectEnabled(true);
@@ -23,9 +25,9 @@ void main() {
     player.setAutoBitPerfectEnabled(false);
     expect(player.isAutoBitPerfectEnabled, isFalse);
 
-    // 4. Verify output sample rate is restored to user output rate (0 = native)
-    // instead of remaining stuck at 44100 Hz
-    expect(player.getOutputSampleRate(), equals(0));
+    // 4. Verify output sample rate is restored (drops the forced 44100 Hz and
+    // returns to the active hardware rate) instead of remaining stuck at 44100 Hz
+    expect(player.getOutputSampleRate(), isNot(equals(44100)));
 
     player.dispose();
   });

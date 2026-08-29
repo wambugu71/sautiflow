@@ -27,6 +27,7 @@
 #include "dsp/analog_warmth_dsp.h"
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/de_esser_dsp.h"
+#include "dsp/downward_expander_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -651,6 +652,128 @@ static void test_de_esser_dsp()
     }
 }
 
+// -----------------------------------------------------------------------------
+// DownwardExpanderDSP: Noise Floor Reduction, Soft-Knee & Clamping
+// -----------------------------------------------------------------------------
+static void test_downward_expander_dsp()
+{
+    std::printf("\n== DownwardExpanderDSP Noise Floor Reducer Verification ==\n");
+
+    // 1. Default disabled state & bypass transparency
+    {
+        sauti::dsp::DownwardExpanderDSP expander;
+        CHECK(!expander.isEnabled(), "Expander is DISABLED by default");
+        CHECK(nearlyEqual(expander.getCurrentGainReductionDb(), 0.0f, 0.01f), "Initial gain reduction is 0.0 dB");
+
+        const uint32_t N = 512;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            buf[2 * i] = 0.005f * std::sin(2.0f * static_cast<float>(M_PI) * 440.0f * i / 48000.0f);
+            buf[2 * i + 1] = 0.005f * std::cos(2.0f * static_cast<float>(M_PI) * 440.0f * i / 48000.0f);
+        }
+        std::vector<float> copy = buf;
+        expander.process(buf.data(), N);
+
+        float maxDiff = 0.0f;
+        for (size_t i = 0; i < buf.size(); ++i) {
+            maxDiff = std::max(maxDiff, std::abs(buf[i] - copy[i]));
+        }
+        CHECK(maxDiff < 1e-6f, "Disabled expander leaves audio bit-identical (0 dB attenuation)");
+    }
+
+    // 2. Loud signals (> threshold) pass unattenuated
+    {
+        sauti::dsp::DownwardExpanderDSP expander;
+        expander.setEnabled(true);
+        expander.setPreset(sauti::dsp::ExpanderPreset::VinylClean);
+        expander.reset();
+
+        const uint32_t N = 4800; // 100ms at 48kHz
+        std::vector<float> loudBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            loudBuf[2 * i] = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f); // -6 dBFS
+            loudBuf[2 * i + 1] = 0.5f * std::cos(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f);
+        }
+        expander.process(loudBuf.data(), N);
+
+        float gr = expander.getCurrentGainReductionDb();
+        CHECK(nearlyEqual(gr, 0.0f, 0.5f), "Loud signals (> threshold) experience 0 dB gain reduction");
+    }
+
+    // 3. Below-threshold noise reduction & floor clamping
+    {
+        sauti::dsp::DownwardExpanderDSP expander;
+        expander.setEnabled(true);
+        expander.setThresholdDb(-50.0f);
+        expander.setRatio(2.0f);
+        expander.setRangeDb(-16.0f);
+        expander.setAttackMs(1.0f);
+        expander.setReleaseMs(10.0f);
+        expander.reset();
+
+        // Low-level noise (-65 dBFS, amp ~ 0.00056)
+        const uint32_t N = 9600; // 200ms
+        std::vector<float> noiseBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            noiseBuf[2 * i] = 0.00056f * std::sin(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f);
+            noiseBuf[2 * i + 1] = 0.00056f * std::cos(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f);
+        }
+        expander.process(noiseBuf.data(), N);
+
+        float gr = expander.getCurrentGainReductionDb();
+        CHECK(gr < -10.0f && gr >= -16.5f, "Below-threshold noise is attenuated smoothly (GR ~ -15 dB)");
+
+        // Ultra-low signal (-100 dBFS) must be clamped to -16 dB floor (not -50 dB or -inf)
+        std::vector<float> tinyBuf(2 * N, 0.00001f);
+        expander.process(tinyBuf.data(), N);
+        float clampedGr = expander.getCurrentGainReductionDb();
+        CHECK(clampedGr <= -15.5f && clampedGr >= -16.5f, "Gain reduction respects user-configured floor limit (-16 dB)");
+    }
+
+    // 4. Sidechain rumble HPF rejection
+    {
+        sauti::dsp::DownwardExpanderDSP expander;
+        expander.setEnabled(true);
+        expander.setThresholdDb(-40.0f);
+        expander.setRatio(4.0f);
+        expander.setRangeDb(-24.0f);
+        expander.setSidechainHpfHz(60.0f);
+        expander.setAttackMs(1.0f);
+        expander.setReleaseMs(10.0f);
+        expander.reset();
+
+        // 20 Hz turntable rumble at -30 dBFS (would trigger if no HPF)
+        const uint32_t N = 9600;
+        std::vector<float> rumbleBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            rumbleBuf[2 * i] = 0.0316f * std::sin(2.0f * static_cast<float>(M_PI) * 20.0f * i / 48000.0f);
+            rumbleBuf[2 * i + 1] = 0.0316f * std::sin(2.0f * static_cast<float>(M_PI) * 20.0f * i / 48000.0f);
+        }
+        expander.process(rumbleBuf.data(), N);
+
+        float gr = expander.getCurrentGainReductionDb();
+        CHECK(gr < -5.0f, "Sidechain HPF attenuates sub-bass rumble so detector does not falsely open");
+    }
+
+    // 5. Numerical stability under extreme conditions
+    {
+        sauti::dsp::DownwardExpanderDSP expander;
+        expander.setSampleRate(96000.0f);
+        expander.setEnabled(true);
+        expander.reset();
+
+        const uint32_t N = 1024;
+        std::vector<float> extremeBuf(2 * N, 10.0f);
+        expander.process(extremeBuf.data(), N);
+
+        bool hasNaN = false;
+        for (float val : extremeBuf) {
+            if (std::isnan(val) || std::isinf(val)) hasNaN = true;
+        }
+        CHECK(!hasNaN, "DownwardExpanderDSP contains no NaN/Inf under hot 96kHz input");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -658,7 +781,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -669,6 +792,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "dynsys") test_dynamic_system_cutoff_and_stability();
     if (only.empty() || only == "oversample") test_oversampled_saturation();
     if (only.empty() || only == "deesser") test_de_esser_dsp();
+    if (only.empty() || only == "expander") test_downward_expander_dsp();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

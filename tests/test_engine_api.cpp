@@ -72,14 +72,20 @@ static void test_dsp_setters_smoke()
         ae_dsp_set_de_esser_enabled(e, i & 1);
         ae_dsp_set_de_esser_params(e, i % 2, (i % 100) / 100.0f);
         ae_dsp_set_de_esser_params_ex(e, i % 2, 5000.0f + (i % 2000), -20.0f, 4.0f, 12.0f, 1.0f, 35.0f);
+        ae_dsp_set_expander_enabled(e, i & 1);
+        ae_dsp_set_expander_preset(e, i % 5);
+        ae_dsp_set_expander_params(e, -50.0f, 2.0f, -18.0f, 10.0f, 250.0f);
+        ae_dsp_set_expander_params_ex(e, -52.0f, 1.8f, -16.0f, 12.0f, 280.0f, 6.0f, 50.0f);
         ae_dsp_set_master_limiter_enabled(e, 0); // stays opt-in
         if (i % 50 == 0) ae_dsp_reset(e);
     }
     CHECK(ok, "400+ concurrent-ish setter calls survived");
 
-    // De-Esser & Master limiter default checks
+    // De-Esser, Expander & Master limiter default checks
     CHECK(ae_dsp_get_de_esser_gain_reduction_db(e) == 0.0f,
           "de-esser inactive by default (GR = 0 dB)");
+    CHECK(ae_dsp_get_expander_gain_reduction_db(e) == 0.0f,
+          "expander inactive by default (GR = 0 dB)");
     CHECK(ae_dsp_get_limiter_gain_reduction_db(e) == 0.0f,
           "master limiter inactive by default (GR = 0 dB)");
 

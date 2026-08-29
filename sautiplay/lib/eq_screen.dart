@@ -111,6 +111,39 @@ class EqScreen extends StatefulWidget {
       drive: analogWarmthDrive,
     );
 
+    final expanderEnabled =
+        masterEnabled && (state['expanderEnabled'] ?? false);
+    final expanderPreset = DownwardExpanderPreset.values.firstWhere(
+      (e) => e.value == (state['expanderPreset'] ?? 0),
+      orElse: () => DownwardExpanderPreset.vinylClean,
+    );
+    final expanderThresholdDb =
+        (state['expanderThresholdDb'] as num?)?.toDouble() ?? -52.0;
+    final expanderRatio =
+        (state['expanderRatio'] as num?)?.toDouble() ?? 1.8;
+    final expanderRangeDb =
+        (state['expanderRangeDb'] as num?)?.toDouble() ?? -16.0;
+    final expanderAttackMs =
+        (state['expanderAttackMs'] as num?)?.toDouble() ?? 12.0;
+    final expanderReleaseMs =
+        (state['expanderReleaseMs'] as num?)?.toDouble() ?? 280.0;
+    final expanderKneeDb =
+        (state['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
+    final expanderHpfHz =
+        (state['expanderHpfHz'] as num?)?.toDouble() ?? 50.0;
+
+    player.setDownwardExpander(
+      enabled: expanderEnabled,
+      preset: expanderPreset,
+      thresholdDb: expanderThresholdDb,
+      ratio: expanderRatio,
+      rangeDb: expanderRangeDb,
+      attackMs: expanderAttackMs,
+      releaseMs: expanderReleaseMs,
+      kneeDb: expanderKneeDb,
+      sidechainHpfHz: expanderHpfHz,
+    );
+
     player.setConvolverEnabled(convolverEnabled);
     player.setConvolverMix(wet: convolverWet, dry: convolverDry);
     if (convolverEnabled &&
@@ -565,6 +598,17 @@ class _EqScreenState extends State<EqScreen>
   AnalogWarmthProfile _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
   double _analogWarmthDrive = 0.5;
 
+  // 4b. Downward Expander (Vinyl & Tape Noise Floor Reducer)
+  bool _expanderEnabled = false;
+  DownwardExpanderPreset _expanderPreset = DownwardExpanderPreset.vinylClean;
+  double _expanderThresholdDb = -52.0;
+  double _expanderRatio = 1.8;
+  double _expanderRangeDb = -16.0;
+  double _expanderAttackMs = 12.0;
+  double _expanderReleaseMs = 280.0;
+  double _expanderKneeDb = 6.0;
+  double _expanderHpfCutoffHz = 50.0;
+
   // 5. FFT Convolver
   bool _convolverEnabled = false;
   String? _convolverIrPath;
@@ -670,6 +714,7 @@ class _EqScreenState extends State<EqScreen>
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
     _hrirDropdownController.dispose();
+    widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
 
@@ -805,6 +850,26 @@ class _EqScreenState extends State<EqScreen>
         _analogWarmthDrive =
             (dspMap['analogWarmthDrive'] as num?)?.toDouble() ?? 0.5;
 
+        _expanderEnabled = dspMap['expanderEnabled'] ?? false;
+        _expanderPreset = DownwardExpanderPreset.values.firstWhere(
+          (e) => e.value == (dspMap['expanderPreset'] ?? 0),
+          orElse: () => DownwardExpanderPreset.vinylClean,
+        );
+        _expanderThresholdDb =
+            (dspMap['expanderThresholdDb'] as num?)?.toDouble() ?? -52.0;
+        _expanderRatio =
+            (dspMap['expanderRatio'] as num?)?.toDouble() ?? 1.8;
+        _expanderRangeDb =
+            (dspMap['expanderRangeDb'] as num?)?.toDouble() ?? -16.0;
+        _expanderAttackMs =
+            (dspMap['expanderAttackMs'] as num?)?.toDouble() ?? 12.0;
+        _expanderReleaseMs =
+            (dspMap['expanderReleaseMs'] as num?)?.toDouble() ?? 280.0;
+        _expanderKneeDb =
+            (dspMap['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
+        _expanderHpfCutoffHz =
+            (dspMap['expanderHpfHz'] as num?)?.toDouble() ?? 50.0;
+
         _convolverEnabled = dspMap['convolverEnabled'] ?? false;
         _convolverIrPath = dspMap['convolverIrPath'] as String?;
         if (_convolverIrPath != null && _convolverIrPath!.isNotEmpty) {
@@ -920,6 +985,78 @@ class _EqScreenState extends State<EqScreen>
       profile: _analogWarmthProfile,
       drive: _analogWarmthDrive,
     );
+  }
+
+  void _updateDownwardExpander() {
+    widget.player.setDownwardExpander(
+      enabled: _expanderEnabled,
+      preset: _expanderPreset,
+      thresholdDb: _expanderThresholdDb,
+      ratio: _expanderRatio,
+      rangeDb: _expanderRangeDb,
+      attackMs: _expanderAttackMs,
+      releaseMs: _expanderReleaseMs,
+      kneeDb: _expanderKneeDb,
+      sidechainHpfHz: _expanderHpfCutoffHz,
+    );
+  }
+
+  void _applyExpanderPreset(DownwardExpanderPreset preset) {
+    setState(() {
+      _expanderPreset = preset;
+      switch (preset) {
+        case DownwardExpanderPreset.vinylClean:
+          _expanderThresholdDb = -52.0;
+          _expanderRatio = 1.8;
+          _expanderRangeDb = -16.0;
+          _expanderAttackMs = 12.0;
+          _expanderReleaseMs = 280.0;
+          _expanderKneeDb = 6.0;
+          _expanderHpfCutoffHz = 50.0;
+          break;
+        case DownwardExpanderPreset.tapeHiss:
+          _expanderThresholdDb = -50.0;
+          _expanderRatio = 2.0;
+          _expanderRangeDb = -18.0;
+          _expanderAttackMs = 10.0;
+          _expanderReleaseMs = 220.0;
+          _expanderKneeDb = 6.0;
+          _expanderHpfCutoffHz = 40.0;
+          break;
+        case DownwardExpanderPreset.gentleExpansion:
+          _expanderThresholdDb = -46.0;
+          _expanderRatio = 1.4;
+          _expanderRangeDb = -12.0;
+          _expanderAttackMs = 20.0;
+          _expanderReleaseMs = 400.0;
+          _expanderKneeDb = 8.0;
+          _expanderHpfCutoffHz = 30.0;
+          break;
+        case DownwardExpanderPreset.dynamicGate:
+          _expanderThresholdDb = -38.0;
+          _expanderRatio = 6.0;
+          _expanderRangeDb = -36.0;
+          _expanderAttackMs = 2.0;
+          _expanderReleaseMs = 100.0;
+          _expanderKneeDb = 3.0;
+          _expanderHpfCutoffHz = 60.0;
+          break;
+        case DownwardExpanderPreset.custom:
+          break;
+      }
+    });
+    if (_expanderEnabled) _updateDownwardExpander();
+    _saveEqState();
+  }
+
+  String _getExpanderPresetName(DownwardExpanderPreset preset) {
+    return switch (preset) {
+      DownwardExpanderPreset.vinylClean => 'Vinyl Clean',
+      DownwardExpanderPreset.tapeHiss => 'Tape Hiss',
+      DownwardExpanderPreset.gentleExpansion => 'Gentle Clean',
+      DownwardExpanderPreset.dynamicGate => 'Dynamic Gate',
+      DownwardExpanderPreset.custom => 'Custom',
+    };
   }
 
   bool _isBuiltinHrir(String? path) =>
@@ -1109,6 +1246,15 @@ class _EqScreenState extends State<EqScreen>
       'analogWarmthEnabled': _analogWarmthEnabled,
       'analogWarmthProfile': _analogWarmthProfile.value,
       'analogWarmthDrive': _analogWarmthDrive,
+      'expanderEnabled': _expanderEnabled,
+      'expanderPreset': _expanderPreset.value,
+      'expanderThresholdDb': _expanderThresholdDb,
+      'expanderRatio': _expanderRatio,
+      'expanderRangeDb': _expanderRangeDb,
+      'expanderAttackMs': _expanderAttackMs,
+      'expanderReleaseMs': _expanderReleaseMs,
+      'expanderKneeDb': _expanderKneeDb,
+      'expanderHpfHz': _expanderHpfCutoffHz,
       'convolverEnabled': _convolverEnabled,
       'convolverIrPath': _convolverIrPath,
       'convolverWet': _convolverWet,
@@ -1132,15 +1278,6 @@ class _EqScreenState extends State<EqScreen>
     setState(() {
       _showWarningBanner = false;
     });
-  }
-
-  @override
-  void dispose() {
-    _statusSub?.cancel();
-    _eqSettingsSub?.cancel();
-    _hrirDropdownController.dispose();
-    widget.player.setAnalyzerEnabled(false);
-    super.dispose();
   }
 
   void _initEq() {
@@ -1391,6 +1528,17 @@ class _EqScreenState extends State<EqScreen>
       _analogWarmthProfile = AnalogWarmthProfile.triode12AX7;
       _analogWarmthDrive = 0.5;
       widget.player.setAnalogWarmth(enabled: false);
+
+      _expanderEnabled = false;
+      _expanderPreset = DownwardExpanderPreset.vinylClean;
+      _expanderThresholdDb = -52.0;
+      _expanderRatio = 1.8;
+      _expanderRangeDb = -16.0;
+      _expanderAttackMs = 12.0;
+      _expanderReleaseMs = 280.0;
+      _expanderKneeDb = 6.0;
+      _expanderHpfCutoffHz = 50.0;
+      widget.player.setDownwardExpander(enabled: false);
 
       _convolverEnabled = false;
       _convolverIrPath = null;
@@ -1677,8 +1825,13 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       Row(
                         children: [
-                          const SizedBox(width: 4),
-                          const SizedBox(width: 4),
+                          M3EIconButton(
+                            icon: const Icon(Icons.info_outline_rounded, size: 19),
+                            variant: M3EIconButtonVariant.tonal,
+                            tooltip: 'Pipeline State',
+                            onPressed: _showPipelineInfo,
+                          ),
+                          const SizedBox(width: 6),
                           M3EIconButton(
                             icon: const Icon(Icons.refresh_rounded, size: 19),
                             variant: M3EIconButtonVariant.tonal,
@@ -1991,7 +2144,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 2,
+                  itemCount: 3,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -2008,6 +2161,14 @@ class _EqScreenState extends State<EqScreen>
                           Icons.auto_fix_high_rounded,
                           (_) => _buildCrystalizerSection(),
                           shape: Shapes.burst,
+                        );
+                        break;
+                      case 2:
+                        _openDetailScreen(
+                          'Downward Expander',
+                          Icons.cleaning_services_rounded,
+                          (_) => _buildDownwardExpanderSection(),
+                          shape: Shapes.flower,
                         );
                         break;
                     }
@@ -2035,24 +2196,46 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
+                    if (index == 1) {
+                      return _buildEffectTileCard(
+                        icon: Icons.auto_fix_high_rounded,
+                        shape: Shapes.burst,
+                        title: 'Crystalizer',
+                        subtitle: _crystalizerEnabled
+                            ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
+                            : 'Disabled',
+                        isEnabled: _crystalizerEnabled,
+                        onToggle: (v) {
+                          setState(() => _crystalizerEnabled = v);
+                          _updateCrystalizer();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Crystalizer',
+                          Icons.auto_fix_high_rounded,
+                          (_) => _buildCrystalizerSection(),
+                          shape: Shapes.burst,
+                        ),
+                      );
+                    }
                     return _buildEffectTileCard(
-                      icon: Icons.auto_fix_high_rounded,
-                      shape: Shapes.burst,
-                      title: 'Crystalizer',
-                      subtitle: _crystalizerEnabled
-                          ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
+                      icon: Icons.cleaning_services_rounded,
+                      shape: Shapes.flower,
+                      title: 'Downward Expander',
+                      subtitle: _expanderEnabled
+                          ? '${_getExpanderPresetName(_expanderPreset)} (${_expanderThresholdDb.toInt()} dB / ${_expanderRatio.toStringAsFixed(1)}:1)'
                           : 'Disabled',
-                      isEnabled: _crystalizerEnabled,
+                      isEnabled: _expanderEnabled,
                       onToggle: (v) {
-                        setState(() => _crystalizerEnabled = v);
-                        _updateCrystalizer();
+                        setState(() => _expanderEnabled = v);
+                        _updateDownwardExpander();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Crystalizer',
-                        Icons.auto_fix_high_rounded,
-                        (_) => _buildCrystalizerSection(),
-                        shape: Shapes.burst,
+                        'Downward Expander',
+                        Icons.cleaning_services_rounded,
+                        (_) => _buildDownwardExpanderSection(),
+                        shape: Shapes.flower,
                       ),
                     );
                   },
@@ -4105,6 +4288,192 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _clarityIntensity = v);
                 if (_clarityEnabled) _updateClarity();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDownwardExpanderSection() {
+    const expanderColor = Color(0xFF26A69A);
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.cleaning_services_rounded, color: expanderColor, size: 20),
+      ),
+      title: 'Downward Expander',
+      subtitle:
+          'Reduces noise floor on vinyl & tape rips smoothly without gating pumping',
+      isEnabled: _expanderEnabled,
+      onToggle: (v) {
+        setState(() => _expanderEnabled = v);
+        _updateDownwardExpander();
+        _saveEqState();
+      },
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Preset Mode',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<DownwardExpanderPreset>(
+                value: _expanderPreset,
+                dropdownColor: surfaceDarkerColor,
+                icon: Icon(Icons.arrow_drop_down_rounded, color: expanderColor),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: DownwardExpanderPreset.vinylClean,
+                    child: Text('Vinyl Clean (Rumble Filter)'),
+                  ),
+                  DropdownMenuItem(
+                    value: DownwardExpanderPreset.tapeHiss,
+                    child: Text('Tape Hiss Reduction'),
+                  ),
+                  DropdownMenuItem(
+                    value: DownwardExpanderPreset.gentleExpansion,
+                    child: Text('Gentle Clean (Subtle)'),
+                  ),
+                  DropdownMenuItem(
+                    value: DownwardExpanderPreset.dynamicGate,
+                    child: Text('Dynamic Gate (Firm)'),
+                  ),
+                  DropdownMenuItem(
+                    value: DownwardExpanderPreset.custom,
+                    child: Text('Custom / Manual'),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    _applyExpanderPreset(val);
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'THRESHOLD',
+              value: _expanderThresholdDb,
+              min: -80.0,
+              max: -10.0,
+              flatValue: -52.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} dB',
+              onChanged: (v) {
+                setState(() {
+                  _expanderThresholdDb = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'EXP RATIO',
+              value: _expanderRatio,
+              min: 1.0,
+              max: 8.0,
+              flatValue: 1.8,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
+              onChanged: (v) {
+                setState(() {
+                  _expanderRatio = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX FLOOR',
+              value: _expanderRangeDb,
+              min: -40.0,
+              max: -6.0,
+              flatValue: -16.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} dB',
+              onChanged: (v) {
+                setState(() {
+                  _expanderRangeDb = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'ATTACK',
+              value: _expanderAttackMs,
+              min: 1.0,
+              max: 50.0,
+              flatValue: 12.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() {
+                  _expanderAttackMs = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: _expanderReleaseMs,
+              min: 20.0,
+              max: 800.0,
+              flatValue: 280.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() {
+                  _expanderReleaseMs = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RUMBLE HPF',
+              value: _expanderHpfCutoffHz,
+              min: 0.0,
+              max: 100.0,
+              flatValue: 50.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => v < 15.0 ? 'OFF' : '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _expanderHpfCutoffHz = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
             ),

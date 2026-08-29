@@ -767,6 +767,52 @@ class IsolateAudioPlayer {
         'releaseMs': releaseMs,
       });
 
+  void setDownwardExpander({
+    required bool enabled,
+    DownwardExpanderPreset preset = DownwardExpanderPreset.vinylClean,
+    double? thresholdDb,
+    double? ratio,
+    double? rangeDb,
+    double? attackMs,
+    double? releaseMs,
+    double? kneeDb,
+    double? sidechainHpfHz,
+  }) =>
+      _send({
+        'cmd': 'setDownwardExpander',
+        'enabled': enabled,
+        'preset': preset.value,
+        'thresholdDb': thresholdDb,
+        'ratio': ratio,
+        'rangeDb': rangeDb,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'kneeDb': kneeDb,
+        'sidechainHpfHz': sidechainHpfHz,
+      });
+
+  void setDownwardExpanderEx({
+    required bool enabled,
+    double thresholdDb = -52.0,
+    double ratio = 1.8,
+    double rangeDb = -16.0,
+    double attackMs = 12.0,
+    double releaseMs = 280.0,
+    double kneeDb = 6.0,
+    double sidechainHpfHz = 50.0,
+  }) =>
+      _send({
+        'cmd': 'setDownwardExpanderEx',
+        'enabled': enabled,
+        'thresholdDb': thresholdDb,
+        'ratio': ratio,
+        'rangeDb': rangeDb,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'kneeDb': kneeDb,
+        'sidechainHpfHz': sidechainHpfHz,
+      });
+
   void setConvolverEnabled(bool enabled) =>
       _send({'cmd': 'setConvolverEnabled', 'enabled': enabled});
 
@@ -2058,6 +2104,36 @@ void _isolateEntry(_IsolateInitData initData) {
                 (message['maxReductionDb'] as num?)?.toDouble() ?? 12.0,
             attackMs: (message['attackMs'] as num?)?.toDouble() ?? 1.0,
             releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 35.0,
+          );
+          break;
+        case 'setDownwardExpander':
+          player.dsp.setDownwardExpander(
+            enabled: message['enabled'] == true,
+            preset: DownwardExpanderPreset.values.firstWhere(
+              (p) => p.value == message['preset'],
+              orElse: () => DownwardExpanderPreset.vinylClean,
+            ),
+            thresholdDb: (message['thresholdDb'] as num?)?.toDouble(),
+            ratio: (message['ratio'] as num?)?.toDouble(),
+            rangeDb: (message['rangeDb'] as num?)?.toDouble(),
+            attackMs: (message['attackMs'] as num?)?.toDouble(),
+            releaseMs: (message['releaseMs'] as num?)?.toDouble(),
+            kneeDb: (message['kneeDb'] as num?)?.toDouble(),
+            sidechainHpfHz: (message['sidechainHpfHz'] as num?)?.toDouble(),
+          );
+          break;
+        case 'setDownwardExpanderEx':
+          player.dsp.setDownwardExpanderEx(
+            enabled: message['enabled'] == true,
+            thresholdDb:
+                (message['thresholdDb'] as num?)?.toDouble() ?? -52.0,
+            ratio: (message['ratio'] as num?)?.toDouble() ?? 1.8,
+            rangeDb: (message['rangeDb'] as num?)?.toDouble() ?? -16.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 12.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 280.0,
+            kneeDb: (message['kneeDb'] as num?)?.toDouble() ?? 6.0,
+            sidechainHpfHz:
+                (message['sidechainHpfHz'] as num?)?.toDouble() ?? 50.0,
           );
           break;
         case 'setConvolverEnabled':

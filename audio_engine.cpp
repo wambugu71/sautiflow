@@ -40,6 +40,7 @@
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/analog_warmth_dsp.h"
 #include "dsp/de_esser_dsp.h"
+#include "dsp/downward_expander_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/master_limiter_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
@@ -3057,6 +3058,7 @@ struct AudioEngineHandle
     sauti::dsp::DynamicSystemDSP dynamicSystemDsp;
     sauti::dsp::AnalogWarmthDSP analogWarmthDsp;
     sauti::dsp::DeEsserDSP deEsserDsp;
+    sauti::dsp::DownwardExpanderDSP downwardExpanderDsp;
     sauti::dsp::FFTConvolverDSP fftConvolverDsp;
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
@@ -3374,6 +3376,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->dynamicSystemDsp.setSampleRate(srF);
     e->analogWarmthDsp.setSampleRate(srF);
     e->deEsserDsp.setSampleRate(srF);
+    e->downwardExpanderDsp.setSampleRate(srF);
     e->fftConvolverDsp.setSampleRate(srF);
     e->masterLimiterDsp.setSampleRate(srF);
     e->surroundDsp.setSampleRate(srF);
@@ -3477,6 +3480,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->dynamicSystemDsp.setSampleRate(srF);
         e->analogWarmthDsp.setSampleRate(srF);
         e->deEsserDsp.setSampleRate(srF);
+        e->downwardExpanderDsp.setSampleRate(srF);
         e->fftConvolverDsp.setSampleRate(srF);
         e->masterLimiterDsp.setSampleRate(srF);
         e->surroundDsp.setSampleRate(srF);
@@ -5209,6 +5213,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
                 if (dspLock.owns_lock())
                 {
+                    e->downwardExpanderDsp.process(processBuffer, produced);
                     e->harmonicBassDsp.process(processBuffer, produced);
                     e->dynamicSystemDsp.process(processBuffer, produced);
                     e->analogWarmthDsp.process(processBuffer, produced);
@@ -5346,9 +5351,20 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     {
         const bool isIntExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                     (activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24);
+        // Any gain stage that scales samples before quantization can cause
+        // correlated truncation distortion at low levels: user master gain,
+        // replay gain, loudness normalizer, L/R channel trim, and pan.
+        // (Fades/crossfades are transient envelopes, not steady-state
+        // attenuation, so they are excluded.)
         const bool isVolumeAttenuated = std::fabs(e->paramUserGain.current - 1.0f) > 1e-4f ||
                                        std::fabs(e->gain.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
-                                       (e->replayGainLinear.load(std::memory_order_relaxed) != 1.0f);
+                                       (e->replayGainLinear.load(std::memory_order_relaxed) != 1.0f) ||
+                                       std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
+                                       (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) &&
+                                        std::fabs(e->loudnessMeter.getNormalizerGainLinear() - 1.0f) > 1e-4f) ||
+                                       std::fabs(e->channelGainLeft.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                       std::fabs(e->channelGainRight.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                       (e->pan.load(std::memory_order_relaxed) != 0.0f);
         if (isIntExclusive && isVolumeAttenuated)
         {
             effectiveDither = 2; // Mode 2: Triangle (TPDF 2.0 LSB p-p)
@@ -9167,6 +9183,52 @@ extern "C"
         return engine->deEsserDsp.getGainReductionDb();
     }
 
+    // Downward Expander & Noise Floor Reducer
+    AE_API void ae_dsp_set_expander_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->downwardExpanderDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_expander_preset(AudioEngineHandle *engine, int preset)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (preset < 0 || preset > 4) preset = 0;
+        engine->downwardExpanderDsp.setPreset(static_cast<sauti::dsp::ExpanderPreset>(preset));
+    }
+
+    AE_API void ae_dsp_set_expander_params(AudioEngineHandle *engine, float threshold_db, float ratio, float range_db, float attack_ms, float release_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->downwardExpanderDsp.setThresholdDb(threshold_db);
+        engine->downwardExpanderDsp.setRatio(ratio);
+        engine->downwardExpanderDsp.setRangeDb(range_db);
+        engine->downwardExpanderDsp.setAttackMs(attack_ms);
+        engine->downwardExpanderDsp.setReleaseMs(release_ms);
+    }
+
+    AE_API void ae_dsp_set_expander_params_ex(AudioEngineHandle *engine, float threshold_db, float ratio, float range_db, float attack_ms, float release_ms, float knee_db, float sidechain_hpf_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->downwardExpanderDsp.setThresholdDb(threshold_db);
+        engine->downwardExpanderDsp.setRatio(ratio);
+        engine->downwardExpanderDsp.setRangeDb(range_db);
+        engine->downwardExpanderDsp.setAttackMs(attack_ms);
+        engine->downwardExpanderDsp.setReleaseMs(release_ms);
+        engine->downwardExpanderDsp.setKneeDb(knee_db);
+        engine->downwardExpanderDsp.setSidechainHpfHz(sidechain_hpf_hz);
+    }
+
+    AE_API float ae_dsp_get_expander_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        return engine->downwardExpanderDsp.getCurrentGainReductionDb();
+    }
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine)
     {
@@ -9177,6 +9239,7 @@ extern "C"
         engine->dynamicSystemDsp.reset();
         engine->analogWarmthDsp.reset();
         engine->deEsserDsp.reset();
+        engine->downwardExpanderDsp.reset();
         engine->fftConvolverDsp.reset();
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();
