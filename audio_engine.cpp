@@ -7191,12 +7191,18 @@ extern "C"
 
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)
     {
-        (void)engine; (void)enabled;
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setEnabled(enabled != 0);
     }
 
     AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain)
     {
-        (void)engine; (void)preset; (void)gain;
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->harmonicBassDsp.setProfile(sauti::dsp::BassEnhanceProfile::DynamicMultiPole);
+        engine->harmonicBassDsp.setPreset(preset);
+        engine->harmonicBassDsp.setGainDb(gain);
     }
 
     static void device_notification_callback(const ma_device_notification *pNotification)

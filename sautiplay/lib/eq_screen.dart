@@ -48,11 +48,13 @@ class EqScreen extends StatefulWidget {
 
     final bassEnabled = masterEnabled && (state['bassEnabled'] ?? false);
     final bassProfile = HarmonicBassProfile.values.firstWhere(
-      (e) => e.value == (state['bassProfile'] ?? 0),
-      orElse: () => HarmonicBassProfile.naturalBass,
+      (e) => e.value == (state['bassProfile'] ?? 5),
+      orElse: () => HarmonicBassProfile.dynamicMultiPole,
     );
     final bassCutoffHz = (state['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
     final bassBoost = (state['bassBoost'] as num?)?.toDouble() ?? 0.5;
+    final bassPreset = (state['bassPreset'] as num?)?.toInt() ?? 18;
+    final bassGainDb = (state['bassGainDb'] as num?)?.toDouble() ?? 15.0;
 
     final dynamicSystemEnabled =
         masterEnabled && (state['dynamicSystemEnabled'] ?? false);
@@ -92,12 +94,20 @@ class EqScreen extends StatefulWidget {
       intensity: clarityIntensity,
     );
 
-    player.setHarmonicBass(
-      enabled: bassEnabled,
-      profile: bassProfile,
-      cutoffHz: bassCutoffHz,
-      boost: bassBoost,
-    );
+    if (bassProfile == HarmonicBassProfile.dynamicMultiPole) {
+      player.setDynamicBass(
+        enabled: bassEnabled,
+        preset: bassPreset,
+        gain: bassGainDb,
+      );
+    } else {
+      player.setHarmonicBass(
+        enabled: bassEnabled,
+        profile: bassProfile,
+        cutoffHz: bassCutoffHz,
+        boost: bassBoost,
+      );
+    }
 
     player.setDynamicSystem(
       enabled: dynamicSystemEnabled,
@@ -119,18 +129,15 @@ class EqScreen extends StatefulWidget {
     );
     final expanderThresholdDb =
         (state['expanderThresholdDb'] as num?)?.toDouble() ?? -52.0;
-    final expanderRatio =
-        (state['expanderRatio'] as num?)?.toDouble() ?? 1.8;
+    final expanderRatio = (state['expanderRatio'] as num?)?.toDouble() ?? 1.8;
     final expanderRangeDb =
         (state['expanderRangeDb'] as num?)?.toDouble() ?? -16.0;
     final expanderAttackMs =
         (state['expanderAttackMs'] as num?)?.toDouble() ?? 12.0;
     final expanderReleaseMs =
         (state['expanderReleaseMs'] as num?)?.toDouble() ?? 280.0;
-    final expanderKneeDb =
-        (state['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
-    final expanderHpfHz =
-        (state['expanderHpfHz'] as num?)?.toDouble() ?? 50.0;
+    final expanderKneeDb = (state['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
+    final expanderHpfHz = (state['expanderHpfHz'] as num?)?.toDouble() ?? 50.0;
 
     player.setDownwardExpander(
       enabled: expanderEnabled,
@@ -152,7 +159,8 @@ class EqScreen extends StatefulWidget {
       player.loadConvolverIr(convolverIrPath);
     }
 
-    final surroundEnabled = masterEnabled && (state['surroundEnabled'] ?? false);
+    final surroundEnabled =
+        masterEnabled && (state['surroundEnabled'] ?? false);
     final surroundMode = SurroundMode.values.firstWhere(
       (e) => e.value == (state['surroundMode'] ?? 0),
       orElse: () => SurroundMode.off,
@@ -160,13 +168,10 @@ class EqScreen extends StatefulWidget {
     player.setSurround(
       enabled: surroundEnabled,
       mode: surroundMode,
-      fieldWidth:
-          (state['surroundFieldWidth'] as num?)?.toDouble() ?? 1.4,
+      fieldWidth: (state['surroundFieldWidth'] as num?)?.toDouble() ?? 1.4,
       vhsRoomPreset: (state['surroundRoomPreset'] as num?)?.toInt() ?? 2,
-      haasDelayMs:
-          (state['surroundHaasDelayMs'] as num?)?.toDouble() ?? 5.5,
-      centerFocus:
-          (state['surroundCenterFocus'] as num?)?.toDouble() ?? 0.6,
+      haasDelayMs: (state['surroundHaasDelayMs'] as num?)?.toDouble() ?? 5.5,
+      centerFocus: (state['surroundCenterFocus'] as num?)?.toDouble() ?? 0.6,
     );
 
     player.setMasterLimiter(
@@ -582,11 +587,13 @@ class _EqScreenState extends State<EqScreen>
   AudioClarityProfile _clarityProfile = AudioClarityProfile.transientCrisp;
   double _clarityIntensity = 0.5;
 
-  // 2. Harmonic Bass
+  // 2. Harmonic / Dynamic Multi-Pole Bass
   bool _bassEnabled = false;
-  HarmonicBassProfile _bassProfile = HarmonicBassProfile.subBassResonant;
+  HarmonicBassProfile _bassProfile = HarmonicBassProfile.dynamicMultiPole;
   double _bassCutoffHz = 60.0;
   double _bassBoost = 0.5;
+  int _bassPreset = 18;
+  double _bassGainDb = 15.0;
 
   // 3. Dynamic Transducer System
   bool _dynamicSystemEnabled = false;
@@ -828,11 +835,13 @@ class _EqScreenState extends State<EqScreen>
 
         _bassEnabled = dspMap['bassEnabled'] ?? false;
         _bassProfile = HarmonicBassProfile.values.firstWhere(
-          (e) => e.value == (dspMap['bassProfile'] ?? 0),
-          orElse: () => HarmonicBassProfile.subBassResonant,
+          (e) => e.value == (dspMap['bassProfile'] ?? 5),
+          orElse: () => HarmonicBassProfile.dynamicMultiPole,
         );
         _bassCutoffHz = (dspMap['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
         _bassBoost = (dspMap['bassBoost'] as num?)?.toDouble() ?? 0.5;
+        _bassPreset = (dspMap['bassPreset'] as num?)?.toInt() ?? 18;
+        _bassGainDb = (dspMap['bassGainDb'] as num?)?.toDouble() ?? 15.0;
 
         _dynamicSystemEnabled = dspMap['dynamicSystemEnabled'] ?? false;
         _dynamicSystemProfile = TransducerProfile.values.firstWhere(
@@ -857,16 +866,14 @@ class _EqScreenState extends State<EqScreen>
         );
         _expanderThresholdDb =
             (dspMap['expanderThresholdDb'] as num?)?.toDouble() ?? -52.0;
-        _expanderRatio =
-            (dspMap['expanderRatio'] as num?)?.toDouble() ?? 1.8;
+        _expanderRatio = (dspMap['expanderRatio'] as num?)?.toDouble() ?? 1.8;
         _expanderRangeDb =
             (dspMap['expanderRangeDb'] as num?)?.toDouble() ?? -16.0;
         _expanderAttackMs =
             (dspMap['expanderAttackMs'] as num?)?.toDouble() ?? 12.0;
         _expanderReleaseMs =
             (dspMap['expanderReleaseMs'] as num?)?.toDouble() ?? 280.0;
-        _expanderKneeDb =
-            (dspMap['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
+        _expanderKneeDb = (dspMap['expanderKneeDb'] as num?)?.toDouble() ?? 6.0;
         _expanderHpfCutoffHz =
             (dspMap['expanderHpfHz'] as num?)?.toDouble() ?? 50.0;
 
@@ -963,12 +970,20 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateHarmonicBass() {
-    widget.player.setHarmonicBass(
-      enabled: _bassEnabled,
-      profile: _bassProfile,
-      cutoffHz: _bassCutoffHz,
-      boost: _bassBoost,
-    );
+    if (_bassProfile == HarmonicBassProfile.dynamicMultiPole) {
+      widget.player.setDynamicBass(
+        enabled: _bassEnabled,
+        preset: _bassPreset,
+        gain: _bassGainDb,
+      );
+    } else {
+      widget.player.setHarmonicBass(
+        enabled: _bassEnabled,
+        profile: _bassProfile,
+        cutoffHz: _bassCutoffHz,
+        boost: _bassBoost,
+      );
+    }
   }
 
   void _updateDynamicSystem() {
@@ -1240,6 +1255,8 @@ class _EqScreenState extends State<EqScreen>
       'bassProfile': _bassProfile.value,
       'bassCutoffHz': _bassCutoffHz,
       'bassBoost': _bassBoost,
+      'bassPreset': _bassPreset,
+      'bassGainDb': _bassGainDb,
       'dynamicSystemEnabled': _dynamicSystemEnabled,
       'dynamicSystemProfile': _dynamicSystemProfile.value,
       'dynamicSystemStrength': _dynamicSystemStrength,
@@ -1332,81 +1349,6 @@ class _EqScreenState extends State<EqScreen>
     });
     // Persist the new preset
     _saveEqState();
-  }
-
-  void _showPipelineInfo() async {
-    final state = await widget.player.getPipelineState();
-    final latencyMs = await widget.player.getDeviceLatencyMs();
-
-    if (!mounted) return;
-
-    M3EDialog.show<void>(
-      context,
-      dialog: M3EDialog(
-        title: 'Audio Pipeline State',
-        topDivider: true,
-        bottomDivider: true,
-        content: Material(
-          color: Colors.transparent,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Input File Format',
-                    style: TextStyle(
-                        color: primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                    'Sample Rate: ${state.inputSampleRate} Hz\nChannels: ${state.inputChannels}\nFormat: ${state.inputFormatString}',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
-                const SizedBox(height: 14),
-                Text('DSP Processing Format',
-                    style: TextStyle(
-                        color: primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                    'Sample Rate: ${state.processingSampleRate} Hz\nChannels: ${state.processingChannels}\nFormat: ${state.processingFormatString}',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
-                const SizedBox(height: 14),
-                Text('Hardware Output Format',
-                    style: TextStyle(
-                        color: primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                    'Sample Rate: ${state.outputSampleRate} Hz\nChannels: ${state.outputChannels}\nFormat: ${state.outputFormatString}\nEst. Device Latency: ${latencyMs.toStringAsFixed(2)} ms',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
-                const SizedBox(height: 14),
-                Text('Active DSP Nodes',
-                    style: TextStyle(
-                        color: primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                    'EQ: ${state.eqEnabled}\nReverb: ${state.reverbEnabled}\nLimiter: ${state.limiterEnabled}\nDelay: ${state.delayEnabled}\nStereo Widen: ${state.stereoWidenEnabled}\nSpatialization: ${state.spatializationEnabled}',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12.5)),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          M3EButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _resetAll() {
@@ -1514,9 +1456,12 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setClarity(enabled: false);
 
       _bassEnabled = false;
-      _bassProfile = HarmonicBassProfile.subBassResonant;
+      _bassProfile = HarmonicBassProfile.dynamicMultiPole;
       _bassCutoffHz = 60.0;
       _bassBoost = 0.5;
+      _bassPreset = 18;
+      _bassGainDb = 15.0;
+      widget.player.setDynamicBass(enabled: false, preset: 18, gain: 15.0);
       widget.player.setHarmonicBass(enabled: false);
 
       _dynamicSystemEnabled = false;
@@ -1825,12 +1770,6 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       Row(
                         children: [
-                          M3EIconButton(
-                            icon: const Icon(Icons.info_outline_rounded, size: 19),
-                            variant: M3EIconButtonVariant.tonal,
-                            tooltip: 'Pipeline State',
-                            onPressed: _showPipelineInfo,
-                          ),
                           const SizedBox(width: 6),
                           M3EIconButton(
                             icon: const Icon(Icons.refresh_rounded, size: 19),
@@ -2093,7 +2032,10 @@ class _EqScreenState extends State<EqScreen>
                         shape: Shapes.boom,
                         title: 'Dynamic Bass',
                         subtitle: _bassEnabled
-                            ? '${_getHarmonicBassProfileName(_bassProfile)} | ${_bassCutoffHz.toInt()}Hz (${(_bassBoost * 100).toInt()}%)'
+                            ? (_bassProfile ==
+                                    HarmonicBassProfile.dynamicMultiPole
+                                ? '${_getDynamicBassPresetName(_bassPreset)} (+${_bassGainDb.toStringAsFixed(1)} dB)'
+                                : '${_getHarmonicBassProfileName(_bassProfile)} | ${_bassCutoffHz.toInt()}Hz (${(_bassBoost * 100).toInt()}%)')
                             : 'Disabled',
                         isEnabled: _bassEnabled,
                         onToggle: (v) {
@@ -2488,8 +2430,8 @@ class _EqScreenState extends State<EqScreen>
 
             // Section 6: Reverb
             SliverToBoxAdapter(
-              child:
-                  _buildSectionHeader('Reverb', icon: Icons.wb_twilight_rounded),
+              child: _buildSectionHeader('Reverb',
+                  icon: Icons.wb_twilight_rounded),
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -3726,8 +3668,8 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             M3EButton.icon(
-              icon: Icon(Icons.add_rounded, color: primaryColor, size: 18),
-              label: Text('Add Band', style: TextStyle(color: primaryColor)),
+              icon: Icon(Icons.add_rounded, color: Colors.white, size: 18),
+              label: Text('Add Band', style: TextStyle(color: Colors.white)),
               onPressed: () {
                 setState(() {
                   _parametricBands.add(const EqBandConfig(
@@ -3966,14 +3908,149 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  static const List<
+          ({int index, String name, String description, String bestFor})>
+      _dynamicBassPresetDetails = [
+    (
+      index: 0,
+      name: 'Smooth Natural Sub',
+      description:
+          'Gentle multi-pole sub roll-off with pristine acoustic purity',
+      bestFor: 'Acoustic, Jazz, Classical'
+    ),
+    (
+      index: 1,
+      name: 'Punchy In-Ear',
+      description:
+          'Compensates for ear canal bass loss with rapid transient recovery',
+      bestFor: 'IEMs & Earbuds, Pop, EDM'
+    ),
+    (
+      index: 2,
+      name: 'Warm Over-Ear',
+      description: 'Broad warm low-end boost tailored for circumaural earcups',
+      bestFor: 'Over-Ear Headphones, Rock, R&B'
+    ),
+    (
+      index: 3,
+      name: 'Deep Acoustic',
+      description:
+          'Extended sub-harmonic reproduction with natural acoustic decay',
+      bestFor: 'Orchestral, Live Recordings'
+    ),
+    (
+      index: 4,
+      name: 'Wide Dynamic',
+      description: 'Broadband dynamic low-end resonance with wide side gain',
+      bestFor: 'Movie Soundtracks, Ambient'
+    ),
+    (
+      index: 5,
+      name: 'Sub-Bass Boom',
+      description: 'Heavy low-octave emphasis (40-80Hz) for deep sub drops',
+      bestFor: 'Hip-Hop, Trap, Dubstep'
+    ),
+    (
+      index: 6,
+      name: 'Tight Sub',
+      description: 'Fast impulse response with minimal overhang & tight punch',
+      bestFor: 'Techno, Electronic, Metal'
+    ),
+    (
+      index: 7,
+      name: 'Solid Impact',
+      description: 'Focused mid-bass kick transient punch without mud',
+      bestFor: 'Rock, Funk, House'
+    ),
+    (
+      index: 8,
+      name: 'Clean Kick',
+      description:
+          'Snappy bass drum attack with transparent low-frequency contouring',
+      bestFor: 'Live Drums, Pop/Rock'
+    ),
+    (
+      index: 9,
+      name: 'Rich Low-End',
+      description: 'Harmonically rich 50-90Hz warmth and chest resonance',
+      bestFor: 'Soul, Blues, Warm Vocals'
+    ),
+    (
+      index: 10,
+      name: 'Club PA Punch',
+      description: 'High-energy dancefloor sound reinforcement curve',
+      bestFor: 'Dance, Club, Festival EDM'
+    ),
+    (
+      index: 11,
+      name: 'Basshead Heavy',
+      description: 'Massive visceral low-end boost for extreme bass lovers',
+      bestFor: 'Bassheads, Subwoofer Test'
+    ),
+    (
+      index: 12,
+      name: 'Resonant Rumble',
+      description: 'Deep floor-shaking low sub resonance (30-65Hz)',
+      bestFor: 'Cinematic FX, Deep House'
+    ),
+    (
+      index: 13,
+      name: 'Cinema Sub',
+      description:
+          'LFE-tuned cinema subwoofer curve for explosive theatrical impact',
+      bestFor: 'Movies, Gaming, Atmos'
+    ),
+    (
+      index: 14,
+      name: 'Car Audio Slam',
+      description:
+          'Tuned to overcome car cabin road noise and small enclosure roll-off',
+      bestFor: 'Car Bluetooth & Aux Audio'
+    ),
+    (
+      index: 15,
+      name: 'Audiophile Reference',
+      description: 'Strictly linear phase sub extension with pristine clarity',
+      bestFor: 'Hi-Fi Audio, Lossless FLAC'
+    ),
+    (
+      index: 16,
+      name: 'Studio Monitor Lows',
+      description: 'Accurate near-field monitor bass response curve',
+      bestFor: 'Critical Listening & Mixing'
+    ),
+    (
+      index: 17,
+      name: 'Deep Sub Extension',
+      description:
+          'Ultra-low sub octaves below 40Hz with steep rumble protection',
+      bestFor: 'Organ, Synthesizer Sub'
+    ),
+    (
+      index: 18,
+      name: 'Ultimate Subwoofer',
+      description:
+          'Maximum depth, punch, and dynamic headroom across all sub bands',
+      bestFor: 'All-around Bass Powerhouse'
+    ),
+  ];
+
   String _getHarmonicBassProfileName(HarmonicBassProfile profile) {
     return switch (profile) {
+      HarmonicBassProfile.dynamicMultiPole => 'Dynamic Resonator (19 Presets)',
       HarmonicBassProfile.naturalBass => 'Natural Bass',
       HarmonicBassProfile.pureBass => 'Punchy Kick',
       HarmonicBassProfile.subwoofer => 'Subwoofer Rumble',
       HarmonicBassProfile.harmonicExciter => 'Harmonic Exciter',
       HarmonicBassProfile.pultecDeep => 'Pultec Deep Sub',
     };
+  }
+
+  String _getDynamicBassPresetName(int preset) {
+    if (preset >= 0 && preset < DynamicBassPreset.values.length) {
+      return DynamicBassPreset.values[preset].label;
+    }
+    return 'Ultimate Subwoofer';
   }
 
   String _getTransducerProfileName(TransducerProfile profile) {
@@ -4005,12 +4082,18 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildHarmonicBassSection() {
+    final currentPresetDetail = _dynamicBassPresetDetails.firstWhere(
+      (p) => p.index == _bassPreset,
+      orElse: () => _dynamicBassPresetDetails.last,
+    );
+
     return _CollapsibleSection(
       icon: Center(
         child: Icon(Icons.speaker_group_rounded, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Bass',
-      subtitle: 'Powerful chest pumping bass & subwoofer rumble',
+      subtitle:
+          '4-pole cascaded ladder resonance & 19 hardware-tuned acoustic profiles',
       isEnabled: _bassEnabled,
       onToggle: (v) {
         setState(() => _bassEnabled = v);
@@ -4022,7 +4105,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Bass Character',
+              'DSP Architecture',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.85),
                 fontSize: 13.5,
@@ -4041,6 +4124,10 @@ class _EqScreenState extends State<EqScreen>
                 ),
                 items: const [
                   DropdownMenuItem(
+                    value: HarmonicBassProfile.dynamicMultiPole,
+                    child: Text('Dynamic Resonator (19 Presets)'),
+                  ),
+                  DropdownMenuItem(
                     value: HarmonicBassProfile.naturalBass,
                     child: Text('Natural Bass'),
                   ),
@@ -4050,7 +4137,7 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.subwoofer,
-                    child: Text('Aggressive Bass'),
+                    child: Text('Aggressive Subwoofer'),
                   ),
                   DropdownMenuItem(
                     value: HarmonicBassProfile.harmonicExciter,
@@ -4072,41 +4159,275 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'FOCUS FREQ',
-              value: _bassCutoffHz,
-              min: 30.0,
-              max: 160.0,
-              flatValue: 60.0,
-              activeColor: _bassEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} Hz',
-              onChanged: (v) {
-                setState(() => _bassCutoffHz = v);
-                if (_bassEnabled) _updateHarmonicBass();
-                _saveEqState();
-              },
+        if (_bassProfile == HarmonicBassProfile.dynamicMultiPole) ...[
+          const SizedBox(height: 12),
+          // 19 Preset Selection Dropdown
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            decoration: BoxDecoration(
+              color: surfaceDarkerColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
             ),
-            ModernAudioKnob(
-              label: 'BASS POWER',
-              value: _bassBoost,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.5,
-              activeColor: _bassEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() => _bassBoost = v);
-                if (_bassEnabled) _updateHarmonicBass();
-                _saveEqState();
-              },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.tune_rounded, size: 18, color: primaryColor),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Acoustic Preset',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _bassPreset,
+                    dropdownColor: surfaceDarkerColor,
+                    icon: Icon(Icons.arrow_drop_down_rounded,
+                        color: primaryColor),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    items: DynamicBassPreset.values
+                        .map((preset) => DropdownMenuItem<int>(
+                              value: preset.value,
+                              child: Text(
+                                '${preset.value + 1}. ${preset.label}',
+                                style: TextStyle(
+                                  color: _bassPreset == preset.value
+                                      ? primaryColor
+                                      : Colors.white,
+                                  fontWeight: _bassPreset == preset.value
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _bassPreset = val);
+                        if (_bassEnabled) _updateHarmonicBass();
+                        _saveEqState();
+                      }
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Preset Information & Best For Card
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: primaryColor.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Preset #${_bassPreset + 1}',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        currentPresetDetail.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  currentPresetDetail.description,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 11.5,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.headphones_rounded,
+                        size: 13, color: primaryColor.withValues(alpha: 0.8)),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'Ideal for: ${currentPresetDetail.bestFor}',
+                        style: TextStyle(
+                          color: primaryColor.withValues(alpha: 0.9),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Fast Preset Selector Chips (Popular choices)
+          SizedBox(
+            height: 34,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              children: [
+                for (final p in [18, 0, 1, 6, 10, 13, 14, 15]) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(
+                        DynamicBassPreset.values[p].label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: _bassPreset == p
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                      selected: _bassPreset == p,
+                      selectedColor: primaryColor.withValues(alpha: 0.3),
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() => _bassPreset = p);
+                          if (_bassEnabled) _updateHarmonicBass();
+                          _saveEqState();
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Dynamic Bass Knobs Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'BASS GAIN',
+                value: _bassGainDb,
+                min: 0.0,
+                max: 24.0,
+                flatValue: 15.0,
+                activeColor: _bassEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+                onChanged: (v) {
+                  setState(() => _bassGainDb = v);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'FOCUS FREQ',
+                value: _bassCutoffHz,
+                min: 30.0,
+                max: 160.0,
+                flatValue: 60.0,
+                activeColor: _bassEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => '${v.toInt()} Hz',
+                onChanged: (v) {
+                  setState(() => _bassCutoffHz = v);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'RESONANCE',
+                value: _bassBoost,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.5,
+                activeColor: _bassEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _bassBoost = v);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ] else ...[
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'FOCUS FREQ',
+                value: _bassCutoffHz,
+                min: 30.0,
+                max: 160.0,
+                flatValue: 60.0,
+                activeColor: _bassEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => '${v.toInt()} Hz',
+                onChanged: (v) {
+                  setState(() => _bassCutoffHz = v);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'BASS POWER',
+                value: _bassBoost,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.5,
+                activeColor: _bassEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _bassBoost = v);
+                  if (_bassEnabled) _updateHarmonicBass();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -4301,7 +4622,8 @@ class _EqScreenState extends State<EqScreen>
     const expanderColor = Color(0xFF26A69A);
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.cleaning_services_rounded, color: expanderColor, size: 20),
+        child: Icon(Icons.cleaning_services_rounded,
+            color: expanderColor, size: 20),
       ),
       title: 'Downward Expander',
       subtitle:
@@ -4616,8 +4938,7 @@ class _EqScreenState extends State<EqScreen>
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(Icons.surround_sound_rounded,
-                  color: primaryColor, size: 16),
+              Icon(Icons.surround_sound_rounded, color: primaryColor, size: 16),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -4982,8 +5303,7 @@ class _EqScreenState extends State<EqScreen>
             decoration: BoxDecoration(
               color: surroundColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
-              border:
-                  Border.all(color: surroundColor.withValues(alpha: 0.25)),
+              border: Border.all(color: surroundColor.withValues(alpha: 0.25)),
             ),
             child: Text(
               'Zero-latency binaural/surround processing | Stereo (headphone) output',
@@ -5087,8 +5407,8 @@ class _EqScreenState extends State<EqScreen>
                   _reverbPreset = 'Custom';
                 });
                 if (_reverbEnabled) {
-                  widget.player.setReverbGains(
-                      wet: _reverbWet, dry: _reverbDry);
+                  widget.player
+                      .setReverbGains(wet: _reverbWet, dry: _reverbDry);
                 }
                 _saveEqState();
               },
@@ -5185,8 +5505,8 @@ class _EqScreenState extends State<EqScreen>
                   _reverbPreset = 'Custom';
                 });
                 if (_reverbEnabled) {
-                  widget.player.setReverbGains(
-                      wet: _reverbWet, dry: _reverbDry);
+                  widget.player
+                      .setReverbGains(wet: _reverbWet, dry: _reverbDry);
                 }
                 _saveEqState();
               },
@@ -5433,8 +5753,8 @@ class _EqScreenState extends State<EqScreen>
             color: surfaceDarkerColor,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: compColor.withValues(
-                  alpha: _compressorEnabled ? 0.35 : 0.1),
+              color:
+                  compColor.withValues(alpha: _compressorEnabled ? 0.35 : 0.1),
             ),
           ),
           child: Column(
@@ -5742,7 +6062,8 @@ class _EqScreenState extends State<EqScreen>
                   Row(
                     children: [
                       ChoiceChip(
-                        label: const Text('Peak', style: TextStyle(fontSize: 12)),
+                        label:
+                            const Text('Peak', style: TextStyle(fontSize: 12)),
                         selected: _compressorDetector == 0,
                         selectedColor: compColor.withValues(alpha: 0.3),
                         onSelected: (selected) {
@@ -5758,7 +6079,8 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       const SizedBox(width: 8),
                       ChoiceChip(
-                        label: const Text('RMS', style: TextStyle(fontSize: 12)),
+                        label:
+                            const Text('RMS', style: TextStyle(fontSize: 12)),
                         selected: _compressorDetector == 1,
                         selectedColor: compColor.withValues(alpha: 0.3),
                         onSelected: (selected) {
@@ -5796,6 +6118,7 @@ class _EqScreenState extends State<EqScreen>
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.5),
                           fontSize: 11,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -5834,6 +6157,7 @@ class _EqScreenState extends State<EqScreen>
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.5),
                           fontSize: 11,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -5858,7 +6182,7 @@ class _EqScreenState extends State<EqScreen>
 
         const SizedBox(height: 10),
 
-        Center(
+        /*  Center(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
@@ -5875,7 +6199,7 @@ class _EqScreenState extends State<EqScreen>
               textAlign: TextAlign.center,
             ),
           ),
-        ),
+        ),*/
       ],
     );
   }

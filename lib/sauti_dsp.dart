@@ -20,7 +20,8 @@ enum HarmonicBassProfile {
   pureBass(1),
   subwoofer(2),
   harmonicExciter(3),
-  pultecDeep(4);
+  pultecDeep(4),
+  dynamicMultiPole(5);
 
   // Backward-compatible aliases
   static const HarmonicBassProfile subBassResonant = naturalBass;
@@ -28,6 +29,33 @@ enum HarmonicBassProfile {
 
   final int value;
   const HarmonicBassProfile(this.value);
+}
+
+/// 19 Pre-tuned hardware & acoustic Dynamic Bass presets.
+enum DynamicBassPreset {
+  smoothNaturalSub(0, 'Smooth Natural Sub'),
+  punchyInEar(1, 'Punchy In-Ear'),
+  warmOverEar(2, 'Warm Over-Ear'),
+  deepAcoustic(3, 'Deep Acoustic'),
+  wideDynamic(4, 'Wide Dynamic'),
+  subBassBoom(5, 'Sub-Bass Boom'),
+  tightSub(6, 'Tight Sub'),
+  solidImpact(7, 'Solid Impact'),
+  cleanKick(8, 'Clean Kick'),
+  richLowEnd(9, 'Rich Low-End'),
+  clubPaPunch(10, 'Club PA Punch'),
+  bassheadHeavy(11, 'Basshead Heavy'),
+  resonantRumble(12, 'Resonant Rumble'),
+  cinemaSub(13, 'Cinema Sub'),
+  carAudioSlam(14, 'Car Audio Slam'),
+  audiophileReference(15, 'Audiophile Reference'),
+  studioMonitorLows(16, 'Studio Monitor Lows'),
+  deepSubExtension(17, 'Deep Sub Extension'),
+  ultimateSubwoofer(18, 'Ultimate Subwoofer');
+
+  final int value;
+  final String label;
+  const DynamicBassPreset(this.value, this.label);
 }
 
 /// Dynamic Transducer profiles.
@@ -217,6 +245,9 @@ class SautiDsp {
   late final _DspSetEnabledDart _setBassEnabled;
   late final _DspSetBassParamsDart _setBassParams;
 
+  late final _DspSetEnabledDart _setDynamicBassEnabled;
+  late final _DspSetDynamicBassParamsDart _setDynamicBassParams;
+
   late final _DspSetEnabledDart _setDynamicSystemEnabled;
   late final _DspSetDynamicSystemParamsDart _setDynamicSystemParams;
 
@@ -268,6 +299,9 @@ class SautiDsp {
 
     _setBassEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_bass_enabled');
     _setBassParams = _lib.lookupFunction<_DspSetBassParamsNative, _DspSetBassParamsDart>('ae_dsp_set_bass_params');
+
+    _setDynamicBassEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_set_dynamic_bass_enabled');
+    _setDynamicBassParams = _lib.lookupFunction<_DspSetDynamicBassParamsNative, _DspSetDynamicBassParamsDart>('ae_set_dynamic_bass_params');
 
     _setDynamicSystemEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_dynamic_system_enabled');
     _setDynamicSystemParams = _lib.lookupFunction<_DspSetDynamicSystemParamsNative, _DspSetDynamicSystemParamsDart>('ae_dsp_set_dynamic_system_params');
@@ -321,6 +355,17 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setBassEnabled(_enginePtr, enabled ? 1 : 0);
     _setBassParams(_enginePtr, profile.value, cutoffHz, boost);
+  }
+
+  /// Dynamic Multi-Pole Resonant Bass with 19 pre-tuned hardware & acoustic presets.
+  void setDynamicBass({
+    required bool enabled,
+    DynamicBassPreset preset = DynamicBassPreset.ultimateSubwoofer,
+    double gainDb = 15.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicBassEnabled(_enginePtr, enabled ? 1 : 0);
+    _setDynamicBassParams(_enginePtr, preset.value, gainDb);
   }
 
   /// Dynamic Transducer Correction.

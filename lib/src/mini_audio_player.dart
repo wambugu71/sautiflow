@@ -671,10 +671,34 @@ class MiniAudioPlayer {
     _engine.setRaceParams(delayMs: delayMs, alpha: alpha, lpfHz: lpfHz);
   }
 
+  /// Enable or configure Dynamic Multi-Pole Resonant Bass with 19 hardware-tuned presets.
+  ///
+  /// [enabled] – main on/off switch.
+  /// [preset]  – acoustic profile index (0..18, default: 18 - Ultimate Subwoofer):
+  ///   * 0: Smooth Natural Sub (140Hz / 6.2kHz / 40Hz / 60Hz)
+  ///   * 1: Punchy In-Ear (180Hz / 5.8kHz / 55Hz / 80Hz)
+  ///   * 2: Warm Over-Ear (300Hz / 5.6kHz / 60Hz / 105Hz)
+  ///   * 3: Deep Acoustic (600Hz / 5.4kHz / 60Hz / 105Hz)
+  ///   * 4: Wide Dynamic (100Hz / 5.6kHz / 40Hz / 80Hz)
+  ///   * 5: Sub-Bass Boom (1.2kHz / 6.2kHz / 40Hz / 80Hz)
+  ///   * 6: Tight Sub (1.0kHz / 6.2kHz / 40Hz / 80Hz)
+  ///   * 7: Solid Impact (800Hz / 6.2kHz / 40Hz / 80Hz)
+  ///   * 8: Clean Kick (400Hz / 6.2kHz / 40Hz / 80Hz)
+  ///   * 9: Rich Low-End (1.2kHz / 6.2kHz / 50Hz / 90Hz)
+  ///   * 10: Club PA Punch (1.0kHz / 6.2kHz / 50Hz / 90Hz)
+  ///   * 11: Basshead Heavy (1.1kHz / 6.2kHz / 60Hz / 100Hz)
+  ///   * 12: Resonant Rumble (1.2kHz / 6.2kHz / 50Hz / 100Hz)
+  ///   * 13: Cinema Sub (1.2kHz / 6.2kHz / 60Hz / 100Hz)
+  ///   * 14: Car Audio Slam (1.2kHz / 6.2kHz / 40Hz / 80Hz)
+  ///   * 15: Audiophile Reference (1.0kHz / 6.2kHz / 60Hz / 100Hz)
+  ///   * 16: Studio Monitor Lows (1.0kHz / 6.2kHz / 60Hz / 120Hz)
+  ///   * 17: Deep Sub Extension (1.0kHz / 6.2kHz / 80Hz / 140Hz)
+  ///   * 18: Ultimate Subwoofer (800Hz / 6.2kHz / 80Hz / 140Hz)
+  /// [gain]    – boost level in dB [0.0 – 24.0 dB] (default: 15.0 dB).
   void setDynamicBass({
     required bool enabled,
     int preset = 18,
-    double gain = 100.0,
+    double gain = 15.0,
   }) {
     _engine.setDynamicBassEnabled(enabled);
     _engine.setDynamicBassParams(preset: preset, gain: gain);
