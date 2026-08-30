@@ -59,7 +59,7 @@ class AudioAnalysisProcessor {
 
   late final Float32List _smoothedBands;
   late final Float32List _peakHoldBands;
-  late final Int32List _peakHoldCounters;
+  late final Int64List _peakHoldUntilMs;
 
   // Precomputed FFT tables
   int _fftSize = 0;
@@ -78,17 +78,20 @@ class AudioAnalysisProcessor {
     this.attackFactor = 0.65,
     this.decayFactor = 0.15,
     this.peakHoldDecay = 0.02,
+    this.peakHoldDurationMs = 250,
   }) {
     _smoothedBands = Float32List(numBands);
     _peakHoldBands = Float32List(numBands);
-    _peakHoldCounters = Int32List(numBands);
+    _peakHoldUntilMs = Int64List(numBands);
   }
+
+  final int peakHoldDurationMs;
 
   /// Reset internal smoothing buffers.
   void reset() {
     _smoothedBands.fillRange(0, numBands, 0.0);
     _peakHoldBands.fillRange(0, numBands, 0.0);
-    _peakHoldCounters.fillRange(0, numBands, 0);
+    _peakHoldUntilMs.fillRange(0, numBands, 0);
   }
 
   /// Process a raw PCM float sample frame into [AudioAnalysisData].
@@ -141,6 +144,8 @@ class AudioAnalysisProcessor {
 
     // 6. Map FFT Bins to Logarithmic Frequency Bands
     final bandValues = Float32List(numBands);
+    final peakHoldValues = Float32List(numBands);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     for (int b = 0; b < numBands; b++) {
       final fStart = minFrequency * math.pow(maxFrequency / minFrequency, b / numBands);
@@ -181,17 +186,16 @@ class AudioAnalysisProcessor {
 
       bandValues[b] = _smoothedBands[b].clamp(0.0, 1.0);
 
-      // 8. Peak Hold Logic
+      // 8. Time-Based Peak Hold Logic (Independent of frame rate)
       if (_smoothedBands[b] >= _peakHoldBands[b]) {
         _peakHoldBands[b] = _smoothedBands[b];
-        _peakHoldCounters[b] = 8; // hold for 8 frames (~250ms)
+        _peakHoldUntilMs[b] = nowMs + peakHoldDurationMs;
       } else {
-        if (_peakHoldCounters[b] > 0) {
-          _peakHoldCounters[b]--;
-        } else {
+        if (nowMs >= _peakHoldUntilMs[b]) {
           _peakHoldBands[b] = (_peakHoldBands[b] - peakHoldDecay).clamp(0.0, 1.0);
         }
       }
+      peakHoldValues[b] = _peakHoldBands[b];
     }
 
     return AudioAnalysisData(
@@ -201,7 +205,7 @@ class AudioAnalysisProcessor {
       peakLinear: maxAbs,
       isClipped: clipped,
       bands: bandValues,
-      peakHoldBands: Float32List.fromList(_peakHoldBands),
+      peakHoldBands: peakHoldValues,
     );
   }
 

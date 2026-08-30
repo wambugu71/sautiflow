@@ -2400,12 +2400,24 @@ class AudioEngineFFI {
   ffi.Pointer<ffi.Char>? _telCodecPtr;
   ffi.Pointer<ffi.Char>? _telIcyTitlePtr;
   ffi.Pointer<ffi.Char>? _telIcyArtistPtr;
+  ffi.Pointer<ffi.Int32>? _pAbEnabled;
+  ffi.Pointer<ffi.Double>? _pAbStart;
+  ffi.Pointer<ffi.Double>? _pAbEnd;
+  double _masterGain = 1.0;
 
   void dispose() {
     if (_analyzerBufferPtr != null && _analyzerBufferPtr != ffi.nullptr) {
       _freePtr(_analyzerBufferPtr!.cast<ffi.Void>());
       _analyzerBufferPtr = null;
       _analyzerBufferCapacity = 0;
+    }
+    if (_pAbEnabled != null) {
+      _freePtr(_pAbEnabled!.cast<ffi.Void>());
+      _freePtr(_pAbStart!.cast<ffi.Void>());
+      _freePtr(_pAbEnd!.cast<ffi.Void>());
+      _pAbEnabled = null;
+      _pAbStart = null;
+      _pAbEnd = null;
     }
     if (_telStatePtr != null) {
       _freePtr(_telStatePtr!.cast<ffi.Void>());
@@ -2627,21 +2639,16 @@ class AudioEngineFFI {
     if (_engine == ffi.nullptr || _getAbRepeat == null) {
       return (enabled: false, startSeconds: 0.0, endSeconds: 0.0);
     }
-    final pEnabled = calloc<ffi.Int32>();
-    final pStart = calloc<ffi.Double>();
-    final pEnd = calloc<ffi.Double>();
-    try {
-      _getAbRepeat!(_engine, pEnabled, pStart, pEnd);
-      return (
-        enabled: pEnabled.value != 0,
-        startSeconds: pStart.value,
-        endSeconds: pEnd.value,
-      );
-    } finally {
-      calloc.free(pEnabled);
-      calloc.free(pStart);
-      calloc.free(pEnd);
-    }
+    _pAbEnabled ??= _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    _pAbStart ??= _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
+    _pAbEnd ??= _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
+
+    _getAbRepeat!(_engine, _pAbEnabled!, _pAbStart!, _pAbEnd!);
+    return (
+      enabled: _pAbEnabled!.value != 0,
+      startSeconds: _pAbStart!.value,
+      endSeconds: _pAbEnd!.value,
+    );
   }
 
   void setCrossfadeEnabled(bool enabled) {
@@ -2922,6 +2929,8 @@ class AudioEngineFFI {
     _setEqEnabled(_engine, enabled ? 1 : 0);
   }
 
+  /// Sets 3-band EQ gains using raw linear multipliers [0.0 – 4.0].
+  /// Consider using [setEqGainsDb] instead for consistent dB-based control.
   void setEqGains({
     required double low,
     required double mid,
@@ -2931,9 +2940,38 @@ class AudioEngineFFI {
     _setEqGains(_engine, low, mid, high);
   }
 
+  /// Sets 3-band EQ gains using dB values (e.g. -12.0 to +12.0 dB).
+  /// 0.0 dB corresponds to unity gain (1.0).
+  void setEqGainsDb({
+    required double lowDb,
+    required double midDb,
+    required double highDb,
+  }) {
+    setEqGains(
+      low: _dbToLinear(lowDb),
+      mid: _dbToLinear(midDb),
+      high: _dbToLinear(highDb),
+    );
+  }
+
+  /// Sets master output gain as a raw linear scalar multiplier [0.0 – 8.0].
   void setGain(double gain) {
+    _masterGain = gain;
     if (_engine == ffi.nullptr) return;
     _setGain(_engine, gain);
+  }
+
+  /// Returns the current master gain as a linear scalar multiplier.
+  double getGain() => _masterGain;
+
+  /// Sets master volume in dB (e.g. 0.0 dB for full volume, -6.0 dB for ~50%, -60.0 dB for silence).
+  void setVolumeDb(double volumeDb) {
+    setGain(_dbToLinear(volumeDb));
+  }
+
+  /// Returns the current master volume in dB.
+  double getVolumeDb() {
+    return _linearToDb(_masterGain);
   }
 
   void setReplayGain(double gainDb) {
@@ -3723,8 +3761,14 @@ class AudioEngineFFI {
     return AETruePeakMetrics.fromNative(native);
   }
 
+  bool _lookaheadLimiterEnabled = false;
+
+  /// Returns whether the lookahead limiter is currently enabled.
+  bool get isLookaheadLimiterEnabled => _lookaheadLimiterEnabled;
+
   /// Enable or disable the Look-Ahead True-Peak Limiter.
   void setLookaheadLimiterEnabled(bool enabled) {
+    _lookaheadLimiterEnabled = enabled;
     if (_setLookaheadLimiterEnabled != null && _engine != ffi.nullptr) {
       _setLookaheadLimiterEnabled!(_engine, enabled ? 1 : 0);
     }
@@ -3925,14 +3969,14 @@ class AudioEngineFFI {
     return _getAnalyzerDroppedFrames(_engine);
   }
 
-  Float32List pollAnalyzerFrame({int? maxSamples}) {
+  Float32List pollAnalyzerFrame({int? maxSamples, Float32List? targetBuffer}) {
     if (_engine == ffi.nullptr) {
-      return Float32List(0);
+      return targetBuffer ?? Float32List(0);
     }
 
     final size = maxSamples ?? getAnalyzerFrameSize();
     if (size <= 0) {
-      return Float32List(0);
+      return targetBuffer ?? Float32List(0);
     }
 
     if (_analyzerBufferPtr == null || _analyzerBufferCapacity < size) {
@@ -3948,10 +3992,14 @@ class AudioEngineFFI {
     final ptr = _analyzerBufferPtr!;
     final copied = _pollAnalyzerFrame(_engine, ptr, size);
     if (copied <= 0) {
-      return Float32List(0);
+      return targetBuffer ?? Float32List(0);
     }
     final src = ptr.asTypedList(copied);
-    return Float32List.fromList(src);
+    if (targetBuffer != null && targetBuffer.length >= copied) {
+      targetBuffer.setRange(0, copied, src);
+      return targetBuffer;
+    }
+    return src;
   }
 
   // ---------------------------------------------------------------------------

@@ -51,6 +51,8 @@ class MiniAudioPlayer {
     onSetGain: (gain) {
       setGain(gain);
     },
+    onGetGain: () => _engine.getGain(),
+    telemetryStream: _telemetryController.stream,
   );
   Timer? _statusTimer;
   Timer? _analyzerTimer;
@@ -72,9 +74,22 @@ class MiniAudioPlayer {
     int channels = 2,
     bool enableSystemAudio = false,
     MiniAudioSystemAudioConfig? systemAudioConfig,
+    bool enableSafetyLimiter = true,
+    bool enableAutoSampleRateMatch = false,
   }) {
     final ok = _engine.create(sampleRate: sampleRate, channels: channels);
     if (ok) {
+      if (enableSafetyLimiter) {
+        _engine.setLookaheadLimiterEnabled(true);
+        _engine.setLookaheadLimiterParams(
+          ceilingDBTP: -1.0,
+          attackMs: 2.0,
+          releaseMs: 50.0,
+        );
+      }
+      if (enableAutoSampleRateMatch) {
+        _engine.setAutoSampleRateMatchEnabled(true);
+      }
       _startStatusPolling();
       _startAnalyzerPolling();
       if (enableSystemAudio) {
@@ -443,10 +458,32 @@ class MiniAudioPlayer {
   void setEq({required double low, required double mid, required double high}) {
     _engine.setEqGains(low: low, mid: mid, high: high);
   }
+  void setEqDb({
+    required double lowDb,
+    required double midDb,
+    required double highDb,
+  }) {
+    _engine.setEqGainsDb(lowDb: lowDb, midDb: midDb, highDb: highDb);
+  }
 
   void setGain(double gain) => _engine.setGain(gain);
   void setReplayGain(double gainDb) => _engine.setReplayGain(gainDb);
-  void setVolume(double volume) => setGain(volume);
+  
+  /// Sets master volume using a perceptual cubic curve (0.0 to 1.0)
+  /// mapping linear slider movement to natural human loudness perception.
+  void setVolume(double volume) {
+    final clamped = volume.clamp(0.0, 1.0);
+    // Cubic perceptual volume curve
+    final linear = clamped * clamped * clamped;
+    _engine.setGain(linear);
+  }
+
+  /// Sets master volume in dB (e.g. 0.0 dB for full volume, -6.0 dB for ~50%, -60.0 dB for silence).
+  void setVolumeDb(double gainDb) => _engine.setVolumeDb(gainDb);
+
+  /// Returns the current master volume in dB.
+  double getVolumeDb() => _engine.getVolumeDb();
+
   void setPan(double pan) => _engine.setPan(pan);
   void setPitch(double pitch) => _engine.setPitch(pitch);
 
@@ -808,6 +845,9 @@ class MiniAudioPlayer {
   /// Fetch 4x oversampled True-Peak metrics in dBTP.
   AETruePeakMetrics getTruePeak() => _engine.getTruePeak();
 
+  /// Whether the Look-Ahead True-Peak Limiter is currently enabled.
+  bool get isLookaheadLimiterEnabled => _engine.isLookaheadLimiterEnabled;
+
   /// Enable or disable the Look-Ahead True-Peak Limiter.
   void setLookaheadLimiterEnabled(bool enabled) =>
       _engine.setLookaheadLimiterEnabled(enabled);
@@ -831,27 +871,48 @@ class MiniAudioPlayer {
   /// Fetch unified quality telemetry snapshot.
   AEQualityTelemetry getQualityTelemetry() => _engine.getQualityTelemetry();
 
-  Future<void> pushStream({required String url}) async {
+  /// Returns current linear output gain.
+  double getGain() => _engine.getGain();
+
+  /// Polls the latest PCM frame from the analyzer buffer.
+  Float32List pollAnalyzerFrame({int? maxSamples, Float32List? targetBuffer}) =>
+      _engine.pollAnalyzerFrame(
+        maxSamples: maxSamples,
+        targetBuffer: targetBuffer,
+      );
+
+  Future<void> pushStream({
+    required String url,
+    int bufferThreshold = 128 * 1024,
+  }) async {
     _engine.initPushStream();
 
     final client = http.Client();
+    ffi.Pointer<ffi.Uint8>? sharedBuf;
+    int sharedBufCap = 0;
     try {
       final request = http.Request('GET', Uri.parse(url));
       final response = await client.send(request);
 
       int bytesReceived = 0;
       bool playbackStarted = false;
-      // 32KB buffer threshold before starting playback for instant audio start
-      const bufferThreshold = 32 * 1024;
 
       await for (final chunk in response.stream) {
         final size = chunk.length;
-        final ptr = calloc<ffi.Uint8>(size);
-        final list = ptr.asTypedList(size);
+        if (size == 0) continue;
+
+        if (sharedBuf == null || sharedBufCap < size) {
+          if (sharedBuf != null && sharedBuf != ffi.nullptr) {
+            calloc.free(sharedBuf);
+          }
+          sharedBufCap = size < 65536 ? 65536 : size;
+          sharedBuf = calloc<ffi.Uint8>(sharedBufCap);
+        }
+
+        final list = sharedBuf.asTypedList(size);
         list.setAll(0, chunk);
 
-        _engine.pushStreamChunk(ptr, size);
-        calloc.free(ptr);
+        _engine.pushStreamChunk(sharedBuf, size);
 
         bytesReceived += size;
         if (!playbackStarted && bytesReceived >= bufferThreshold) {
@@ -862,6 +923,9 @@ class MiniAudioPlayer {
     } catch (e) {
       rethrow;
     } finally {
+      if (sharedBuf != null && sharedBuf != ffi.nullptr) {
+        calloc.free(sharedBuf);
+      }
       client.close();
       _engine.endPushStream();
     }

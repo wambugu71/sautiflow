@@ -35,6 +35,7 @@ class MiniAudioSystemAudioConfig {
 class MiniAudioSystemAudioController {
   MiniAudioSystemAudioController({
     required Stream<PlayerStatus> statusStream,
+    Stream<StreamTelemetry>? telemetryStream,
     required FutureOr<void> Function() onPlay,
     required FutureOr<void> Function() onPause,
     required FutureOr<void> Function() onStop,
@@ -42,16 +43,20 @@ class MiniAudioSystemAudioController {
     required FutureOr<void> Function() onPrevious,
     required FutureOr<void> Function(Duration position) onSeek,
     required void Function(double gain) onSetGain,
+    double Function()? onGetGain,
   })  : _statusStream = statusStream,
+        _telemetryStream = telemetryStream,
         _onPlay = onPlay,
         _onPause = onPause,
         _onStop = onStop,
         _onNext = onNext,
         _onPrevious = onPrevious,
         _onSeek = onSeek,
-        _onSetGain = onSetGain;
+        _onSetGain = onSetGain,
+        _onGetGain = onGetGain;
 
   final Stream<PlayerStatus> _statusStream;
+  final Stream<StreamTelemetry>? _telemetryStream;
   final FutureOr<void> Function() _onPlay;
   final FutureOr<void> Function() _onPause;
   final FutureOr<void> Function() _onStop;
@@ -59,14 +64,18 @@ class MiniAudioSystemAudioController {
   final FutureOr<void> Function() _onPrevious;
   final FutureOr<void> Function(Duration position) _onSeek;
   final void Function(double gain) _onSetGain;
+  final double Function()? _onGetGain;
 
   AudioHandler? _handler;
   _MiniAudioHandler? _typedHandler;
   StreamSubscription<PlayerStatus>? _statusSub;
+  StreamSubscription<StreamTelemetry>? _telemetrySub;
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<void>? _becomingNoisySub;
   MiniAudioSystemAudioConfig? _config;
   bool _isDucked = false;
+  double _preDuckGain = 1.0;
+  StreamTelemetry? _latestTelemetry;
   bool _audioSessionActive = false;
 
   bool get isSupported => Platform.isAndroid || Platform.isIOS;
@@ -115,9 +124,16 @@ class MiniAudioSystemAudioController {
         _typedHandler = handler;
       }
 
+      _telemetrySub?.cancel();
+      if (_telemetryStream != null) {
+        _telemetrySub = _telemetryStream.listen((tel) {
+          _latestTelemetry = tel;
+        });
+      }
+
       _statusSub?.cancel();
       _statusSub = _statusStream.listen((status) {
-        _typedHandler?.updateFromPlayerStatus(status);
+        _typedHandler?.updateFromPlayerStatus(status, telemetry: _latestTelemetry);
 
         final shouldBeActive = status.isPlaying;
         if (shouldBeActive != _audioSessionActive) {
@@ -133,7 +149,8 @@ class MiniAudioSystemAudioController {
 
         if (event.begin) {
           if (event.type == AudioInterruptionType.duck && c.enableDucking) {
-            _onSetGain(c.duckGain);
+            _preDuckGain = _onGetGain?.call() ?? 1.0;
+            _onSetGain(c.duckGain * _preDuckGain);
             _isDucked = true;
             return;
           }
@@ -145,7 +162,7 @@ class MiniAudioSystemAudioController {
         }
 
         if (_isDucked) {
-          _onSetGain(c.normalGain);
+          _onSetGain(_preDuckGain);
           _isDucked = false;
         }
 
@@ -288,7 +305,11 @@ class _MiniAudioHandler extends BaseAudioHandler
     await _onSeek(position);
   }
 
-  void updateFromPlayerStatus(PlayerStatus status) {
+  void updateFromPlayerStatus(PlayerStatus status, {StreamTelemetry? telemetry}) {
+    final bufferedMs = (telemetry != null && telemetry.bufferedDuration > Duration.zero)
+        ? telemetry.bufferedDuration.inMilliseconds
+        : (status.positionSeconds * 1000).round();
+
     playbackState.add(
       PlaybackState(
         controls: [
@@ -309,7 +330,7 @@ class _MiniAudioHandler extends BaseAudioHandler
           milliseconds: (status.positionSeconds * 1000).round(),
         ),
         bufferedPosition: Duration(
-          milliseconds: (status.positionSeconds * 1000).round(),
+          milliseconds: bufferedMs,
         ),
         speed: 1.0,
       ),
