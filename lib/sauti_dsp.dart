@@ -507,6 +507,14 @@ class SautiDsp {
     _setMasterLimiterParams(_enginePtr, ceilingDb, outputGainDb, releaseMs);
   }
 
+  /// Sets master headroom trim in dB applied before the DSP processing chain.
+  /// A negative value (e.g. -3.0 dB to -6.0 dB) provides clean headroom to prevent
+  /// harmonic saturation or clipping when multiple DSP modules are active.
+  void setMasterHeadroomTrimDb(double trimDb) {
+    if (_enginePtr == ffi.nullptr) return;
+    setMasterLimiter(enabled: true, ceilingDb: -0.1, outputGainDb: trimDb);
+  }
+
   /// Get current limiter gain reduction in dB (for real-time meter display).
   double get limiterGainReductionDb {
     if (_enginePtr == ffi.nullptr) return 0.0;

@@ -79,6 +79,7 @@ class AudioAnalysisProcessor {
     this.decayFactor = 0.15,
     this.peakHoldDecay = 0.02,
     this.peakHoldDurationMs = 250,
+    this.useEqualLoudnessWeighting = true,
   }) {
     _smoothedBands = Float32List(numBands);
     _peakHoldBands = Float32List(numBands);
@@ -86,6 +87,17 @@ class AudioAnalysisProcessor {
   }
 
   final int peakHoldDurationMs;
+  final bool useEqualLoudnessWeighting;
+
+  /// Psychoacoustic A-weighting approximation for equal-loudness spectral balancing.
+  static double _getEqualLoudnessFactor(double fHz) {
+    if (fHz < 10.0) return 0.2;
+    final f2 = fHz * fHz;
+    final num = 1.2588966e8 * f2 * f2;
+    final den = (f2 + 424.36) * math.sqrt((f2 + 11599.29) * (f2 + 544496.41)) * (f2 + 148699001.44);
+    final aWeightLin = num / den;
+    return (0.5 + 0.5 * aWeightLin).clamp(0.25, 1.5);
+  }
 
   /// Reset internal smoothing buffers.
   void reset() {
@@ -172,9 +184,11 @@ class AudioAnalysisProcessor {
       final avgMag = count > 0 ? sumMagInBand / count : 0.0;
       final rawBandVal = (maxMagInBand * 0.7 + avgMag * 0.3);
 
-      // Boost high frequencies slightly for equal-loudness visual balance
-      final hfBoost = 1.0 + (b / numBands) * 0.5;
-      final scaledVal = (rawBandVal * hfBoost).clamp(0.0, 1.0);
+      final centerFreq = math.sqrt(fStart * fEnd);
+      final weightFactor = useEqualLoudnessWeighting
+          ? _getEqualLoudnessFactor(centerFreq)
+          : 1.0;
+      final scaledVal = (rawBandVal * weightFactor).clamp(0.0, 1.0);
 
       // 7. Temporal Ballistics (Attack / Decay)
       final prevSmoothed = _smoothedBands[b];

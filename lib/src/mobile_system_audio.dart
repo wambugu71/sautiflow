@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
@@ -142,6 +143,29 @@ class MiniAudioSystemAudioController {
         }
       });
 
+  Timer? _duckRampTimer;
+
+  void _rampGain({required double targetGain, int durationMs = 80}) {
+    _duckRampTimer?.cancel();
+    final startGain = _onGetGain?.call() ?? targetGain;
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    final stepInterval = 10;
+
+    _duckRampTimer = Timer.periodic(Duration(milliseconds: stepInterval), (timer) {
+      final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
+      final progress = (elapsed / durationMs).clamp(0.0, 1.0);
+      final smoothed = 0.5 * (1.0 - math.cos(progress * math.pi));
+      final current = startGain + (targetGain - startGain) * smoothed;
+      _onSetGain(current);
+
+      if (progress >= 1.0) {
+        timer.cancel();
+        _duckRampTimer = null;
+        _onSetGain(targetGain);
+      }
+    });
+  }
+
       _interruptionSub?.cancel();
       _interruptionSub = session.interruptionEventStream.listen((event) {
         final c = _config;
@@ -150,7 +174,7 @@ class MiniAudioSystemAudioController {
         if (event.begin) {
           if (event.type == AudioInterruptionType.duck && c.enableDucking) {
             _preDuckGain = _onGetGain?.call() ?? 1.0;
-            _onSetGain(c.duckGain * _preDuckGain);
+            _rampGain(targetGain: c.duckGain * _preDuckGain, durationMs: 80);
             _isDucked = true;
             return;
           }
@@ -162,7 +186,7 @@ class MiniAudioSystemAudioController {
         }
 
         if (_isDucked) {
-          _onSetGain(_preDuckGain);
+          _rampGain(targetGain: _preDuckGain, durationMs: 80);
           _isDucked = false;
         }
 

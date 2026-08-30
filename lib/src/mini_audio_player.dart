@@ -13,14 +13,28 @@ import 'mobile_system_audio.dart';
 class MiniAudioPlayer {
   MiniAudioPlayer({
     String? libraryPath,
-    this.statusPollInterval = const Duration(milliseconds: 200),
-    this.analyzerPollInterval = const Duration(milliseconds: 33),
-  }) : _engine = AudioEngineFFI(libraryPath: libraryPath);
+    Duration statusPollInterval = const Duration(milliseconds: 200),
+    Duration analyzerPollInterval = const Duration(milliseconds: 33),
+  })  : _engine = AudioEngineFFI(libraryPath: libraryPath),
+        _statusPollInterval = statusPollInterval,
+        _analyzerPollInterval = analyzerPollInterval;
 
   final AudioEngineFFI _engine;
   late final SautiDsp _dsp = SautiDsp.fromEngine(_engine);
-  final Duration statusPollInterval;
-  final Duration analyzerPollInterval;
+  Duration _statusPollInterval;
+  Duration _analyzerPollInterval;
+
+  Duration get statusPollInterval => _statusPollInterval;
+  set statusPollInterval(Duration interval) {
+    _statusPollInterval = interval;
+    _startStatusPolling();
+  }
+
+  Duration get analyzerPollInterval => _analyzerPollInterval;
+  set analyzerPollInterval(Duration interval) {
+    _analyzerPollInterval = interval;
+    _startAnalyzerPolling();
+  }
 
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
@@ -162,16 +176,47 @@ class MiniAudioPlayer {
   bool moveAudioSource(int fromIndex, int toIndex) =>
       _engine.moveAudioSource(fromIndex, toIndex);
 
-  bool play() => _engine.play();
-  bool pause() => _engine.pause();
-  bool stop() => _engine.stop();
+  bool play() {
+    final ok = _engine.play();
+    if (ok) _pollStatusNow();
+    return ok;
+  }
 
-  bool seek(Duration position, {int? index}) =>
-      _engine.seekTo(position, index: index);
-  bool seekTo(Duration position, {int? index}) =>
-      _engine.seekTo(position, index: index);
-  bool seekToNext() => _engine.seekToNext();
-  bool seekToPrevious() => _engine.seekToPrevious();
+  bool pause() {
+    final ok = _engine.pause();
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool stop() {
+    final ok = _engine.stop();
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool seek(Duration position, {int? index}) {
+    final ok = _engine.seekTo(position, index: index);
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool seekTo(Duration position, {int? index}) {
+    final ok = _engine.seekTo(position, index: index);
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool seekToNext() {
+    final ok = _engine.seekToNext();
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool seekToPrevious() {
+    final ok = _engine.seekToPrevious();
+    if (ok) _pollStatusNow();
+    return ok;
+  }
 
   void setLoopMode(LoopMode mode) => _engine.setLoopMode(mode);
   void setShuffleModeEnabled(bool enabled) =>
@@ -931,20 +976,25 @@ class MiniAudioPlayer {
     }
   }
 
+  void _pollStatusNow() {
+    if (_statusController.isClosed) return;
+    _statusController.add(_engine.getStatus());
+
+    if (!_telemetryController.isClosed) {
+      final tel = _engine.getStreamTelemetry();
+      _telemetryController.add(tel);
+      if (tel.isBuffering != _lastBuffering && !_bufferingController.isClosed) {
+        _lastBuffering = tel.isBuffering;
+        _bufferingController.add(tel.isBuffering);
+      }
+    }
+  }
+
   void _startStatusPolling() {
     _statusTimer?.cancel();
-    _statusTimer = Timer.periodic(statusPollInterval, (_) {
+    _statusTimer = Timer.periodic(_statusPollInterval, (_) {
       if (_statusController.isClosed) return;
-      _statusController.add(_engine.getStatus());
-
-      if (!_telemetryController.isClosed) {
-        final tel = _engine.getStreamTelemetry();
-        _telemetryController.add(tel);
-        if (tel.isBuffering != _lastBuffering && !_bufferingController.isClosed) {
-          _lastBuffering = tel.isBuffering;
-          _bufferingController.add(tel.isBuffering);
-        }
-      }
+      _pollStatusNow();
 
       if (!_logController.isClosed) {
         final msg = _engine.getLastError();

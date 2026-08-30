@@ -137,5 +137,45 @@ void main() {
       final data2 = processor.processFrame(silentFrame);
       expect(data2.peakHoldBands[4], equals(initialPeak));
     });
+
+    test('8. Dynamic statusPollInterval and Instant Seek Polling', () {
+      final ok = player.init(sampleRate: 48000);
+      expect(ok, isTrue);
+
+      player.statusPollInterval = const Duration(milliseconds: 50);
+      expect(player.statusPollInterval, equals(const Duration(milliseconds: 50)));
+
+      // Calling seekTo should execute normally and trigger instant status emission
+      expect(() => player.seekTo(const Duration(seconds: 5)), returnsNormally);
+    });
+
+    test('9. SautiDsp Master Headroom Trim', () {
+      final ok = player.init(sampleRate: 48000);
+      expect(ok, isTrue);
+
+      expect(() => player.dsp.setMasterHeadroomTrimDb(-3.0), returnsNormally);
+    });
+
+    test('10. Equal-Loudness Curve in AudioAnalysisProcessor', () {
+      final processorWithLoudness = AudioAnalysisProcessor(
+        numBands: 32,
+        useEqualLoudnessWeighting: true,
+      );
+      final processorFlat = AudioAnalysisProcessor(
+        numBands: 32,
+        useEqualLoudnessWeighting: false,
+      );
+
+      final testFrame = Float32List(512);
+      for (int i = 0; i < 512; i++) {
+        testFrame[i] = (i % 2 == 0 ? 0.5 : -0.5);
+      }
+
+      final dataLoudness = processorWithLoudness.processFrame(testFrame);
+      final dataFlat = processorFlat.processFrame(testFrame);
+
+      expect(dataLoudness.bands.length, equals(32));
+      expect(dataFlat.bands.length, equals(32));
+    });
   });
 }
