@@ -586,9 +586,10 @@ extern "C"
     AE_API void ae_dsp_set_bass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_bass_params(AudioEngineHandle *engine, int profile, float cutoff_hz, float boost);
 
-    // Dynamic Transducer System (0=Earphone, 1=Headphone, 2=HighEndReference, 3=SpeakerMonitor)
+    // Dynamic Transducer System (0..18 presets)
     AE_API void ae_dsp_set_dynamic_system_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_dynamic_system_params(AudioEngineHandle *engine, int profile, float strength);
+    AE_API void ae_dsp_set_dynamic_system_custom_params(AudioEngineHandle *engine, float x_low, float x_high, float y_low, float y_high, float side_gain_low, float side_gain_high, float bass_gain);
 
     // Analog Warmth (0=Triode12AX7, 1=MagneticTape, 2=VintagePreamp)
     AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled);

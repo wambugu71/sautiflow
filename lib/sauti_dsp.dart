@@ -60,15 +60,29 @@ enum DynamicBassPreset {
 
 /// Dynamic Transducer profiles.
 enum TransducerProfile {
-  earphone(0),
-  headphone(1),
-  highEndReference(2),
-  speakerMonitor(3),
-  extremeSubwoofer(4),
-  pureDynamic(5);
+  earphone(0, 'In-Ear Earbuds'),
+  headphone(1, 'Over-Ear Headphones'),
+  highEndReference(2, 'Studio Reference'),
+  speakerMonitor(3, 'Desktop Speakers'),
+  extremeSubwoofer(4, 'Club Subwoofer'),
+  pureDynamic(5, 'Pure Dynamic'),
+  audiophileReference(6, 'Audiophile Open-Back'),
+  studioMonitorLows(7, 'Studio Monitor Lows'),
+  cinemaSubSlam(8, 'Cinema Sub Slam'),
+  carAudioBass(9, 'Car Audio Bass'),
+  deepAcousticWarmth(10, 'Deep Acoustic Warmth'),
+  cleanKickDrum(11, 'Clean Kick Drum'),
+  resonantRumble(12, 'Resonant Rumble'),
+  subBassBoom(13, 'Sub-Bass Boom'),
+  solidImpact(14, 'Solid Impact'),
+  richLowEnd(15, 'Rich Low-End'),
+  clubPAPunch(16, 'Club PA Punch'),
+  deepSubExtension(17, 'Deep Sub Extension'),
+  ultimateSubwoofer(18, 'Ultimate Subwoofer');
 
   final int value;
-  const TransducerProfile(this.value);
+  final String label;
+  const TransducerProfile(this.value, [this.label = '']);
 }
 
 /// Analog Warmth profiles.
@@ -127,8 +141,30 @@ typedef _DspSetClarityParamsDart = void Function(ffi.Pointer<ffi.Void>, int, dou
 typedef _DspSetBassParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
 typedef _DspSetBassParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double, double);
 
+typedef _DspSetDynamicBassParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetDynamicBassParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+
 typedef _DspSetDynamicSystemParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _DspSetDynamicSystemParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+
+typedef _DspSetDynamicSystemCustomParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _DspSetDynamicSystemCustomParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double);
 
 typedef _DspSetAnalogWarmthParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _DspSetAnalogWarmthParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
@@ -250,6 +286,7 @@ class SautiDsp {
 
   late final _DspSetEnabledDart _setDynamicSystemEnabled;
   late final _DspSetDynamicSystemParamsDart _setDynamicSystemParams;
+  late final _DspSetDynamicSystemCustomParamsDart _setDynamicSystemCustomParams;
 
   late final _DspSetEnabledDart _setAnalogWarmthEnabled;
   late final _DspSetAnalogWarmthParamsDart _setAnalogWarmthParams;
@@ -305,6 +342,7 @@ class SautiDsp {
 
     _setDynamicSystemEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_dynamic_system_enabled');
     _setDynamicSystemParams = _lib.lookupFunction<_DspSetDynamicSystemParamsNative, _DspSetDynamicSystemParamsDart>('ae_dsp_set_dynamic_system_params');
+    _setDynamicSystemCustomParams = _lib.lookupFunction<_DspSetDynamicSystemCustomParamsNative, _DspSetDynamicSystemCustomParamsDart>('ae_dsp_set_dynamic_system_custom_params');
 
     _setAnalogWarmthEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_analog_warmth_enabled');
     _setAnalogWarmthParams = _lib.lookupFunction<_DspSetAnalogWarmthParamsNative, _DspSetAnalogWarmthParamsDart>('ae_dsp_set_analog_warmth_params');
@@ -373,6 +411,31 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setDynamicSystemEnabled(_enginePtr, enabled ? 1 : 0);
     _setDynamicSystemParams(_enginePtr, profile.value, strength);
+  }
+
+  /// Dynamic Transducer Custom Multi-Band Parameters.
+  void setDynamicSystemCustom({
+    required bool enabled,
+    required double xLow,
+    required double xHigh,
+    required double yLow,
+    required double yHigh,
+    required double sideGainLow,
+    required double sideGainHigh,
+    required double bassGain,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicSystemEnabled(_enginePtr, enabled ? 1 : 0);
+    _setDynamicSystemCustomParams(
+      _enginePtr,
+      xLow,
+      xHigh,
+      yLow,
+      yHigh,
+      sideGainLow,
+      sideGainHigh,
+      bassGain,
+    );
   }
 
   /// Analog Warmth (Triode Tube & Magnetic Tape saturation).

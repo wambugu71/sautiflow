@@ -9147,6 +9147,16 @@ extern "C"
         engine->dynamicSystemDsp.setStrength(strength);
     }
 
+    AE_API void ae_dsp_set_dynamic_system_custom_params(AudioEngineHandle *engine, float x_low, float x_high, float y_low, float y_high, float side_gain_low, float side_gain_high, float bass_gain)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicSystemDsp.setXCoeffs(x_low, x_high);
+        engine->dynamicSystemDsp.setYCoeffs(y_low, y_high);
+        engine->dynamicSystemDsp.setSideGain(side_gain_low, side_gain_high);
+        engine->dynamicSystemDsp.setBassGain(bass_gain);
+    }
+
     // Analog Warmth (Tube & Tape Saturation)
     AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled)
     {

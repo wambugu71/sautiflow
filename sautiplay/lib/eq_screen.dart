@@ -4054,14 +4054,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   String _getTransducerProfileName(TransducerProfile profile) {
-    return switch (profile) {
-      TransducerProfile.earphone => 'In-Ear Earbuds',
-      TransducerProfile.headphone => 'Over-Ear Headphones',
-      TransducerProfile.highEndReference => 'Studio Reference',
-      TransducerProfile.speakerMonitor => 'Desktop Speakers',
-      TransducerProfile.extremeSubwoofer => 'Extreme Subwoofer',
-      TransducerProfile.pureDynamic => 'Pure Dynamic',
-    };
+    return profile.label.isNotEmpty ? profile.label : profile.name;
   }
 
   String _getClarityProfileName(AudioClarityProfile profile) {
@@ -4437,8 +4430,8 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Psychoacoustics Bass',
-      subtitle: 'Dynamic Crossover & Spatialization for your Listening Gear',
+      title: 'Dynamic Transducer System',
+      subtitle: 'Multi-Band Acoustic Simulation & Dynamic Bass Resonance',
       isEnabled: _dynamicSystemEnabled,
       onToggle: (v) {
         setState(() => _dynamicSystemEnabled = v);
@@ -4450,7 +4443,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Listening Gear',
+              'Transducer Profile',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.85),
                 fontSize: 13.5,
@@ -4467,32 +4460,15 @@ class _EqScreenState extends State<EqScreen>
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
-                items: const [
-                  DropdownMenuItem(
-                    value: TransducerProfile.earphone,
-                    child: Text('In-Ear Earbuds'),
-                  ),
-                  DropdownMenuItem(
-                    value: TransducerProfile.headphone,
-                    child: Text('Over-Ear Headphones'),
-                  ),
-                  DropdownMenuItem(
-                    value: TransducerProfile.highEndReference,
-                    child: Text('Reference'),
-                  ),
-                  DropdownMenuItem(
-                    value: TransducerProfile.speakerMonitor,
-                    child: Text('Desktop Speakers'),
-                  ),
-                  DropdownMenuItem(
-                    value: TransducerProfile.extremeSubwoofer,
-                    child: Text('Club Subwoofer'),
-                  ),
-                  DropdownMenuItem(
-                    value: TransducerProfile.pureDynamic,
-                    child: Text('Pure Dynamic'),
-                  ),
-                ],
+                items: TransducerProfile.values.map((profile) {
+                  return DropdownMenuItem<TransducerProfile>(
+                    value: profile,
+                    child: Text(
+                      profile.label.isNotEmpty ? profile.label : profile.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }).toList(),
                 onChanged: (val) {
                   if (val != null) {
                     setState(() => _dynamicSystemProfile = val);
@@ -4509,7 +4485,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'OPTIMIZE',
+              label: 'DYNAMIC DRIVE',
               value: _dynamicSystemStrength,
               min: 0.0,
               max: 1.0,
