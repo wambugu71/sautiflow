@@ -32,7 +32,8 @@ $defines = @(
     '-DSOXR_LIB=1',
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
-    '-DENABLE_SINC_FAST_CONVERTER=1'
+    '-DENABLE_SINC_FAST_CONVERTER=1',
+    "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
 
 $cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + `

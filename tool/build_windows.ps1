@@ -39,7 +39,8 @@ $includes = @(
     "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
-    "-Ithird_party/libsoxr/src"
+    "-Ithird_party/libsoxr/src",
+    "-Ithird_party/ffmpeg/include"
 )
 
 $defines = @(
@@ -58,7 +59,8 @@ $defines = @(
     '-DSOXR_LIB=1',
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
-    '-DENABLE_SINC_FAST_CONVERTER=1'
+    '-DENABLE_SINC_FAST_CONVERTER=1',
+    "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
 
 Write-Host "Compiling C sources with gcc..."

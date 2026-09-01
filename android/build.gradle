@@ -24,8 +24,8 @@ android {
     defaultConfig {
         minSdkVersion 21
         ndk {
-            // Keep plugin output aligned with bundled prebuilt static curl artifacts.
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
+            // Keep plugin output aligned with bundled prebuilt static curl & FFmpeg artifacts.
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
         }
         externalNativeBuild {
             cmake {

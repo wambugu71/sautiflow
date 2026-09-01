@@ -39,7 +39,8 @@ $defines = @(
     '-DHAVE_STDBOOL_H=1',
     '-DHAVE_STRINGS_H=1',
     '-DHAVE_SYS_TYPES_H=1',
-    '-DSOXR_LIB=1'
+    '-DSOXR_LIB=1',
+    "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
 
 $failed = $false
