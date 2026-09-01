@@ -1,3 +1,12 @@
+## v0.6.23 — 2026-09-01
+- Universal Native Streaming: Full embedded FFmpeg streaming support across Windows, Linux, Android, iOS, and macOS
+- Dynamic System Bass DSP: 4-pole multi-band ladder matrix with 19 acoustic transducer hardware presets
+- Dynamic Drive Controls: Smooth sample-by-sample acoustic tuning directly from SautiPlay EQ screen
+- Perceptual Volume Curve: Natural cubic volume response and accurate dB gain calibration
+- Default Safety Limiter: Inter-sample clipping prevention enabled by default for distortion-free playback
+- Equal-Loudness Spectrum Analyzer: ISO 226 human-hearing curve compensation for real-time visualizer
+- Battery & CPU Optimization: Dynamic status polling and smooth exponential audio ducking
+
 ## v0.6.22 — 2026-08-30
 - Real-time Synced Lyrics: Auto-scrolling lyrics with viewport line centering and interactive timestamp seeking
 - Online & Offline Lyrics: YouTube Music API timed lyrics integration and companion .lrc / .txt local file import

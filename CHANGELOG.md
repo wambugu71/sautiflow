@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.23
+- **[Universal Native Streaming Build Support]** Enabled `-DSAUTIFLOW_ENABLE_FFMPEG=1` across all platform build systems (Windows, Linux, Android, iOS, and macOS). Fixed network streaming support detection (`isNetworkStreamingSupported`), eliminated unhandled isolate `ArgumentError` crashes on network source enqueueing, and rebuilt Windows native DLLs.
+- **[Clean-Room Dynamic System Bass DSP]** Implemented dual-cascade 4-pole multi-band ladder matrix dynamic bass DSP with 19 acoustic transducer hardware presets and smooth sample-by-sample parameter de-zippering.
+- **[Acoustic Hardware Transducer Presets]** Exposed dynamic profile selection and dynamic drive control across native C++ engine, Dart FFI bindings, and SautiPlay EQ screen.
+- **[Audio Engine Quality & Playback Fixes]** Enabled Lookahead Safety Limiter by default to prevent inter-sample clipping, added perceptual cubic volume curve mapping and dB volume controls, integrated ISO 226 equal-loudness contour compensation in real-time spectrum analyzer, smooth audio ducking ramp, and dynamic status polling for lower idle CPU consumption.
+
 ## 0.6.22
 - **[Real-time Synced Lyrics Engine]** Integrated online YouTube Music timed lyrics fetching and offline companion `.lrc` / `.txt` local file import with auto-scroll active line viewport centering, interactive click-to-seek, and frosted album art overlay.
 - **[Dynamic Studio DSP Suite]** Added full Studio Dynamic Range Compressor (threshold, ratio, attack, release, knee, auto-makeup gain), Downward Expander & Adaptive Noise Floor Reducer, and Split-Band / Wide-Band De-Esser.
