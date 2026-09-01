@@ -143,28 +143,29 @@ class MiniAudioSystemAudioController {
         }
       });
 
-  Timer? _duckRampTimer;
+      Timer? duckRampTimer;
 
-  void _rampGain({required double targetGain, int durationMs = 80}) {
-    _duckRampTimer?.cancel();
-    final startGain = _onGetGain?.call() ?? targetGain;
-    final startTime = DateTime.now().millisecondsSinceEpoch;
-    final stepInterval = 10;
+      void rampGain({required double targetGain, int durationMs = 80}) {
+        duckRampTimer?.cancel();
+        final startGain = _onGetGain?.call() ?? targetGain;
+        final startTime = DateTime.now().millisecondsSinceEpoch;
+        final stepInterval = 10;
 
-    _duckRampTimer = Timer.periodic(Duration(milliseconds: stepInterval), (timer) {
-      final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
-      final progress = (elapsed / durationMs).clamp(0.0, 1.0);
-      final smoothed = 0.5 * (1.0 - math.cos(progress * math.pi));
-      final current = startGain + (targetGain - startGain) * smoothed;
-      _onSetGain(current);
+        duckRampTimer =
+            Timer.periodic(Duration(milliseconds: stepInterval), (timer) {
+          final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
+          final progress = (elapsed / durationMs).clamp(0.0, 1.0);
+          final smoothed = 0.5 * (1.0 - math.cos(progress * math.pi));
+          final current = startGain + (targetGain - startGain) * smoothed;
+          _onSetGain(current);
 
-      if (progress >= 1.0) {
-        timer.cancel();
-        _duckRampTimer = null;
-        _onSetGain(targetGain);
+          if (progress >= 1.0) {
+            timer.cancel();
+            duckRampTimer = null;
+            _onSetGain(targetGain);
+          }
+        });
       }
-    });
-  }
 
       _interruptionSub?.cancel();
       _interruptionSub = session.interruptionEventStream.listen((event) {
@@ -174,7 +175,7 @@ class MiniAudioSystemAudioController {
         if (event.begin) {
           if (event.type == AudioInterruptionType.duck && c.enableDucking) {
             _preDuckGain = _onGetGain?.call() ?? 1.0;
-            _rampGain(targetGain: c.duckGain * _preDuckGain, durationMs: 80);
+            rampGain(targetGain: c.duckGain * _preDuckGain, durationMs: 80);
             _isDucked = true;
             return;
           }
@@ -186,7 +187,7 @@ class MiniAudioSystemAudioController {
         }
 
         if (_isDucked) {
-          _rampGain(targetGain: _preDuckGain, durationMs: 80);
+          rampGain(targetGain: _preDuckGain, durationMs: 80);
           _isDucked = false;
         }
 
@@ -330,9 +331,11 @@ class _MiniAudioHandler extends BaseAudioHandler
   }
 
   void updateFromPlayerStatus(PlayerStatus status, {StreamTelemetry? telemetry}) {
-    final bufferedMs = (telemetry != null && telemetry.bufferedDuration > Duration.zero)
+    final currentPositionMs = (status.positionSeconds * 1000).round();
+    final bufferAheadMs = (telemetry != null && telemetry.bufferedDuration > Duration.zero)
         ? telemetry.bufferedDuration.inMilliseconds
-        : (status.positionSeconds * 1000).round();
+        : 0;
+    final bufferedMs = currentPositionMs + bufferAheadMs;
 
     playbackState.add(
       PlaybackState(
@@ -351,7 +354,7 @@ class _MiniAudioHandler extends BaseAudioHandler
         processingState: AudioProcessingState.ready,
         playing: status.isPlaying,
         updatePosition: Duration(
-          milliseconds: (status.positionSeconds * 1000).round(),
+          milliseconds: currentPositionMs,
         ),
         bufferedPosition: Duration(
           milliseconds: bufferedMs,

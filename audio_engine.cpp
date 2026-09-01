@@ -612,7 +612,11 @@ namespace
             converter = SRC_LINEAR;
 
         backend->converterType = converter;
-        backend->ratio = (pConfig->sampleRateIn > 0) ? ((float)pConfig->sampleRateOut / (float)pConfig->sampleRateIn) : 1.0f;
+        float rateIn = (pConfig->sampleRateIn > 0) ? (float)pConfig->sampleRateIn : ((pConfig->sampleRateOut > 0) ? (float)pConfig->sampleRateOut : 48000.0f);
+        float rateOut = (pConfig->sampleRateOut > 0) ? (float)pConfig->sampleRateOut : 48000.0f;
+        int ch = (backend->channels > 0) ? backend->channels : 2;
+        backend->channels = ch;
+        backend->ratio = (rateIn > 0) ? (rateOut / rateIn) : 1.0f;
 
         int err = 0;
         backend->state = src_new(converter, backend->channels, &err);
@@ -826,14 +830,18 @@ namespace
 
         soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
         soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
-        backend->ratio = (pConfig->sampleRateIn > 0) ? ((double)pConfig->sampleRateOut / (double)pConfig->sampleRateIn) : 1.0;
+        double rateIn = (pConfig->sampleRateIn > 0) ? (double)pConfig->sampleRateIn : ((pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0);
+        double rateOut = (pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0;
+        int ch = (backend->channels > 0) ? backend->channels : 2;
+        backend->channels = ch;
+        backend->ratio = (rateIn > 0) ? (rateOut / rateIn) : 1.0;
 
         soxr_error_t err = nullptr;
-        backend->handle = soxr_create((double)pConfig->sampleRateIn, (double)pConfig->sampleRateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
+        backend->handle = soxr_create(rateIn, rateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
         if (!backend->handle || err)
         {
-            engine_log("soxr_onInit: soxr_create failed (err=%s) for algo=%d channels=%d",
-                       soxr_strerror(err), algo, backend->channels);
+            engine_log("soxr_onInit: soxr_create failed (err=%s) for algo=%d channels=%d rateIn=%.0f rateOut=%.0f",
+                       soxr_strerror(err), algo, backend->channels, rateIn, rateOut);
             return MA_ERROR;
         }
 
@@ -4301,7 +4309,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
         ma_uint32 produced = 0;
         {
-            std::lock_guard<std::mutex> d(e->decoderMutex);
+            std::unique_lock<std::mutex> d(e->decoderMutex);
 
             // Lazy-init push stream decoder if needed
             if (e->isPushStreamMode && e->currentDecoder == nullptr && e->pushStreamForCurrent.initialized)
@@ -4330,6 +4338,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     else
                     {
                         delete newDecoder;
+                        d.unlock();
                         std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
                         e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                         continue;
@@ -4337,6 +4346,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
                 else
                 {
+                    d.unlock();
                     std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
                     e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                     continue;
@@ -4347,6 +4357,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 e->ringBufferFlushing.load(std::memory_order_relaxed) ||
                 e->rateTransitionInProgress.load(std::memory_order_acquire))
             {
+                d.unlock();
                 std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
                 e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                 continue;

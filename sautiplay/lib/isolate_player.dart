@@ -54,6 +54,7 @@ class IsolateAudioPlayer {
       if (Platform.isAndroid || Platform.isIOS) {
         _systemAudio = MiniAudioSystemAudioController(
           statusStream: statusStream,
+          telemetryStream: _telemetryController.stream,
           onPlay: play,
           onPause: pause,
           onStop: stop,

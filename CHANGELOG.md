@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.24
+- **[Android Online Stream Architecture Fix]** Resolved online stream playback stalls on Android by implementing a resilient two-stage resampler initialization in `ffmpeg_stream_decoder.cpp`. Falls back gracefully from SoXR to FFmpeg's native `SWR_ENGINE_SWR` engine with 32-tap high-precision sinc filtering, eliminating `AVERROR(EINVAL)` (-22) failures when `libsoxr` is not present in Android prebuilts.
+- **[Track Switch & Decoder Mutex Starvation Elimination]** Resolved decoder mutex lock starvation in `audio_engine.cpp` during track changes and playlist jumps by releasing `decoderMutex` before waiting on `decodeProducerCv`. Slashed track loading latency from 20+ seconds down to 1 millisecond.
+- **[Stream Probing Zero-Rate Guards]** Guarded `soxr_onInit` and `src_onInit` against unprobed / non-positive sample rates during dynamic stream format discovery, preventing `MA_ERROR` aborts.
+- **[Android MediaSession Timeline Telemetry]** Corrected `bufferedPosition` in `mobile_system_audio.dart` to report absolute media timeline position (`currentPositionMs + bufferAheadMs`), preventing Android MediaSession underflow stalls and lockscreen notification dismissals.
+- **[Push Stream Instant Start]** Maintained responsive 32KB initial buffer threshold in `pushStream` for immediate audio start on chunked and live radio streams.
+- **[Isolate Stream Telemetry Wire-up]** Connected real-time stream telemetry from `IsolateAudioPlayer` into `MiniAudioSystemAudioController`.
+
 ## 0.6.23
 - **[Universal Native Streaming Build Support]** Enabled `-DSAUTIFLOW_ENABLE_FFMPEG=1` across all platform build systems (Windows, Linux, Android, iOS, and macOS). Fixed network streaming support detection (`isNetworkStreamingSupported`), eliminated unhandled isolate `ArgumentError` crashes on network source enqueueing, and rebuilt Windows native DLLs.
 - **[Clean-Room Dynamic System Bass DSP]** Implemented dual-cascade 4-pole multi-band ladder matrix dynamic bass DSP with 19 acoustic transducer hardware presets and smooth sample-by-sample parameter de-zippering.

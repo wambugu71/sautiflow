@@ -7,7 +7,7 @@ void main() {
 
   final engine = AudioEngineFFI(libraryPath: 'sautiflow.dll');
   print('[1] Creating engine handle...');
-  engine.createEngine(sampleRate: 48000, channels: 2);
+  engine.create(sampleRate: 48000, channels: 2);
 
   print('[OK] Engine created.');
   final initialRate = engine.getOutputSampleRate();
@@ -25,7 +25,7 @@ void main() {
 
   print('--------------------------------------------------------');
   print('[3] Destroying engine...');
-  engine.destroyEngine();
+  engine.destroy();
   print('========================================================');
   print(' VERIFICATION COMPLETED SUCCESSFULLY                   ');
   print('========================================================');

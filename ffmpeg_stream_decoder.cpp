@@ -47,6 +47,33 @@ static void configure_audiophile_swr_opts(SwrContext* swrCtx) {
     av_opt_set_int(swrCtx, "phase", 0, 0);
 }
 
+static bool init_swr_context(SwrContext* swrCtx) {
+    if (!swrCtx) return false;
+
+    // 1. Attempt SoXR audiophile engine with minimum-phase sinc filter
+    configure_audiophile_swr_opts(swrCtx);
+    int ret = swr_init(swrCtx);
+    if (ret >= 0 && swr_is_initialized(swrCtx)) {
+        SF_LOG("[ffmpeg] SwrContext initialized successfully with SoXR audiophile engine\n");
+        return true;
+    }
+
+    // 2. Fallback to FFmpeg default swresample engine (guaranteed available across all platforms including Android)
+    SF_LOG("[ffmpeg] SoXR engine unavailable in libswresample (ret=%d); falling back to default swresample engine\n", ret);
+    av_opt_set_int(swrCtx, "resampler", 0 /* SWR_ENGINE_SWR */, 0);
+    av_opt_set_int(swrCtx, "filter_size", 32, 0);
+    av_opt_set_double(swrCtx, "cutoff", 0.99, 0);
+    ret = swr_init(swrCtx);
+    if (ret >= 0 && swr_is_initialized(swrCtx)) {
+        SF_LOG("[ffmpeg] SwrContext initialized successfully with default swresample engine\n");
+        return true;
+    }
+
+    SF_LOGE("[ffmpeg] Failed to initialize SwrContext with any engine (ret=%d)\n", ret);
+    return false;
+}
+
+
 static std::atomic<FFmpegStreamSource*> g_activeStreamSource{nullptr};
 
 static int ffmpeg_interrupt_callback(void* ctx) {
@@ -465,10 +492,12 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         av_channel_layout_uninit(&outLayout);
 
         if (ret >= 0 && m_swrCtx) {
-            configure_audiophile_swr_opts(m_swrCtx);
-            swr_init(m_swrCtx);
-            SF_LOG("[ffmpeg] Step 4/5 SUCCESS: Initial SwrContext configured (%d Hz -> %d Hz, %d ch)\n",
-                   m_codecCtx->sample_rate, m_targetSampleRate, m_targetChannels);
+            if (init_swr_context(m_swrCtx)) {
+                SF_LOG("[ffmpeg] Step 4/5 SUCCESS: Initial SwrContext configured (%d Hz -> %d Hz, %d ch)\n",
+                       m_codecCtx->sample_rate, m_targetSampleRate, m_targetChannels);
+            } else {
+                SF_LOGE("[ffmpeg] Step 4/5 FAILED: Failed to initialize SwrContext\n");
+            }
         }
     }
 
@@ -606,8 +635,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                         );
                         av_channel_layout_uninit(&outLayout);
                         if (m_swrCtx) {
-                            configure_audiophile_swr_opts(m_swrCtx);
-                            swr_init(m_swrCtx);
+                            init_swr_context(m_swrCtx);
                         }
                     }
 

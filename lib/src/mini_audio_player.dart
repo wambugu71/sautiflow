@@ -952,7 +952,7 @@ class MiniAudioPlayer {
 
   Future<void> pushStream({
     required String url,
-    int bufferThreshold = 128 * 1024,
+    int bufferThreshold = 32 * 1024,
   }) async {
     _engine.initPushStream();
 

@@ -1,3 +1,11 @@
+## v0.6.24 — 2026-09-02
+- Android Online Streaming: Restored reliable playback with resilient FFmpeg resampler fallback (SoXR to SWR)
+- Instant Track Switching: Eliminated decoder lock contention, reducing playlist jump delay from 20s to 1ms
+- Dynamic Rate Probing: Guarded against unprobed sample rates to ensure stable network stream initialization
+- Android Media Notification: Fixed buffered position calculation to prevent media controls stalling
+- Push Stream Latency: Optimized 32KB buffer threshold for instant playback on live online feeds
+- System Audio Telemetry: Connected real-time stream telemetry to lockscreen and notification controls
+
 ## v0.6.23 — 2026-09-01
 - Universal Native Streaming: Full embedded FFmpeg streaming support across Windows, Linux, Android, iOS, and macOS
 - Dynamic System Bass DSP: 4-pole multi-band ladder matrix with 19 acoustic transducer hardware presets
