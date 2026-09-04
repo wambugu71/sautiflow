@@ -252,7 +252,8 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                           children: [
                             if (Navigator.canPop(context)) ...[
                               IconButton(
-                                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                icon: const Icon(Icons.keyboard_arrow_down,
+                                    color: Colors.white),
                                 onPressed: () => Navigator.pop(context),
                               ),
                               const SizedBox(width: 8),
@@ -260,8 +261,9 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                             Text(
                               'Recently Played',
                               style: TextStyle(
-                                fontSize:
-                                    isDesktop ? 36 : 28, // Matches text-3xl roughly
+                                fontSize: isDesktop
+                                    ? 36
+                                    : 28, // Matches text-3xl roughly
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                                 letterSpacing: -0.5,

@@ -25,7 +25,7 @@ enum EqBandType {
 enum AttenuationModel { none, inverse, linear, exponential }
 
 /// Mirrors CrossfeedAlgorithm in crossfeed_node.h — must stay in sync.
-enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural }
+enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural, race }
 
 /// Immutable value-class returned by [MiniaudioPlayer.getCrossfeedParams].
 class CrossfeedParams {
@@ -413,6 +413,12 @@ final class AEHardwareInfoNative extends ffi.Struct {
   @ffi.Array(256)
   external ffi.Array<ffi.Uint8> device_name;
 
+  @ffi.Array(128)
+  external ffi.Array<ffi.Uint8> dsp_hardware;
+
+  @ffi.Array(64)
+  external ffi.Array<ffi.Uint8> soc_name;
+
   @ffi.Int32()
   external int output_format;
 
@@ -439,6 +445,29 @@ final class AEHardwareInfoNative extends ffi.Struct {
 
   @ffi.Int32()
   external int is_exclusive_mode;
+
+  @ffi.Int32()
+  external int is_direct_pcm;
+}
+
+/// Audio output backends supported by the engine.
+enum AudioOutputBackend {
+  auto(0, 'Auto (System Optimal)'),
+  aaudio(1, 'AAudio (Android Low-Latency)'),
+  openSl(2, 'OpenSL ES (Android Legacy Fallback)'),
+  audioTrack(3, 'AudioTrack (Java Audio Subsystem)'),
+  directHiRes(4, 'Direct Hi-Res (Bit-Perfect Direct HAL / DAC)');
+
+  final int value;
+  final String displayName;
+  const AudioOutputBackend(this.value, this.displayName);
+
+  static AudioOutputBackend fromInt(int value) {
+    for (final b in AudioOutputBackend.values) {
+      if (b.value == value) return b;
+    }
+    return AudioOutputBackend.auto;
+  }
 }
 
 class AEHardwareInfo {
@@ -453,6 +482,9 @@ class AEHardwareInfo {
   final int periodCount;
   final double latencyMs;
   final bool isExclusiveMode;
+  final String dspHardware;
+  final String socName;
+  final bool isDirectPcm;
 
   const AEHardwareInfo({
     required this.backendName,
@@ -466,6 +498,9 @@ class AEHardwareInfo {
     required this.periodCount,
     required this.latencyMs,
     required this.isExclusiveMode,
+    this.dspHardware = 'Host Native Audio',
+    this.socName = 'Host Processor',
+    this.isDirectPcm = false,
   });
 
   factory AEHardwareInfo.fromNative(AEHardwareInfoNative native) {
@@ -480,6 +515,18 @@ class AEHardwareInfo {
       final b = native.device_name[i];
       if (b == 0) break;
       dBytes.add(b);
+    }
+    final dspBytes = <int>[];
+    for (int i = 0; i < 128; i++) {
+      final b = native.dsp_hardware[i];
+      if (b == 0) break;
+      dspBytes.add(b);
+    }
+    final socBytes = <int>[];
+    for (int i = 0; i < 64; i++) {
+      final b = native.soc_name[i];
+      if (b == 0) break;
+      socBytes.add(b);
     }
 
     AudioFormat fmt = AudioFormat.f32;
@@ -500,6 +547,9 @@ class AEHardwareInfo {
       periodCount: native.period_count,
       latencyMs: native.latency_ms,
       isExclusiveMode: native.is_exclusive_mode != 0,
+      dspHardware: String.fromCharCodes(dspBytes).trim(),
+      socName: String.fromCharCodes(socBytes).trim(),
+      isDirectPcm: native.is_direct_pcm != 0,
     );
   }
 
@@ -515,6 +565,9 @@ class AEHardwareInfo {
         'periodCount': periodCount,
         'latencyMs': latencyMs,
         'isExclusiveMode': isExclusiveMode,
+        'dspHardware': dspHardware,
+        'socName': socName,
+        'isDirectPcm': isDirectPcm,
       };
 }
 
@@ -955,6 +1008,18 @@ typedef _SetExclusiveModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 
 typedef _GetExclusiveModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetExclusiveModeDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetOutputBackendNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetOutputBackendDart = int Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetOutputBackendNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetOutputBackendDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _IsBackendSupportedNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _IsBackendSupportedDart = int Function(ffi.Pointer<ffi.Void>, int);
+
 
 typedef _SetOutputFormatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -1789,6 +1854,18 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetExclusiveModeNative, _GetExclusiveModeDart>(
       'ae_get_exclusive_mode',
     );
+    _setOutputBackend =
+        _lib.lookupFunction<_SetOutputBackendNative, _SetOutputBackendDart>(
+      'ae_set_output_backend',
+    );
+    _getOutputBackend =
+        _lib.lookupFunction<_GetOutputBackendNative, _GetOutputBackendDart>(
+      'ae_get_output_backend',
+    );
+    _isBackendSupported =
+        _lib.lookupFunction<_IsBackendSupportedNative, _IsBackendSupportedDart>(
+      'ae_is_backend_supported',
+    );
     _setOutputFormat =
         _lib.lookupFunction<_SetOutputFormatNative, _SetOutputFormatDart>(
       'ae_set_output_format',
@@ -2222,6 +2299,9 @@ class AudioEngineFFI {
   // Advanced Audio Features
   late final _SetExclusiveModeDart _setExclusiveMode;
   late final _GetExclusiveModeDart _getExclusiveMode;
+  late final _SetOutputBackendDart _setOutputBackend;
+  late final _GetOutputBackendDart _getOutputBackend;
+  late final _IsBackendSupportedDart _isBackendSupported;
   late final _SetOutputFormatDart _setOutputFormat;
   late final _GetOutputFormatDart _getOutputFormat;
   late final _SetOutputRateDart _setOutputSampleRate;
@@ -2713,6 +2793,9 @@ class AudioEngineFFI {
         periodCount: 0,
         latencyMs: 0.0,
         isExclusiveMode: false,
+        dspHardware: 'Host Native Audio',
+        socName: 'Host Processor',
+        isDirectPcm: false,
       );
     }
     final native = _getHardwareInfo!(_engine);
@@ -3391,6 +3474,25 @@ class AudioEngineFFI {
   bool getExclusiveMode() {
     if (_engine == ffi.nullptr) return false;
     return _getExclusiveMode(_engine) != 0;
+  }
+
+  /// Sets the preferred audio output backend. Returns true if accepted.
+  bool setOutputBackend(AudioOutputBackend backend) {
+    if (_engine == ffi.nullptr) return false;
+    return _setOutputBackend(_engine, backend.value) != 0;
+  }
+
+  /// Gets the currently active audio output backend.
+  AudioOutputBackend getOutputBackend() {
+    if (_engine == ffi.nullptr) return AudioOutputBackend.auto;
+    final val = _getOutputBackend(_engine);
+    return AudioOutputBackend.fromInt(val);
+  }
+
+  /// Checks if a specific backend is supported on the current platform/device.
+  bool isBackendSupported(AudioOutputBackend backend) {
+    if (_engine == ffi.nullptr) return false;
+    return _isBackendSupported(_engine, backend.value) != 0;
   }
 
   void setOutputFormat(AudioFormat format) {

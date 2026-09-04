@@ -780,7 +780,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             _showMusicInfoDialog(context);
                           },
                         ),
-                        ListTile(
+                        /*  ListTile(
                           leading: Icon(Icons.developer_board,
                               color:
                                   AppThemeService.instance.currentData.primary),
@@ -795,7 +795,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             Navigator.pop(sheetContext);
                             _showHardwareSpecsModal(context);
                           },
-                        ),
+                        ),*/
                         ListTile(
                           leading: Icon(Icons.subtitles_outlined,
                               color:
@@ -1554,8 +1554,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   containerColor: primaryColor.withAlpha(50)))
                           : SyncedLyricsWidget(
                               lyricsRaw: _lyricsRaw ?? '',
-                              currentPosition: Duration(
-                                  milliseconds: displayPosMs.toInt()),
+                              currentPosition:
+                                  Duration(milliseconds: displayPosMs.toInt()),
                               onSeek: (targetTime) {
                                 widget.player.seekTo(targetTime);
                               },
@@ -2026,9 +2026,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       ? Icons.lyrics_rounded
                                                       : Icons.lyrics_outlined,
                                                   onPressed: () {
-                                                    setState(() =>
-                                                        _showLyrics =
-                                                            !_showLyrics);
+                                                    setState(() => _showLyrics =
+                                                        !_showLyrics);
                                                   },
                                                 ),
                                                 M3EToolbarWidget(
@@ -2537,13 +2536,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 Row(
                                                   children: [
                                                     M3EIconButton(
-                                                      variant:
-                                                          (_showLyricsOverlayOnAlbumArt ||
-                                                                  _showLyrics)
-                                                              ? M3EIconButtonVariant
-                                                                  .filled
-                                                              : M3EIconButtonVariant
-                                                                  .tonal,
+                                                      variant: (_showLyricsOverlayOnAlbumArt ||
+                                                              _showLyrics)
+                                                          ? M3EIconButtonVariant
+                                                              .filled
+                                                          : M3EIconButtonVariant
+                                                              .tonal,
                                                       icon: Icon(
                                                         (_showLyricsOverlayOnAlbumArt ||
                                                                 _showLyrics)

@@ -302,7 +302,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ? Padding(
                   padding: const EdgeInsets.only(bottom: 96),
                   child: M3EFab(
-                    icon: const Icon(Icons.arrow_upward_rounded),
+                    icon: const Icon(Icons.keyboard_arrow_down),
                     size: M3EFabSize.small,
                     color: M3EFabColor.primary,
                     onPressed: () => _scrollController.animateTo(
@@ -408,7 +408,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: M3EIconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 20),
                     variant: M3EIconButtonVariant.tonal,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -607,13 +607,13 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListView.builder(
       controller: _scrollController,
       physics: const BouncingScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(
-          isDesktop ? 32 : 12, 4, isDesktop ? 32 : 12, 120),
+      padding:
+          EdgeInsets.fromLTRB(isDesktop ? 32 : 12, 4, isDesktop ? 32 : 12, 120),
       itemCount: _suggestions.length,
       itemBuilder: (context, index) {
         final suggestion = _suggestions[index];
-        final isRecent = _recentSearches.any(
-            (r) => r.toLowerCase() == suggestion.toLowerCase());
+        final isRecent = _recentSearches
+            .any((r) => r.toLowerCase() == suggestion.toLowerCase());
         return RepaintBoundary(
           child: InkWell(
             onTap: () => _runSearchFromChip(suggestion),
@@ -623,9 +623,7 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Row(
                 children: [
                   Icon(
-                    isRecent
-                        ? Icons.history_rounded
-                        : Icons.north_west_rounded,
+                    isRecent ? Icons.history_rounded : Icons.north_west_rounded,
                     color: _textDark.withValues(alpha: 0.7),
                     size: isDesktop ? 22 : 19,
                   ),
@@ -713,8 +711,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildSectionHeader(String title, {bool isDesktop = false}) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(isDesktop ? 32 : 16,
-          isDesktop ? 26 : 20, isDesktop ? 32 : 16, 6),
+      padding: EdgeInsets.fromLTRB(
+          isDesktop ? 32 : 16, isDesktop ? 26 : 20, isDesktop ? 32 : 16, 6),
       child: Row(
         children: [
           Container(
@@ -806,8 +804,7 @@ class _SearchScreenState extends State<SearchScreen> {
     Widget sectionItem(List<dynamic> items, int index) {
       final shown = items.length > 6 ? 6 : items.length;
       return Padding(
-        padding:
-            EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16),
+        padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16),
         child: _buildStandardResultItem(
           items[index],
           isDesktop: isDesktop,
@@ -834,8 +831,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         if (songs.isNotEmpty) ...[
           _buildSectionHeader('SONGS', isDesktop: isDesktop),
-          for (var i = 0; i < songs.length && i < 6; i++)
-            sectionItem(songs, i),
+          for (var i = 0; i < songs.length && i < 6; i++) sectionItem(songs, i),
         ],
         if (artists.isNotEmpty) ...[
           _buildSectionHeader('ARTISTS', isDesktop: isDesktop),
@@ -863,94 +859,91 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return RepaintBoundary(
       child: M3ECard(
-          variant: M3ECardVariant.elevated,
-          onPressed: () => _handleItemTap(item),
-          color: _surfaceDark,
-          borderRadius: BorderRadius.circular(20),
-          padding: EdgeInsets.all(isDesktop ? 18 : 14),
-          child: Row(
-            children: [
-              SizedBox(
-                width: isDesktop ? 110 : 80,
-                height: isDesktop ? 110 : 80,
-                child: M3EContainer(
-                  item is ArtistDetailed ? Shapes.circle : Shapes.slanted,
-                  color: _surfaceDark,
-                  border: BorderSide(
-                    color: _primary.withValues(alpha: 0.25),
-                    width: 1.2,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: thumb != null
-                      ? CachedNetworkImage(
-                          imageUrl: thumb,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 200,
-                          memCacheHeight: 200,
-                          placeholder: (_, __) => Container(
-                            color: _surfaceDark,
-                            child: Icon(Icons.music_note_rounded,
-                                color:
-                                    _textDark.withValues(alpha: 0.4),
-                                size: 30),
-                          ),
-                          errorWidget: (_, __, ___) => Container(
-                            color: _surfaceDark,
-                            child: Icon(Icons.music_note_rounded,
-                                color:
-                                    _textDark.withValues(alpha: 0.4),
-                                size: 30),
-                          ),
-                        )
-                      : Center(
+        variant: M3ECardVariant.elevated,
+        onPressed: () => _handleItemTap(item),
+        color: _surfaceDark,
+        borderRadius: BorderRadius.circular(20),
+        padding: EdgeInsets.all(isDesktop ? 18 : 14),
+        child: Row(
+          children: [
+            SizedBox(
+              width: isDesktop ? 110 : 80,
+              height: isDesktop ? 110 : 80,
+              child: M3EContainer(
+                item is ArtistDetailed ? Shapes.circle : Shapes.slanted,
+                color: _surfaceDark,
+                border: BorderSide(
+                  color: _primary.withValues(alpha: 0.25),
+                  width: 1.2,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: thumb != null
+                    ? CachedNetworkImage(
+                        imageUrl: thumb,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 200,
+                        memCacheHeight: 200,
+                        placeholder: (_, __) => Container(
+                          color: _surfaceDark,
                           child: Icon(Icons.music_note_rounded,
                               color: _textDark.withValues(alpha: 0.4),
                               size: 30),
                         ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: isDesktop ? 20 : 17,
-                        fontWeight: FontWeight.bold,
+                        errorWidget: (_, __, ___) => Container(
+                          color: _surfaceDark,
+                          child: Icon(Icons.music_note_rounded,
+                              color: _textDark.withValues(alpha: 0.4),
+                              size: 30),
+                        ),
+                      )
+                    : Center(
+                        child: Icon(Icons.music_note_rounded,
+                            color: _textDark.withValues(alpha: 0.4), size: 30),
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    SizedBox(height: isDesktop ? 8 : 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: _textDark,
-                        fontSize: isDesktop ? 15 : 13,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
               ),
-              if (_getTrailingText(item) != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: Text(
-                    _getTrailingText(item)!,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: isDesktop ? 20 : 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: isDesktop ? 8 : 4),
+                  Text(
+                    subtitle,
                     style: TextStyle(
                       color: _textDark,
-                      fontSize: isDesktop ? 14 : 12,
+                      fontSize: isDesktop ? 15 : 13,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (_getTrailingText(item) != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Text(
+                  _getTrailingText(item)!,
+                  style: TextStyle(
+                    color: _textDark,
+                    fontSize: isDesktop ? 14 : 12,
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
+      ),
     );
   }
 
@@ -989,8 +982,7 @@ class _SearchScreenState extends State<SearchScreen> {
           child: InkWell(
             onTap: () => _handleItemTap(item),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
                   SizedBox(

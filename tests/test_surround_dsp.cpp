@@ -50,23 +50,22 @@ int main()
         check(buf == ref, "disabled passthrough is bit-exact");
     }
 
-    // 2. Every mode processes a sine without NaN/Inf/denormal explosion
+    // 2. Every active mode processes audio without NaN/Inf/denormal explosion
     {
         const SurroundMode modes[] = {
-            SurroundMode::FieldExpander,
-            SurroundMode::DifferentialHaas,
-            SurroundMode::ViperHeadphone,
-            SurroundMode::Matrix51Hrtf
+            SurroundMode::MatrixSurround,
+            SurroundMode::BinauralVirtualizer,
+            SurroundMode::AcousticStage
         };
-        const char *names[] = {"FieldExpander", "DifferentialHaas", "ViperHeadphone", "Matrix51Hrtf"};
+        const char *names[] = {"MatrixSurround", "BinauralVirtualizer", "AcousticStage"};
 
-        for (int m = 0; m < 4; ++m) {
+        for (int m = 0; m < 3; ++m) {
             SpatialSurroundDSP dsp;
             dsp.setSampleRate((float)sr);
             dsp.setEnabled(true);
             dsp.setMode(modes[m]);
 
-            // Feed 1 second of stereo sine (also exercises long-run stability)
+            // Feed 1 second of stereo sine (exercises long-run stability)
             std::vector<float> buf(2 * 1024);
             float peak_seen = 0.0f;
             bool finite = true;
@@ -89,29 +88,73 @@ int main()
         }
     }
 
-    // 3. Field expander mono compatibility: pure mono in -> side cancels
+    // 3. Binaural Virtualizer: Headphone HRTF mode vs Speaker Field mode
     {
         SpatialSurroundDSP dsp;
         dsp.setSampleRate((float)sr);
         dsp.setEnabled(true);
-        dsp.setMode(SurroundMode::FieldExpander);
-        dsp.setFieldWidth(2.5f);
+        dsp.setMode(SurroundMode::BinauralVirtualizer);
 
-        std::vector<float> buf(2 * 4096);
-        for (uint32_t i = 0; i < 4096; ++i) {
-            const float x = 0.4f * std::sinf(2.0f * 3.14159265f * 100.0f * i / sr);
-            buf[2 * i] = x;
-            buf[2 * i + 1] = x;
-        }
-        dsp.process(buf.data(), 4096);
-        double max_imbalance = 0.0;
-        for (uint32_t i = 100; i < 4096; ++i)
-            max_imbalance = std::max(max_imbalance, (double)std::fabs(buf[2 * i] - buf[2 * i + 1]));
-        std::printf("  field max L/R imbalance on mono input: %.6f\n", max_imbalance);
-        check(max_imbalance < 1e-3, "field expander keeps mono content stereo-symmetric");
+        // Headphone HRTF with Room 2 Cinema Reverb
+        dsp.setBinauralMode(0);
+        dsp.setBinauralBoost(0.85f);
+        dsp.setBinauralRoomPreset(2);
+        dsp.setBinauralRoomMix(0.40f);
+
+        std::vector<float> bufHp(2 * 1024, 0.4f);
+        dsp.process(bufHp.data(), 1024);
+        check(all_finite(bufHp), "Binaural Virtualizer Headphone HRTF finite");
+        check(peak(bufHp) > 0.1f, "Binaural Virtualizer Headphone HRTF audible output");
+
+        // Speaker Field mode with Wide angle
+        dsp.setBinauralMode(1);
+        dsp.setBinauralSpeakerAngle(2); // Wide
+        dsp.setBinauralBoost(0.75f);
+
+        std::vector<float> bufSpk(2 * 1024, 0.4f);
+        dsp.process(bufSpk.data(), 1024);
+        check(all_finite(bufSpk), "Binaural Virtualizer Speaker Field finite");
+        check(peak(bufSpk) > 0.1f, "Binaural Virtualizer Speaker Field audible output");
     }
 
-    // 4. HRTF ITD sanity: hard-right source delays the LEFT ear signal
+    // 4. 3D Acoustic Stage: Studio vs Panoramic, Depth, Width, and Bass Anchor
+    {
+        SpatialSurroundDSP dsp;
+        dsp.setSampleRate((float)sr);
+        dsp.setEnabled(true);
+        dsp.setMode(SurroundMode::AcousticStage);
+
+        // Studio mode
+        dsp.setStageProfile(0); // Headset
+        dsp.setStageMode(0);    // Studio
+        dsp.setStageWidth(1.4f);
+        dsp.setStageDepth(0.6f);
+        dsp.setStageCancellation(0.8f);
+        dsp.setStageAirPresence(0.5f);
+        dsp.setStageBassAnchorHz(80.0f);
+
+        std::vector<float> bufStudio(2 * 1024, 0.35f);
+        dsp.process(bufStudio.data(), 1024);
+        check(all_finite(bufStudio), "3D Acoustic Stage Studio mode finite");
+
+        // Panoramic mode with pure mono input -> stereo-symmetric response
+        dsp.setStageMode(1); // Panoramic
+        std::vector<float> bufMono(2 * 2048);
+        for (uint32_t i = 0; i < 2048; ++i) {
+            const float x = 0.4f * std::sinf(2.0f * 3.14159265f * 120.0f * i / sr);
+            bufMono[2 * i]     = x;
+            bufMono[2 * i + 1] = x;
+        }
+        dsp.process(bufMono.data(), 2048);
+        double max_imbalance = 0.0;
+        for (uint32_t i = 100; i < 2048; ++i) {
+            max_imbalance = std::max(max_imbalance, (double)std::fabs(bufMono[2 * i] - bufMono[2 * i + 1]));
+        }
+        std::printf("  acoustic stage max L/R imbalance on mono input: %.6f\n", max_imbalance);
+        check(max_imbalance < 1e-3, "3D Acoustic Stage keeps mono content stereo-symmetric");
+    }
+
+    // 5. Cinema Matrix 5.1 HRTF ITD sanity: hard-right source delays left ear signal
     {
         sauti::dsp::HrtfSource src;
         src.configure(+90.0f, 0.0f, 8.75f, 1.0f, (float)sr);
@@ -130,14 +173,14 @@ int main()
         check(first_l > 10 && first_l < 40, "hard-right source left ear delayed by ITD (~31 samples @48k)");
     }
 
-    // 5. Mode switching + reset stability (no stale state blowups)
+    // 6. Mode cycling + reset stability (no state explosion)
     {
         SpatialSurroundDSP dsp;
         dsp.setSampleRate((float)sr);
         dsp.setEnabled(true);
         std::vector<float> buf(2 * 256, 0.25f);
         bool finite = true;
-        for (int m = 0; m <= 4; ++m) {
+        for (int m = 0; m <= 3; ++m) {
             dsp.setMode((SurroundMode)m);
             for (int b = 0; b < 50; ++b) {
                 dsp.process(buf.data(), 256);
@@ -148,18 +191,18 @@ int main()
         check(finite, "mode cycling remains stable");
     }
 
-    // 6. Sample-rate change rebuilds cleanly
+    // 7. Sample-rate changes across 44.1k, 48k, and 96k
     {
         SpatialSurroundDSP dsp;
-        dsp.setSampleRate((float)sr);
         dsp.setEnabled(true);
-        dsp.setMode(SurroundMode::Matrix51Hrtf);
-        std::vector<float> buf(2 * 256, 0.3f);
-        dsp.process(buf.data(), 256);
-        dsp.setSampleRate(44100.0f);
-        dsp.reset();
-        dsp.process(buf.data(), 256);
-        check(all_finite(buf), "sample rate switch remains stable");
+        dsp.setMode(SurroundMode::MatrixSurround);
+
+        for (float test_sr : { 44100.0f, 48000.0f, 96000.0f }) {
+            dsp.setSampleRate(test_sr);
+            std::vector<float> buf(2 * 256, 0.3f);
+            dsp.process(buf.data(), 256);
+            check(all_finite(buf), ("sample rate switch to " + std::to_string((int)test_sr) + "Hz stable").c_str());
+        }
     }
 
     std::printf("\n%s (%d failure(s))\n", failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED", failures);

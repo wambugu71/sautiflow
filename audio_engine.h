@@ -200,7 +200,8 @@ extern "C"
         AE_CROSSFEED_SIMPLE = 1,
         AE_CROSSFEED_BS2B = 2,
         AE_CROSSFEED_MEIER = 3,
-        AE_CROSSFEED_NATURAL = 4
+        AE_CROSSFEED_NATURAL = 4,
+        AE_CROSSFEED_RACE = 5
     } AECrossfeedAlgorithm;
 
     AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
@@ -595,6 +596,11 @@ extern "C"
     AE_API void ae_dsp_set_analog_warmth_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_analog_warmth_params(AudioEngineHandle *engine, int profile, float drive);
 
+    // Dialogue Booster / Enhancer (0=Cinema, 1=Music, 2=Voice, 3=Night, 4=Custom)
+    AE_API void ae_dsp_set_dialog_enhancer_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API void ae_dsp_set_dialog_enhancer_params(AudioEngineHandle *engine, int profile, float amount, float ducking, float clarity, float center_focus);
+    AE_API float ae_dsp_get_dialog_enhancer_gain_reduction_db(AudioEngineHandle *engine);
+
     // Split-Band / Wideband De-Esser (0=SplitBand, 1=WideBand)
     AE_API void ae_dsp_set_de_esser_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_de_esser_params(AudioEngineHandle *engine, int mode, float intensity);
@@ -622,34 +628,54 @@ extern "C"
     typedef enum AESurroundMode
     {
         AE_SURROUND_OFF = 0,
-        AE_SURROUND_FIELD_EXPANDER = 1,
-        AE_SURROUND_DIFFERENTIAL_HAAS = 2,
-        AE_SURROUND_VIPER_HEADPHONE = 3,
-        AE_SURROUND_MATRIX_5_1_HRTF = 4
+        AE_SURROUND_MATRIX = 1,      // Cinema Matrix 5.1 (Pro Logic II cleanroom)
+        AE_SURROUND_BINAURAL = 2,    // Binaural HRTF Virtualizer (from Dolby analysis_dlby2)
+        AE_SURROUND_STAGE = 3,       // 3D Acoustic Stage (from AM3D Zirene re_workspace)
+        AE_SURROUND_MATRIX_5_1_HRTF = 4 // Backward-compatibility alias for Matrix
     } AESurroundMode;
 
     AE_API void ae_dsp_set_surround_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_surround_mode(AudioEngineHandle *engine, int mode);
 
-    // Compact setter mapped to the unified parameter table:
-    //   width_expansion -> field_width          [0.0, 2.5]  (default 1.4)
-    //   room_level      -> vhs_room_preset      [1, 5]      (default 2)
-    //   delay_ms        -> haas_delay_ms        [1, 25]     (default 5.5)
-    //   center_focus    -> matrix center focus  [0.0, 1.0]  (default 0.6)
+    // Compact setter mapped to active algorithm parameters:
     AE_API void ae_dsp_set_surround_params(AudioEngineHandle *engine,
-                                           float width_expansion,
-                                           float room_level,
-                                           float delay_ms,
-                                           float center_focus);
+                                           float p1,
+                                           float p2,
+                                           float p3,
+                                           float p4);
     AE_API void ae_dsp_get_surround_params(AudioEngineHandle *engine,
                                            int *out_enabled,
                                            int *out_mode,
-                                           float *out_width,
-                                           float *out_room_level,
-                                           float *out_delay_ms,
-                                           float *out_center_focus);
+                                           float *out_p1,
+                                           float *out_p2,
+                                           float *out_p3,
+                                           float *out_p4);
 
-    // Extended setter for full per-algorithm tuning.
+    // Dedicated algorithm-specific parameter setters:
+    AE_API void ae_dsp_set_surround_matrix_params(AudioEngineHandle *engine,
+                                                  float center_focus,
+                                                  float surround_boost,
+                                                  float surround_delay_ms,
+                                                  float head_radius_cm);
+
+    AE_API void ae_dsp_set_surround_binaural_params(AudioEngineHandle *engine,
+                                                    int mode,
+                                                    float boost,
+                                                    int room_preset,
+                                                    float room_mix,
+                                                    int speaker_angle,
+                                                    float shadow_cutoff_hz);
+
+    AE_API void ae_dsp_set_surround_stage_params(AudioEngineHandle *engine,
+                                                 int profile,
+                                                 int mode,
+                                                 float width,
+                                                 float depth,
+                                                 float cancellation,
+                                                 float air_presence,
+                                                 float bass_anchor_hz);
+
+    // Extended setter for backwards compatibility & combined tuning:
     AE_API void ae_dsp_set_surround_params_ex(AudioEngineHandle *engine,
                                               float field_width,
                                               float field_crossover_hz,
@@ -695,11 +721,23 @@ extern "C"
 
     AE_API AETrackInfo ae_inspect_file(const char *file_path);
 
+    // Output Backend Types
+    typedef enum AEAudioBackend
+    {
+        AE_BACKEND_AUTO         = 0, // OS default (WASAPI on Win, CoreAudio on Apple, ALSA on Linux, AAudio on Android)
+        AE_BACKEND_AAUDIO       = 1, // Android low-latency AAudio (MMAP)
+        AE_BACKEND_OPENSL       = 2, // Android legacy OpenSL ES
+        AE_BACKEND_AUDIOTRACK   = 3, // Android standard framework AudioTrack
+        AE_BACKEND_DIRECT_HIRES = 4  // Android bit-perfect Direct Hi-Res (Hexagon/MTK/Exynos/Tensor)
+    } AEAudioBackend;
+
     // Native Hardware Audio Engine Inspection
     typedef struct AEHardwareInfo
     {
-        char backend_name[32];       // "WASAPI", "AAudio", "OpenSL ES", "ALSA", "PulseAudio", "Core Audio", etc.
+        char backend_name[32];       // "WASAPI", "AAudio", "OpenSL ES", "ALSA", "PulseAudio", "Core Audio", "AudioTrack", "Direct Hi-Res", etc.
         char device_name[256];       // Active soundcard friendly device name
+        char dsp_hardware[128];      // Detected DSP chip / pipeline (e.g. "Qualcomm Hexagon v73 aDSP", "MediaTek HiFi 5 DSP", etc.)
+        char soc_name[64];           // Detected SoC (e.g. "Snapdragon 8 Gen 2", "Dimensity 9200", "Tensor G3", etc.)
         int output_format;           // AEAudioFormat Enum (0=F32, 1=S16, 2=U8, 3=S24, 4=S32)
         int bit_depth;               // Hardware bit depth (8, 16, 24, 32)
         int is_float;                // 1 if 32-bit Float PCM, 0 if Int PCM
@@ -709,11 +747,18 @@ extern "C"
         uint32_t period_count;       // Hardware period count
         double latency_ms;           // Real hardware buffer processing latency in milliseconds
         int is_exclusive_mode;       // 1 if exclusive mode (WASAPI/ALSA), 0 if shared mode
+        int is_direct_pcm;           // 1 if DirectOutput / AudioFlinger bypass is active, 0 otherwise
     } AEHardwareInfo;
 
     AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine);
     AE_API void ae_register_android_jvm(void *vm);
 
+    // Dynamic Output Backend Selection & Capability Query
+    AE_API int ae_set_output_backend(AudioEngineHandle *engine, int backend);
+    AE_API int ae_get_output_backend(AudioEngineHandle *engine);
+    AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend);
+
 #ifdef __cplusplus
 }
 #endif
+

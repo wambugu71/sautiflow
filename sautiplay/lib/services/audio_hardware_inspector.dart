@@ -20,6 +20,9 @@ class AudioHardwareSpecs {
   final bool isExclusiveMode; // True if exclusive mode (Bit-Perfect)
   final String
       deviceType; // "Speakers", "3.5mm Headphone Jack", "Bluetooth", "USB DAC"
+  final String? dspHardware; // e.g. "Qualcomm Hexagon v73 aDSP", "MediaTek Tensilica HiFi 5"
+  final String? socName; // e.g. "Snapdragon 8 Gen 2", "Dimensity 9200"
+  final bool isDirectPcm; // True if direct bit-perfect HAL output
 
   // ── Bluetooth-specific fields ─────────────────────────────────────────────
   final String? bluetoothCodec; // e.g. "LDAC", "aptX HD", "AAC", "SBC", "LC3"
@@ -44,6 +47,9 @@ class AudioHardwareSpecs {
     required this.latencyMs,
     required this.isExclusiveMode,
     required this.deviceType,
+    this.dspHardware,
+    this.socName,
+    this.isDirectPcm = false,
     this.bluetoothCodec,
     this.bluetoothDeviceName,
     this.btSampleRate,
@@ -71,6 +77,9 @@ class AudioHardwareSpecs {
       latencyMs: (m['latencyMs'] as num?)?.toDouble() ?? 0.0,
       isExclusiveMode: false,
       deviceType: rawDevType,
+      dspHardware: m['dspHardware']?.toString(),
+      socName: m['socName']?.toString(),
+      isDirectPcm: m['isDirectPcm'] == true,
       bluetoothCodec: m['bluetoothCodec']?.toString(),
       bluetoothDeviceName: m['bluetoothDeviceName']?.toString(),
       btSampleRate: (m['btSampleRate'] as num?)?.toInt(),
@@ -118,6 +127,9 @@ class AudioHardwareSpecs {
       latencyMs: native.latencyMs,
       isExclusiveMode: native.isExclusiveMode,
       deviceType: devType,
+      dspHardware: native.dspHardware.isNotEmpty ? native.dspHardware : null,
+      socName: native.socName.isNotEmpty ? native.socName : null,
+      isDirectPcm: native.isDirectPcm,
     );
   }
 
@@ -194,11 +206,18 @@ class AudioHardwareSpecs {
       label: 'miniaudio DSP',
       sublabel: dspText,
       icon: SignalChainIcon.dsp,
-      isHighlight: dspSummary != null,
+      isHighlight: dspHardware != null || dspSummary != null,
     ));
 
-    // Node 3: Audio Engine / HAL Driver
-    if (isExclusiveMode) {
+    // Node 3: Audio Engine / Driver
+    if (isDirectPcm) {
+      nodes.add(SignalChainNode(
+        label: backendName,
+        sublabel: 'Direct Hi-Res Bit-Perfect',
+        icon: SignalChainIcon.backend,
+        isHighlight: true,
+      ));
+    } else if (isExclusiveMode) {
       nodes.add(SignalChainNode(
         label: backendName,
         sublabel: 'Exclusive Bit-Perfect',
@@ -242,7 +261,9 @@ class AudioHardwareSpecs {
     // Node 5: Target Hardware DAC / Device
     final effectiveDeviceName = (bluetoothDeviceName?.isNotEmpty ?? false)
         ? bluetoothDeviceName!
-        : deviceName;
+        : (dspHardware != null && dspHardware!.isNotEmpty
+            ? dspHardware!
+            : deviceName);
 
     String outSub;
     if (isBluetooth) {

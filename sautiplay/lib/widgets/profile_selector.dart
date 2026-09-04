@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../isolate_player.dart';
 import '../models/audio_profile.dart';
 import '../services/audio_profile_service.dart';
@@ -53,8 +54,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
     if (mounted) {
       setState(() {
         _profiles = profiles;
-        _selectedProfile =
-            active ?? (profiles.isNotEmpty ? profiles.first : null);
+        _selectedProfile = active;
         _loading = false;
       });
     }
@@ -77,12 +77,19 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
     final true3d = await AppStateService.instance.loadTrue3d();
     final limiter = await AppStateService.instance.loadLimiter();
     final dspMap = await AppStateService.instance.loadSautiDspState();
+    final parametricEq = await AppStateService.instance.loadParametricEq();
+    final prefs = await SharedPreferences.getInstance();
+    final activeParametricPreset =
+        prefs.getString('sp_active_parametric_preset') ?? 'Custom';
 
     return {
       'eqState': {
         'enabled': eqBands.enabled,
         'preampDb': eqBands.preampDb,
         'gains': eqBands.gains,
+        'parametricEnabled': parametricEq.enabled,
+        'parametricPreset': activeParametricPreset,
+        'parametricBands': parametricEq.bands,
       },
       'dspEffectsState': {
         'spatial': {
@@ -609,12 +616,22 @@ class _AudioProfileManagerDialogState extends State<AudioProfileManagerDialog> {
       if (result != null && result.files.single.path != null) {
         final path = result.files.single.path!;
         final imported = await AudioProfileService.instance.importProfile(path);
-        await _reload();
-        widget.onProfilesUpdated();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Imported profile "${imported.name}"')),
-          );
+        if (imported != null) {
+          await _reload();
+          widget.onProfilesUpdated();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Imported profile "${imported.name}"')),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to import profile: Invalid or corrupt file'),
+              ),
+            );
+          }
         }
       }
     } catch (e) {

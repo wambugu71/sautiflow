@@ -24,6 +24,7 @@
 #include "dsp/dynamic_bass_dsp.h"
 #include "dsp/master_limiter_dsp.h"
 #include "dsp/clarity_dsp.h"
+#include "dsp/dialog_enhancer_dsp.h"
 #include "dsp/analog_warmth_dsp.h"
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/de_esser_dsp.h"
@@ -864,6 +865,94 @@ static void test_subsonic_filter_and_denormals()
     }
 }
 
+// -----------------------------------------------------------------------------
+// DialogEnhancerDSP verification (reconstructed from Dolby DAP / DS1)
+// -----------------------------------------------------------------------------
+static void test_dialog_enhancer_dsp()
+{
+    std::printf("\n== DialogEnhancerDSP verification (Dolby DAP reconstruction) ==\n");
+    sauti::dsp::DialogEnhancerDSP de;
+    de.setSampleRate(48000.0f);
+
+    // 1. Bypass check
+    {
+        const uint32_t N = 1024;
+        std::vector<float> in(2 * N);
+        std::vector<float> orig(2 * N);
+        for (uint32_t i = 0; i < 2 * N; ++i) {
+            in[i] = orig[i] = 0.5f * std::sin(float(i));
+        }
+        de.setEnabled(false);
+        de.process(in.data(), N);
+        bool match = true;
+        for (uint32_t i = 0; i < 2 * N; ++i) {
+            if (in[i] != orig[i]) { match = false; break; }
+        }
+        CHECK(match, "DialogEnhancerDSP is bit-exact bypass when disabled");
+    }
+
+    // 2. Formant gain boost at 2.4 kHz
+    {
+        de.reset();
+        de.setEnabled(true);
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 1.0f, 0.0f, 0.0f, 0.0f);
+        const uint32_t N = 4800;
+        std::vector<float> buf(2 * N);
+        const float f0 = 2400.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.2f * std::sin(2.0f * 3.14159265f * f0 * (float)i / 48000.0f);
+            buf[2 * i] = s;
+            buf[2 * i + 1] = s;
+        }
+        de.process(buf.data(), N);
+
+        float maxAmp = 0.0f;
+        for (uint32_t i = N - 500; i < N; ++i) {
+            maxAmp = std::max(maxAmp, std::abs(buf[2 * i]));
+        }
+        CHECK(maxAmp > 0.5f && maxAmp < 0.9f, "DialogEnhancerDSP boosts 2.4 kHz vocal formant by expected gain (~+11 dB)");
+    }
+
+    // 3. Background Ducking: Side attenuation during speech presence
+    {
+        de.reset();
+        de.setEnabled(true);
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 0.5f, 1.0f, 0.0f, 0.0f);
+        const uint32_t N = 4800;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float centerSpeech = 0.3f * std::sin(2.0f * 3.14159265f * 2400.0f * (float)i / 48000.0f);
+            float sideAmbient  = 0.3f * std::sin(2.0f * 3.14159265f * 500.0f * (float)i / 48000.0f);
+            buf[2 * i]     = centerSpeech + sideAmbient; // L
+            buf[2 * i + 1] = centerSpeech - sideAmbient; // R
+        }
+        de.process(buf.data(), N);
+
+        float maxSide = 0.0f;
+        for (uint32_t i = N - 500; i < N; ++i) {
+            float s = 0.5f * (buf[2 * i] - buf[2 * i + 1]);
+            maxSide = std::max(maxSide, std::abs(s));
+        }
+        CHECK(maxSide < 0.22f, "DialogEnhancerDSP dynamically ducks non-dialog side energy during speech presence");
+    }
+
+    // 4. Stability check under extreme values
+    {
+        de.reset();
+        de.setEnabled(true);
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Voice, 1.0f, 1.0f, 1.0f, 1.0f);
+        const uint32_t N = 1024;
+        std::vector<float> buf(2 * N, 0.0f);
+        buf[0] = 1.0f; buf[1] = -1.0f; // Dirac impulse
+        de.process(buf.data(), N);
+        bool finite = true;
+        for (float v : buf) {
+            if (!std::isfinite(v)) { finite = false; break; }
+        }
+        CHECK(finite, "DialogEnhancerDSP remains stable under Dirac impulse without NaN/Inf");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -871,7 +960,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -884,6 +973,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "deesser") test_de_esser_dsp();
     if (only.empty() || only == "expander") test_downward_expander_dsp();
     if (only.empty() || only == "subsonic") test_subsonic_filter_and_denormals();
+    if (only.empty() || only == "dialog") test_dialog_enhancer_dsp();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

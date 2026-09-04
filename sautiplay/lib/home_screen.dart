@@ -7,7 +7,6 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'album_detail_screen.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
-import 'stream_extraction_test_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -132,28 +131,31 @@ class _HomeScreenState extends State<HomeScreen>
 
         return Scaffold(
           backgroundColor: _bgDark,
-          body: _loading
-              ? RepaintBoundary(
-                  child: Center(
-                    child: M3EProgressIndicator.circularWavy(
-                      color: _primary,
-                      trackColor: _primary.withValues(alpha: 0.15),
+          body: SafeArea(
+            bottom: false,
+            child: _loading
+                ? RepaintBoundary(
+                    child: Center(
+                      child: M3EProgressIndicator.circularWavy(
+                        color: _primary,
+                        trackColor: _primary.withValues(alpha: 0.15),
+                      ),
                     ),
-                  ),
-                )
-              : _error != null
-                  ? _buildError()
-                  : RefreshIndicator(
-                      color: _primary,
-                      backgroundColor: _surfaceDark,
-                      onRefresh: () async {
-                        setState(() => _loading = true);
-                        await _loadHome();
-                      },
-                      child: isDesktop
-                          ? _buildDesktopLayout()
-                          : _buildMobileLayout(),
-                    ),
+                  )
+                : _error != null
+                    ? _buildError()
+                    : RefreshIndicator(
+                        color: _primary,
+                        backgroundColor: _surfaceDark,
+                        onRefresh: () async {
+                          setState(() => _loading = true);
+                          await _loadHome();
+                        },
+                        child: isDesktop
+                            ? _buildDesktopLayout()
+                            : _buildMobileLayout(),
+                      ),
+          ),
         );
       },
     );
@@ -169,6 +171,9 @@ class _HomeScreenState extends State<HomeScreen>
       physics:
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       slivers: [
+        // ── Top breathing space ──
+        const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
         // ── Header ──
         if (!widget.isNested) _buildHeader(isDesktop: false),
 
@@ -209,6 +214,9 @@ class _HomeScreenState extends State<HomeScreen>
       physics:
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       slivers: [
+        // ── Top breathing space ──
+        const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
         // ── Header ──
         if (!widget.isNested) _buildHeader(isDesktop: true),
 
@@ -286,27 +294,10 @@ class _HomeScreenState extends State<HomeScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               M3ETooltip(
-                message: 'Stream extractor',
-                child: M3EIconButton(
-                  icon: const Icon(Icons.stream_rounded, size: 20),
-                  variant: M3EIconButtonVariant.tonal,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => StreamExtractionTestScreen(
-                          onPlayTracks: widget.onPlayTracks,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              M3ETooltip(
                 message: 'Search',
                 child: M3EIconButton(
                   icon: const Icon(Icons.search_rounded, size: 20),
-                  variant: M3EIconButtonVariant.filled,
+                  variant: M3EIconButtonVariant.tonal,
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -400,8 +391,8 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: _primary.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
@@ -564,8 +555,7 @@ class _HomeScreenState extends State<HomeScreen>
         },
         children: [
           for (final item in section.contents)
-            _buildOverlayTile(item,
-                compact: type != M3ECarouselType.hero),
+            _buildOverlayTile(item, compact: type != M3ECarouselType.hero),
         ],
       ),
     );
@@ -604,9 +594,7 @@ class _HomeScreenState extends State<HomeScreen>
             gradient: LinearGradient(
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
-              stops: compact
-                  ? const [0.0, 0.6]
-                  : const [0.0, 0.55],
+              stops: compact ? const [0.0, 0.6] : const [0.0, 0.55],
               colors: [
                 Colors.black.withValues(alpha: compact ? 0.85 : 0.88),
                 Colors.transparent,

@@ -63,6 +63,7 @@ build_win/
 cmake-build-*/
 CMakeFiles/
 sautify/
+scratch/
 CMakeCache.txt
 compile_commands.json
 *.o

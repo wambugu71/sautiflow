@@ -734,6 +734,24 @@ class IsolateAudioPlayer {
         'drive': drive,
       });
 
+  void setDialogEnhancer({
+    required bool enabled,
+    DialogEnhancerProfile profile = DialogEnhancerProfile.cinema,
+    double amount = 0.65,
+    double ducking = 0.55,
+    double clarity = 0.60,
+    double centerFocus = 0.70,
+  }) =>
+      _send({
+        'cmd': 'setDialogEnhancer',
+        'enabled': enabled,
+        'profile': profile.value,
+        'amount': amount,
+        'ducking': ducking,
+        'clarity': clarity,
+        'centerFocus': centerFocus,
+      });
+
   void setDeEsser({
     required bool enabled,
     DeEsserMode mode = DeEsserMode.splitBand,
@@ -817,43 +835,62 @@ class IsolateAudioPlayer {
   void setConvolverEnabled(bool enabled) =>
       _send({'cmd': 'setConvolverEnabled', 'enabled': enabled});
 
-  /// Spatial Surround Suite (see surround.md).
+  /// Spatial Surround Suite:
+  /// - Cinema Matrix 5.1 (Cleanroom Pro Logic II)
+  /// - Binaural HRTF Virtualizer (Reconstructed from Dolby analysis_dlby2)
+  /// - 3D Acoustic Stage (Reconstructed from AM3D Zirene re_workspace)
   void setSurround({
     required bool enabled,
     SurroundMode mode = SurroundMode.off,
-    double fieldWidth = 1.4,
-    double fieldCrossoverHz = 160.0,
-    double fieldDiffuserMix = 0.5,
-    double bassAnchor = 0.9,
-    double haasDelayMs = 5.5,
-    double haasDepth = 0.4,
-    double haasDampingHz = 5000.0,
-    int vhsRoomPreset = 2,
-    double vhsReflectionGain = 0.45,
-    double vhsDamping = 0.25,
+    // Mode 1: Cinema Matrix 5.1
     double centerFocus = 0.6,
     double surroundBoost = 1.2,
     double surroundDelayMs = 15.0,
     double headRadiusCm = 8.75,
+    // Mode 2: Binaural Virtualizer
+    int binauralMode = 0,
+    double binauralBoost = 0.65,
+    int binauralRoomPreset = 2,
+    double binauralRoomMix = 0.35,
+    int binauralSpeakerAngle = 1,
+    double binauralShadowCutoff = 3500.0,
+    // Mode 3: 3D Acoustic Stage
+    int stageProfile = 0,
+    int stageMode = 0,
+    double stageWidth = 1.2,
+    double stageDepth = 0.5,
+    double stageCancellation = 0.60,
+    double stageAirPresence = 0.40,
+    double stageBassAnchorHz = 60.0,
+    // Backwards compatibility
+    double fieldWidth = 1.4,
+    int vhsRoomPreset = 2,
+    double haasDelayMs = 5.5,
   }) =>
       _send({
         'cmd': 'setSurround',
         'enabled': enabled,
         'mode': mode.value,
-        'fieldWidth': fieldWidth,
-        'fieldCrossoverHz': fieldCrossoverHz,
-        'fieldDiffuserMix': fieldDiffuserMix,
-        'bassAnchor': bassAnchor,
-        'haasDelayMs': haasDelayMs,
-        'haasDepth': haasDepth,
-        'haasDampingHz': haasDampingHz,
-        'vhsRoomPreset': vhsRoomPreset,
-        'vhsReflectionGain': vhsReflectionGain,
-        'vhsDamping': vhsDamping,
         'centerFocus': centerFocus,
         'surroundBoost': surroundBoost,
         'surroundDelayMs': surroundDelayMs,
         'headRadiusCm': headRadiusCm,
+        'binauralMode': binauralMode,
+        'binauralBoost': binauralBoost,
+        'binauralRoomPreset': binauralRoomPreset,
+        'binauralRoomMix': binauralRoomMix,
+        'binauralSpeakerAngle': binauralSpeakerAngle,
+        'binauralShadowCutoff': binauralShadowCutoff,
+        'stageProfile': stageProfile,
+        'stageMode': stageMode,
+        'stageWidth': stageWidth,
+        'stageDepth': stageDepth,
+        'stageCancellation': stageCancellation,
+        'stageAirPresence': stageAirPresence,
+        'stageBassAnchorHz': stageBassAnchorHz,
+        'fieldWidth': fieldWidth,
+        'vhsRoomPreset': vhsRoomPreset,
+        'haasDelayMs': haasDelayMs,
       });
 
   void loadConvolverIr(String path) {
@@ -989,6 +1026,41 @@ class IsolateAudioPlayer {
       throw Exception(response['error']);
     }
     return response as bool;
+  }
+
+  void setOutputBackend(AudioOutputBackend backend) =>
+      _send({'cmd': 'setOutputBackend', 'backend': backend.value});
+
+  Future<AudioOutputBackend> getOutputBackend() async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'getOutputBackend',
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    if (response is int) {
+      return AudioOutputBackend.fromInt(response);
+    }
+    return AudioOutputBackend.auto;
+  }
+
+  Future<bool> isBackendSupported(AudioOutputBackend backend) async {
+    final responsePort = ReceivePort();
+    _send({
+      'cmd': 'isBackendSupported',
+      'backend': backend.value,
+      'replyTo': responsePort.sendPort,
+    });
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map && response.containsKey('error')) {
+      throw Exception(response['error']);
+    }
+    return response as bool? ?? false;
   }
 
   Future<double> getDeviceLatencyMs() async {
@@ -1340,7 +1412,8 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setPan(message['pan']);
           break;
         case 'setPitch':
-          player.setPitch(message['pitch']);
+          final p = (message['pitch'] as num?)?.toDouble() ?? 1.0;
+          player.setPitch(p);
           break;
         case 'setSpatializationEnabled':
           player.setSpatializationEnabled(message['enabled']);
@@ -1741,6 +1814,10 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setExclusiveMode':
           player.setExclusiveMode(message['enabled'] == true);
           break;
+        case 'setOutputBackend':
+          final bVal = message['backend'] as int? ?? 0;
+          player.setOutputBackend(AudioOutputBackend.fromInt(bVal));
+          break;
         case 'setLoudnessNormalizerEnabled':
           player.setLoudnessNormalizerEnabled(message['enabled'] == true);
           break;
@@ -1774,6 +1851,23 @@ void _isolateEntry(_IsolateInitData initData) {
             replyTo1.send(player.getExclusiveMode());
           } catch (e) {
             replyTo1.send({'error': e.toString()});
+          }
+          break;
+        case 'getOutputBackend':
+          final SendPort replyToBk = message['replyTo'];
+          try {
+            replyToBk.send(player.getOutputBackend().value);
+          } catch (e) {
+            replyToBk.send({'error': e.toString()});
+          }
+          break;
+        case 'isBackendSupported':
+          final SendPort replyToSup = message['replyTo'];
+          final supVal = message['backend'] as int? ?? 0;
+          try {
+            replyToSup.send(player.isBackendSupported(AudioOutputBackend.fromInt(supVal)));
+          } catch (e) {
+            replyToSup.send({'error': e.toString()});
           }
           break;
         case 'getPipelineState':
@@ -2081,6 +2175,19 @@ void _isolateEntry(_IsolateInitData initData) {
             drive: (message['drive'] as num?)?.toDouble() ?? 0.5,
           );
           break;
+        case 'setDialogEnhancer':
+          player.dsp.setDialogEnhancer(
+            enabled: message['enabled'] == true,
+            profile: DialogEnhancerProfile.values.firstWhere(
+              (p) => p.value == message['profile'],
+              orElse: () => DialogEnhancerProfile.cinema,
+            ),
+            amount: (message['amount'] as num?)?.toDouble() ?? 0.65,
+            ducking: (message['ducking'] as num?)?.toDouble() ?? 0.55,
+            clarity: (message['clarity'] as num?)?.toDouble() ?? 0.60,
+            centerFocus: (message['centerFocus'] as num?)?.toDouble() ?? 0.70,
+          );
+          break;
         case 'setDeEsser':
           player.dsp.setDeEsser(
             enabled: message['enabled'] == true,
@@ -2141,33 +2248,54 @@ void _isolateEntry(_IsolateInitData initData) {
           player.dsp.setConvolverEnabled(message['enabled'] == true);
           break;
         case 'setSurround':
-          player.dsp.setSurroundEx(
-            enabled: message['enabled'] == true,
-            mode: SurroundMode.values.firstWhere(
-              (m) => m.value == message['mode'],
-              orElse: () => SurroundMode.off,
-            ),
-            fieldWidth: (message['fieldWidth'] as num?)?.toDouble() ?? 1.4,
-            fieldCrossoverHz:
-                (message['fieldCrossoverHz'] as num?)?.toDouble() ?? 160.0,
-            fieldDiffuserMix:
-                (message['fieldDiffuserMix'] as num?)?.toDouble() ?? 0.5,
-            bassAnchor: (message['bassAnchor'] as num?)?.toDouble() ?? 0.9,
-            haasDelayMs: (message['haasDelayMs'] as num?)?.toDouble() ?? 5.5,
-            haasDepth: (message['haasDepth'] as num?)?.toDouble() ?? 0.4,
-            haasDampingHz:
-                (message['haasDampingHz'] as num?)?.toDouble() ?? 5000.0,
-            vhsRoomPreset: (message['vhsRoomPreset'] as num?)?.toInt() ?? 2,
-            vhsReflectionGain:
-                (message['vhsReflectionGain'] as num?)?.toDouble() ?? 0.45,
-            vhsDamping: (message['vhsDamping'] as num?)?.toDouble() ?? 0.25,
-            centerFocus: (message['centerFocus'] as num?)?.toDouble() ?? 0.6,
-            surroundBoost:
-                (message['surroundBoost'] as num?)?.toDouble() ?? 1.2,
-            surroundDelayMs:
-                (message['surroundDelayMs'] as num?)?.toDouble() ?? 15.0,
-            headRadiusCm: (message['headRadiusCm'] as num?)?.toDouble() ?? 8.75,
+          final mode = SurroundMode.values.firstWhere(
+            (m) => m.value == message['mode'],
+            orElse: () => SurroundMode.off,
           );
+          final enabled = message['enabled'] == true;
+
+          switch (mode) {
+            case SurroundMode.matrixSurround:
+              player.dsp.setSurroundMatrix(
+                enabled: enabled,
+                centerFocus: (message['centerFocus'] as num?)?.toDouble() ?? 0.6,
+                surroundBoost: (message['surroundBoost'] as num?)?.toDouble() ?? 1.2,
+                surroundDelayMs: (message['surroundDelayMs'] as num?)?.toDouble() ?? 15.0,
+                headRadiusCm: (message['headRadiusCm'] as num?)?.toDouble() ?? 8.75,
+              );
+              break;
+            case SurroundMode.binauralVirtualizer:
+              player.dsp.setSurroundBinaural(
+                enabled: enabled,
+                mode: (message['binauralMode'] as num?)?.toInt() ?? 0,
+                boost: (message['binauralBoost'] as num?)?.toDouble() ?? 0.65,
+                roomPreset: (message['binauralRoomPreset'] as num?)?.toInt() ??
+                    (message['vhsRoomPreset'] as num?)?.toInt() ?? 2,
+                roomMix: (message['binauralRoomMix'] as num?)?.toDouble() ?? 0.35,
+                speakerAngle: (message['binauralSpeakerAngle'] as num?)?.toInt() ?? 1,
+                shadowCutoffHz: (message['binauralShadowCutoff'] as num?)?.toDouble() ?? 3500.0,
+              );
+              break;
+            case SurroundMode.acousticStage:
+              player.dsp.setSurroundStage(
+                enabled: enabled,
+                profile: (message['stageProfile'] as num?)?.toInt() ?? 0,
+                mode: (message['stageMode'] as num?)?.toInt() ?? 0,
+                width: (message['stageWidth'] as num?)?.toDouble() ??
+                    (message['fieldWidth'] as num?)?.toDouble() ?? 1.2,
+                depth: (message['stageDepth'] as num?)?.toDouble() ?? 0.5,
+                cancellation: (message['stageCancellation'] as num?)?.toDouble() ?? 0.60,
+                airPresence: (message['stageAirPresence'] as num?)?.toDouble() ?? 0.40,
+                bassAnchorHz: (message['stageBassAnchorHz'] as num?)?.toDouble() ?? 60.0,
+              );
+              break;
+            case SurroundMode.off:
+              player.dsp.setSurround(
+                enabled: false,
+                mode: SurroundMode.off,
+              );
+              break;
+          }
           break;
         case 'loadConvolverIr':
           try {

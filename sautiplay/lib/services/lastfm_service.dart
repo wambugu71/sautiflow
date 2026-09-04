@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Service for Last.fm authentication, real-time "Now Playing" updates,
 /// and song scrobbling.
-class LastFmService extends ChangeNotifier {
+class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
   LastFmService._();
   static final LastFmService instance = LastFmService._();
 
@@ -25,6 +25,9 @@ class LastFmService extends ChangeNotifier {
   final StreamController<String> _logController = StreamController<String>.broadcast();
   Stream<String> get logStream => _logController.stream;
 
+  final StreamController<String> _authSuccessController = StreamController<String>.broadcast();
+  Stream<String> get authSuccessStream => _authSuccessController.stream;
+
   String? _sessionKey;
   String? _username;
   String? _pendingToken;
@@ -32,11 +35,16 @@ class LastFmService extends ChangeNotifier {
   bool _nowPlayingEnabled = true;
   bool _isInitialized = false;
 
+  Timer? _pollTimer;
+  int _pollAttempts = 0;
+  bool _isCheckingSession = false;
+
   String? get sessionKey => _sessionKey;
   String? get username => _username;
   String? get pendingToken => _pendingToken;
   bool get isLoggedIn => _sessionKey != null && _sessionKey!.isNotEmpty;
   bool get isAuthenticating => !_isInitialized ? false : (_pendingToken != null && !isLoggedIn);
+  bool get isCheckingSession => _isCheckingSession;
   bool get isScrobbleEnabled => _scrobbleEnabled;
   bool get isNowPlayingEnabled => _nowPlayingEnabled;
 
@@ -55,6 +63,7 @@ class LastFmService extends ChangeNotifier {
   /// Initializes preferences and loads saved credentials.
   Future<void> init() async {
     if (_isInitialized) return;
+    WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _sessionKey = prefs.getString(_kSessionKey);
     _username = prefs.getString(_kUsername);
@@ -66,8 +75,51 @@ class LastFmService extends ChangeNotifier {
       _log('[LastFm] Initialized with user: $_username');
     } else {
       _log('[LastFm] Initialized (Not connected)');
+      if (_pendingToken != null) {
+        _startAuthPolling(_pendingToken!);
+      }
     }
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopAuthPolling();
+    _logController.close();
+    _authSuccessController.close();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (isAuthenticating && _pendingToken != null && !_isCheckingSession) {
+        _log('[LastFm] App resumed during pending authorization. Checking session automatically...');
+        checkPendingAuthorization();
+      }
+    }
+  }
+
+  void _startAuthPolling(String token) {
+    _stopAuthPolling();
+    _pollAttempts = 0;
+    // Poll every 3 seconds for up to 30 attempts (90 seconds max)
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      _pollAttempts++;
+      if (!isAuthenticating || _pendingToken != token || _pollAttempts >= 30) {
+        _stopAuthPolling();
+        return;
+      }
+      if (_isCheckingSession) return;
+      await checkPendingAuthorization();
+    });
+  }
+
+  void _stopAuthPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollAttempts = 0;
   }
 
   /// Sets scrobbling toggle
@@ -116,6 +168,8 @@ class LastFmService extends ChangeNotifier {
           _pendingToken = token;
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_kPendingToken, token);
+          _startAuthPolling(token);
+          notifyListeners();
         }
         _log('[LastFm] Received auth token');
         return token;
@@ -151,6 +205,7 @@ class LastFmService extends ChangeNotifier {
 
   /// Cancels an in-progress authentication attempt and clears the pending token.
   Future<void> cancelAuthentication() async {
+    _stopAuthPolling();
     if (_pendingToken == null) return;
     _pendingToken = null;
     final prefs = await SharedPreferences.getInstance();
@@ -159,8 +214,18 @@ class LastFmService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Checks if the current pending request token has been authorized.
+  Future<bool> checkPendingAuthorization() async {
+    final token = _pendingToken;
+    if (token == null || _isCheckingSession) return false;
+    return await fetchSession(token);
+  }
+
   /// Step 3: Exchanges the authorized token for a permanent session key.
   Future<bool> fetchSession(String token) async {
+    if (_isCheckingSession) return false;
+    _isCheckingSession = true;
+    notifyListeners();
     try {
       final params = <String, String>{
         'method': 'auth.getSession',
@@ -179,14 +244,15 @@ class LastFmService extends ChangeNotifier {
           _sessionKey = session['key'] as String?;
           _username = session['name'] as String?;
           _pendingToken = null;
+          _stopAuthPolling();
 
           final prefs = await SharedPreferences.getInstance();
           if (_sessionKey != null) await prefs.setString(_kSessionKey, _sessionKey!);
           if (_username != null) await prefs.setString(_kUsername, _username!);
           await prefs.remove(_kPendingToken);
 
-          notifyListeners();
           _log('[LastFm] Successfully authenticated as $_username');
+          _authSuccessController.add(_username ?? 'Connected');
           return true;
         }
         _log('[LastFm] Session fetch failed: ${res.body}');
@@ -195,12 +261,16 @@ class LastFmService extends ChangeNotifier {
       }
     } catch (e) {
       _log('[LastFm] Error fetching session: $e');
+    } finally {
+      _isCheckingSession = false;
+      notifyListeners();
     }
     return false;
   }
 
   /// Logs out of Last.fm and clears saved credentials.
   Future<void> logout() async {
+    _stopAuthPolling();
     _log('[LastFm] Logged out from $_username');
     _sessionKey = null;
     _username = null;

@@ -14,6 +14,7 @@ export 'audio_engine_ffi.dart'
         EqBandConfig,
         TrackNativeInfo,
         AEHardwareInfo,
+        AudioOutputBackend,
         CrossfeedAlgorithm,
         CrossfeedParams;
 export 'src/filters_api.dart';

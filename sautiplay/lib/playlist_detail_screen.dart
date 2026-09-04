@@ -144,12 +144,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     }
 
     try {
-      final sanitized = _currentPlaylist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final exportDir = Directory(
-          Platform.isWindows
-              ? '${Platform.environment['USERPROFILE']}\\Music\\SautiPlay\\Playlists'
-              : '/storage/emulated/0/Music/SautiPlay/Playlists');
-      
+      final sanitized =
+          _currentPlaylist.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final exportDir = Directory(Platform.isWindows
+          ? '${Platform.environment['USERPROFILE']}\\Music\\SautiPlay\\Playlists'
+          : '/storage/emulated/0/Music/SautiPlay/Playlists');
+
       final targetPath = p.join(exportDir.path, '$sanitized.m3u8');
       final file = await M3uPlaylistService.instance.exportToM3u8(
         targetFilePath: targetPath,
@@ -164,7 +164,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             action: SnackBarAction(
               label: 'Share',
               onPressed: () {
-                Share.shareXFiles([XFile(file.path)], text: _currentPlaylist.name);
+                Share.shareXFiles([XFile(file.path)],
+                    text: _currentPlaylist.name);
               },
             ),
           ),
@@ -209,7 +210,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deleted playlist "${_currentPlaylist.name}"')),
+          SnackBar(
+              content: Text('Deleted playlist "${_currentPlaylist.name}"')),
         );
       }
     }
@@ -228,7 +230,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             backgroundColor: _bgDark,
             elevation: 0,
             leading: IconButton(
-              icon: Icon(Icons.arrow_back_rounded, color: _textPrimary),
+              icon: Icon(Icons.keyboard_arrow_down, color: _textPrimary),
               onPressed: () => Navigator.of(context).pop(),
             ),
             title: Text(
@@ -250,7 +252,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     entries: [
                       M3EMenuEntry(
                         label: 'Rename Playlist',
-                        leading: Icon(Icons.edit_outlined, color: _primary, size: 20),
+                        leading: Icon(Icons.edit_outlined,
+                            color: _primary, size: 20),
                         onPressed: _renamePlaylist,
                       ),
                       M3EMenuEntry(
@@ -292,7 +295,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       decoration: BoxDecoration(
                         color: _surfaceDark,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: _outline.withValues(alpha: 0.15)),
+                        border:
+                            Border.all(color: _outline.withValues(alpha: 0.15)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.25),
@@ -343,7 +347,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   '${_tracks.length} Track${_tracks.length == 1 ? '' : 's'} • Custom Playlist',
-                                  style: TextStyle(color: _textDark, fontSize: 13),
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 13),
                                 ),
                               ],
                             ),
@@ -402,7 +407,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                   const SizedBox(height: 4),
                                   Text(
                                     'Select tracks in the Tracks tab to add here.',
-                                    style: TextStyle(color: _textDark, fontSize: 13),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13),
                                   ),
                                 ],
                               ),
@@ -463,22 +469,28 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                                   Text(
                                                     song.title,
                                                     maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                     style: TextStyle(
-                                                      fontSize: isDesktop ? 15 : 13.5,
-                                                      fontWeight: FontWeight.w600,
+                                                      fontSize:
+                                                          isDesktop ? 15 : 13.5,
+                                                      fontWeight:
+                                                          FontWeight.w600,
                                                       color: _textPrimary,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
-                                                    song.artist != 'Unknown Artist'
+                                                    song.artist !=
+                                                            'Unknown Artist'
                                                         ? song.artist
                                                         : 'Local File',
                                                     maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                     style: TextStyle(
-                                                      fontSize: isDesktop ? 13 : 11.5,
+                                                      fontSize:
+                                                          isDesktop ? 13 : 11.5,
                                                       color: _textDark,
                                                     ),
                                                   ),
@@ -488,12 +500,15 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                             const SizedBox(width: 8),
                                             IconButton(
                                               icon: Icon(
-                                                Icons.remove_circle_outline_rounded,
-                                                color: Colors.redAccent.withValues(alpha: 0.8),
+                                                Icons
+                                                    .remove_circle_outline_rounded,
+                                                color: Colors.redAccent
+                                                    .withValues(alpha: 0.8),
                                                 size: 20,
                                               ),
                                               tooltip: 'Remove from playlist',
-                                              onPressed: () => _removeTrack(song),
+                                              onPressed: () =>
+                                                  _removeTrack(song),
                                             ),
                                           ],
                                         ),

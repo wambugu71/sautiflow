@@ -245,9 +245,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
   void _playAll({bool shuffle = false}) {
     if (widget.onPlayTracks == null || _tracks.isEmpty) return;
-    final tracks = shuffle
-        ? (List<TrackInfo>.from(_tracks)..shuffle())
-        : _tracks;
+    final tracks =
+        shuffle ? (List<TrackInfo>.from(_tracks)..shuffle()) : _tracks;
     Navigator.of(context).popUntil((route) => route.isFirst);
     widget.onPlayTracks!(tracks, initialIndex: 0);
   }
@@ -285,8 +284,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                       padding: const EdgeInsets.only(left: 8),
                       child: Center(
                         child: M3EIconButton(
-                          icon:
-                              const Icon(Icons.arrow_back_rounded, size: 20),
+                          icon: const Icon(Icons.keyboard_arrow_down, size: 20),
                           variant: M3EIconButtonVariant.tonal,
                           onPressed: () => Navigator.of(context).pop(),
                         ),
@@ -295,8 +293,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                   ),
 
                   // ── Hero ──
-                  SliverToBoxAdapter(
-                      child: _buildHero(isDesktop: isDesktop)),
+                  SliverToBoxAdapter(child: _buildHero(isDesktop: isDesktop)),
 
                   // ── Tracklist ──
                   if (_loading)
@@ -385,8 +382,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                       alignment: Alignment.topCenter,
                       memCacheWidth: 700,
                       memCacheHeight: 700,
-                      placeholder: (_, __) =>
-                          Container(color: _surfaceDark),
+                      placeholder: (_, __) => Container(color: _surfaceDark),
                       errorWidget: (_, __, ___) =>
                           Container(color: _surfaceDark),
                     )
@@ -539,7 +535,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     ];
 
     if (centered) {
-      return Row(mainAxisAlignment: MainAxisAlignment.center, children: children);
+      return Row(
+          mainAxisAlignment: MainAxisAlignment.center, children: children);
     }
     return Row(children: children);
   }
@@ -613,15 +610,15 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         return M3EIconButton(
           icon: Icon(isSaved ? Icons.favorite_rounded : Icons.favorite_border,
               size: isDesktop ? 22 : 20),
-          variant:
-              isSaved ? M3EIconButtonVariant.filled : M3EIconButtonVariant.tonal,
+          variant: isSaved
+              ? M3EIconButtonVariant.filled
+              : M3EIconButtonVariant.tonal,
           onPressed: () async {
             if (_tracks.isEmpty) return;
             final messenger = ScaffoldMessenger.of(context);
             if (isSaved) {
               for (final track in _tracks) {
-                await LikedSongsService.instance
-                    .removeLikedSong(track.videoId);
+                await LikedSongsService.instance.removeLikedSong(track.videoId);
               }
               if (mounted) {
                 messenger.showSnackBar(const SnackBar(
@@ -639,8 +636,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 ));
               }
               if (mounted) {
-                messenger.showSnackBar(const SnackBar(
-                    content: Text('Saved all to Liked Songs')));
+                messenger.showSnackBar(
+                    const SnackBar(content: Text('Saved all to Liked Songs')));
               }
             }
           },
@@ -676,8 +673,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                 fit: BoxFit.cover,
                 memCacheWidth: 120,
                 memCacheHeight: 120,
-                placeholder: (_, __) =>
-                    Container(color: _surfaceDark),
+                placeholder: (_, __) => Container(color: _surfaceDark),
                 errorWidget: (_, __, ___) => Container(
                   color: _surfaceDark,
                   child: Icon(Icons.music_note_rounded,
@@ -707,8 +703,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           child: InkWell(
             onTap: () => _playAt(index),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
                   // Track number

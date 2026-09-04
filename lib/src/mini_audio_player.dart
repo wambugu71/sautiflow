@@ -255,6 +255,17 @@ class MiniAudioPlayer {
   TrackNativeInfo? inspectFile(String path) => _engine.inspectFile(path);
   AEHardwareInfo getHardwareInfo() => _engine.getHardwareInfo();
   AEHardwareInfo get hardwareInfo => getHardwareInfo();
+
+  /// Sets the preferred audio output backend.
+  bool setOutputBackend(AudioOutputBackend backend) =>
+      _engine.setOutputBackend(backend);
+
+  /// Gets the currently active audio output backend.
+  AudioOutputBackend getOutputBackend() => _engine.getOutputBackend();
+
+  /// Checks if a specific backend is supported on the current platform/device.
+  bool isBackendSupported(AudioOutputBackend backend) =>
+      _engine.isBackendSupported(backend);
   ResampleAlgorithm getEngineResampleAlgorithm() =>
       ResampleAlgorithm.values[_engine.getEngineResampleAlgorithm().clamp(0, ResampleAlgorithm.values.length - 1)];
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();

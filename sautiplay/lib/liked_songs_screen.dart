@@ -24,7 +24,6 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= 800;
@@ -59,7 +58,7 @@ class _LikedSongsScreenState extends State<LikedSongsScreen> {
                           Row(
                             children: [
                               IconButton(
-                                icon: Icon(Icons.arrow_back,
+                                icon: Icon(Icons.keyboard_arrow_down,
                                     color: Colors.white,
                                     size: isDesktop ? 28 : 24),
                                 onPressed: () => Navigator.of(context).pop(),

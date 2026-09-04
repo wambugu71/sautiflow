@@ -1090,7 +1090,7 @@ class AppStateService {
 
   Future<bool> loadAutoBitPerfectEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_kAutoBitPerfectEnabled) ?? false;
+    return prefs.getBool(_kAutoBitPerfectEnabled) ?? true;
   }
 
   // ─── Hardware Buffer Size & Latency Settings ──────────────────────────────
@@ -1134,7 +1134,7 @@ class AppStateService {
   Future<({bool enabled, double targetLUFS})> loadLoudnessNormalizer() async {
     final prefs = await SharedPreferences.getInstance();
     return (
-      enabled: prefs.getBool(_kLoudnessNormalizerEnabled) ?? false,
+      enabled: prefs.getBool(_kLoudnessNormalizerEnabled) ?? true,
       targetLUFS: prefs.getDouble(_kLoudnessNormalizerTarget) ?? -14.0,
     );
   }

@@ -21,8 +21,9 @@ import 'services/app_theme_service.dart';
 import 'services/artwork_theme_service.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
-import 'combined_home_screen.dart';
 import 'effects_screen.dart';
+import 'home_screen.dart';
+import 'library_screen.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'mini_player.dart';
@@ -272,10 +273,22 @@ class _PlayerShellState extends State<PlayerShell> {
 
   // Showcase Keys for Feature Tour
   final GlobalKey _homeTabKey = GlobalKey();
+  final GlobalKey _libraryTabKey = GlobalKey();
   final GlobalKey _effectsTabKey = GlobalKey();
   final GlobalKey _effectsKnobKey = GlobalKey();
   final GlobalKey _miniPlayerKey = GlobalKey();
   final GlobalKey _settingsTabKey = GlobalKey();
+  final GlobalKey<LibraryScreenState> _libraryScreenKey = GlobalKey<LibraryScreenState>();
+  int _librarySubTabIndex = 0;
+
+  void _goToLibraryTracks() {
+    setState(() {
+      _tabIndex = 1;
+      _librarySubTabIndex = 1;
+    });
+    _libraryScreenKey.currentState?.switchToTab(1);
+  }
+
   BuildContext? _showcaseContext;
 
   Future<void> _checkAndShowOnboarding({bool force = false}) async {
@@ -285,6 +298,7 @@ class _PlayerShellState extends State<PlayerShell> {
       if (mounted) {
         ShowCaseWidget.of(_showcaseContext!).startShowCase([
           _homeTabKey,
+          _libraryTabKey,
           _effectsTabKey,
           _effectsKnobKey,
           _settingsTabKey,
@@ -511,6 +525,12 @@ class _PlayerShellState extends State<PlayerShell> {
     final ui = await AppStateService.instance.loadUiSettings();
     _player.setEngineResampleAlgorithm(ui.resampleAlgorithm);
     _player.setEngineDitherMode(ui.ditherMode);
+
+    // Apply saved playback speed
+    final savedPitch = await AppStateService.instance.loadPlaybackSpeed();
+    if ((savedPitch - 1.0).abs() > 0.01) {
+      _player.setPitch(savedPitch);
+    }
 
     // Apply Sauti DSP Suite settings
     await EqScreen.applySavedStateToEngine(_player);
@@ -2104,7 +2124,20 @@ class _PlayerShellState extends State<PlayerShell> {
     _logs.insert(0, '[queue] Appended to Play Next: ${track.title}');
   }
 
-  void _handleDeletedTrack(String filePath) {
+  Future<void> _handleDeletedTrack(String filePath) async {
+    final currentIdx = _status.value.currentIndex;
+    final isCurrentPlaying = currentIdx >= 0 &&
+        currentIdx < _currentUiQueue.length &&
+        _currentUiQueue[currentIdx].videoId == filePath;
+
+    if (isCurrentPlaying) {
+      if (_currentUiQueue.length > 1) {
+        _player.next();
+      } else {
+        _player.stop();
+      }
+    }
+
     setState(() {
       _currentUiQueue.removeWhere((t) => t.videoId == filePath);
       _playlist.removeWhere((src) {
@@ -2115,9 +2148,23 @@ class _PlayerShellState extends State<PlayerShell> {
         return false;
       });
     });
+
+    if (_playlist.isNotEmpty) {
+      int newIndex = _status.value.currentIndex;
+      if (newIndex >= _playlist.length) newIndex = _playlist.length - 1;
+      if (newIndex < 0) newIndex = 0;
+      _player.setAudioSources(
+        _playlist,
+        initialIndex: newIndex,
+        autoPlay: _status.value.isPlaying,
+      );
+    } else {
+      _player.stop();
+    }
+
     _saveQueue();
     _logs.insert(
-        0, '[delete] Removed deleted track from active queue: $filePath');
+        0, '[delete] Removed deleted track from active queue and re-synced player: $filePath');
   }
 
   /// Plays tracks selected from the Recently Played history list.
@@ -2544,12 +2591,14 @@ class _PlayerShellState extends State<PlayerShell> {
   Widget build(BuildContext context) {
     return ShowCaseWidget(
       onStart: (index, key) {
-        if (key == _effectsKnobKey) {
-          setState(() => _tabIndex = 1);
-        } else if (key == _homeTabKey) {
+        if (key == _homeTabKey) {
           setState(() => _tabIndex = 0);
-        } else if (key == _settingsTabKey) {
+        } else if (key == _libraryTabKey) {
+          setState(() => _tabIndex = 1);
+        } else if (key == _effectsTabKey || key == _effectsKnobKey) {
           setState(() => _tabIndex = 2);
+        } else if (key == _settingsTabKey) {
+          setState(() => _tabIndex = 3);
         }
       },
       onComplete: (index, key) {
@@ -2565,20 +2614,24 @@ class _PlayerShellState extends State<PlayerShell> {
           body: IndexedStack(
             index: _tabIndex,
             children: [
-              CombinedHomeScreen(
+              HomeScreen(
                 onPlayTracks: _playOnlineTracks,
-                onGoToDownloads: () {
-                  // Not supported inside CombinedHomeScreen yet without another tab jump,
-                  // but we can leave it or manage it differently later.
-                },
+                onGoToDownloads: _goToLibraryTracks,
+                isNested: false,
+              ),
+              LibraryScreen(
+                key: _libraryScreenKey,
                 onPlayFolder: _playFolder,
                 onPlayLikedSongs: _playLikedSongs,
                 onPlayCachedStreams: _playCachedStreams,
+                onPlayTracks: _playOnlineTracks,
                 onQueueTrack: _queueNextTrack,
                 onDeleteTrack: _handleDeletedTrack,
                 player: _player,
                 onPlayNetworkFile: _playNetworkFile,
                 onPlayFtpFolder: _playFtpFolder,
+                isNested: false,
+                initialTabIndex: _librarySubTabIndex,
               ),
               EffectsScreen(
                 effectsKnobKey: _effectsKnobKey,
@@ -2768,12 +2821,24 @@ class _PlayerShellState extends State<PlayerShell> {
                       showcaseKey: _homeTabKey,
                       title: 'Welcome to SautiPlay',
                       description:
-                          'Your high-fidelity audio hub. Access local music library, online search & network sources (FTP & DLNA).',
+                          'Your high-fidelity audio hub. Discover trending tracks, online music & curated recommendations.',
                       currentStep: 1,
-                      totalSteps: 4,
+                      totalSteps: 5,
                       child: const Icon(Icons.home_rounded),
                     ),
                     label: 'Home',
+                  ),
+                  M3ENavigationBarDestination(
+                    icon: AppShowcase(
+                      showcaseKey: _libraryTabKey,
+                      title: 'Music Library',
+                      description:
+                          'Your offline audio vault. Browse local files, playlists, artists, albums & network sources.',
+                      currentStep: 2,
+                      totalSteps: 5,
+                      child: const Icon(Icons.library_music_rounded),
+                    ),
+                    label: 'Library',
                   ),
                   M3ENavigationBarDestination(
                     icon: AppShowcase(
@@ -2781,8 +2846,8 @@ class _PlayerShellState extends State<PlayerShell> {
                       title: 'Sauti DSP & EQ',
                       description:
                           'Tailor your sound with 10-band EQ, Sauti DSP Suite effects & real-time spectrum visualizers.',
-                      currentStep: 2,
-                      totalSteps: 4,
+                      currentStep: 3,
+                      totalSteps: 5,
                       child: const Icon(Icons.tune),
                     ),
                     label: 'Effects',
@@ -2793,8 +2858,8 @@ class _PlayerShellState extends State<PlayerShell> {
                       title: 'Settings & Customization',
                       description:
                           'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
-                      currentStep: 4,
-                      totalSteps: 4,
+                      currentStep: 5,
+                      totalSteps: 5,
                       child: const Icon(Icons.settings),
                     ),
                     label: 'Settings',

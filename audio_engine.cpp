@@ -36,6 +36,7 @@
 #include "mp4_aac_decoder.h"
 #include "ffmpeg_stream_decoder.h"
 #include "dsp/clarity_dsp.h"
+#include "dsp/dialog_enhancer_dsp.h"
 #include "dsp/dynamic_bass_dsp.h"
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/analog_warmth_dsp.h"
@@ -2836,6 +2837,12 @@ struct AudioEngineHandle
     // and triggers restart_and_apply_config from a safe context.
     std::atomic<int> pendingAutoSampleRateMatchRate{0};
 
+    std::atomic<int> configuredBackend{0 /* AE_BACKEND_AUTO */};
+    std::atomic<int> activeBackend{0 /* AE_BACKEND_AUTO */};
+    ma_context customContext{};
+    bool customContextInit = false;
+    void *pAudioTrackSink = nullptr;
+
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -2951,6 +2958,7 @@ struct AudioEngineHandle
     bool pitchResamplerInit = false;
     int pitchResamplerRate = 0;
     int pitchResamplerChannels = 0;
+    float pitchResamplerCurrentPitch = 1.0f;
     std::vector<float> pitchInputBuffer;
     size_t pitchInputUnconsumed = 0;
 
@@ -3082,6 +3090,7 @@ struct AudioEngineHandle
 
     // Native Clean-Room Audio DSP Suite
     sauti::dsp::AudioClarityDSP clarityDsp;
+    sauti::dsp::DialogEnhancerDSP dialogEnhancerDsp;
     sauti::dsp::HarmonicBassDSP harmonicBassDsp;
     sauti::dsp::DynamicSystemDSP dynamicSystemDsp;
     sauti::dsp::AnalogWarmthDSP analogWarmthDsp;
@@ -3401,6 +3410,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
 
     const float srF = (float)sampleRate;
     e->clarityDsp.setSampleRate(srF);
+    e->dialogEnhancerDsp.setSampleRate(srF);
     e->harmonicBassDsp.setSampleRate(srF);
     e->dynamicSystemDsp.setSampleRate(srF);
     e->analogWarmthDsp.setSampleRate(srF);
@@ -3490,14 +3500,8 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->eq.updateCoefficients(sr);
         e->stereoWiden.reset(sr);
         e->stereoEnhancement.refresh(sr);
-        if (e->crossfeedPreset == 4)
-        {
-            e->crossfeed.reset(sr, e->crossfeedPreset);
-        }
-        else
-        {
-            e->crossfeedNode.setSampleRate((double)sr);
-        }
+        e->crossfeedNode.setSampleRate((double)sr);
+        e->crossfeed.reset(sr, e->crossfeedPreset);
         e->crystalizer.init(sr);
         e->reverbNode.setSampleRate((double)sr);
     }
@@ -3506,6 +3510,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> lock(e->dspMutex);
         const float srF = (float)sr;
         e->clarityDsp.setSampleRate(srF);
+        e->dialogEnhancerDsp.setSampleRate(srF);
         e->harmonicBassDsp.setSampleRate(srF);
         e->dynamicSystemDsp.setSampleRate(srF);
         e->analogWarmthDsp.setSampleRate(srF);
@@ -4498,6 +4503,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
             if (std::abs(pitch - 1.0f) < 0.001f)
             {
+                if (e->pitchResamplerInit && e->pitchResamplerCurrentPitch != 1.0f)
+                {
+                    ma_resampler_reset(&e->pitchResampler);
+                    e->pitchInputUnconsumed = 0;
+                    e->pitchResamplerCurrentPitch = 1.0f;
+                }
                 r = ma_decoder_read_pcm_frames(
                     e->currentDecoder,
                     tempChunk.data(),
@@ -4514,20 +4525,20 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         ma_resampler_uninit(&e->pitchResampler, nullptr);
                         e->pitchResamplerInit = false;
                     }
-                    ma_resampler_config rcfg = ma_resampler_config_init(ma_format_f32, (ma_uint32)ch, (ma_uint32)sr, (ma_uint32)sr, ma_resample_algorithm_linear);
-                    if (e->resampleAlgorithm > 0)
-                    {
-                        rcfg.algorithm = ma_resample_algorithm_custom;
-                        rcfg.pBackendVTable = (e->resampleAlgorithm >= 7 && e->resampleAlgorithm <= 10)
-                                              ? &g_soxrResamplerVTable
-                                              : &g_customResamplerVTable;
-                        rcfg.pBackendUserData = &e->resampleAlgorithm;
-                    }
+                    // Pitch/speed adjustment requires low-latency linear interpolation.
+                    // Must NOT inherit e->resampleAlgorithm (e.g. SoXR VHQ sinc filter).
+                    ma_resampler_config rcfg = ma_resampler_config_init(
+                        ma_format_f32,
+                        (ma_uint32)ch,
+                        (ma_uint32)sr,
+                        (ma_uint32)sr,
+                        ma_resample_algorithm_linear);
                     if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
                     {
                         e->pitchResamplerInit = true;
                         e->pitchResamplerRate = sr;
                         e->pitchResamplerChannels = (int)ch;
+                        e->pitchResamplerCurrentPitch = 1.0f;
                     }
                     e->pitchInputBuffer.clear();
                     e->pitchInputUnconsumed = 0;
@@ -4535,7 +4546,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (e->pitchResamplerInit)
                 {
-                    ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
+                    if (std::abs(pitch - e->pitchResamplerCurrentPitch) > 0.0001f)
+                    {
+                        ma_resampler_set_rate_ratio(&e->pitchResampler, pitch);
+                        e->pitchResamplerCurrentPitch = pitch;
+                    }
 
                     const ma_uint64 outNeeded = (ma_uint64)targetChunkFrames;
                     ma_uint64 inNeeded = 0;
@@ -4857,7 +4872,11 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (produced > 0)
     {
-        e->playedPcmFrames.fetch_add(produced, std::memory_order_relaxed);
+        const float curPitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+        const ma_uint64 sourceAdvance = (std::abs(curPitch - 1.0f) < 0.001f)
+                                        ? (ma_uint64)produced
+                                        : (ma_uint64)std::round((double)produced * (double)curPitch);
+        e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
         // Telemetry: count realtime starvation honestly.
         if (produced < frameCount)
         {
@@ -5192,15 +5211,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
             if (e->crossfeedEnabled)
             {
-                // Preset 4 = RACE (legacy CrossfeedState), all other algorithms use CrossfeedNode
-                if (e->crossfeedPreset == 4)
-                {
-                    e->crossfeed.process(processBuffer, produced, e->channels);
-                }
-                else
-                {
-                    e->crossfeedNode.process(processBuffer, produced, e->channels);
-                }
+                e->crossfeedNode.process(processBuffer, produced, e->channels);
             }
 
             // Stereo Widen
@@ -5256,6 +5267,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                     e->harmonicBassDsp.process(processBuffer, produced);
                     e->dynamicSystemDsp.process(processBuffer, produced);
                     e->analogWarmthDsp.process(processBuffer, produced);
+                    e->dialogEnhancerDsp.process(processBuffer, produced);
                     e->clarityDsp.process(processBuffer, produced);
                     e->deEsserDsp.process(processBuffer, produced);
                     if (e->channels == 2)
@@ -5446,9 +5458,655 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
 }
 
+#if defined(__ANDROID__)
+    #include <jni.h>
+    #include <sys/system_properties.h>
+    #include <sys/resource.h>
+    #include <unistd.h>
+    #include <cctype>
+
+    static JavaVM* g_androidJavaVM = nullptr;
+
+    extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
+    {
+        (void)reserved;
+        g_androidJavaVM = vm;
+        return JNI_VERSION_1_6;
+    }
+
+    AE_API void ae_register_android_jvm(void *vm)
+    {
+        if (vm) g_androidJavaVM = (JavaVM*)vm;
+    }
+
+    static void detect_universal_hardware_dsp(AEHardwareInfo* info)
+    {
+        if (!info) return;
+
+        char platform[PROP_VALUE_MAX] = {0};
+        char soc_model[PROP_VALUE_MAX] = {0};
+        char soc_mfr[PROP_VALUE_MAX] = {0};
+        char hardware[PROP_VALUE_MAX] = {0};
+        char board[PROP_VALUE_MAX] = {0};
+
+        __system_property_get("ro.board.platform", platform);
+        __system_property_get("ro.soc.model", soc_model);
+        __system_property_get("ro.soc.manufacturer", soc_mfr);
+        __system_property_get("ro.hardware", hardware);
+        __system_property_get("ro.product.board", board);
+
+        std::string p = platform;
+        std::string s = soc_model;
+        std::string m = soc_mfr;
+        std::string h = hardware;
+        std::string b = board;
+
+        auto to_lower = [](std::string str) {
+            for (char &c : str) c = (char)std::tolower((unsigned char)c);
+            return str;
+        };
+        p = to_lower(p);
+        s = to_lower(s);
+        m = to_lower(m);
+        h = to_lower(h);
+        b = to_lower(b);
+
+        auto matches = [&](const std::string& pat) {
+            return p.find(pat) != std::string::npos || 
+                   s.find(pat) != std::string::npos || 
+                   h.find(pat) != std::string::npos ||
+                   b.find(pat) != std::string::npos;
+        };
+
+        // 1. Qualcomm Snapdragon Detection
+        if (matches("sun") || matches("sm8750")) {
+            std::strncpy(info->soc_name, "Snapdragon 8 Elite", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v79 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("pineapple") || matches("sm8650")) {
+            std::strncpy(info->soc_name, "Snapdragon 8 Gen 3", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v75 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("kalama") || matches("sm8550")) {
+            std::strncpy(info->soc_name, "Snapdragon 8 Gen 2", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v73 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("taro") || matches("sm8450") || matches("cape") || matches("sm8475")) {
+            std::strncpy(info->soc_name, "Snapdragon 8/8+ Gen 1", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v69 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("lahaina") || matches("sm8350") || matches("shima")) {
+            std::strncpy(info->soc_name, "Snapdragon 888", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v68 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("kona") || matches("sm8250")) {
+            std::strncpy(info->soc_name, "Snapdragon 865 / 870", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v66 aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("msmnile") || matches("sm8150")) {
+            std::strncpy(info->soc_name, "Snapdragon 855", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon 690 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("sdm845")) {
+            std::strncpy(info->soc_name, "Snapdragon 845", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon 685 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("sm7475") || matches("marble")) {
+            std::strncpy(info->soc_name, "Snapdragon 7+ Gen 2", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v69 aDSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("sm7325") || matches("yupik")) {
+            std::strncpy(info->soc_name, "Snapdragon 778G", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon v68 aDSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("qcom") || matches("snapdragon") || p.rfind("sm", 0) == 0 || p.rfind("msm", 0) == 0 || m.find("qualcomm") != std::string::npos) {
+            std::strncpy(info->soc_name, "Qualcomm Snapdragon", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Qualcomm Hexagon aDSP (QDSP6)", sizeof(info->dsp_hardware) - 1);
+        }
+        // 2. MediaTek Detection
+        else if (matches("mt6991")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity 9400", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Cadence Tensilica HiFi 5 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mt6989")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity 9300", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Cadence Tensilica HiFi 5 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mt6985") || matches("mt6983")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity 9200/9000", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Cadence Tensilica HiFi 5 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mt6895") || matches("mt6896") || matches("mt6897")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity 8000 Series", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Cadence Tensilica HiFi 5 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mt6893") || matches("mt6891") || matches("mt6877") || matches("mt6879")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity 1200 / 1080 / 7050", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Cadence Tensilica HiFi 4 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mt6853") || matches("mt6833") || matches("mt6789")) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity / Helio G99", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Tensilica HiFi 4 DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("mtk") || matches("mediatek") || p.rfind("mt6", 0) == 0 || m.find("mediatek") != std::string::npos) {
+            std::strncpy(info->soc_name, "MediaTek Dimensity / Helio", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "MediaTek Tensilica HiFi DSP", sizeof(info->dsp_hardware) - 1);
+        }
+        // 3. Samsung Exynos Detection
+        else if (matches("s5e9945") || matches("exynos2400")) {
+            std::strncpy(info->soc_name, "Samsung Exynos 2400", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Exynos Multi-Core Audio DSP & Cirrus Logic DAC", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("s5e9925") || matches("exynos2200")) {
+            std::strncpy(info->soc_name, "Samsung Exynos 2200", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Exynos Dual Audio DSP & Cirrus Logic DAC", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("exynos2100") || matches("exynos990")) {
+            std::strncpy(info->soc_name, "Samsung Exynos 2100 / 990", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Exynos Audio Subsystem & Shannon DAC", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("exynos1380") || matches("exynos1480") || matches("s5e8845")) {
+            std::strncpy(info->soc_name, "Samsung Exynos 1380/1480", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Exynos Audio Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("exynos") || p.rfind("universal", 0) == 0 || m.find("samsung") != std::string::npos) {
+            std::strncpy(info->soc_name, "Samsung Exynos", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Samsung Exynos Audio DSP", sizeof(info->dsp_hardware) - 1);
+        }
+        // 4. Google Tensor Detection
+        else if (matches("zuma_pro") || matches("tensor_g4")) {
+            std::strncpy(info->soc_name, "Google Tensor G4", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Google Tensor Gen 4 Audio Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("zuma") || matches("tensor_g3")) {
+            std::strncpy(info->soc_name, "Google Tensor G3", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Google Tensor Gen 3 Audio Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("blueport") || matches("cloudripper") || matches("gs201")) {
+            std::strncpy(info->soc_name, "Google Tensor G2", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Google Tensor Gen 2 Audio Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("whitechapel") || matches("gs101")) {
+            std::strncpy(info->soc_name, "Google Tensor G1", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Google Tensor Audio Subsystem", sizeof(info->dsp_hardware) - 1);
+        }
+        // 5. Unisoc / Spreadtrum Detection
+        else if (matches("ums9230") || matches("t606") || matches("t612") || matches("t616")) {
+            std::strncpy(info->soc_name, "Unisoc Tiger T606/T616", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Unisoc Multi-Core Audio Engine", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("ums512") || matches("t618") || matches("t610")) {
+            std::strncpy(info->soc_name, "Unisoc Tiger T618", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Unisoc Audio Processing Engine", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("t700") || matches("t820") || matches("uis7862")) {
+            std::strncpy(info->soc_name, "Unisoc Tiger T820/T700", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Unisoc Hi-Fi Audio DSP", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("sprd") || matches("unisoc") || matches("sc98")) {
+            std::strncpy(info->soc_name, "Unisoc / Spreadtrum", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Unisoc Audio Engine", sizeof(info->dsp_hardware) - 1);
+        }
+        // 6. HiSilicon Kirin Detection
+        else if (matches("kirin9000") || matches("hi36a0")) {
+            std::strncpy(info->soc_name, "HiSilicon Kirin 9000", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "HiSilicon HiFi 4 DSP Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("kirin990") || matches("hi3690")) {
+            std::strncpy(info->soc_name, "HiSilicon Kirin 990", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "HiSilicon HiFi 3 DSP Subsystem", sizeof(info->dsp_hardware) - 1);
+        } else if (matches("kirin") || matches("hi36")) {
+            std::strncpy(info->soc_name, "HiSilicon Kirin", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "HiSilicon Kirin HiFi DSP", sizeof(info->dsp_hardware) - 1);
+        }
+        else {
+            std::strncpy(info->soc_name, "ARM Mobile Platform", sizeof(info->soc_name) - 1);
+            std::strncpy(info->dsp_hardware, "Android AudioFlinger Audio HAL", sizeof(info->dsp_hardware) - 1);
+        }
+    }
+
+    struct AndroidAudioTrackSink
+    {
+        AudioEngineHandle* engine = nullptr;
+        jobject audioTrackObj = nullptr;
+        jobject directBufferObj = nullptr;
+        void* directBufferAddress = nullptr;
+        size_t directBufferSize = 0;
+
+        jmethodID writeMethod = nullptr;
+        jmethodID playMethod = nullptr;
+        jmethodID pauseMethod = nullptr;
+        jmethodID stopMethod = nullptr;
+        jmethodID releaseMethod = nullptr;
+        jmethodID flushMethod = nullptr;
+        jmethodID rewindMethod = nullptr;
+
+        std::thread workerThread;
+        std::atomic<bool> isRunning{false};
+
+        int sampleRate = 48000;
+        int channels = 2;
+        int encoding = 4; // ENCODING_PCM_FLOAT (4), ENCODING_PCM_24BIT_PACKED (21), ENCODING_PCM_16BIT (2), ENCODING_PCM_32BIT (22)
+        size_t framesPerBuffer = 1024;
+        bool isDirectHiRes = false;
+
+        std::vector<float> renderBuffer;
+
+        static void convert_f32_to_s24_packed(uint8_t* dst, const float* src, size_t count)
+        {
+            for (size_t i = 0; i < count; ++i)
+            {
+                float s = src[i];
+                if (s > 1.0f) s = 1.0f;
+                else if (s < -1.0f) s = -1.0f;
+                int32_t val = static_cast<int32_t>(s * 8388607.0f);
+                dst[i * 3 + 0] = static_cast<uint8_t>(val & 0xFF);
+                dst[i * 3 + 1] = static_cast<uint8_t>((val >> 8) & 0xFF);
+                dst[i * 3 + 2] = static_cast<uint8_t>((val >> 16) & 0xFF);
+            }
+        }
+
+        static void convert_f32_to_s16(int16_t* dst, const float* src, size_t count)
+        {
+            for (size_t i = 0; i < count; ++i)
+            {
+                float s = src[i];
+                if (s > 1.0f) s = 1.0f;
+                else if (s < -1.0f) s = -1.0f;
+                dst[i] = static_cast<int16_t>(s * 32767.0f);
+            }
+        }
+
+        static void convert_f32_to_s32(int32_t* dst, const float* src, size_t count)
+        {
+            for (size_t i = 0; i < count; ++i)
+            {
+                float s = src[i];
+                if (s > 1.0f) s = 1.0f;
+                else if (s < -1.0f) s = -1.0f;
+                dst[i] = static_cast<int32_t>(s * 2147483647.0);
+            }
+        }
+
+        bool init(AudioEngineHandle* e, int targetSampleRate, int targetChannels, bool wantDirect)
+        {
+            if (g_androidJavaVM == nullptr || e == nullptr)
+                return false;
+
+            stop();
+            release();
+
+            this->engine = e;
+            this->sampleRate = targetSampleRate > 0 ? targetSampleRate : 48000;
+            this->channels = targetChannels > 0 ? targetChannels : 2;
+            this->isDirectHiRes = wantDirect;
+
+            JNIEnv* env = nullptr;
+            bool needsDetach = false;
+            jint res = g_androidJavaVM->GetEnv((void**)&env, JNI_VERSION_1_6);
+            if (res == JNI_EDETACHED)
+            {
+                if (g_androidJavaVM->AttachCurrentThread(&env, nullptr) != JNI_OK)
+                    return false;
+                needsDetach = true;
+            }
+            else if (res != JNI_OK || env == nullptr)
+            {
+                return false;
+            }
+
+            bool ok = false;
+            do
+            {
+                jclass trackClass = env->FindClass("android/media/AudioTrack");
+                if (!trackClass) { env->ExceptionClear(); break; }
+
+                jclass attrBuilderClass = env->FindClass("android/media/AudioAttributes$Builder");
+                jclass fmtBuilderClass = env->FindClass("android/media/AudioFormat$Builder");
+                jclass trackBuilderClass = env->FindClass("android/media/AudioTrack$Builder");
+                jclass bufferClass = env->FindClass("java/nio/Buffer");
+                if (!attrBuilderClass || !fmtBuilderClass || !trackBuilderClass)
+                {
+                    env->ExceptionClear();
+                    break;
+                }
+
+                if (bufferClass)
+                {
+                    rewindMethod = env->GetMethodID(bufferClass, "rewind", "()Ljava/nio/Buffer;");
+                    env->DeleteLocalRef(bufferClass);
+                }
+
+                // Methods for AudioAttributes$Builder
+                jmethodID attrInit = env->GetMethodID(attrBuilderClass, "<init>", "()V");
+                jmethodID attrSetUsage = env->GetMethodID(attrBuilderClass, "setUsage", "(I)Landroid/media/AudioAttributes$Builder;");
+                jmethodID attrSetContentType = env->GetMethodID(attrBuilderClass, "setContentType", "(I)Landroid/media/AudioAttributes$Builder;");
+                jmethodID attrBuild = env->GetMethodID(attrBuilderClass, "build", "()Landroid/media/AudioAttributes;");
+
+                // Methods for AudioFormat$Builder
+                jmethodID fmtInit = env->GetMethodID(fmtBuilderClass, "<init>", "()V");
+                jmethodID fmtSetEncoding = env->GetMethodID(fmtBuilderClass, "setEncoding", "(I)Landroid/media/AudioFormat$Builder;");
+                jmethodID fmtSetSampleRate = env->GetMethodID(fmtBuilderClass, "setSampleRate", "(I)Landroid/media/AudioFormat$Builder;");
+                jmethodID fmtSetChannelMask = env->GetMethodID(fmtBuilderClass, "setChannelMask", "(I)Landroid/media/AudioFormat$Builder;");
+                jmethodID fmtBuild = env->GetMethodID(fmtBuilderClass, "build", "()Landroid/media/AudioFormat;");
+
+                // Methods for AudioTrack$Builder
+                jmethodID trackInit = env->GetMethodID(trackBuilderClass, "<init>", "()V");
+                jmethodID trackSetAttr = env->GetMethodID(trackBuilderClass, "setAudioAttributes", "(Landroid/media/AudioAttributes;)Landroid/media/AudioTrack$Builder;");
+                jmethodID trackSetFmt = env->GetMethodID(trackBuilderClass, "setAudioFormat", "(Landroid/media/AudioFormat;)Landroid/media/AudioTrack$Builder;");
+                jmethodID trackSetBufSize = env->GetMethodID(trackBuilderClass, "setBufferSizeInBytes", "(I)Landroid/media/AudioTrack$Builder;");
+                jmethodID trackSetTransferMode = env->GetMethodID(trackBuilderClass, "setTransferMode", "(I)Landroid/media/AudioTrack$Builder;");
+                jmethodID trackBuild = env->GetMethodID(trackBuilderClass, "build", "()Landroid/media/AudioTrack;");
+
+                if (!attrInit || !attrBuild || !fmtInit || !fmtBuild || !trackInit || !trackBuild)
+                {
+                    env->ExceptionClear();
+                    break;
+                }
+
+                int channelMask = (channels == 1) ? 4 /* CHANNEL_OUT_MONO */ : 12 /* CHANNEL_OUT_STEREO */;
+
+                // Build AudioAttributes for high fidelity media playback
+                // NOTE: Do not set 0x1 (FLAG_AUDIBILITY_ENFORCED) - that is for camera shutter sounds
+                // and prevents Android AudioPolicy from opening DirectOutputThread!
+                jobject attrBuilder = env->NewObject(attrBuilderClass, attrInit);
+                if (attrSetUsage) env->CallObjectMethod(attrBuilder, attrSetUsage, 1 /* USAGE_MEDIA */);
+                if (attrSetContentType) env->CallObjectMethod(attrBuilder, attrSetContentType, 2 /* CONTENT_TYPE_MUSIC */);
+                jobject attrObj = env->CallObjectMethod(attrBuilder, attrBuild);
+
+                // Candidate encodings:
+                // Hardware DSPs (Qualcomm Hexagon, MediaTek HiFi, Exynos) require integer PCM on direct_pcm HAL profiles.
+                // 21 = ENCODING_PCM_24BIT_PACKED, 22 = ENCODING_PCM_32BIT, 4 = ENCODING_PCM_FLOAT, 2 = ENCODING_PCM_16BIT
+                std::vector<int> candidates;
+                if (wantDirect)
+                {
+                    candidates = {21 /* 24-bit packed */, 22 /* 32-bit int */, 4 /* float */, 2 /* 16-bit */};
+                }
+                else
+                {
+                    candidates = {4 /* float */, 2 /* 16-bit */};
+                }
+
+                jmethodID isDirectMethod = nullptr;
+                if (wantDirect)
+                {
+                    isDirectMethod = env->GetStaticMethodID(trackClass, "isDirectPlaybackSupported", "(Landroid/media/AudioFormat;Landroid/media/AudioAttributes;)Z");
+                    if (env->ExceptionCheck())
+                    {
+                        env->ExceptionClear();
+                        isDirectMethod = nullptr;
+                    }
+                }
+
+                int chosenEncoding = candidates[0];
+                if (wantDirect && isDirectMethod)
+                {
+                    for (int cand : candidates)
+                    {
+                        jobject tFmtBuilder = env->NewObject(fmtBuilderClass, fmtInit);
+                        if (fmtSetEncoding) env->CallObjectMethod(tFmtBuilder, fmtSetEncoding, cand);
+                        if (fmtSetSampleRate) env->CallObjectMethod(tFmtBuilder, fmtSetSampleRate, sampleRate);
+                        if (fmtSetChannelMask) env->CallObjectMethod(tFmtBuilder, fmtSetChannelMask, channelMask);
+                        jobject tFmtObj = env->CallObjectMethod(tFmtBuilder, fmtBuild);
+                        env->DeleteLocalRef(tFmtBuilder);
+
+                        jboolean sup = env->CallStaticBooleanMethod(trackClass, isDirectMethod, tFmtObj, attrObj);
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); sup = JNI_FALSE; }
+                        env->DeleteLocalRef(tFmtObj);
+
+                        if (sup == JNI_TRUE)
+                        {
+                            chosenEncoding = cand;
+                            break;
+                        }
+                    }
+                }
+
+                jmethodID getMinBuf = env->GetStaticMethodID(trackClass, "getMinBufferSize", "(III)I");
+                jobject localTrack = nullptr;
+
+                // Build loop trying candidate encodings starting from chosenEncoding
+                std::vector<int> buildOrder;
+                buildOrder.push_back(chosenEncoding);
+                for (int c : candidates)
+                {
+                    if (c != chosenEncoding) buildOrder.push_back(c);
+                }
+
+                for (int encToTry : buildOrder)
+                {
+                    chosenEncoding = encToTry;
+                    jobject fBuilder = env->NewObject(fmtBuilderClass, fmtInit);
+                    if (fmtSetEncoding) env->CallObjectMethod(fBuilder, fmtSetEncoding, chosenEncoding);
+                    if (fmtSetSampleRate) env->CallObjectMethod(fBuilder, fmtSetSampleRate, sampleRate);
+                    if (fmtSetChannelMask) env->CallObjectMethod(fBuilder, fmtSetChannelMask, channelMask);
+                    jobject fObj = env->CallObjectMethod(fBuilder, fmtBuild);
+                    env->DeleteLocalRef(fBuilder);
+
+                    int minBufSize = 8192;
+                    if (getMinBuf)
+                    {
+                        int query = env->CallStaticIntMethod(trackClass, getMinBuf, sampleRate, channelMask, chosenEncoding);
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); query = -1; }
+                        if (query > 0) minBufSize = query;
+                    }
+
+                    int targetBufSize = minBufSize * 2;
+                    if (wantDirect && targetBufSize < 32768) targetBufSize = 32768;
+                    else if (targetBufSize < 8192) targetBufSize = 8192;
+
+                    jobject tBuilder = env->NewObject(trackBuilderClass, trackInit);
+                    if (trackSetAttr) env->CallObjectMethod(tBuilder, trackSetAttr, attrObj);
+                    if (trackSetFmt) env->CallObjectMethod(tBuilder, trackSetFmt, fObj);
+                    if (trackSetBufSize) env->CallObjectMethod(tBuilder, trackSetBufSize, targetBufSize);
+                    if (trackSetTransferMode) env->CallObjectMethod(tBuilder, trackSetTransferMode, 1 /* MODE_STREAM */);
+
+                    localTrack = env->CallObjectMethod(tBuilder, trackBuild);
+                    env->DeleteLocalRef(tBuilder);
+                    env->DeleteLocalRef(fObj);
+
+                    if (env->ExceptionCheck())
+                    {
+                        env->ExceptionClear();
+                        localTrack = nullptr;
+                    }
+
+                    if (localTrack != nullptr)
+                    {
+                        break;
+                    }
+                }
+
+                env->DeleteLocalRef(attrObj);
+
+                if (!localTrack)
+                {
+                    engine_log("Failed to build AudioTrack via Builder for any encoding candidate");
+                    break;
+                }
+
+                audioTrackObj = env->NewGlobalRef(localTrack);
+
+                // Ensure initial track volume is set to 1.0f (full volume)
+                jmethodID setVolMethod = env->GetMethodID(trackClass, "setVolume", "(F)I");
+                if (setVolMethod)
+                {
+                    env->CallIntMethod(localTrack, setVolMethod, 1.0f);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+                env->DeleteLocalRef(localTrack);
+
+                playMethod = env->GetMethodID(trackClass, "play", "()V");
+                pauseMethod = env->GetMethodID(trackClass, "pause", "()V");
+                stopMethod = env->GetMethodID(trackClass, "stop", "()V");
+                releaseMethod = env->GetMethodID(trackClass, "release", "()V");
+                flushMethod = env->GetMethodID(trackClass, "flush", "()V");
+                writeMethod = env->GetMethodID(trackClass, "write", "(Ljava/nio/ByteBuffer;II)I");
+
+                encoding = chosenEncoding;
+                framesPerBuffer = (sampleRate <= 48000) ? 1024 : 2048;
+                size_t bytesPerSample = 4;
+                if (encoding == 21) bytesPerSample = 3;
+                else if (encoding == 2) bytesPerSample = 2;
+                else if (encoding == 22) bytesPerSample = 4;
+                else bytesPerSample = 4;
+
+                directBufferSize = framesPerBuffer * (size_t)channels * bytesPerSample;
+
+                directBufferAddress = std::malloc(directBufferSize);
+                if (!directBufferAddress) break;
+
+                jobject localBB = env->NewDirectByteBuffer(directBufferAddress, (jlong)directBufferSize);
+                if (!localBB || env->ExceptionCheck())
+                {
+                    env->ExceptionClear();
+                    break;
+                }
+                directBufferObj = env->NewGlobalRef(localBB);
+                env->DeleteLocalRef(localBB);
+
+                renderBuffer.resize(framesPerBuffer * (size_t)channels);
+                ok = true;
+            } while (false);
+
+            if (needsDetach)
+            {
+                g_androidJavaVM->DetachCurrentThread();
+            }
+
+            return ok;
+        }
+
+        void start()
+        {
+            if (audioTrackObj == nullptr || isRunning.load(std::memory_order_relaxed))
+                return;
+
+            isRunning.store(true, std::memory_order_release);
+            workerThread = std::thread(&AndroidAudioTrackSink::threadLoop, this);
+        }
+
+        void stop()
+        {
+            if (!isRunning.load(std::memory_order_relaxed))
+                return;
+
+            isRunning.store(false, std::memory_order_release);
+            if (workerThread.joinable())
+            {
+                workerThread.join();
+            }
+        }
+
+        void release()
+        {
+            stop();
+            if (g_androidJavaVM == nullptr) return;
+
+            JNIEnv* env = nullptr;
+            bool needsDetach = false;
+            jint res = g_androidJavaVM->GetEnv((void**)&env, JNI_VERSION_1_6);
+            if (res == JNI_EDETACHED)
+            {
+                if (g_androidJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                    needsDetach = true;
+            }
+
+            if (env != nullptr)
+            {
+                if (audioTrackObj != nullptr)
+                {
+                    if (releaseMethod) env->CallVoidMethod(audioTrackObj, releaseMethod);
+                    env->DeleteGlobalRef(audioTrackObj);
+                    audioTrackObj = nullptr;
+                }
+                if (directBufferObj != nullptr)
+                {
+                    env->DeleteGlobalRef(directBufferObj);
+                    directBufferObj = nullptr;
+                }
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+
+            if (directBufferAddress != nullptr)
+            {
+                std::free(directBufferAddress);
+                directBufferAddress = nullptr;
+            }
+            directBufferSize = 0;
+
+            if (needsDetach)
+            {
+                g_androidJavaVM->DetachCurrentThread();
+            }
+        }
+
+        void threadLoop()
+        {
+            if (g_androidJavaVM == nullptr || audioTrackObj == nullptr || engine == nullptr)
+                return;
+
+            JNIEnv* env = nullptr;
+            if (g_androidJavaVM->AttachCurrentThread(&env, nullptr) != JNI_OK || env == nullptr)
+                return;
+
+            setpriority(PRIO_PROCESS, 0, -16);
+
+            const size_t totalSamples = framesPerBuffer * (size_t)channels;
+            const size_t bytesToWrite = directBufferSize;
+            bool playCalled = false;
+
+            while (isRunning.load(std::memory_order_relaxed))
+            {
+                std::memset(renderBuffer.data(), 0, totalSamples * sizeof(float));
+                data_callback(&engine->device, renderBuffer.data(), nullptr, (ma_uint32)framesPerBuffer);
+
+                if (encoding == 21)
+                {
+                    convert_f32_to_s24_packed(reinterpret_cast<uint8_t*>(directBufferAddress), renderBuffer.data(), totalSamples);
+                }
+                else if (encoding == 2)
+                {
+                    convert_f32_to_s16(reinterpret_cast<int16_t*>(directBufferAddress), renderBuffer.data(), totalSamples);
+                }
+                else if (encoding == 22)
+                {
+                    convert_f32_to_s32(reinterpret_cast<int32_t*>(directBufferAddress), renderBuffer.data(), totalSamples);
+                }
+                else
+                {
+                    std::memcpy(directBufferAddress, renderBuffer.data(), totalSamples * sizeof(float));
+                }
+
+                // CRITICAL FIX: Reset the java.nio.ByteBuffer position to 0 before every write!
+                // AudioTrack.write() in Android advances the buffer position by the written byte count.
+                // Without rewinding, subsequent writes have remaining() == 0, causing AudioTrack.write()
+                // to return ERROR_BAD_VALUE (-2) continuously and permanently muting playback.
+                if (rewindMethod && directBufferObj)
+                {
+                    env->CallObjectMethod(directBufferObj, rewindMethod);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+
+                if (writeMethod && directBufferObj)
+                {
+                    int written = env->CallIntMethod(audioTrackObj, writeMethod, directBufferObj, (jint)bytesToWrite, 0 /* WRITE_BLOCKING */);
+                    if (env->ExceptionCheck())
+                    {
+                        env->ExceptionClear();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    }
+                    else if (written < 0)
+                    {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    }
+                    else if (!playCalled && playMethod)
+                    {
+                        // Start playback once the initial pre-roll buffer is written
+                        env->CallVoidMethod(audioTrackObj, playMethod);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        playCalled = true;
+                    }
+                }
+                else
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+            }
+
+            if (stopMethod && audioTrackObj)
+            {
+                env->CallVoidMethod(audioTrackObj, stopMethod);
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+
+            g_androidJavaVM->DetachCurrentThread();
+        }
+    };
+#else
+    AE_API void ae_register_android_jvm(void *vm)
+    {
+        (void)vm;
+    }
+#endif
+
 extern "C"
 {
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels)
+
     {
         if (sample_rate <= 0)
             sample_rate = 48000;
@@ -5633,7 +6291,22 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
+#if defined(__ANDROID__)
+            if (e->pAudioTrackSink != nullptr)
+            {
+                auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
+                sink->stop();
+                sink->release();
+                delete sink;
+                e->pAudioTrackSink = nullptr;
+            }
+#endif
             ma_device_uninit(&e->device);
+            if (e->customContextInit)
+            {
+                ma_context_uninit(&e->customContext);
+                e->customContextInit = false;
+            }
         }
 
         e->garbageQueue.drain();
@@ -5972,11 +6645,20 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
+#if defined(__ANDROID__)
+            if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
             {
-                if (ma_device_start(&e->device) != MA_SUCCESS)
+                reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
+            }
+            else
+#endif
+            {
+                if (ma_device_get_state(&e->device) != ma_device_state_started)
                 {
-                    engine_log("Failed to start device in ae_play");
+                    if (ma_device_start(&e->device) != MA_SUCCESS)
+                    {
+                        engine_log("Failed to start device in ae_play");
+                    }
                 }
             }
         }
@@ -6021,6 +6703,12 @@ extern "C"
             ma_resampler_reset(&e->pitchResampler);
             e->pitchInputUnconsumed = 0;
         }
+#if defined(__ANDROID__)
+        if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
+        {
+            reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->stop();
+        }
+#endif
         return true;
     }
 
@@ -6646,14 +7334,7 @@ extern "C"
         }
         if (e->crossfeedEnabled)
         {
-            if (e->crossfeedPreset == 4)
-            {
-                totalLatency += e->crossfeed.getLatencySamples(sr);
-            }
-            else
-            {
-                totalLatency += e->crossfeedNode.getLatencySamples();
-            }
+            totalLatency += e->crossfeedNode.getLatencySamples();
         }
         if (e->reverbEnabled)
         {
@@ -6918,7 +7599,13 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        e->pitchMultiplier.store(std::max(0.01f, pitch), std::memory_order_relaxed);
+        const float clamped = std::max(0.01f, pitch);
+        const float oldPitch = e->pitchMultiplier.load(std::memory_order_relaxed);
+        if (std::abs(clamped - oldPitch) > 0.005f)
+        {
+            e->pitchMultiplier.store(clamped, std::memory_order_relaxed);
+            e->decodeProducerCv.notify_all();
+        }
     }
 
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *e, int enabled)
@@ -7091,9 +7778,12 @@ extern "C"
         engine->crossfeedEnabled = (enabled != 0);
         if (engine->crossfeedEnabled)
         {
-            // Legacy preset path: presets 1-3 use CrossfeedNode BS2B algorithm,
-            // preset 4 stays as legacy RACE via CrossfeedState
-            if (engine->crossfeedPreset != 4)
+            if (engine->crossfeedPreset == 4)
+            {
+                engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
+                engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+            }
+            else
             {
                 CrossfeedAlgorithm algo = CrossfeedAlgorithm::BS2B;
                 if (engine->crossfeedPreset == 0)
@@ -7105,10 +7795,6 @@ extern "C"
                 if (engine->crossfeedPreset == 1) { engine->crossfeedNode.setMix(0.5f); engine->crossfeedNode.setCutoffHz(700.0f); }
                 else if (engine->crossfeedPreset == 2) { engine->crossfeedNode.setMix(0.65f); engine->crossfeedNode.setCutoffHz(700.0f); }
                 else if (engine->crossfeedPreset == 3) { engine->crossfeedNode.setMix(0.85f); engine->crossfeedNode.setCutoffHz(650.0f); }
-            }
-            else
-            {
-                engine->crossfeed.reset(engine->sampleRate, engine->crossfeedPreset);
             }
         }
         else
@@ -7126,9 +7812,8 @@ extern "C"
 
         if (preset == 4)
         {
-            // RACE: keep using legacy CrossfeedState
-            engine->crossfeed.reset(engine->sampleRate, preset);
-            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
+            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
+            engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
         }
         else
         {
@@ -7197,6 +7882,7 @@ extern "C"
         if (!engine)
             return;
         std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedNode.setRaceParams(delay_ms, alpha, lpf_hz);
         engine->crossfeed.updateRaceParams(engine->sampleRate, delay_ms, alpha, lpf_hz);
     }
 
@@ -7256,6 +7942,14 @@ extern "C"
                        e->isCrossfading.load(std::memory_order_relaxed) ? "true" : "false");
 
             engine_log("DEVICE STOP BEGIN");
+#if defined(__ANDROID__)
+            if (e->pAudioTrackSink != nullptr)
+            {
+                auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
+                sink->stop();
+                sink->release();
+            }
+#endif
             if (ma_device_get_state(&e->device) == ma_device_state_started)
             {
                 ma_device_stop(&e->device);
@@ -7264,6 +7958,11 @@ extern "C"
 
             engine_log("DEVICE UNINIT BEGIN");
             ma_device_uninit(&e->device);
+            if (e->customContextInit)
+            {
+                ma_context_uninit(&e->customContext);
+                e->customContextInit = false;
+            }
             engine_log("DEVICE UNINIT END");
 
             // Cleanly finalize any active crossfade before destroying decoder slots
@@ -7286,8 +7985,14 @@ extern "C"
             int newRate = targetOutputRate > 0 ? targetOutputRate : 0;
             int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
 
-            const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                       e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+            bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+#if defined(_WIN32)
+            if (e->configuredBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES)
+            {
+                wantExclusive = true;
+            }
+#endif
 
             // Exclusive mode requires an explicit sample rate (never 0)
             if (wantExclusive && newRate == 0)
@@ -7347,62 +8052,121 @@ extern "C"
                        wantExclusive ? "true" : "false");
 
             bool initOk = false;
-            if (wantExclusive)
+            int targetBackend = e->configuredBackend.load(std::memory_order_relaxed);
+
+#if defined(__ANDROID__)
+            if (targetBackend == AE_BACKEND_AUDIOTRACK || targetBackend == AE_BACKEND_DIRECT_HIRES)
             {
-                cfg.playback.shareMode = ma_share_mode_exclusive;
-                cfg.performanceProfile = ma_performance_profile_low_latency;
-                cfg.periodSizeInMilliseconds = 25;
-                cfg.periods = 4;
-                cfg.wasapi.noAutoConvertSRC = 1;
-                cfg.wasapi.noDefaultQualitySRC = 1;
-                cfg.alsa.noMMap = 0;
-                cfg.noPreSilencedOutputBuffer = 0;
+                if (e->pAudioTrackSink == nullptr)
+                {
+                    e->pAudioTrackSink = new AndroidAudioTrackSink();
+                }
+                auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
+                bool wantDirect = (targetBackend == AE_BACKEND_DIRECT_HIRES);
+                int targetRate = (wantDirect && e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit;
 
-                apply_buffer_policy(e, cfg);
+                // AudioTrack sink internally consumes float PCM from data_callback and converts to S24 packed if required
+                e->device.playback.format = ma_format_f32;
+                e->device.playback.channels = (ma_uint32)newCh;
+                e->device.sampleRate = (ma_uint32)targetRate;
+                e->device.pUserData = e;
 
-                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+                if (sink->init(e, targetRate, newCh, wantDirect))
                 {
                     initOk = true;
-                    engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
+                    e->activeBackend.store(targetBackend, std::memory_order_release);
+                    engine_log("AudioTrack sink initialized successfully (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
                 }
                 else
                 {
-                    engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
+                    engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
                 }
             }
+#endif
 
             if (!initOk)
             {
-                cfg.playback.shareMode = ma_share_mode_shared;
-                cfg.performanceProfile = ma_performance_profile_conservative;
-                cfg.sampleRate = 0;
-                cfg.wasapi.noAutoConvertSRC = 0;
-                cfg.wasapi.noDefaultQualitySRC = 0;
-                cfg.noPreSilencedOutputBuffer = 0;
-
-                apply_buffer_policy(e, cfg);
-
-                if (ma_device_init(nullptr, &cfg, &e->device) == MA_SUCCESS)
+                ma_context *pContextToUse = nullptr;
+#if defined(__ANDROID__)
+                if (targetBackend == AE_BACKEND_AAUDIO || targetBackend == AE_BACKEND_OPENSL)
                 {
-                    initOk = true;
-                    engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
+                    ma_backend backends[1];
+                    backends[0] = (targetBackend == AE_BACKEND_AAUDIO) ? ma_backend_aaudio : ma_backend_opensl;
+                    if (ma_context_init(backends, 1, nullptr, &e->customContext) == MA_SUCCESS)
+                    {
+                        e->customContextInit = true;
+                        pContextToUse = &e->customContext;
+                    }
                 }
-                else
+#endif
+                if (wantExclusive)
                 {
-                    engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
-                    ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
-                    safeCfg.playback.format = ma_format_f32;
-                    safeCfg.playback.channels = 2;
-                    safeCfg.sampleRate = 0;
-                    safeCfg.dataCallback = data_callback;
-                    safeCfg.notificationCallback = device_notification_callback;
-                    safeCfg.pUserData = e;
+                    cfg.playback.shareMode = ma_share_mode_exclusive;
+                    cfg.performanceProfile = ma_performance_profile_low_latency;
+                    cfg.periodSizeInMilliseconds = 25;
+                    cfg.periods = 4;
+                    cfg.wasapi.noAutoConvertSRC = 1;
+                    cfg.wasapi.noDefaultQualitySRC = 1;
+                    cfg.alsa.noMMap = 0;
+                    cfg.noPreSilencedOutputBuffer = 0;
 
-                    if (ma_device_init(nullptr, &safeCfg, &e->device) == MA_SUCCESS)
+                    apply_buffer_policy(e, cfg);
+
+                    if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         initOk = true;
-                        engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                        engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
                     }
+                    else
+                    {
+                        engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
+                    }
+                }
+
+                if (!initOk)
+                {
+                    cfg.playback.shareMode = ma_share_mode_shared;
+                    cfg.performanceProfile = ma_performance_profile_conservative;
+                    cfg.sampleRate = 0;
+                    cfg.wasapi.noAutoConvertSRC = 0;
+                    cfg.wasapi.noDefaultQualitySRC = 0;
+                    cfg.noPreSilencedOutputBuffer = 0;
+
+                    apply_buffer_policy(e, cfg);
+
+                    if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+                    {
+                        initOk = true;
+                        engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
+                    }
+                    else
+                    {
+                        engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
+                        ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
+                        safeCfg.playback.format = ma_format_f32;
+                        safeCfg.playback.channels = 2;
+                        safeCfg.sampleRate = 0;
+                        safeCfg.dataCallback = data_callback;
+                        safeCfg.notificationCallback = device_notification_callback;
+                        safeCfg.pUserData = e;
+
+                        if (ma_device_init(pContextToUse, &safeCfg, &e->device) == MA_SUCCESS)
+                        {
+                            initOk = true;
+                            engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                        }
+                    }
+                }
+
+                if (initOk)
+                {
+                    int reportedBackend = AE_BACKEND_AUTO;
+                    if (e->device.pContext != nullptr)
+                    {
+                        if (e->device.pContext->backend == ma_backend_aaudio) reportedBackend = AE_BACKEND_AAUDIO;
+                        else if (e->device.pContext->backend == ma_backend_opensl) reportedBackend = AE_BACKEND_OPENSL;
+                    }
+                    e->activeBackend.store(reportedBackend, std::memory_order_release);
                 }
             }
 
@@ -7549,7 +8313,16 @@ extern "C"
             if (wasPlaying)
             {
                 engine_log("DEVICE START");
-                ma_device_start(&e->device);
+#if defined(__ANDROID__)
+                if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
+                {
+                    reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
+                }
+                else
+#endif
+                {
+                    ma_device_start(&e->device);
+                }
             }
 
             request_preload(e);
@@ -7718,6 +8491,83 @@ extern "C"
     {
         return engine ? (engine->exclusiveModeEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
+
+    AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend)
+    {
+        if (!engine)
+            return 0;
+        if (backend == AE_BACKEND_AUTO)
+            return 1;
+
+#if defined(__ANDROID__)
+        if (backend == AE_BACKEND_AAUDIO)
+        {
+            char sdkStr[PROP_VALUE_MAX] = {0};
+            __system_property_get("ro.build.version.sdk", sdkStr);
+            int sdk = std::atoi(sdkStr);
+            return (sdk >= 26 || sdk == 0) ? 1 : 0;
+        }
+        if (backend == AE_BACKEND_OPENSL)
+        {
+            return 1;
+        }
+        if (backend == AE_BACKEND_AUDIOTRACK)
+        {
+            return (g_androidJavaVM != nullptr) ? 1 : 0;
+        }
+        if (backend == AE_BACKEND_DIRECT_HIRES)
+        {
+            return (g_androidJavaVM != nullptr) ? 1 : 0;
+        }
+        return 0;
+#elif defined(_WIN32)
+        if (backend == AE_BACKEND_DIRECT_HIRES)
+            return 1;
+        return 0;
+#elif defined(__APPLE__)
+        if (backend == AE_BACKEND_DIRECT_HIRES)
+            return 1;
+        return 0;
+#elif defined(__linux__)
+        if (backend == AE_BACKEND_DIRECT_HIRES)
+            return 1;
+        return 0;
+#else
+        return 0;
+#endif
+    }
+
+    AE_API int ae_set_output_backend(AudioEngineHandle *engine, int backend)
+    {
+        if (!engine)
+            return 0;
+        if (backend < 0 || backend > AE_BACKEND_DIRECT_HIRES)
+            return 0;
+
+        if (!ae_is_backend_supported(engine, backend))
+        {
+            engine_log("Requested backend %d is not supported on this platform/device", backend);
+            return 0;
+        }
+
+        if (engine->configuredBackend.load(std::memory_order_relaxed) == backend)
+        {
+            return 1;
+        }
+
+        engine_log("Setting output backend to: %d", backend);
+        engine->configuredBackend.store(backend, std::memory_order_relaxed);
+        restart_and_apply_config(engine);
+        return 1;
+    }
+
+    AE_API int ae_get_output_backend(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return AE_BACKEND_AUTO;
+        return engine->activeBackend.load(std::memory_order_relaxed);
+    }
+
 
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format)
     {
@@ -9184,6 +10034,28 @@ extern "C"
         engine->analogWarmthDsp.setDrive(drive);
     }
 
+    // Dialogue Booster / Enhancer
+    AE_API void ae_dsp_set_dialog_enhancer_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dialogEnhancerDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API void ae_dsp_set_dialog_enhancer_params(AudioEngineHandle *engine, int profile, float amount, float ducking, float clarity, float center_focus)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (profile < 0 || profile > 4) profile = 0;
+        engine->dialogEnhancerDsp.setParams(static_cast<sauti::dsp::DialogEnhancerProfile>(profile), amount, ducking, clarity, center_focus);
+    }
+
+    AE_API float ae_dsp_get_dialog_enhancer_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        return engine->dialogEnhancerDsp.getGainReductionDb();
+    }
+
     // Split-Band / Wideband De-Esser
     AE_API void ae_dsp_set_de_esser_enabled(AudioEngineHandle *engine, int enabled)
     {
@@ -9276,6 +10148,7 @@ extern "C"
         engine->harmonicBassDsp.reset();
         engine->dynamicSystemDsp.reset();
         engine->analogWarmthDsp.reset();
+        engine->dialogEnhancerDsp.reset();
         engine->deEsserDsp.reset();
         engine->downwardExpanderDsp.reset();
         engine->fftConvolverDsp.reset();
@@ -9296,41 +10169,136 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        if (mode < 0 || mode > 4) mode = 0;
+        if (mode == 4) mode = 1; // Map legacy AE_SURROUND_MATRIX_5_1_HRTF (4) to Matrix (1)
+        if (mode < 0 || mode > 3) mode = 0;
         engine->surroundDsp.setMode(static_cast<sauti::dsp::SurroundMode>(mode));
     }
 
     AE_API void ae_dsp_set_surround_params(AudioEngineHandle *engine,
-                                           float width_expansion,
-                                           float room_level,
-                                           float delay_ms,
-                                           float center_focus)
+                                           float p1,
+                                           float p2,
+                                           float p3,
+                                           float p4)
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        engine->surroundDsp.setFieldWidth(width_expansion);
-        engine->surroundDsp.setVhsRoomPreset(static_cast<int>(room_level + 0.5f));
-        engine->surroundDsp.setHaasDelayMs(delay_ms);
-        engine->surroundDsp.setCenterFocus(center_focus);
+        auto &dsp = engine->surroundDsp;
+        switch (dsp.getMode()) {
+            case sauti::dsp::SurroundMode::MatrixSurround:
+                dsp.setCenterFocus(p1);
+                dsp.setSurroundBoost(p2);
+                dsp.setSurroundDelayMs(p3);
+                if (p4 > 1.0f) dsp.setHeadRadiusCm(p4);
+                break;
+            case sauti::dsp::SurroundMode::BinauralVirtualizer:
+                dsp.setBinauralBoost(p1);
+                dsp.setBinauralMode(static_cast<int>(p2 + 0.1f));
+                dsp.setBinauralRoomPreset(static_cast<int>(p3 + 0.1f));
+                dsp.setBinauralRoomMix(p4);
+                break;
+            case sauti::dsp::SurroundMode::AcousticStage:
+                dsp.setStageWidth(p1);
+                dsp.setStageDepth(p2);
+                dsp.setStageMode(static_cast<int>(p3 + 0.1f));
+                dsp.setStageCancellation(p4);
+                break;
+            default:
+                dsp.setCenterFocus(p1);
+                dsp.setSurroundBoost(p2);
+                break;
+        }
     }
 
     AE_API void ae_dsp_get_surround_params(AudioEngineHandle *engine,
                                            int *out_enabled,
                                            int *out_mode,
-                                           float *out_width,
-                                           float *out_room_level,
-                                           float *out_delay_ms,
-                                           float *out_center_focus)
+                                           float *out_p1,
+                                           float *out_p2,
+                                           float *out_p3,
+                                           float *out_p4)
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
         const auto &dsp = engine->surroundDsp;
-        if (out_enabled)      *out_enabled = dsp.isEnabled() ? 1 : 0;
-        if (out_mode)         *out_mode = static_cast<int>(dsp.getMode());
-        if (out_width)        *out_width = dsp.getFieldWidth();
-        if (out_room_level)   *out_room_level = static_cast<float>(dsp.getVhsRoomPreset());
-        if (out_delay_ms)     *out_delay_ms = dsp.getHaasDelayMs();
-        if (out_center_focus) *out_center_focus = dsp.getCenterFocus();
+        if (out_enabled) *out_enabled = dsp.isEnabled() ? 1 : 0;
+        if (out_mode)    *out_mode = static_cast<int>(dsp.getMode());
+
+        switch (dsp.getMode()) {
+            case sauti::dsp::SurroundMode::BinauralVirtualizer:
+                if (out_p1) *out_p1 = dsp.getBinauralBoost();
+                if (out_p2) *out_p2 = static_cast<float>(dsp.getBinauralMode());
+                if (out_p3) *out_p3 = static_cast<float>(dsp.getBinauralRoomPreset());
+                if (out_p4) *out_p4 = dsp.getBinauralRoomMix();
+                break;
+            case sauti::dsp::SurroundMode::AcousticStage:
+                if (out_p1) *out_p1 = dsp.getStageWidth();
+                if (out_p2) *out_p2 = dsp.getStageDepth();
+                if (out_p3) *out_p3 = static_cast<float>(dsp.getStageMode());
+                if (out_p4) *out_p4 = dsp.getStageCancellation();
+                break;
+            case sauti::dsp::SurroundMode::MatrixSurround:
+            default:
+                if (out_p1) *out_p1 = dsp.getCenterFocus();
+                if (out_p2) *out_p2 = dsp.getSurroundBoost();
+                if (out_p3) *out_p3 = dsp.getSurroundDelayMs();
+                if (out_p4) *out_p4 = dsp.getHeadRadiusCm();
+                break;
+        }
+    }
+
+    AE_API void ae_dsp_set_surround_matrix_params(AudioEngineHandle *engine,
+                                                  float center_focus,
+                                                  float surround_boost,
+                                                  float surround_delay_ms,
+                                                  float head_radius_cm)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        auto &dsp = engine->surroundDsp;
+        dsp.setCenterFocus(center_focus);
+        dsp.setSurroundBoost(surround_boost);
+        dsp.setSurroundDelayMs(surround_delay_ms);
+        dsp.setHeadRadiusCm(head_radius_cm);
+    }
+
+    AE_API void ae_dsp_set_surround_binaural_params(AudioEngineHandle *engine,
+                                                    int mode,
+                                                    float boost,
+                                                    int room_preset,
+                                                    float room_mix,
+                                                    int speaker_angle,
+                                                    float shadow_cutoff_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        auto &dsp = engine->surroundDsp;
+        dsp.setBinauralMode(mode);
+        dsp.setBinauralBoost(boost);
+        dsp.setBinauralRoomPreset(room_preset);
+        dsp.setBinauralRoomMix(room_mix);
+        dsp.setBinauralSpeakerAngle(speaker_angle);
+        dsp.setBinauralShadowCutoff(shadow_cutoff_hz);
+    }
+
+    AE_API void ae_dsp_set_surround_stage_params(AudioEngineHandle *engine,
+                                                 int profile,
+                                                 int mode,
+                                                 float width,
+                                                 float depth,
+                                                 float cancellation,
+                                                 float air_presence,
+                                                 float bass_anchor_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        auto &dsp = engine->surroundDsp;
+        dsp.setStageProfile(profile);
+        dsp.setStageMode(mode);
+        dsp.setStageWidth(width);
+        dsp.setStageDepth(depth);
+        dsp.setStageCancellation(cancellation);
+        dsp.setStageAirPresence(air_presence);
+        dsp.setStageBassAnchorHz(bass_anchor_hz);
     }
 
     AE_API void ae_dsp_set_surround_params_ex(AudioEngineHandle *engine,
@@ -9352,20 +10320,15 @@ extern "C"
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
         auto &dsp = engine->surroundDsp;
-        dsp.setFieldWidth(field_width);
-        dsp.setFieldCrossoverHz(field_crossover_hz);
-        dsp.setFieldDiffuserMix(field_diffuser_mix);
-        dsp.setBassAnchor(bass_anchor);
-        dsp.setHaasDelayMs(haas_delay_ms);
-        dsp.setHaasDepth(haas_depth);
-        dsp.setHaasDampingHz(haas_damping_hz);
-        dsp.setVhsRoomPreset(vhs_room_preset);
-        dsp.setVhsReflectionGain(vhs_reflection_gain);
-        dsp.setVhsDamping(vhs_damping);
         dsp.setCenterFocus(center_focus);
         dsp.setSurroundBoost(surround_boost);
         dsp.setSurroundDelayMs(surround_delay_ms);
         dsp.setHeadRadiusCm(head_radius_cm);
+
+        // Map backwards-compatible legacy fields to new algorithms:
+        dsp.setStageWidth(field_width);
+        dsp.setBinauralRoomPreset(vhs_room_preset);
+        dsp.setBinauralRoomMix(vhs_reflection_gain);
     }
 
     // FFT Impulse Response Convolver
@@ -9690,22 +10653,6 @@ extern "C"
     }
 
 #if defined(__ANDROID__)
-    #include <jni.h>
-
-    static JavaVM* g_androidJavaVM = nullptr;
-
-    extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
-    {
-        (void)reserved;
-        g_androidJavaVM = vm;
-        return JNI_VERSION_1_6;
-    }
-
-    AE_API void ae_register_android_jvm(void *vm)
-    {
-        if (vm) g_androidJavaVM = (JavaVM*)vm;
-    }
-
     static void query_android_hardware_info(AEHardwareInfo* info)
     {
         if (g_androidJavaVM == nullptr || info == nullptr)
@@ -9926,6 +10873,17 @@ extern "C"
                 info->latency_ms = (totalFrames / (double)info->sample_rate) * 1000.0;
             }
 
+            detect_universal_hardware_dsp(info);
+
+            if (selectedPriority == 4)
+            {
+                std::strncat(info->dsp_hardware, " (External USB Audio Class DAC)", sizeof(info->dsp_hardware) - std::strlen(info->dsp_hardware) - 1);
+            }
+            else if (selectedPriority == 3)
+            {
+                std::strncat(info->dsp_hardware, " (Bluetooth Audio Output)", sizeof(info->dsp_hardware) - std::strlen(info->dsp_hardware) - 1);
+            }
+
         } while (false);
 
         if (env->ExceptionCheck())
@@ -9937,11 +10895,6 @@ extern "C"
         {
             g_androidJavaVM->DetachCurrentThread();
         }
-    }
-#else
-    AE_API void ae_register_android_jvm(void *vm)
-    {
-        (void)vm;
     }
 #endif
 
@@ -9982,42 +10935,82 @@ extern "C"
                 std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
             }
 
-            ma_format hwFormat = pDevice->playback.internalFormat;
-            info.sample_rate = (int)pDevice->playback.internalSampleRate;
-            info.channels = (int)pDevice->playback.internalChannels;
-            info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
-            info.period_count = (uint32_t)pDevice->playback.internalPeriods;
-
-            info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
-
-            switch (hwFormat)
+#if defined(__ANDROID__)
+            int activeBkForHw = engine->activeBackend.load(std::memory_order_relaxed);
+            if (engine->pAudioTrackSink != nullptr && activeBkForHw >= AE_BACKEND_AUDIOTRACK)
             {
-            case ma_format_u8:
-                info.output_format = AE_FORMAT_U8;
-                info.bit_depth = 8;
-                info.is_float = 0;
-                break;
-            case ma_format_s16:
-                info.output_format = AE_FORMAT_S16;
-                info.bit_depth = 16;
-                info.is_float = 0;
-                break;
-            case ma_format_s24:
-                info.output_format = AE_FORMAT_S24;
-                info.bit_depth = 24;
-                info.is_float = 0;
-                break;
-            case ma_format_s32:
-                info.output_format = AE_FORMAT_S32;
-                info.bit_depth = 32;
-                info.is_float = 0;
-                break;
-            case ma_format_f32:
-            default:
-                info.output_format = AE_FORMAT_F32;
-                info.bit_depth = 32;
-                info.is_float = 1;
-                break;
+                auto* sink = reinterpret_cast<AndroidAudioTrackSink*>(engine->pAudioTrackSink);
+                info.sample_rate = sink->sampleRate;
+                info.channels = sink->channels;
+                info.period_size_frames = (uint32_t)sink->framesPerBuffer;
+                info.period_count = 2;
+                info.is_exclusive_mode = (activeBkForHw == AE_BACKEND_DIRECT_HIRES) ? 1 : 0;
+
+                if (sink->encoding == 21)
+                {
+                    info.output_format = AE_FORMAT_S24;
+                    info.bit_depth = 24;
+                    info.is_float = 0;
+                }
+                else if (sink->encoding == 2)
+                {
+                    info.output_format = AE_FORMAT_S16;
+                    info.bit_depth = 16;
+                    info.is_float = 0;
+                }
+                else if (sink->encoding == 22)
+                {
+                    info.output_format = AE_FORMAT_S32;
+                    info.bit_depth = 32;
+                    info.is_float = 0;
+                }
+                else
+                {
+                    info.output_format = AE_FORMAT_F32;
+                    info.bit_depth = 32;
+                    info.is_float = 1;
+                }
+            }
+            else
+#endif
+            {
+                ma_format hwFormat = pDevice->playback.internalFormat;
+                info.sample_rate = (int)pDevice->playback.internalSampleRate;
+                info.channels = (int)pDevice->playback.internalChannels;
+                info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
+                info.period_count = (uint32_t)pDevice->playback.internalPeriods;
+
+                info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
+
+                switch (hwFormat)
+                {
+                case ma_format_u8:
+                    info.output_format = AE_FORMAT_U8;
+                    info.bit_depth = 8;
+                    info.is_float = 0;
+                    break;
+                case ma_format_s16:
+                    info.output_format = AE_FORMAT_S16;
+                    info.bit_depth = 16;
+                    info.is_float = 0;
+                    break;
+                case ma_format_s24:
+                    info.output_format = AE_FORMAT_S24;
+                    info.bit_depth = 24;
+                    info.is_float = 0;
+                    break;
+                case ma_format_s32:
+                    info.output_format = AE_FORMAT_S32;
+                    info.bit_depth = 32;
+                    info.is_float = 0;
+                    break;
+                case ma_format_f32:
+                default:
+                    info.output_format = AE_FORMAT_F32;
+                    info.bit_depth = 32;
+                    info.is_float = 1;
+                    break;
+                }
             }
 
             if (info.sample_rate > 0)
@@ -10026,8 +11019,52 @@ extern "C"
                 info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
             }
 
-#if defined(__ANDROID__)
+            int activeBk = engine->activeBackend.load(std::memory_order_relaxed);
+            if (activeBk == AE_BACKEND_DIRECT_HIRES)
+            {
+                std::strncpy(info.backend_name, "Direct Hi-Res", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 1;
+            }
+            else if (activeBk == AE_BACKEND_AUDIOTRACK)
+            {
+                std::strncpy(info.backend_name, "AudioTrack", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 0;
+            }
+            else if (activeBk == AE_BACKEND_AAUDIO)
+            {
+                std::strncpy(info.backend_name, "AAudio", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 0;
+            }
+            else if (activeBk == AE_BACKEND_OPENSL)
+            {
+                std::strncpy(info.backend_name, "OpenSL ES", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 0;
+            }
+
+#if !defined(__ANDROID__)
+#if defined(_WIN32)
+            std::strncpy(info.dsp_hardware, "Windows Audio Subsystem (WASAPI Core)", sizeof(info.dsp_hardware) - 1);
+            std::strncpy(info.soc_name, "x86_64 Host Processor (SIMD AVX2/SSE)", sizeof(info.soc_name) - 1);
+            info.is_direct_pcm = engine->exclusiveModeEnabled ? 1 : 0;
+#elif defined(__APPLE__)
+            std::strncpy(info.dsp_hardware, "Apple Core Audio Engine", sizeof(info.dsp_hardware) - 1);
+            std::strncpy(info.soc_name, "Apple Silicon / Core Audio", sizeof(info.soc_name) - 1);
+            info.is_direct_pcm = 1;
+#elif defined(__linux__)
+            std::strncpy(info.dsp_hardware, "ALSA Direct Kernel Sound", sizeof(info.dsp_hardware) - 1);
+            std::strncpy(info.soc_name, "Linux Host Processor", sizeof(info.soc_name) - 1);
+            info.is_direct_pcm = engine->exclusiveModeEnabled ? 1 : 0;
+#else
+            std::strncpy(info.dsp_hardware, "Host Native Audio", sizeof(info.dsp_hardware) - 1);
+            std::strncpy(info.soc_name, "Host CPU", sizeof(info.soc_name) - 1);
+            info.is_direct_pcm = 0;
+#endif
+#else
             query_android_hardware_info(&info);
+            if (activeBk == AE_BACKEND_DIRECT_HIRES)
+            {
+                info.is_direct_pcm = 1;
+            }
 #endif
         }
         catch (...)

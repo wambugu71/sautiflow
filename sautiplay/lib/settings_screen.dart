@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -158,15 +159,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _outputBufferFrames = 0;
   int _outputBufferPeriods = 0;
 
+  // Android Audio Output Backend & Hardware
+  AudioOutputBackend _selectedBackend = AudioOutputBackend.auto;
+  String _detectedDspHardware = '';
+  // String _detectedSocModel = '';
+
   // Neutron HiFi Engine Settings
   bool _use64BitProcessingEnabled = false;
-  bool _autoBitPerfectEnabled = false;
+  bool _autoBitPerfectEnabled = true;
 
   // Loudness-Aware Crossfade
   bool _loudnessCrossfadeEnabled = true;
 
   // Release 1 Quality Foundation
-  bool _loudnessNormalizerEnabled = false;
+  bool _loudnessNormalizerEnabled = true;
   double _loudnessNormalizerTargetLUFS = -14.0;
   bool _lookaheadLimiterEnabled = true;
   double _lookaheadLimiterCeilingDBTP = -1.0;
@@ -187,6 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   StreamSubscription<void>? _audioSettingsSub;
   StreamSubscription<PlayerStatus>? _playerStatusSub;
+  StreamSubscription<String>? _lastFmAuthSub;
   bool _isPlaying = false;
 
   @override
@@ -204,6 +211,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _playerStatusSub = widget.player.statusStream.listen((status) {
       if (mounted && _isPlaying != status.isPlaying) {
         setState(() => _isPlaying = status.isPlaying);
+      }
+    });
+    _lastFmAuthSub = LastFmService.instance.authSuccessStream.listen((username) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connected to Last.fm as $username!'),
+            backgroundColor: const Color(0xFFD51007),
+          ),
+        );
       }
     });
   }
@@ -239,6 +256,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _audioSettingsSub?.cancel();
     _playerStatusSub?.cancel();
+    _lastFmAuthSub?.cancel();
     super.dispose();
   }
 
@@ -263,13 +281,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _getStreamingQualityBadgeText() {
     switch (_streamingQualityPreset) {
       case AudioQualityPreset.low:
-        return 'Data Saver (50k)';
+        return 'Data Saver';
       case AudioQualityPreset.medium:
-        return 'Balanced (70k)';
+        return 'Balanced';
       case AudioQualityPreset.high:
-        return 'High AAC (128k)';
+        return 'High';
       case AudioQualityPreset.audiophile:
-        return 'Audiophile (160k)';
+        return 'Max';
     }
   }
 
@@ -372,6 +390,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       periodCount: _outputBufferPeriods,
     );
     _applySpeakerProtectionSettings();
+
+    if (Platform.isAndroid) {
+      widget.player.getOutputBackend().then((bk) {
+        if (mounted) setState(() => _selectedBackend = bk);
+      });
+      widget.player.getHardwareInfo().then((info) {
+        if (mounted) {
+          setState(() {
+            _detectedDspHardware = info.dspHardware;
+            //  _detectedSocModel = info.socName;
+          });
+        }
+      });
+    }
   }
 
   void _persistLoudnessNormalizerSettings() {
@@ -506,7 +538,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       delegate: SliverChildListDelegate([
                         //  _buildSettingsHeaderCard(),
                         const SizedBox(height: 20),
-                        _buildSectionHeader('PREFERENCES & ENGINE'),
+                        _buildSectionHeader('PREFERENCES'),
                         const SizedBox(height: 10),
                         M3ECardList(
                           itemCount: 9,
@@ -549,8 +581,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 );
                                 break;
                               case 7:
-                                _navigateToSubScreen(
-                                    _buildLastFmSubScreen());
+                                _navigateToSubScreen(_buildLastFmSubScreen());
                                 break;
                               case 8:
                                 _navigateToSubScreen(
@@ -864,7 +895,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Changes the look of the entire app',
+                                'Changes the theme colors',
                                 style:
                                     TextStyle(color: mutedText, fontSize: 12),
                               ),
@@ -1291,7 +1322,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 M3EListItem(
                   headline: 'Oversampler',
-                  supportingText: 'Anti-aliasing for DSP & limiters',
+                  supportingText: 'Anti-aliasing for DSP',
                   leading: _buildLeadingIcon(Icons.blur_on),
                   trailing: SizedBox(
                     width: 150,
@@ -1342,13 +1373,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            _buildSectionHeader('HARDWARE OUTPUT & PHASE'),
+            _buildSectionHeader('HARDWARE OUTPUT'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 M3EListItem(
                   headline: 'Output Bit Depth',
-                  supportingText: 'Hardware PCM bit precision',
+                  supportingText: 'Audio precision',
                   leading: _buildLeadingIcon(Icons.code),
                   trailing: SizedBox(
                     width: 150,
@@ -1379,9 +1410,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     duration: const Duration(milliseconds: 200),
                     child: M3EListItem(
                       headline: 'Sample Rate',
-                      supportingText: _autoBitPerfectEnabled
-                          ? 'Managed automatically (Auto Bit-Perfect is on)'
-                          : null,
+                      supportingText:
+                          _autoBitPerfectEnabled ? 'Auto Bit-Perfect' : null,
                       leading: _buildLeadingIcon(Icons.speed),
                       trailing: SizedBox(
                         width: 150,
@@ -1438,7 +1468,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 M3EListItem(
                   headline: 'Output Buffer & Latency',
-                  supportingText: 'Hardware period buffer frame size and periods',
+                  supportingText:
+                      'Hardware period buffer frame size and periods',
                   leading: _buildLeadingIcon(Icons.av_timer_rounded),
                   trailing: SizedBox(
                     width: 160,
@@ -1478,14 +1509,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Phase Inversion (Ø 180°)',
+                                  'Phase Inversion (180°)',
                                   style: TextStyle(
                                       color: _textPrimary,
                                       fontWeight: FontWeight.w500),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Invert PCM polarity for reversed hardware or phase alignment',
+                                  'Invert polarity',
                                   style:
                                       TextStyle(color: _textDark, fontSize: 12),
                                 ),
@@ -1499,7 +1530,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Expanded(
                             child: _buildM3ESwitchTile(
-                              title: 'Left Phase Ø',
+                              title: 'Left Phase 180°',
                               value: _phaseInvertLeft,
                               onChanged: (val) {
                                 setState(() => _phaseInvertLeft = val);
@@ -1510,7 +1541,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           Expanded(
                             child: _buildM3ESwitchTile(
-                              title: 'Right Phase Ø',
+                              title: 'Right Phase 180°',
                               value: _phaseInvertRight,
                               onChanged: (val) {
                                 setState(() => _phaseInvertRight = val);
@@ -1526,7 +1557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: 'L/R Channel Swap',
+                  title: 'Swap Channels', //swap horizon
                   subtitle: _lrSwapEnabled
                       ? 'Left and right outputs are swapped'
                       : 'Mirror left and right audio channels',
@@ -1564,7 +1595,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)',
+                                  'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)', //
                                   style:
                                       TextStyle(color: _textDark, fontSize: 12),
                                 ),
@@ -1796,7 +1827,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 _buildM3ESwitchTile(
                   title: '64-Bit Float DSP',
-                  subtitle: 'Higher accuracy (requires more power)',
+                  subtitle: 'Higher accuracy (more power consumption)',
                   secondary: _buildLeadingIcon(Icons.architecture),
                   value: _use64BitProcessingEnabled,
                   onChanged: (val) {
@@ -1808,9 +1839,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: 'Auto Sample-Rate Match',
-                  subtitle:
-                      'Automatically switch hardware DAC rate to match track native rate',
+                  title: 'Auto Sample-Rate',
+                  subtitle: 'Sync audio to track rate (Recommended)',
                   secondary: _buildLeadingIcon(Icons.graphic_eq),
                   value: _autoBitPerfectEnabled,
                   onChanged: (val) {
@@ -1855,6 +1885,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
+                if (Platform.isAndroid) ...[
+                  const M3EDivider(),
+                  M3EListItem(
+                    headline: 'Android Output Backend',
+                    supportingText: _selectedBackend.displayName,
+                    leading: _buildLeadingIcon(Icons.developer_board_rounded),
+                    trailing:
+                        Icon(Icons.chevron_right_rounded, color: _textDark),
+                    onTap: () =>
+                        _showAndroidBackendPicker(context, setSubState),
+                  ),
+                  if (_detectedDspHardware.isNotEmpty) ...[
+                    const M3EDivider(),
+                    M3EListItem(
+                      headline: 'Hardware Variant',
+                      supportingText: [
+                        if (_detectedDspHardware.isNotEmpty)
+                          _detectedDspHardware,
+                      ].join(' • '),
+                      leading: _buildLeadingIcon(Icons.memory_rounded),
+                    ),
+                  ],
+                ],
               ],
             ),
             const SizedBox(height: 20),
@@ -1883,7 +1936,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (_speakerProtectionEnabled) ...[
                   const M3EDivider(),
                   M3EListItem(
-                    headline: 'Subsonic Filter (High-Pass)',
+                    headline: 'Subsonic Filter',
                     supportingText: 'Below woofer tuning',
                     leading: _buildLeadingIcon(Icons.arrow_upward),
                     trailing: SizedBox(
@@ -1913,7 +1966,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   M3EListItem(
                     headline: 'Ultrasonic Guard (Low-Pass)',
                     supportingText: 'Filters frequencies above 18-22kHz',
-                    leading: _buildLeadingIcon(Icons.arrow_downward),
+                    leading: _buildLeadingIcon(Icons.keyboard_arrow_down),
                     trailing: SizedBox(
                       width: 130,
                       child: Row(
@@ -3099,8 +3152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildM3ESwitchTile(
                   title: 'Prefer Native AAC',
-                  subtitle:
-                      'Prioritize Native M4A streams over WebM for hardware decoders',
+                  subtitle: 'Prioritize Native M4A streams',
                   secondary: _buildLeadingIcon(Icons.memory_rounded),
                   value: _preferNativeAac,
                   onChanged: (val) {
@@ -3124,18 +3176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppStateService.instance.saveEnableHostedFallback(val);
                   },
                 ),
-                const M3EDivider(),
-                _buildM3ESwitchTile(
-                  title: 'Stream over Wi-Fi Only',
-                  subtitle: 'Restricts online stream usage over cellular data',
-                  secondary: _buildLeadingIcon(Icons.wifi_rounded),
-                  value: _streamOverWifi,
-                  onChanged: (v) {
-                    setState(() => _streamOverWifi = v);
-                    setSubState(() {});
-                    _persistUiSettings();
-                  },
-                ),
+                // const M3EDivider(),
               ],
             ),
             const SizedBox(height: 20),
@@ -3303,8 +3344,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final version = (entry['version'] as String?) ?? '';
         final date = (entry['date'] as String?) ?? '';
         final changes = (entry['changes'] as List<dynamic>?) ?? [];
-        final isCurrentVersion = version.toLowerCase().contains(_appVersion.toLowerCase().replaceAll('v', '')) ||
-            _appVersion.toLowerCase().contains(version.toLowerCase().replaceAll('v', ''));
+        final isCurrentVersion = version
+                .toLowerCase()
+                .contains(_appVersion.toLowerCase().replaceAll('v', '')) ||
+            _appVersion
+                .toLowerCase()
+                .contains(version.toLowerCase().replaceAll('v', ''));
 
         return Container(
           decoration: BoxDecoration(
@@ -3326,8 +3371,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: _primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
@@ -3417,9 +3462,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: _buildFormattedMarkdownText(
                             c as String,
                             baseStyle: TextStyle(
-                              color: isCurrentVersion
-                                  ? _textPrimary
-                                  : _textDark,
+                              color:
+                                  isCurrentVersion ? _textPrimary : _textDark,
                               fontSize: 13,
                               height: 1.45,
                             ),
@@ -3458,8 +3502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
               margin: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
                 color: _primary.withValues(alpha: 0.15),
@@ -3482,8 +3525,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final boldContent = matchedText.substring(2, matchedText.length - 2);
         spans.add(TextSpan(
           text: boldContent,
-          style: style.copyWith(
-              fontWeight: FontWeight.bold, color: _textPrimary),
+          style:
+              style.copyWith(fontWeight: FontWeight.bold, color: _textPrimary),
         ));
       } else if (matchedText.startsWith('*') && matchedText.endsWith('*')) {
         final italicContent = matchedText.substring(1, matchedText.length - 1);
@@ -3803,7 +3846,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Text(
                                   lastFm.isLoggedIn
                                       ? (lastFm.username ?? 'Connected Account')
-                                      : 'Not Connected',
+                                      : (isAuthenticating
+                                          ? 'Awaiting Authorization...'
+                                          : 'Not Connected'),
                                   style: TextStyle(
                                     color: _textPrimary,
                                     fontSize: 16,
@@ -3814,7 +3859,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Text(
                                   lastFm.isLoggedIn
                                       ? 'Scrobbles sync automatically to your Last.fm profile'
-                                      : 'Connect your Last.fm account to track listening history',
+                                      : (isAuthenticating
+                                          ? 'Approve in browser; app connects automatically on return'
+                                          : 'Connect your Last.fm account to track listening history'),
                                   style: TextStyle(
                                     color: _textDark,
                                     fontSize: 12,
@@ -3836,20 +3883,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (!isAuthenticating) ...[
                               M3EButton.icon(
                                 onPressed: () async {
-                                  final token = await lastFm.fetchRequestToken();
+                                  final token =
+                                      await lastFm.fetchRequestToken();
                                   if (token != null) {
                                     await lastFm.launchAuthorizationUrl(token);
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         const SnackBar(
                                           content: Text(
-                                              'Authorize Sautiplay in your browser, then return here to finish.'),
+                                              'Authorize Sautiplay in your browser. Connection will complete automatically upon return!'),
                                         ),
                                       );
                                     }
                                   } else {
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         const SnackBar(
                                           content: Text(
                                               'Failed to connect to Last.fm API. Check internet connection.'),
@@ -3863,7 +3913,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ] else ...[
                               Container(
-                                padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
                                   color: _primary.withAlpha(20),
                                   borderRadius: BorderRadius.circular(12),
@@ -3872,11 +3922,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 child: Column(
                                   children: [
+                                    Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.2,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                    _primary),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            lastFm.isCheckingSession
+                                                ? 'Verifying authorization...'
+                                                : 'Waiting for browser authorization...',
+                                            style: TextStyle(
+                                              color: _textPrimary,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
                                     Text(
-                                      '1. Authorize Sautiplay in your browser\n2. Click the button below when done',
-                                      textAlign: TextAlign.center,
+                                      'Approve Sautiplay in your browser, then return here. The app connects automatically.',
                                       style: TextStyle(
-                                          color: _textPrimary, fontSize: 13),
+                                          color: _textDark, fontSize: 12),
                                     ),
                                     const SizedBox(height: 12),
                                     Row(
@@ -3884,7 +3961,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         Expanded(
                                           child: M3EButton.outlined(
                                             onPressed: () async {
-                                              await lastFm.cancelAuthentication();
+                                              await lastFm
+                                                  .cancelAuthentication();
                                             },
                                             child: const Text('Cancel'),
                                           ),
@@ -3892,34 +3970,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: M3EButton(
-                                            onPressed: () async {
-                                              final token = lastFm.pendingToken;
-                                              if (token == null) return;
-                                              final success =
-                                                  await lastFm.fetchSession(token);
-                                              if (success) {
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                          'Connected to Last.fm as ${lastFm.username}!'),
-                                                    ),
-                                                  );
-                                                }
-                                              } else {
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                          'Authorization not completed yet. Please approve on the webpage.'),
-                                                    ),
-                                                  );
-                                                }
-                                              }
-                                            },
-                                            child: const Text('I Authorized'),
+                                            onPressed: lastFm.isCheckingSession
+                                                ? null
+                                                : () async {
+                                                    final success = await lastFm
+                                                        .checkPendingAuthorization();
+                                                    if (success) {
+                                                      if (context.mounted) {
+                                                        ScaffoldMessenger.of(
+                                                                context)
+                                                            .showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                                'Connected to Last.fm as ${lastFm.username}!'),
+                                                          ),
+                                                        );
+                                                      }
+                                                    } else {
+                                                      if (context.mounted) {
+                                                        ScaffoldMessenger.of(
+                                                                context)
+                                                            .showSnackBar(
+                                                          const SnackBar(
+                                                            content: Text(
+                                                                'Authorization not completed yet. Please approve on the Last.fm webpage.'),
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                  },
+                                            child: Text(lastFm.isCheckingSession
+                                                ? 'Verifying...'
+                                                : 'Check Now'),
                                           ),
                                         ),
                                       ],
@@ -3969,10 +4051,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const M3EDivider(),
                     _buildM3ESwitchTile(
                       title: 'Update "Now Playing"',
-                      subtitle:
-                          'Broadcast currently active song in real-time',
-                      secondary:
-                          _buildLeadingIcon(Icons.graphic_eq_rounded, lastFmRed),
+                      subtitle: 'Broadcast currently active song in real-time',
+                      secondary: _buildLeadingIcon(
+                          Icons.graphic_eq_rounded, lastFmRed),
                       value: lastFm.isNowPlayingEnabled,
                       onChanged: (val) async {
                         await lastFm.setNowPlayingEnabled(val);
@@ -4714,22 +4795,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showSampleRateDialog({VoidCallback? onDone}) {
     final rates = [
-      (0, 'Native (Auto Match)', 'Match source track sample rate directly'),
-      (44100, '44.1 kHz (44,100 Hz)', 'Standard CD Audio sampling rate'),
-      (48000, '48.0 kHz (48,000 Hz)', 'Digital Video & Studio Audio standard'),
-      (96000, '96.0 kHz (96,000 Hz)', 'High-Resolution Audio standard'),
-      (
-        192000,
-        '192.0 kHz (192,000 Hz)',
-        'Ultra HD Studio Master sampling rate'
-      ),
+      (0, 'Native', 'Match device hardware rate'),
+      (44100, '44.1 kHz (44,100 Hz)', 'Standard rate'),
+      (48000, '48.0 kHz (48,000 Hz)', 'Studio Audio rate'),
+      (96000, '96.0 kHz (96,000 Hz)', 'High-Resolution rate'),
+      (192000, '192.0 kHz (192,000 Hz)', 'Ultra HD Master rate'),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Engine Sample Rate',
-          subtitle: 'Target sampling rate for audio output stream',
+          subtitle: 'Target rate for audio output stream',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4775,24 +4852,114 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showAndroidBackendPicker(
+      BuildContext context, StateSetter setSubState) {
+    final backends = [
+      (
+        AudioOutputBackend.auto,
+        'Auto (System Optimal)',
+        'Automatically chooses the lowest latency',
+        Icons.auto_awesome_rounded,
+      ),
+      (
+        AudioOutputBackend.aaudio,
+        'AAudio (Low-Latency MMAP)',
+        'High-performance (Android 8.0+) (Recommended)',
+        Icons.speed_rounded,
+      ),
+      (
+        AudioOutputBackend.openSl,
+        'OpenSL ES (Legacy)',
+        'Standard Android audio interface',
+        Icons.history_toggle_off_rounded,
+      ),
+      (
+        AudioOutputBackend.audioTrack,
+        'AudioTrack (Framework)',
+        'Standard Android audio ',
+        Icons.layers_rounded,
+      ),
+      (
+        AudioOutputBackend.directHiRes,
+        'Direct Hi-Res (limited)',
+        'Direct Hi-Res DSPs (on supported hardware only)',
+        Icons.verified_rounded,
+      ),
+    ];
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Android Output Backend',
+          subtitle: 'Select audio output driver',
+          child: M3ECardList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: backends.length,
+            onTap: (index) {
+              final selected = backends[index].$1;
+              widget.player.setOutputBackend(selected);
+              setState(() {
+                _selectedBackend = selected;
+              });
+              setSubState(() {});
+              Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = backends[index];
+              final bk = item.$1;
+              final isSelected = bk == _selectedBackend;
+              return M3EListItem(
+                leading: Icon(item.$4,
+                    color: isSelected ? _primary : _textDark, size: 22),
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<AudioOutputBackend>(
+                  value: bk,
+                  groupValue: _selectedBackend,
+                  onChanged: (v) {
+                    if (v != null) {
+                      widget.player.setOutputBackend(v);
+                      setState(() {
+                        _selectedBackend = v;
+                      });
+                      setSubState(() {});
+                      Navigator.pop(ctx);
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   String _formatChannelCount(int count) {
     switch (count) {
       case 1:
-        return 'Mono (1.0)';
+        return 'Mono';
       case 2:
-        return 'Stereo (2.0)';
+        return 'Stereo';
       case 3:
-        return '2.1 Surround (3 CH)';
+        return '2.1 Surround';
       case 4:
-        return '4.0 Quadraphonic (4 CH)';
+        return '4.0 Quadraphonic';
       case 5:
-        return '5.0 Surround (5 CH)';
+        return '5.0 Surround';
       case 6:
-        return '5.1 Surround (6 CH)';
+        return '5.1 Surround';
       case 7:
-        return '7.0 Surround (7 CH)';
+        return '7.0 Surround';
       case 8:
-        return '7.1 Surround (8 CH)';
+        return '7.1 Surround';
       default:
         return '$count CH';
     }
@@ -4800,40 +4967,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showChannelsDialog({VoidCallback? onDone}) {
     final options = [
-      {'ch': 1, 'name': 'Mono (1.0)', 'subtitle': 'Single channel mono output'},
+      {'ch': 1, 'name': 'Mono', 'subtitle': 'Single channel mono output'},
       {
         'ch': 2,
-        'name': 'Stereo (2.0)',
+        'name': 'Stereo',
         'subtitle': 'Standard 2-channel Left / Right stereo'
       },
       {
         'ch': 3,
-        'name': '2.1 Surround (3 CH)',
+        'name': '2.1 Surround',
         'subtitle': 'Left, Right, Center/Subwoofer'
       },
       {
         'ch': 4,
-        'name': '4.0 Quadraphonic (4 CH)',
+        'name': '4.0 Quadraphonic',
         'subtitle': 'FL, FR, Center, Back Center'
       },
-      {
-        'ch': 5,
-        'name': '5.0 Surround (5 CH)',
-        'subtitle': 'FL, FR, Center, Back L/R'
-      },
+      {'ch': 5, 'name': '5.0 Surround', 'subtitle': 'FL, FR, Center, Back L/R'},
       {
         'ch': 6,
-        'name': '5.1 Surround (6 CH)',
+        'name': '5.1 Surround',
         'subtitle': 'FL, FR, Center, LFE Sub, Side L/R'
       },
       {
         'ch': 7,
-        'name': '7.0 Surround (7 CH)',
+        'name': '7.0 Surround',
         'subtitle': 'FL, FR, Center, LFE, Back C, Side L/R'
       },
       {
         'ch': 8,
-        'name': '7.1 Surround (8 CH)',
+        'name': '7.1 Surround',
         'subtitle': 'FL, FR, Center, LFE, Back L/R, Side L/R'
       },
     ];
@@ -4842,8 +5005,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Engine Output Channels',
-          subtitle: 'Select speaker channel topology and surround layout',
+          title: 'Output Channels',
+          subtitle: 'Select speaker channels layout',
           height: MediaQuery.of(context).size.height * 0.78,
           child: M3ECardList.builder(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -4906,7 +5069,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {
         'frames': 0,
         'periods': 0,
-        'name': 'Auto (Driver Default)',
+        'name': 'Auto (Default)',
         'subtitle': 'System-negotiated period sizing (~10–25ms)',
         'badge': 'Recommended',
       },
@@ -4921,21 +5084,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'frames': 256,
         'periods': 2,
         'name': '256 frames • 2 periods (Low Latency)',
-        'subtitle': '~5.3ms at 48kHz — Fast response for interactive playback',
+        'subtitle': '~5.3ms at 48kHz — Fast response',
         'badge': 'Low Latency',
       },
       {
         'frames': 512,
         'periods': 2,
         'name': '512 frames • 2 periods (Standard)',
-        'subtitle': '~10.7ms at 48kHz — Optimal balance of stability and latency',
+        'subtitle': '~10.7ms at 48kHz — Good latency and stability',
         'badge': 'Standard',
       },
       {
         'frames': 1024,
         'periods': 3,
         'name': '1024 frames • 3 periods (High Stability)',
-        'subtitle': '~21.3ms at 48kHz — Resilient against CPU load & heavy DSP',
+        'subtitle': '~21.3ms at 48kHz — Resilient',
         'badge': 'Safe',
       },
       {
@@ -5050,31 +5213,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showSubsonicDialog({VoidCallback? onDone}) {
     final options = [
-      (0.0, 'Disabled (Off)', 'No high-pass filter applied'),
-      (
-        15.0,
-        '15 Hz (Ultra Sub-bass)',
-        'Preserves extreme low end for subwoofers'
-      ),
-      (20.0, '20 Hz (Standard Subwoofer)', 'Standard human threshold cutoff'),
-      (
-        25.0,
-        '25 Hz (Recommended for Small Woofers)',
-        'Reduces woofer distortion and cone excursion'
-      ),
-      (
-        30.0,
-        '30 Hz (Bookshelf / Mobile Speakers)',
-        'Protection for small drivers'
-      ),
+      (0.0, 'Disabled', 'No sub-bass removal'),
+      (15.0, 'Ultra Sub-bass', 'Preserves extreme low end'),
+      (20.0, 'Standard Subwoofer', 'Reduces distortion'),
+      (25.0, 'Small Woofers', 'Protects small drivers from damage'),
     ];
 
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Subsonic High-Pass Filter',
-          subtitle: 'Filter DC & inaudible sub-bass below woofer tuning',
+          title: 'Subsonic Filter',
+          subtitle: 'Filter DC and inaudible sub-bass',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -5117,26 +5267,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showUltrasonicDialog({VoidCallback? onDone}) {
     final options = [
-      (24000.0, 'Disabled (Off)', 'Pass-through all ultrasonic frequencies'),
-      (22000.0, '22 kHz (Hi-Res Limit)', 'Gentle guard for 44.1/48kHz DACs'),
+      (24000.0, 'Disabled', 'No filtering applied'),
+      (22000.0, 'Hi-Res Limit', 'Protects DACs'),
       (
         20000.0,
-        '20 kHz (Standard Human Hearing)',
-        'Cutoff at upper limit of human hearing'
+        'Human Hearing Limit',
+        'Filters frequencies above human hearing'
       ),
-      (
-        18000.0,
-        '18 kHz (Tweeter Guard)',
-        'Protects sensitive dome tweeters from high energy RF'
-      ),
+      (18000.0, 'Tweeter Guard', 'Protects tweeters from RF noise'),
     ];
 
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Ultrasonic Low-Pass Guard',
-          subtitle: 'Filter out-of-band high frequencies and RF DAC noise',
+          title: 'Ultrasonic Filter',
+          subtitle: 'Filter out-of-band high frequencies',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 
 class RaceSoundstageVisualizer extends StatefulWidget {
   final double delayMs; // e.g. 0.05 to 0.40 ms
-  final double alpha;   // e.g. 0.10 to 0.90
-  final double lpfHz;   // e.g. 500 to 8000 Hz
+  final double alpha; // e.g. 0.10 to 0.90
+  final double lpfHz; // e.g. 500 to 8000 Hz
   final bool isEnabled;
   final Color primaryColor;
 
@@ -74,30 +74,30 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
           ),
           child: Column(
             children: [
-              // Top metric badges
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 10,
                 children: [
                   _buildBadge(
                     icon: Icons.timer_outlined,
-                    label: 'ITD Delay',
+                    label: 'Delay',
                     value: '$microsecondsµs',
                     color: Colors.cyanAccent,
                   ),
                   _buildBadge(
                     icon: Icons.waves,
-                    label: 'Alpha (α)',
+                    label: 'Alpha',
                     value: '${(widget.alpha * 100).toInt()}%',
                     color: Colors.amberAccent,
                   ),
                   _buildBadge(
                     icon: Icons.shield_outlined,
-                    label: 'Head LPF',
+                    label: 'LPF',
                     value: '${widget.lpfHz.toInt()}Hz',
                     color: Colors.purpleAccent,
                   ),
                 ],
               ),
+
               const SizedBox(height: 8),
               // Main CustomPaint Visualizer
               Expanded(
@@ -136,7 +136,7 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
+          //   Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
           Text(
             '$label: ',
@@ -200,9 +200,7 @@ class _RaceSoundstagePainter extends CustomPainter {
     // 2. Draw Listener Head at Center
     final headRadius = 14.0;
     final headPaint = Paint()
-      ..color = isEnabled
-          ? Colors.white.withValues(alpha: 0.9)
-          : Colors.white30
+      ..color = isEnabled ? Colors.white.withValues(alpha: 0.9) : Colors.white30
       ..style = PaintingStyle.fill;
     canvas.drawCircle(center, headRadius, headPaint);
 
@@ -210,8 +208,10 @@ class _RaceSoundstagePainter extends CustomPainter {
     final earPaint = Paint()
       ..color = isEnabled ? primaryColor : Colors.white24
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(center.dx - headRadius - 2, center.dy), 3.5, earPaint);
-    canvas.drawCircle(Offset(center.dx + headRadius + 2, center.dy), 3.5, earPaint);
+    canvas.drawCircle(
+        Offset(center.dx - headRadius - 2, center.dy), 3.5, earPaint);
+    canvas.drawCircle(
+        Offset(center.dx + headRadius + 2, center.dy), 3.5, earPaint);
 
     // Head Shadow Low-Pass Filter Shield Arc
     // Cutoff 500Hz -> thick shielding; 8000Hz -> thin acoustic shield
@@ -277,8 +277,10 @@ class _RaceSoundstagePainter extends CustomPainter {
 
       // Pulse dots along cancellation paths
       final pulseT = (animValue * 2) % 1.0;
-      final pL2R = _getQuadraticPoint(leftSpeaker, Offset(center.dx, center.dy - 35), rightEar, pulseT);
-      final pR2L = _getQuadraticPoint(rightSpeaker, Offset(center.dx, center.dy - 35), leftEar, pulseT);
+      final pL2R = _getQuadraticPoint(
+          leftSpeaker, Offset(center.dx, center.dy - 35), rightEar, pulseT);
+      final pR2L = _getQuadraticPoint(
+          rightSpeaker, Offset(center.dx, center.dy - 35), leftEar, pulseT);
 
       final dotPaint = Paint()
         ..color = Colors.amberAccent
@@ -298,14 +300,14 @@ class _RaceSoundstagePainter extends CustomPainter {
     canvas.drawPath(dashPath, stageLinePaint);
   }
 
-  void _drawSpeakerCone(
-      Canvas canvas, Offset pos, bool isLeft, bool active) {
+  void _drawSpeakerCone(Canvas canvas, Offset pos, bool isLeft, bool active) {
     final bodyPaint = Paint()
       ..color = active ? primaryColor.withValues(alpha: 0.8) : Colors.white24
       ..style = PaintingStyle.fill;
 
     final glowPaint = Paint()
-      ..color = active ? primaryColor.withValues(alpha: 0.4) : Colors.transparent
+      ..color =
+          active ? primaryColor.withValues(alpha: 0.4) : Colors.transparent
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
     canvas.drawCircle(pos, 9, glowPaint);
@@ -331,8 +333,7 @@ class _RaceSoundstagePainter extends CustomPainter {
     }
   }
 
-  Offset _getQuadraticPoint(
-      Offset p0, Offset p1, Offset p2, double t) {
+  Offset _getQuadraticPoint(Offset p0, Offset p1, Offset p2, double t) {
     final u = 1 - t;
     final tt = t * t;
     final uu = u * u;

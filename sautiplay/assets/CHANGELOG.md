@@ -1,3 +1,8 @@
+## v0.6.25 — 2026-09-03
+- Bugs fixes and performance  improvements
+- Added ability to select  backend  for  android(only). 
+- Decoupled homescreen UI
+
 ## v0.6.24 — 2026-09-02
 - Android Online Streaming: Restored reliable playback with resilient FFmpeg resampler fallback (SoXR to SWR)
 - Instant Track Switching: Eliminated decoder lock contention, reducing playlist jump delay from 20s to 1ms

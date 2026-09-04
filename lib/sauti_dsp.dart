@@ -60,25 +60,25 @@ enum DynamicBassPreset {
 
 /// Dynamic Transducer profiles.
 enum TransducerProfile {
-  earphone(0, 'In-Ear Earbuds'),
-  headphone(1, 'Over-Ear Headphones'),
-  highEndReference(2, 'Studio Reference'),
-  speakerMonitor(3, 'Desktop Speakers'),
-  extremeSubwoofer(4, 'Club Subwoofer'),
-  pureDynamic(5, 'Pure Dynamic'),
-  audiophileReference(6, 'Audiophile Open-Back'),
-  studioMonitorLows(7, 'Studio Monitor Lows'),
-  cinemaSubSlam(8, 'Cinema Sub Slam'),
-  carAudioBass(9, 'Car Audio Bass'),
-  deepAcousticWarmth(10, 'Deep Acoustic Warmth'),
-  cleanKickDrum(11, 'Clean Kick Drum'),
-  resonantRumble(12, 'Resonant Rumble'),
-  subBassBoom(13, 'Sub-Bass Boom'),
-  solidImpact(14, 'Solid Impact'),
-  richLowEnd(15, 'Rich Low-End'),
-  clubPAPunch(16, 'Club PA Punch'),
-  deepSubExtension(17, 'Deep Sub Extension'),
-  ultimateSubwoofer(18, 'Ultimate Subwoofer');
+  earphone(0, 'Earbuds'), // friendly naming
+  headphone(1, 'Headphones'),
+  highEndReference(2, 'Reference'),
+  speakerMonitor(3, 'Speakers'),
+  extremeSubwoofer(4, 'Subwoofer'),
+  pureDynamic(5, 'Pure'),
+  audiophileReference(6, 'Audiophile'),
+  studioMonitorLows(7, 'Monitors'),
+  cinemaSubSlam(8, 'Cinema'),
+  carAudioBass(9, 'Car'),
+  deepAcousticWarmth(10, 'Acoustic'),
+  cleanKickDrum(11, 'Kick'),
+  resonantRumble(12, 'Resonant'),
+  subBassBoom(13, 'Sub-Bass'),
+  solidImpact(14, 'Solid'),
+  richLowEnd(15, 'Rich'),
+  clubPAPunch(16, 'Club'),
+  deepSubExtension(17, 'Deep'),
+  ultimateSubwoofer(18, 'Ultimate');
 
   final int value;
   final String label;
@@ -93,6 +93,19 @@ enum AnalogWarmthProfile {
 
   final int value;
   const AnalogWarmthProfile(this.value);
+}
+
+/// Dialogue Booster & Enhancer profiles (reconstructed from Dolby DAP).
+enum DialogEnhancerProfile {
+  cinema(0, 'Cinema'),
+  music(1, 'Music'),
+  voice(2, 'Voice'),
+  night(3, 'Night'),
+  custom(4, 'Custom');
+
+  final int value;
+  final String label;
+  const DialogEnhancerProfile(this.value, [this.label = '']);
 }
 
 /// De-Esser operating modes.
@@ -116,36 +129,51 @@ enum DownwardExpanderPreset {
   const DownwardExpanderPreset(this.value);
 }
 
-/// Spatial Surround suite modes (see surround.md).
+/// Spatial Surround suite modes.
 enum SurroundMode {
   off(0),
-  fieldExpander(1),
-  differentialHaas(2),
-  viperHeadphone(3),
-  matrix51Hrtf(4);
+  matrixSurround(1), // Cinema Matrix 5.1 (Pro Logic II cleanroom)
+  binauralVirtualizer(2), // Reconstructed from Dolby analysis_dlby2
+  acousticStage(3); // Reconstructed from AM3D Zirene re_workspace
 
   final int value;
   const SurroundMode(this.value);
+
+  // Backward-compatibility aliases
+  static const SurroundMode matrix51Hrtf = SurroundMode.matrixSurround;
+  static const SurroundMode fieldExpander = SurroundMode.acousticStage;
+  static const SurroundMode differentialHaas = SurroundMode.acousticStage;
+  static const SurroundMode viperHeadphone = SurroundMode.binauralVirtualizer;
 }
 
 // Native FFI Typedefs
-typedef _DspSetEnabledNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _DspSetEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
 
-typedef _DspSetSurroundModeNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetSurroundModeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _DspSetSurroundModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 
-typedef _DspSetClarityParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
-typedef _DspSetClarityParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+typedef _DspSetClarityParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetClarityParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
 
-typedef _DspSetBassParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
-typedef _DspSetBassParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double, double);
+typedef _DspSetBassParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
+typedef _DspSetBassParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double);
 
-typedef _DspSetDynamicBassParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
-typedef _DspSetDynamicBassParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+typedef _DspSetDynamicBassParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetDynamicBassParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
 
-typedef _DspSetDynamicSystemParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
-typedef _DspSetDynamicSystemParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+typedef _DspSetDynamicSystemParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetDynamicSystemParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
 
 typedef _DspSetDynamicSystemCustomParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>,
@@ -166,11 +194,30 @@ typedef _DspSetDynamicSystemCustomParamsDart = void Function(
     double,
     double);
 
-typedef _DspSetAnalogWarmthParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
-typedef _DspSetAnalogWarmthParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+typedef _DspSetAnalogWarmthParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetAnalogWarmthParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
 
-typedef _DspSetDeEsserParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
-typedef _DspSetDeEsserParamsDart = void Function(ffi.Pointer<ffi.Void>, int, double);
+typedef _DspSetDialogEnhancerParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _DspSetDialogEnhancerParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double, double, double);
+
+typedef _DspGetDialogEnhancerGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _DspGetDialogEnhancerGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _DspSetDeEsserParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
+typedef _DspSetDeEsserParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double);
 
 typedef _DspSetDeEsserParamsExNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>,
@@ -180,27 +227,23 @@ typedef _DspSetDeEsserParamsExNative = ffi.Void Function(
     ffi.Float,
     ffi.Float,
     ffi.Float,
-    ffi.Float
-);
+    ffi.Float);
 typedef _DspSetDeEsserParamsExDart = void Function(
-    ffi.Pointer<ffi.Void>,
-    int,
-    double,
-    double,
-    double,
-    double,
-    double,
-    double
-);
+    ffi.Pointer<ffi.Void>, int, double, double, double, double, double, double);
 
-typedef _DspGetDeEsserGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
-typedef _DspGetDeEsserGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetDeEsserGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _DspGetDeEsserGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
 
-typedef _DspSetExpanderPresetNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetExpanderPresetNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _DspSetExpanderPresetDart = void Function(ffi.Pointer<ffi.Void>, int);
 
-typedef _DspSetExpanderParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
-typedef _DspSetExpanderParamsDart = void Function(ffi.Pointer<ffi.Void>, double, double, double, double, double);
+typedef _DspSetExpanderParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>,
+    ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetExpanderParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double);
 
 typedef _DspSetExpanderParamsExNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>,
@@ -210,33 +253,32 @@ typedef _DspSetExpanderParamsExNative = ffi.Void Function(
     ffi.Float,
     ffi.Float,
     ffi.Float,
-    ffi.Float
-);
-typedef _DspSetExpanderParamsExDart = void Function(
-    ffi.Pointer<ffi.Void>,
-    double,
-    double,
-    double,
-    double,
-    double,
-    double,
-    double
-);
+    ffi.Float);
+typedef _DspSetExpanderParamsExDart = void Function(ffi.Pointer<ffi.Void>,
+    double, double, double, double, double, double, double);
 
-typedef _DspGetExpanderGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
-typedef _DspGetExpanderGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetExpanderGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _DspGetExpanderGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
 
-typedef _DspLoadConvolverIrNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32, ffi.Int32);
-typedef _DspLoadConvolverIrDart = int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int);
+typedef _DspLoadConvolverIrNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32, ffi.Int32);
+typedef _DspLoadConvolverIrDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int);
 
 typedef _DspClearConvolverIrNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _DspClearConvolverIrDart = void Function(ffi.Pointer<ffi.Void>);
 
-typedef _DspSetConvolverMixNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
-typedef _DspSetConvolverMixDart = void Function(ffi.Pointer<ffi.Void>, double, double);
+typedef _DspSetConvolverMixNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _DspSetConvolverMixDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
 
-typedef _DspSetMasterLimiterParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
-typedef _DspSetMasterLimiterParamsDart = void Function(ffi.Pointer<ffi.Void>, double, double, double);
+typedef _DspSetMasterLimiterParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetMasterLimiterParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
 
 typedef _DspResetNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _DspResetDart = void Function(ffi.Pointer<ffi.Void>);
@@ -244,29 +286,81 @@ typedef _DspResetDart = void Function(ffi.Pointer<ffi.Void>);
 typedef _DspHasConvolverIrNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _DspHasConvolverIrDart = int Function(ffi.Pointer<ffi.Void>);
 
-typedef _DspGetConvolverKernelLengthNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetConvolverKernelLengthNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
 typedef _DspGetConvolverKernelLengthDart = int Function(ffi.Pointer<ffi.Void>);
 
-typedef _DspGetLimiterGainReductionDbNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
-typedef _DspGetLimiterGainReductionDbDart = double Function(ffi.Pointer<ffi.Void>);
+typedef _DspGetLimiterGainReductionDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _DspGetLimiterGainReductionDbDart = double Function(
+    ffi.Pointer<ffi.Void>);
 
-typedef _DspSetSurroundParamsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
-typedef _DspSetSurroundParamsDart = void Function(ffi.Pointer<ffi.Void>, double, double, double, double);
+typedef _DspSetSurroundParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetSurroundParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double);
+
+typedef _DspSetSurroundMatrixParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetSurroundMatrixParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double);
+
+typedef _DspSetSurroundBinauralParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Int32,
+    ffi.Float);
+typedef _DspSetSurroundBinauralParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, int, double, int, double);
+
+typedef _DspSetSurroundStageParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _DspSetSurroundStageParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, int, double, double, double, double, double);
 
 typedef _DspSetSurroundParamsExNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>,
-    ffi.Float, ffi.Float, ffi.Float, ffi.Float, // field: width, crossover, diffuser, bass anchor
-    ffi.Float, ffi.Float, ffi.Float,           // haas: delay, depth, damping
-    ffi.Int32, ffi.Float, ffi.Float,           // vhs: preset, reflection gain, damping
-    ffi.Float, ffi.Float, ffi.Float, ffi.Float // matrix: center focus, boost, rear delay, head radius
-);
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float, // field: width, crossover, diffuser, bass anchor
+    ffi.Float,
+    ffi.Float,
+    ffi.Float, // haas: delay, depth, damping
+    ffi.Int32,
+    ffi.Float,
+    ffi.Float, // vhs: preset, reflection gain, damping
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float // matrix: center focus, boost, rear delay, head radius
+    );
 typedef _DspSetSurroundParamsExDart = void Function(
     ffi.Pointer<ffi.Void>,
-    double, double, double, double,
-    double, double, double,
-    int, double, double,
-    double, double, double, double
-);
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    int,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double);
 
 /// Clean-room high-fidelity DSP suite for SautiFlow.
 class SautiDsp {
@@ -290,6 +384,11 @@ class SautiDsp {
 
   late final _DspSetEnabledDart _setAnalogWarmthEnabled;
   late final _DspSetAnalogWarmthParamsDart _setAnalogWarmthParams;
+
+  late final _DspSetEnabledDart _setDialogEnhancerEnabled;
+  late final _DspSetDialogEnhancerParamsDart _setDialogEnhancerParams;
+  late final _DspGetDialogEnhancerGainReductionDbDart
+      _getDialogEnhancerGainReductionDb;
 
   late final _DspSetEnabledDart _setDeEsserEnabled;
   late final _DspSetDeEsserParamsDart _setDeEsserParams;
@@ -316,6 +415,9 @@ class SautiDsp {
   late final _DspSetEnabledDart _setSurroundEnabled;
   late final _DspSetSurroundModeDart _setSurroundMode;
   late final _DspSetSurroundParamsDart _setSurroundParams;
+  late final _DspSetSurroundMatrixParamsDart _setSurroundMatrixParams;
+  late final _DspSetSurroundBinauralParamsDart _setSurroundBinauralParams;
+  late final _DspSetSurroundStageParamsDart _setSurroundStageParams;
   late final _DspSetSurroundParamsExDart _setSurroundParamsEx;
 
   SautiDsp(this._lib, this._enginePtr) {
@@ -329,50 +431,132 @@ class SautiDsp {
   }
 
   void _initFunctions() {
-    _reset = _lib.lookupFunction<_DspResetNative, _DspResetDart>('ae_dsp_reset');
+    _reset =
+        _lib.lookupFunction<_DspResetNative, _DspResetDart>('ae_dsp_reset');
 
-    _setClarityEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_clarity_enabled');
-    _setClarityParams = _lib.lookupFunction<_DspSetClarityParamsNative, _DspSetClarityParamsDart>('ae_dsp_set_clarity_params');
+    _setClarityEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_clarity_enabled');
+    _setClarityParams = _lib.lookupFunction<_DspSetClarityParamsNative,
+        _DspSetClarityParamsDart>('ae_dsp_set_clarity_params');
 
-    _setBassEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_bass_enabled');
-    _setBassParams = _lib.lookupFunction<_DspSetBassParamsNative, _DspSetBassParamsDart>('ae_dsp_set_bass_params');
+    _setBassEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_bass_enabled');
+    _setBassParams =
+        _lib.lookupFunction<_DspSetBassParamsNative, _DspSetBassParamsDart>(
+            'ae_dsp_set_bass_params');
 
-    _setDynamicBassEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_set_dynamic_bass_enabled');
-    _setDynamicBassParams = _lib.lookupFunction<_DspSetDynamicBassParamsNative, _DspSetDynamicBassParamsDart>('ae_set_dynamic_bass_params');
+    _setDynamicBassEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_set_dynamic_bass_enabled');
+    _setDynamicBassParams = _lib.lookupFunction<_DspSetDynamicBassParamsNative,
+        _DspSetDynamicBassParamsDart>('ae_set_dynamic_bass_params');
 
-    _setDynamicSystemEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_dynamic_system_enabled');
-    _setDynamicSystemParams = _lib.lookupFunction<_DspSetDynamicSystemParamsNative, _DspSetDynamicSystemParamsDart>('ae_dsp_set_dynamic_system_params');
-    _setDynamicSystemCustomParams = _lib.lookupFunction<_DspSetDynamicSystemCustomParamsNative, _DspSetDynamicSystemCustomParamsDart>('ae_dsp_set_dynamic_system_custom_params');
+    _setDynamicSystemEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_dynamic_system_enabled');
+    _setDynamicSystemParams = _lib.lookupFunction<
+        _DspSetDynamicSystemParamsNative,
+        _DspSetDynamicSystemParamsDart>('ae_dsp_set_dynamic_system_params');
+    _setDynamicSystemCustomParams = _lib.lookupFunction<
+            _DspSetDynamicSystemCustomParamsNative,
+            _DspSetDynamicSystemCustomParamsDart>(
+        'ae_dsp_set_dynamic_system_custom_params');
 
-    _setAnalogWarmthEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_analog_warmth_enabled');
-    _setAnalogWarmthParams = _lib.lookupFunction<_DspSetAnalogWarmthParamsNative, _DspSetAnalogWarmthParamsDart>('ae_dsp_set_analog_warmth_params');
+    _setAnalogWarmthEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_analog_warmth_enabled');
+    _setAnalogWarmthParams = _lib.lookupFunction<
+        _DspSetAnalogWarmthParamsNative,
+        _DspSetAnalogWarmthParamsDart>('ae_dsp_set_analog_warmth_params');
 
-    _setDeEsserEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_de_esser_enabled');
-    _setDeEsserParams = _lib.lookupFunction<_DspSetDeEsserParamsNative, _DspSetDeEsserParamsDart>('ae_dsp_set_de_esser_params');
-    _setDeEsserParamsEx = _lib.lookupFunction<_DspSetDeEsserParamsExNative, _DspSetDeEsserParamsExDart>('ae_dsp_set_de_esser_params_ex');
-    _getDeEsserGainReductionDb = _lib.lookupFunction<_DspGetDeEsserGainReductionDbNative, _DspGetDeEsserGainReductionDbDart>('ae_dsp_get_de_esser_gain_reduction_db');
+    _setDialogEnhancerEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_dialog_enhancer_enabled');
+    _setDialogEnhancerParams = _lib.lookupFunction<
+        _DspSetDialogEnhancerParamsNative,
+        _DspSetDialogEnhancerParamsDart>('ae_dsp_set_dialog_enhancer_params');
+    _getDialogEnhancerGainReductionDb = _lib.lookupFunction<
+            _DspGetDialogEnhancerGainReductionDbNative,
+            _DspGetDialogEnhancerGainReductionDbDart>(
+        'ae_dsp_get_dialog_enhancer_gain_reduction_db');
 
-    _setExpanderEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_expander_enabled');
-    _setExpanderPreset = _lib.lookupFunction<_DspSetExpanderPresetNative, _DspSetExpanderPresetDart>('ae_dsp_set_expander_preset');
-    _setExpanderParams = _lib.lookupFunction<_DspSetExpanderParamsNative, _DspSetExpanderParamsDart>('ae_dsp_set_expander_params');
-    _setExpanderParamsEx = _lib.lookupFunction<_DspSetExpanderParamsExNative, _DspSetExpanderParamsExDart>('ae_dsp_set_expander_params_ex');
-    _getExpanderGainReductionDb = _lib.lookupFunction<_DspGetExpanderGainReductionDbNative, _DspGetExpanderGainReductionDbDart>('ae_dsp_get_expander_gain_reduction_db');
+    _setDeEsserEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_de_esser_enabled');
+    _setDeEsserParams = _lib.lookupFunction<_DspSetDeEsserParamsNative,
+        _DspSetDeEsserParamsDart>('ae_dsp_set_de_esser_params');
+    _setDeEsserParamsEx = _lib.lookupFunction<_DspSetDeEsserParamsExNative,
+        _DspSetDeEsserParamsExDart>('ae_dsp_set_de_esser_params_ex');
+    _getDeEsserGainReductionDb = _lib.lookupFunction<
+            _DspGetDeEsserGainReductionDbNative,
+            _DspGetDeEsserGainReductionDbDart>(
+        'ae_dsp_get_de_esser_gain_reduction_db');
 
-    _setConvolverEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_convolver_enabled');
-    _loadConvolverIr = _lib.lookupFunction<_DspLoadConvolverIrNative, _DspLoadConvolverIrDart>('ae_dsp_load_convolver_ir');
-    _clearConvolverIr = _lib.lookupFunction<_DspClearConvolverIrNative, _DspClearConvolverIrDart>('ae_dsp_clear_convolver_ir');
-    _setConvolverMix = _lib.lookupFunction<_DspSetConvolverMixNative, _DspSetConvolverMixDart>('ae_dsp_set_convolver_mix');
-    _hasConvolverIr = _lib.lookupFunction<_DspHasConvolverIrNative, _DspHasConvolverIrDart>('ae_dsp_has_convolver_ir');
-    _getConvolverKernelLength = _lib.lookupFunction<_DspGetConvolverKernelLengthNative, _DspGetConvolverKernelLengthDart>('ae_dsp_get_convolver_kernel_length');
+    _setExpanderEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_expander_enabled');
+    _setExpanderPreset = _lib.lookupFunction<_DspSetExpanderPresetNative,
+        _DspSetExpanderPresetDart>('ae_dsp_set_expander_preset');
+    _setExpanderParams = _lib.lookupFunction<_DspSetExpanderParamsNative,
+        _DspSetExpanderParamsDart>('ae_dsp_set_expander_params');
+    _setExpanderParamsEx = _lib.lookupFunction<_DspSetExpanderParamsExNative,
+        _DspSetExpanderParamsExDart>('ae_dsp_set_expander_params_ex');
+    _getExpanderGainReductionDb = _lib.lookupFunction<
+            _DspGetExpanderGainReductionDbNative,
+            _DspGetExpanderGainReductionDbDart>(
+        'ae_dsp_get_expander_gain_reduction_db');
 
-    _setMasterLimiterEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_master_limiter_enabled');
-    _setMasterLimiterParams = _lib.lookupFunction<_DspSetMasterLimiterParamsNative, _DspSetMasterLimiterParamsDart>('ae_dsp_set_master_limiter_params');
-    _getLimiterGainReductionDb = _lib.lookupFunction<_DspGetLimiterGainReductionDbNative, _DspGetLimiterGainReductionDbDart>('ae_dsp_get_limiter_gain_reduction_db');
+    _setConvolverEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_convolver_enabled');
+    _loadConvolverIr =
+        _lib.lookupFunction<_DspLoadConvolverIrNative, _DspLoadConvolverIrDart>(
+            'ae_dsp_load_convolver_ir');
+    _clearConvolverIr = _lib.lookupFunction<_DspClearConvolverIrNative,
+        _DspClearConvolverIrDart>('ae_dsp_clear_convolver_ir');
+    _setConvolverMix =
+        _lib.lookupFunction<_DspSetConvolverMixNative, _DspSetConvolverMixDart>(
+            'ae_dsp_set_convolver_mix');
+    _hasConvolverIr =
+        _lib.lookupFunction<_DspHasConvolverIrNative, _DspHasConvolverIrDart>(
+            'ae_dsp_has_convolver_ir');
+    _getConvolverKernelLength = _lib.lookupFunction<
+        _DspGetConvolverKernelLengthNative,
+        _DspGetConvolverKernelLengthDart>('ae_dsp_get_convolver_kernel_length');
 
-    _setSurroundEnabled = _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>('ae_dsp_set_surround_enabled');
-    _setSurroundMode = _lib.lookupFunction<_DspSetSurroundModeNative, _DspSetSurroundModeDart>('ae_dsp_set_surround_mode');
-    _setSurroundParams = _lib.lookupFunction<_DspSetSurroundParamsNative, _DspSetSurroundParamsDart>('ae_dsp_set_surround_params');
-    _setSurroundParamsEx = _lib.lookupFunction<_DspSetSurroundParamsExNative, _DspSetSurroundParamsExDart>('ae_dsp_set_surround_params_ex');
+    _setMasterLimiterEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_master_limiter_enabled');
+    _setMasterLimiterParams = _lib.lookupFunction<
+        _DspSetMasterLimiterParamsNative,
+        _DspSetMasterLimiterParamsDart>('ae_dsp_set_master_limiter_params');
+    _getLimiterGainReductionDb = _lib.lookupFunction<
+            _DspGetLimiterGainReductionDbNative,
+            _DspGetLimiterGainReductionDbDart>(
+        'ae_dsp_get_limiter_gain_reduction_db');
+
+    _setSurroundEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_surround_enabled');
+    _setSurroundMode =
+        _lib.lookupFunction<_DspSetSurroundModeNative, _DspSetSurroundModeDart>(
+            'ae_dsp_set_surround_mode');
+    _setSurroundParams = _lib.lookupFunction<_DspSetSurroundParamsNative,
+        _DspSetSurroundParamsDart>('ae_dsp_set_surround_params');
+    _setSurroundMatrixParams = _lib.lookupFunction<
+        _DspSetSurroundMatrixParamsNative,
+        _DspSetSurroundMatrixParamsDart>('ae_dsp_set_surround_matrix_params');
+    _setSurroundBinauralParams = _lib.lookupFunction<
+            _DspSetSurroundBinauralParamsNative,
+            _DspSetSurroundBinauralParamsDart>(
+        'ae_dsp_set_surround_binaural_params');
+    _setSurroundStageParams = _lib.lookupFunction<
+        _DspSetSurroundStageParamsNative,
+        _DspSetSurroundStageParamsDart>('ae_dsp_set_surround_stage_params');
+    _setSurroundParamsEx = _lib.lookupFunction<_DspSetSurroundParamsExNative,
+        _DspSetSurroundParamsExDart>('ae_dsp_set_surround_params_ex');
   }
 
   /// Reset all internal DSP buffers and history states.
@@ -382,14 +566,21 @@ class SautiDsp {
   }
 
   /// Audio Clarity Engine.
-  void setClarity({required bool enabled, AudioClarityProfile profile = AudioClarityProfile.transientCrisp, double intensity = 0.5}) {
+  void setClarity(
+      {required bool enabled,
+      AudioClarityProfile profile = AudioClarityProfile.transientCrisp,
+      double intensity = 0.5}) {
     if (_enginePtr == ffi.nullptr) return;
     _setClarityEnabled(_enginePtr, enabled ? 1 : 0);
     _setClarityParams(_enginePtr, profile.value, intensity);
   }
 
   /// Harmonic Bass Engine.
-  void setHarmonicBass({required bool enabled, HarmonicBassProfile profile = HarmonicBassProfile.subBassResonant, double cutoffHz = 60.0, double boost = 1.0}) {
+  void setHarmonicBass(
+      {required bool enabled,
+      HarmonicBassProfile profile = HarmonicBassProfile.subBassResonant,
+      double cutoffHz = 60.0,
+      double boost = 1.0}) {
     if (_enginePtr == ffi.nullptr) return;
     _setBassEnabled(_enginePtr, enabled ? 1 : 0);
     _setBassParams(_enginePtr, profile.value, cutoffHz, boost);
@@ -407,7 +598,10 @@ class SautiDsp {
   }
 
   /// Dynamic Transducer Correction.
-  void setDynamicSystem({required bool enabled, TransducerProfile profile = TransducerProfile.earphone, double strength = 0.5}) {
+  void setDynamicSystem(
+      {required bool enabled,
+      TransducerProfile profile = TransducerProfile.earphone,
+      double strength = 0.5}) {
     if (_enginePtr == ffi.nullptr) return;
     _setDynamicSystemEnabled(_enginePtr, enabled ? 1 : 0);
     _setDynamicSystemParams(_enginePtr, profile.value, strength);
@@ -439,10 +633,34 @@ class SautiDsp {
   }
 
   /// Analog Warmth (Triode Tube & Magnetic Tape saturation).
-  void setAnalogWarmth({required bool enabled, AnalogWarmthProfile profile = AnalogWarmthProfile.triode12AX7, double drive = 0.5}) {
+  void setAnalogWarmth(
+      {required bool enabled,
+      AnalogWarmthProfile profile = AnalogWarmthProfile.triode12AX7,
+      double drive = 0.5}) {
     if (_enginePtr == ffi.nullptr) return;
     _setAnalogWarmthEnabled(_enginePtr, enabled ? 1 : 0);
     _setAnalogWarmthParams(_enginePtr, profile.value, drive);
+  }
+
+  /// Dialogue Booster & Background Noise Ducking Engine (reconstructed from Dolby DAP).
+  void setDialogEnhancer({
+    required bool enabled,
+    DialogEnhancerProfile profile = DialogEnhancerProfile.cinema,
+    double amount = 0.65,
+    double ducking = 0.55,
+    double clarity = 0.60,
+    double centerFocus = 0.70,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDialogEnhancerEnabled(_enginePtr, enabled ? 1 : 0);
+    _setDialogEnhancerParams(
+        _enginePtr, profile.value, amount, ducking, clarity, centerFocus);
+  }
+
+  /// Returns current dynamic background ducking attenuation in dB (negative value or 0.0).
+  double getDialogEnhancerGainReductionDb() {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getDialogEnhancerGainReductionDb(_enginePtr);
   }
 
   /// Split-Band / Wideband De-Esser.
@@ -559,7 +777,8 @@ class SautiDsp {
   }) {
     if (_enginePtr == ffi.nullptr) return;
     _setExpanderEnabled(_enginePtr, enabled ? 1 : 0);
-    _setExpanderParams(_enginePtr, thresholdDb, ratio, rangeDb, attackMs, releaseMs);
+    _setExpanderParams(
+        _enginePtr, thresholdDb, ratio, rangeDb, attackMs, releaseMs);
   }
 
   /// Current real-time gain reduction of Downward Expander in dB.
@@ -609,7 +828,11 @@ class SautiDsp {
   }
 
   /// Master Peak Limiter.
-  void setMasterLimiter({required bool enabled, double ceilingDb = -0.1, double outputGainDb = 0.0, double releaseMs = 60.0}) {
+  void setMasterLimiter(
+      {required bool enabled,
+      double ceilingDb = -0.1,
+      double outputGainDb = 0.0,
+      double releaseMs = 60.0}) {
     if (_enginePtr == ffi.nullptr) return;
     _setMasterLimiterEnabled(_enginePtr, enabled ? 1 : 0);
     _setMasterLimiterParams(_enginePtr, ceilingDb, outputGainDb, releaseMs);
@@ -631,11 +854,10 @@ class SautiDsp {
 
   /// Spatial Surround Suite.
   ///
-  /// [mode] selects the algorithm. The compact parameters map to:
-  ///  - [fieldWidth]: stereo field expansion ratio (0.0-2.5, default 1.4)
-  ///  - [roomLevel]: VHS+ room preset 1-5 (default 2)
-  ///  - [delayMs]: Haas precedence delay in ms, 1-25 (default 5.5)
-  ///  - [centerFocus]: Matrix 5.1 vocal centering 0.0-1.0 (default 0.6)
+  /// [mode] selects the algorithm:
+  ///  - [SurroundMode.matrixSurround]: Cinema Matrix 5.1 (Pro Logic II cleanroom)
+  ///  - [SurroundMode.binauralVirtualizer]: Dolby Headphone HRTF & Speaker Virtualizer
+  ///  - [SurroundMode.acousticStage]: AM3D Zirene 3D Virtual Surround & M/S Expander
   void setSurround({
     required bool enabled,
     SurroundMode mode = SurroundMode.off,
@@ -647,7 +869,85 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
     _setSurroundMode(_enginePtr, mode.value);
-    _setSurroundParams(_enginePtr, fieldWidth, roomLevel.toDouble(), delayMs, centerFocus);
+    _setSurroundParams(
+        _enginePtr, fieldWidth, roomLevel.toDouble(), delayMs, centerFocus);
+  }
+
+  /// Cinema Matrix 5.1 (Cleanroom Pro Logic II Dematrix -> Spherical HRTF).
+  void setSurroundMatrix({
+    required bool enabled,
+    double centerFocus = 0.6,
+    double surroundBoost = 1.2,
+    double surroundDelayMs = 15.0,
+    double headRadiusCm = 8.75,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
+    _setSurroundMode(_enginePtr, SurroundMode.matrixSurround.value);
+    _setSurroundMatrixParams(
+      _enginePtr,
+      centerFocus,
+      surroundBoost,
+      surroundDelayMs,
+      headRadiusCm,
+    );
+  }
+
+  /// Binaural HRTF Virtualizer (Reconstructed from Dolby analysis_dlby2).
+  ///
+  /// [mode]: 0 for Headphone HRTF, 1 for Speaker Field.
+  /// [roomPreset]: 1 for Studio, 2 for Cinema, 3 for Concert Hall.
+  /// [speakerAngle]: 0 for Narrow (10 deg), 1 for Standard (30 deg), 2 for Wide (45 deg).
+  void setSurroundBinaural({
+    required bool enabled,
+    int mode = 0,
+    double boost = 0.65,
+    int roomPreset = 2,
+    double roomMix = 0.35,
+    int speakerAngle = 1,
+    double shadowCutoffHz = 3500.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
+    _setSurroundMode(_enginePtr, SurroundMode.binauralVirtualizer.value);
+    _setSurroundBinauralParams(
+      _enginePtr,
+      mode,
+      boost,
+      roomPreset,
+      roomMix,
+      speakerAngle,
+      shadowCutoffHz,
+    );
+  }
+
+  /// 3D Acoustic Stage (Reconstructed from AM3D Zirene re_workspace).
+  ///
+  /// [profile]: 0 for Headset, 1 for Speaker.
+  /// [mode]: 0 for Studio (Normal), 1 for Panoramic (Wide).
+  void setSurroundStage({
+    required bool enabled,
+    int profile = 0,
+    int mode = 0,
+    double width = 1.2,
+    double depth = 0.5,
+    double cancellation = 0.60,
+    double airPresence = 0.40,
+    double bassAnchorHz = 60.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setSurroundEnabled(_enginePtr, enabled ? 1 : 0);
+    _setSurroundMode(_enginePtr, SurroundMode.acousticStage.value);
+    _setSurroundStageParams(
+      _enginePtr,
+      profile,
+      mode,
+      width,
+      depth,
+      cancellation,
+      airPresence,
+      bassAnchorHz,
+    );
   }
 
   /// Full per-algorithm surround tuning.
@@ -674,10 +974,20 @@ class SautiDsp {
     _setSurroundMode(_enginePtr, mode.value);
     _setSurroundParamsEx(
       _enginePtr,
-      fieldWidth, fieldCrossoverHz, fieldDiffuserMix, bassAnchor,
-      haasDelayMs, haasDepth, haasDampingHz,
-      vhsRoomPreset.clamp(1, 5), vhsReflectionGain, vhsDamping,
-      centerFocus, surroundBoost, surroundDelayMs, headRadiusCm,
+      fieldWidth,
+      fieldCrossoverHz,
+      fieldDiffuserMix,
+      bassAnchor,
+      haasDelayMs,
+      haasDepth,
+      haasDampingHz,
+      vhsRoomPreset.clamp(1, 5),
+      vhsReflectionGain,
+      vhsDamping,
+      centerFocus,
+      surroundBoost,
+      surroundDelayMs,
+      headRadiusCm,
     );
   }
 }

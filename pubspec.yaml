@@ -1,6 +1,6 @@
 name: sautiflow
 description: High-fidelity, cross-platform Dart/Flutter audio engine for audiophiles.
-version: 0.6.24
+version: 0.6.25
 homepage: https://sautiflow.nett.to
 repository: https://github.com/wambugu71/sautiflow
 issue_tracker: https://github.com/wambugu71/sautiflow/issues
@@ -34,7 +34,8 @@ flutter:
   plugin:
     platforms:
       android:
-        ffiPlugin: true
+        package: com.wambugu.sautiflow
+        pluginClass: SautiflowPlugin
       ios:
         ffiPlugin: true
       macos:

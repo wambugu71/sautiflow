@@ -238,11 +238,11 @@ class _AudioEngineDiagnosticPanelState
     if (bitrateKbps > 0) {
       bitrateDisplay = '$bitrateKbps kbps';
       if (['FLAC', 'ALAC'].contains(fileType)) {
-        bitrateDisplay += ' (Lossless VBR)';
+        bitrateDisplay += '';
       } else if (['WAV', 'AIFF'].contains(fileType)) {
-        bitrateDisplay += ' (Uncompressed)';
+        bitrateDisplay += '';
       } else if (['MP3', 'AAC', 'M4A', 'OGG', 'OPUS'].contains(fileType)) {
-        bitrateDisplay += ' (Compressed)';
+        bitrateDisplay += '';
       }
     }
 
@@ -290,7 +290,7 @@ class _AudioEngineDiagnosticPanelState
     double sumDspSamples = 0.0;
     for (final n in nodeLatencies) {
       if (n.nodeName != 'Source / Decoder' &&
-          !n.nodeName.startsWith('Hardware Output')) {
+          !n.nodeName.startsWith('Output')) {
         sumDspMs += n.latencyMs;
         sumDspSamples += n.latencySamples;
       }
@@ -334,7 +334,7 @@ class _AudioEngineDiagnosticPanelState
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'DSP Status & Telemetry',
+                    'DSP Status',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       color: Colors.white70,
@@ -369,9 +369,9 @@ class _AudioEngineDiagnosticPanelState
               const SizedBox(height: 12),
               const Divider(color: Color(0xFF1B2336), height: 1),
               const SizedBox(height: 12),
-              _buildTelemetryRow('Hardware Device', activeDeviceName,
+              _buildTelemetryRow('Device', activeDeviceName,
                   isValueActive: true),
-              _buildTelemetryRow('Hardware Route', specs.deviceType,
+              _buildTelemetryRow('Device Type', specs.deviceType,
                   isValueActive: true),
               if (specs.bluetoothCodec != null)
                 _buildTelemetryRow(
@@ -394,8 +394,14 @@ class _AudioEngineDiagnosticPanelState
                   '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)'),
               _buildTelemetryRow('Output',
                   '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit (${specs.deviceType})'),
+              if (specs.socName != null && specs.socName!.isNotEmpty)
+                _buildTelemetryRow('SoC Processor', specs.socName!,
+                    isValueActive: true),
+              if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty)
+                _buildTelemetryRow('DSP Hardware', specs.dspHardware!,
+                    isValueActive: true),
               _buildTelemetryRow('Backend',
-                  '$backend (${isExclusive ? "Exclusive" : "Shared"})'),
+                  '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})'),
               _buildTelemetryRow(
                   'Buffer', '$periodFrames frames ($periodCount periods)'),
               _buildTelemetryRow('Total Latency',
@@ -593,13 +599,22 @@ class _AudioEngineDiagnosticPanelState
                 highlight: specs.isHiResAudio,
               ),
               _buildMiniSpecBadge(
-                icon: specs.isExclusiveMode
+                icon: (specs.isDirectPcm || specs.isExclusiveMode)
                     ? Icons.lock_outline_rounded
                     : Icons.lock_open_rounded,
                 label: 'Mode',
-                value: specs.isExclusiveMode ? 'Bit-Perfect' : 'Shared Mixer',
-                highlight: specs.isExclusiveMode,
+                value: specs.isDirectPcm
+                    ? 'Direct Hi-Res'
+                    : (specs.isExclusiveMode ? 'Bit-Perfect' : 'Shared Mixer'),
+                highlight: specs.isDirectPcm || specs.isExclusiveMode,
               ),
+              if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty)
+                _buildMiniSpecBadge(
+                  icon: Icons.memory_rounded,
+                  label: 'DSP',
+                  value: specs.dspHardware!,
+                  highlight: true,
+                ),
               if (specs.bluetoothCodec != null)
                 _buildMiniSpecBadge(
                   icon: Icons.bluetooth_audio_rounded,
@@ -723,7 +738,7 @@ class _AudioEngineDiagnosticPanelState
               const Row(
                 children: [
                   Text(
-                    'Latency Breakdown',
+                    'Latency',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       color: Colors.white70,
@@ -735,7 +750,7 @@ class _AudioEngineDiagnosticPanelState
                 ],
               ),
               Text(
-                '${totalMs.toStringAsFixed(2)} ms Total',
+                '${totalMs.toStringAsFixed(2)} ms',
                 style: const TextStyle(
                   fontFamily: 'monospace',
                   color: Colors.greenAccent,
@@ -870,18 +885,17 @@ class _AudioEngineDiagnosticPanelState
     if (sautiDspOn) {
       const double dspMs = 0.50; // Low-latency partitioned convolution & DSP
       final double samples = dspMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-          '${step++}.', 'Sauti DSP (Convolver & Suite)', dspMs, samples));
+      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP', dspMs, samples));
     } else {
-      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP Node', 0.0, 0.0));
+      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP', 0.0, 0.0));
     }
 
     // 4. Stereo Widen (Haas delay)
     if (stereoWidenOn) {
       const double delayMs = 15.0;
       final double samples = delayMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-          '${step++}.', 'Stereo Widen (Haas)', delayMs, samples));
+      list.add(
+          _NodeLatencyInfo('${step++}.', 'Stereo Widen', delayMs, samples));
     }
 
     // 5. Stereo Enhancement (PFB analysis)
@@ -889,7 +903,7 @@ class _AudioEngineDiagnosticPanelState
       const double delayMs = 1.20;
       final double samples = delayMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'Stereo Enhancement (PFB)', delayMs, samples));
+          '${step++}.', 'Stereo Enhancement', delayMs, samples));
     }
 
     // 6. Lookahead Limiter Node

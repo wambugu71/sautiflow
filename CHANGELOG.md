@@ -1,4 +1,8 @@
 # Changelog
+## v0.6.25 
+- Bugs fixes and performance  improvements
+- Added ability to select  backend  for  android(only). 
+- Decoupled homescreen UI
 
 ## 0.6.24
 - **[Android Online Stream Architecture Fix]** Resolved online stream playback stalls on Android by implementing a resilient two-stage resampler initialization in `ffmpeg_stream_decoder.cpp`. Falls back gracefully from SoXR to FFmpeg's native `SWR_ENGINE_SWR` engine with 32-tap high-precision sinc filtering, eliminating `AVERROR(EINVAL)` (-22) failures when `libsoxr` is not present in Android prebuilts.

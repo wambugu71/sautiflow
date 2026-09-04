@@ -235,7 +235,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
             color: Colors.black26,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.arrow_back, color: Colors.white),
+          child: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
         ),
         onPressed: () => Navigator.pop(context),
       ),
@@ -370,7 +370,8 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
                             final tracks = _artistFull!.topSongs
                                 .map((s) => TrackInfo.fromSongDetailed(s))
                                 .toList();
-                            Navigator.of(context).popUntil((route) => route.isFirst);
+                            Navigator.of(context)
+                                .popUntil((route) => route.isFirst);
                             widget.onPlayTracks!(tracks, initialIndex: 0);
                           }
                         },

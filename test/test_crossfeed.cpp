@@ -142,6 +142,66 @@ void test_sample_rate_transitions()
     std::cout << "  [PASS] Dynamic sample rate transitions (44.1k <-> 96k <-> 192k) verified\n";
 }
 
+void test_race_properties()
+{
+    std::cout << "\nRunning Ambiophonics RACE Specific DSP Tests:\n";
+    const double sr = 48000.0;
+    CrossfeedNode node;
+    node.setSampleRate(sr);
+    node.setAlgorithm(CrossfeedAlgorithm::RACE);
+    node.setRaceParams(0.20f, 0.60f, 2500.0f); // 0.20ms, alpha=0.6, lpf=2500Hz
+    node.setOutputCompensation(true);
+    node.reset();
+
+    constexpr uint32_t numFrames = 1024;
+    std::vector<float> buffer(numFrames * 2, 0.0f);
+
+    // 1. Anti-phase crosstalk verification:
+    // A positive impulse on Left (1.0) must produce a NEGATIVE contralateral cancellation wave on Right
+    buffer[0] = 1.0f;
+    buffer[1] = 0.0f;
+    node.process(buffer.data(), numFrames, 2);
+
+    float minValR = 0.0f;
+    uint32_t minIdxR = 0;
+    for (uint32_t i = 0; i < numFrames; ++i)
+    {
+        float valR = buffer[i * 2 + 1];
+        if (valR < minValR)
+        {
+            minValR = valR;
+            minIdxR = i;
+        }
+    }
+    // Verify that the crosstalk cancellation signal is strictly negative (anti-phase)
+    assert(minValR < -0.05f);
+    // Expected delay in samples: 0.20ms * 48 samples/ms = 9.6 samples -> peak around frame 10
+    assert(minIdxR >= 9 && minIdxR <= 12);
+    std::cout << "  [PASS] Anti-phase cancellation confirmed (peak negative wave = "
+              << minValR << " at frame " << minIdxR << ")\n";
+
+    // 2. High-alpha stress test (stability under high feedback):
+    node.reset();
+    node.setRaceParams(0.15f, 0.95f, 4000.0f); // aggressive 95% alpha
+    node.reset();
+    std::vector<float> noiseBuf(4096 * 2);
+    for (size_t i = 0; i < noiseBuf.size(); ++i)
+    {
+        noiseBuf[i] = ((float)(rand() % 2000) - 1000.0f) / 1000.0f;
+    }
+    node.process(noiseBuf.data(), 4096, 2);
+
+    float maxMag = 0.0f;
+    for (float s : noiseBuf)
+    {
+        assert(!std::isnan(s) && !std::isinf(s));
+        if (std::abs(s) > maxMag) maxMag = std::abs(s);
+    }
+    assert(maxMag <= 1.05f); // No runaway or instability
+    std::cout << "  [PASS] High-feedback stability test (alpha=0.95, max amplitude = "
+              << maxMag << " without blowup)\n";
+}
+
 int main()
 {
     std::cout << "========================================================\n";
@@ -152,12 +212,15 @@ int main()
     test_algorithm_at_rates(CrossfeedAlgorithm::BS2B, "BS2B");
     test_algorithm_at_rates(CrossfeedAlgorithm::Meier, "Meier");
     test_algorithm_at_rates(CrossfeedAlgorithm::Natural, "Natural");
+    test_algorithm_at_rates(CrossfeedAlgorithm::RACE, "RACE");
 
     std::cout << "\nRunning Delay & Sample Rate Invariance Tests:\n";
     test_delay_accuracy();
 
     std::cout << "\nRunning Rate Transition Safety Tests:\n";
     test_sample_rate_transitions();
+
+    test_race_properties();
 
     std::cout << "\nRunning PDC Latency Reporting Tests:\n";
     CrossfeedNode pdcNode;
