@@ -84,11 +84,13 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // ~30ms ramp
+        updatePresetParams();
         updateCoefficients();
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
@@ -228,9 +230,9 @@ public:
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
-            // 6. Warm rational soft-clipping protection (0.95 knee)
-            interleaved_samples[2 * i]     = softClip(out_l, 0.95f);
-            interleaved_samples[2 * i + 1] = softClip(out_r, 0.95f);
+            // 6. Direct output assignment without base-rate soft-clipping aliasing
+            interleaved_samples[2 * i]     = out_l;
+            interleaved_samples[2 * i + 1] = out_r;
         }
     }
 
@@ -281,6 +283,7 @@ private:
     };
 
     bool enabled_ = false;
+    bool initialized_ = false;
     TransducerProfile profile_ = TransducerProfile::Headphone;
     int preset_index_ = 1;
     float sample_rate_ = 48000.0f;

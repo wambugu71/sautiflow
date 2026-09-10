@@ -10,7 +10,7 @@ namespace sauti::dsp {
 // =============================================================================
 // Polyphase Half-Band Filter Coefficients & Engine
 //
-// 23-tap symmetric half-band FIR with high stopband attenuation (> 85 dB).
+// 23-tap symmetric half-band FIR (Remez equiripple, > 33 dB stopband attenuation).
 // Features:
 //   - Exactly linear phase (zero phase distortion in audio passband)
 //   - Polyphase decomposition: even branch is a pure delay (0 multiplies),
@@ -164,10 +164,10 @@ template <typename T = float>
 class PolyphaseOversampler2xT {
 public:
     PolyphaseOversampler2xT() {
-        init(48000, 4096);
+        init(48000, 8192);
     }
 
-    void init(int sampleRate, uint32_t maxFrames = 4096) {
+    void init(int sampleRate, uint32_t maxFrames = 8192) {
         sampleRate_ = (sampleRate > 0) ? sampleRate : 48000;
         maxFrames_ = std::max(maxFrames, 512u);
         
@@ -258,10 +258,10 @@ template <typename T = float>
 class PolyphaseOversampler4xT {
 public:
     PolyphaseOversampler4xT() {
-        init(48000, 4096);
+        init(48000, 8192);
     }
 
-    void init(int sampleRate, uint32_t maxFrames = 4096) {
+    void init(int sampleRate, uint32_t maxFrames = 8192) {
         sampleRate_ = (sampleRate > 0) ? sampleRate : 48000;
         maxFrames_ = std::max(maxFrames, 512u);
         

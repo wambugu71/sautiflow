@@ -42,13 +42,14 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms parameter smoothing
         updateSidechainFilter();
         updateTimeConstants();
         updateShelfCoeffs(0.0f);
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
@@ -198,6 +199,11 @@ public:
         current_threshold_db_ = target_threshold_db_;
         anti_pop_ = 0.0f;
         updateShelfCoeffs(0.0f);
+        shelf_b0_ = tgt_shelf_b0_;
+        shelf_b1_ = tgt_shelf_b1_;
+        shelf_b2_ = tgt_shelf_b2_;
+        shelf_a1_ = tgt_shelf_a1_;
+        shelf_a2_ = tgt_shelf_a2_;
     }
 
     // Real-time gain reduction in dB for meters / UI
@@ -247,21 +253,27 @@ public:
             // Coupled stereo detector peak
             float env_peak = std::max(env_l_, env_r_);
 
-            // 3. Compute Target Gain Reduction
+            // 3. Compute Target Gain Reduction with 4 dB Soft Knee (C1 continuous)
             float target_gr_db = 0.0f;
-
             if (env_peak > 1e-5f) {
-                float env_db = 20.0f * std::log10(env_peak);
-                if (env_db > current_threshold_db_) {
-                    float overshoot = env_db - current_threshold_db_;
-                    float gr_db = overshoot * (1.0f - 1.0f / ratio_);
+                const float env_db = 20.0f * std::log10(env_peak);
+                const float diff = env_db - current_threshold_db_;
+                constexpr float knee_db = 4.0f;
+                constexpr float half_knee = knee_db * 0.5f;
+
+                if (diff > half_knee) {
+                    float gr_db = diff * (1.0f - 1.0f / ratio_);
+                    target_gr_db = std::min(gr_db, max_reduction_db_);
+                } else if (diff > -half_knee) {
+                    float knee_factor = diff + half_knee;
+                    float gr_db = (1.0f - 1.0f / ratio_) * (knee_factor * knee_factor) / (2.0f * knee_db);
                     target_gr_db = std::min(gr_db, max_reduction_db_);
                 }
             }
 
             // Smooth gain reduction to eliminate audio clicks
             if (target_gr_db > current_gr_db_) {
-                current_gr_db_ = target_gr_db; // Fast attack
+                current_gr_db_ += attack_gr_coeff_ * (target_gr_db - current_gr_db_); // Fast smoothed attack
             } else {
                 current_gr_db_ += gain_smooth_coeff_ * (target_gr_db - current_gr_db_); // Smooth release
             }
@@ -273,6 +285,13 @@ public:
             if (mode_ == DeEsserMode::SplitBand) {
                 // Dynamic High-Shelf Filter
                 updateShelfCoeffs(-current_gr_db_);
+
+                // Continuous parameter interpolation prevents biquad coefficient stepping
+                shelf_b0_ += coeff_interp_coeff_ * (tgt_shelf_b0_ - shelf_b0_);
+                shelf_b1_ += coeff_interp_coeff_ * (tgt_shelf_b1_ - shelf_b1_);
+                shelf_b2_ += coeff_interp_coeff_ * (tgt_shelf_b2_ - shelf_b2_);
+                shelf_a1_ += coeff_interp_coeff_ * (tgt_shelf_a1_ - shelf_a1_);
+                shelf_a2_ += coeff_interp_coeff_ * (tgt_shelf_a2_ - shelf_a2_);
 
                 float s_l = shelf_b0_ * in_l + shelf_b1_ * shelf_x1_l_ + shelf_b2_ * shelf_x2_l_
                           - shelf_a1_ * shelf_y1_l_ - shelf_a2_ * shelf_y2_l_;
@@ -309,6 +328,7 @@ private:
     bool enabled_ = false;
     DeEsserMode mode_ = DeEsserMode::SplitBand;
     DeEsserPreset preset_ = DeEsserPreset::GentleVocal;
+    bool initialized_ = false;
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
 
@@ -328,12 +348,16 @@ private:
     float attack_coeff_ = 0.1f;
     float release_coeff_ = 0.001f;
     float gain_smooth_coeff_ = 0.001f;
+    float attack_gr_coeff_ = 0.05f;
+    float coeff_interp_coeff_ = 0.05f;
     float anti_pop_ = 0.0f;
     float current_gr_db_ = 0.0f;
 
-    // Dynamic High-Shelf Biquad Coefficients
+    // Dynamic High-Shelf Biquad Coefficients (active interpolated and targets)
     float shelf_b0_ = 1.0f, shelf_b1_ = 0.0f, shelf_b2_ = 0.0f;
     float shelf_a1_ = 0.0f, shelf_a2_ = 0.0f;
+    float tgt_shelf_b0_ = 1.0f, tgt_shelf_b1_ = 0.0f, tgt_shelf_b2_ = 0.0f;
+    float tgt_shelf_a1_ = 0.0f, tgt_shelf_a2_ = 0.0f;
     float prev_shelf_gain_db_ = 999.0f;
 
     // Dynamic High-Shelf filter states
@@ -367,6 +391,8 @@ private:
         attack_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (attack_ms_ * 0.001f)));
         release_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.001f)));
         gain_smooth_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.0005f)));
+        attack_gr_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * 0.0005f)); // 0.5ms attack smoothing
+        coeff_interp_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * 0.001f)); // 1ms coeff interpolation
     }
 
     void updateSidechainFilter() {
@@ -389,15 +415,16 @@ private:
     }
 
     void updateShelfCoeffs(float gain_db) {
-        if (std::abs(gain_db - prev_shelf_gain_db_) < 0.01f) return;
+        // Throttled recalculation: recompute transcendentals only when change exceeds 0.1 dB
+        if (std::abs(gain_db - prev_shelf_gain_db_) < 0.1f) return;
         prev_shelf_gain_db_ = gain_db;
 
         if (std::abs(gain_db) < 0.01f) {
-            shelf_b0_ = 1.0f;
-            shelf_b1_ = 0.0f;
-            shelf_b2_ = 0.0f;
-            shelf_a1_ = 0.0f;
-            shelf_a2_ = 0.0f;
+            tgt_shelf_b0_ = 1.0f;
+            tgt_shelf_b1_ = 0.0f;
+            tgt_shelf_b2_ = 0.0f;
+            tgt_shelf_a1_ = 0.0f;
+            tgt_shelf_a2_ = 0.0f;
             return;
         }
 
@@ -412,11 +439,11 @@ private:
         const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
 
         const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;
-        shelf_b0_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A)) / a0);
-        shelf_b1_ = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
-        shelf_b2_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A)) / a0);
-        shelf_a1_ = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
-        shelf_a2_ = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A) / a0);
+        tgt_shelf_b0_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A)) / a0);
+        tgt_shelf_b1_ = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
+        tgt_shelf_b2_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A)) / a0);
+        tgt_shelf_a1_ = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
+        tgt_shelf_a2_ = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A) / a0);
     }
 };
 

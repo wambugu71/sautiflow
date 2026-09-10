@@ -57,6 +57,8 @@ public:
         m_outputBuffer.clear();
         m_monoInput.clear();
         m_monoOverlap.assign(m_overlapFrames, 0.0f);
+        m_monoOverlapMean = 0.0f;
+        m_monoOverlapVar = 0.0f;
 
         m_scale = 1.0f;
         m_nominalPosition = 0.0;
@@ -73,6 +75,8 @@ public:
             m_overlapBuffer.assign(m_overlapFrames * m_channels, 0.0f);
             m_monoOverlap.assign(m_overlapFrames, 0.0f);
         }
+        m_monoOverlapMean = 0.0f;
+        m_monoOverlapVar = 0.0f;
         m_nominalPosition = 0.0;
         m_hasOverlap = false;
     }
@@ -271,7 +275,7 @@ private:
             {
                 const float w = m_blendTable[i];
                 const float invW = 1.0f - w;
-                for (size_t c = 0; c < m_channels; ++c)
+                for (int c = 0; c < m_channels; ++c)
                 {
                     outPtr[i * m_channels + c] = m_overlapBuffer[i * m_channels + c] * invW + inPtr[i * m_channels + c] * w;
                 }
@@ -319,15 +323,27 @@ private:
     void updateMonoOverlap()
     {
         const float invCh = 1.0f / (float)m_channels;
+        float sum = 0.0f;
         for (size_t i = 0; i < m_overlapFrames; ++i)
         {
-            float sum = 0.0f;
-            for (size_t c = 0; c < m_channels; ++c)
+            float chSum = 0.0f;
+            for (int c = 0; c < m_channels; ++c)
             {
-                sum += m_overlapBuffer[i * m_channels + c];
+                chSum += m_overlapBuffer[i * m_channels + c];
             }
-            m_monoOverlap[i] = sum * invCh;
+            float val = chSum * invCh;
+            m_monoOverlap[i] = val;
+            sum += val;
         }
+
+        m_monoOverlapMean = (m_overlapFrames > 0) ? (sum / (float)m_overlapFrames) : 0.0f;
+        float varSum = 0.0f;
+        for (size_t i = 0; i < m_overlapFrames; ++i)
+        {
+            float diff = m_monoOverlap[i] - m_monoOverlapMean;
+            varSum += diff * diff;
+        }
+        m_monoOverlapVar = varSum;
     }
 
     void updateMonoInput(size_t neededFrames)
@@ -340,7 +356,7 @@ private:
         for (size_t i = 0; i < count; ++i)
         {
             float sum = 0.0f;
-            for (size_t c = 0; c < m_channels; ++c)
+            for (int c = 0; c < m_channels; ++c)
             {
                 sum += m_inputBuffer[i * m_channels + c];
             }
@@ -353,22 +369,34 @@ private:
         if (offset < 0 || (size_t)(offset + m_overlapFrames) > m_monoInput.size())
             return -1e30f;
 
+        if (m_monoOverlapVar <= 1e-12f)
+            return 0.0f;
+
         const float *inPtr = m_monoInput.data() + offset;
         const float *ovPtr = m_monoOverlap.data();
 
-        float corr = 0.0f;
-        float norm = 1e-6f;
+        float sumIn = 0.0f;
+        float sumInSq = 0.0f;
+        float dot = 0.0f;
 
-        // Vectorizable dot product
+        // Vectorizable correlation calculation
         for (size_t i = 0; i < m_overlapFrames; ++i)
         {
             const float s = inPtr[i];
-            corr += ovPtr[i] * s;
-            norm += s * s;
+            sumIn += s;
+            sumInSq += s * s;
+            dot += ovPtr[i] * s;
         }
 
-        // Normalized cross-correlation score
-        return corr / std::sqrt(norm);
+        const float meanIn = sumIn / (float)m_overlapFrames;
+        const float varIn = sumInSq - (sumIn * meanIn);
+        if (varIn <= 1e-12f)
+            return 0.0f;
+
+        // Zero-Mean Normalized Cross Correlation (ZNCC / Pearson r)
+        const float cov = dot - (sumIn * m_monoOverlapMean);
+        const float denom = std::sqrt(varIn * m_monoOverlapVar);
+        return (denom > 1e-9f) ? (cov / denom) : 0.0f;
     }
 
     int m_sampleRate = 48000;
@@ -382,6 +410,9 @@ private:
     double m_nominalPosition = 0.0;
     bool m_hasOverlap = false;
     bool m_initialized = false;
+
+    float m_monoOverlapMean = 0.0f;
+    float m_monoOverlapVar = 0.0f;
 
     std::vector<float> m_blendTable;
     std::vector<float> m_overlapBuffer;

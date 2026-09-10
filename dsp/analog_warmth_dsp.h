@@ -27,7 +27,7 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         // 30ms parameter smoothing coefficient at 2x oversampled rate
@@ -35,6 +35,8 @@ public:
         dc_r_ = 1.0f - (2.0f * 3.14159265358979323846f * 10.0f / sample_rate_);
         updateTapeFilter();
         oversampler_.init(static_cast<int>(sample_rate_), 4096);
+        oversampler4x_.init(static_cast<int>(sample_rate_), 4096);
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
@@ -75,46 +77,102 @@ public:
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
+    void setOversampling(int factor) {
+        oversampling_factor_ = (factor >= 4) ? 4 : ((factor >= 2) ? 2 : 1);
+    }
+
+    int getOversampling() const { return oversampling_factor_; }
+
     void process(float* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
-        // 1. Upsample 2x to oversampled domain
-        float* oversampled = oversampler_.upsample(interleaved_samples, frame_count);
-        if (!oversampled) return;
+        if (oversampling_factor_ == 1) {
+            // 1x Native processing
+            for (uint32_t i = 0; i < frame_count; i++) {
+                current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
+                float in_l = interleaved_samples[2 * i];
+                float in_r = interleaved_samples[2 * i + 1];
+                float out_l = in_l;
+                float out_r = in_r;
 
-        const uint32_t oversampled_frames = frame_count * 2;
-
-        // 2. Process nonlinear saturation profiles at 2x rate
-        for (uint32_t i = 0; i < oversampled_frames; i++) {
-            // Parameter de-zippering / smoothing per 2x sample
-            current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
-
-            float in_l = oversampled[2 * i];
-            float in_r = oversampled[2 * i + 1];
-            float out_l = in_l;
-            float out_r = in_r;
-
-            switch (profile_) {
-                case AnalogWarmthProfile::Triode12AX7:
-                    out_l = processTriode(in_l);
-                    out_r = processTriode(in_r);
-                    break;
-                case AnalogWarmthProfile::MagneticTape:
-                    out_l = processTape(in_l, tape_prev_l_);
-                    out_r = processTape(in_r, tape_prev_r_);
-                    break;
-                case AnalogWarmthProfile::VintagePreamp:
-                    out_l = processPreamp(in_l);
-                    out_r = processPreamp(in_r);
-                    break;
+                switch (profile_) {
+                    case AnalogWarmthProfile::Triode12AX7:
+                        out_l = processTriode(in_l);
+                        out_r = processTriode(in_r);
+                        break;
+                    case AnalogWarmthProfile::MagneticTape:
+                        out_l = processTape(in_l, tape_prev_l_);
+                        out_r = processTape(in_r, tape_prev_r_);
+                        break;
+                    case AnalogWarmthProfile::VintagePreamp:
+                        out_l = processPreamp(in_l);
+                        out_r = processPreamp(in_r);
+                        break;
+                }
+                interleaved_samples[2 * i]     = out_l;
+                interleaved_samples[2 * i + 1] = out_r;
             }
+        } else if (oversampling_factor_ == 4) {
+            // 4x Polyphase Oversampled processing
+            oversampler4x_.process(interleaved_samples, frame_count, [this](float* oversampled, uint32_t oversampled_frames) {
+                for (uint32_t i = 0; i < oversampled_frames; i++) {
+                    current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
+                    float in_l = oversampled[2 * i];
+                    float in_r = oversampled[2 * i + 1];
+                    float out_l = in_l;
+                    float out_r = in_r;
 
-            oversampled[2 * i]     = out_l;
-            oversampled[2 * i + 1] = out_r;
+                    switch (profile_) {
+                        case AnalogWarmthProfile::Triode12AX7:
+                            out_l = processTriode(in_l);
+                            out_r = processTriode(in_r);
+                            break;
+                        case AnalogWarmthProfile::MagneticTape:
+                            out_l = processTape(in_l, tape_prev_l_);
+                            out_r = processTape(in_r, tape_prev_r_);
+                            break;
+                        case AnalogWarmthProfile::VintagePreamp:
+                            out_l = processPreamp(in_l);
+                            out_r = processPreamp(in_r);
+                            break;
+                    }
+                    oversampled[2 * i]     = out_l;
+                    oversampled[2 * i + 1] = out_r;
+                }
+            });
+        } else {
+            // 2x Polyphase Oversampled processing
+            float* oversampled = oversampler_.upsample(interleaved_samples, frame_count);
+            if (oversampled) {
+                const uint32_t oversampled_frames = frame_count * 2;
+                for (uint32_t i = 0; i < oversampled_frames; i++) {
+                    current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
+                    float in_l = oversampled[2 * i];
+                    float in_r = oversampled[2 * i + 1];
+                    float out_l = in_l;
+                    float out_r = in_r;
+
+                    switch (profile_) {
+                        case AnalogWarmthProfile::Triode12AX7:
+                            out_l = processTriode(in_l);
+                            out_r = processTriode(in_r);
+                            break;
+                        case AnalogWarmthProfile::MagneticTape:
+                            out_l = processTape(in_l, tape_prev_l_);
+                            out_r = processTape(in_r, tape_prev_r_);
+                            break;
+                        case AnalogWarmthProfile::VintagePreamp:
+                            out_l = processPreamp(in_l);
+                            out_r = processPreamp(in_r);
+                            break;
+                    }
+
+                    oversampled[2 * i]     = out_l;
+                    oversampled[2 * i + 1] = out_r;
+                }
+                oversampler_.downsample(oversampled, interleaved_samples, frame_count);
+            }
         }
-
-        // 3. Decimate and anti-alias filter back to 1x rate
-        oversampler_.downsample(oversampled, interleaved_samples, frame_count);
 
         // 4. Post-processing at native rate (DC blocking & anti-pop crossfading)
         for (uint32_t i = 0; i < frame_count; i++) {
@@ -144,6 +202,7 @@ public:
 
 private:
     bool enabled_ = false;
+    bool initialized_ = false;
     AnalogWarmthProfile profile_ = AnalogWarmthProfile::Triode12AX7;
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
@@ -153,8 +212,10 @@ private:
     float smoothing_coeff_ = 0.001f;
     float anti_pop_ = 0.0f;
 
-    // 2x Polyphase Half-Band Oversampler
+    // 2x and 4x Polyphase Half-Band Oversamplers
     PolyphaseOversampler2x oversampler_;
+    PolyphaseOversampler4x oversampler4x_;
+    int oversampling_factor_ = 2;
 
     // Tape simulation high-frequency damping
     float tape_prev_l_ = 0.0f;

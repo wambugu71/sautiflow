@@ -1920,10 +1920,13 @@ namespace
         // std::deque gives O(1) front eviction (the old vector erase-from-front
         // was an O(N) memmove of up to ~108k doubles on the audio thread).
         static constexpr size_t MAX_ACCUMULATED_BLOCKS = 18000; // 30 min @ 100 ms blocks
-        std::deque<double> accumulatedBlocks;
+        std::vector<double> accumulatedBlocks = std::vector<double>(MAX_ACCUMULATED_BLOCKS, 0.0);
+        size_t accHead = 0;
+        size_t accCount = 0;
         double absGateSum = 0.0;   // running sum of blocks passing the absolute gate
         size_t absGateCount = 0;   // running count of blocks passing the absolute gate
         uint32_t blocksSinceAnalysis = 0;
+        std::vector<double> pass2Powers;
 
         std::atomic<float> momentaryLUFS{-100.0f};
         std::atomic<float> shortTermLUFS{-100.0f};
@@ -1946,10 +1949,14 @@ namespace
             ringHead = 0;
             totalBlocksCount = 0;
             for (size_t i = 0; i < RING_SIZE; ++i) blockRing[i] = {0.0, false};
-            accumulatedBlocks.clear();
+            std::fill(accumulatedBlocks.begin(), accumulatedBlocks.end(), 0.0);
+            accHead = 0;
+            accCount = 0;
             absGateSum = 0.0;
             absGateCount = 0;
             blocksSinceAnalysis = 0;
+            pass2Powers.reserve(MAX_ACCUMULATED_BLOCKS);
+            pass2Powers.clear();
 
             momentaryLUFS.store(-100.0f, std::memory_order_relaxed);
             shortTermLUFS.store(-100.0f, std::memory_order_relaxed);
@@ -2016,35 +2023,39 @@ namespace
                         shortTermLUFS.store(stLufs, std::memory_order_relaxed);
                     }
 
-                    // Accumulate gated-block history with O(1) bookkeeping.
+                    // Accumulate gated-block history with O(1) zero-allocation bookkeeping.
                     if (blockPower > 1e-10)
                     {
                         constexpr double absThresholdPwr = 1.17762e-7; // -70 LUFS
-                        accumulatedBlocks.push_back(blockPower);
-                        if (blockPower >= absThresholdPwr)
+                        if (accCount >= MAX_ACCUMULATED_BLOCKS)
                         {
-                            absGateSum += blockPower;
-                            ++absGateCount;
-                        }
-                        if (accumulatedBlocks.size() > MAX_ACCUMULATED_BLOCKS)
-                        {
-                            const double oldest = accumulatedBlocks.front();
-                            accumulatedBlocks.pop_front(); // O(1) vs O(N) vector erase
+                            const double oldest = accumulatedBlocks[accHead];
                             if (oldest >= absThresholdPwr && absGateCount > 0)
                             {
                                 absGateSum -= oldest;
                                 --absGateCount;
                             }
                         }
+                        else
+                        {
+                            ++accCount;
+                        }
+
+                        accumulatedBlocks[accHead] = blockPower;
+                        accHead = (accHead + 1) % MAX_ACCUMULATED_BLOCKS;
+
+                        if (blockPower >= absThresholdPwr)
+                        {
+                            absGateSum += blockPower;
+                            ++absGateCount;
+                        }
                     }
 
                     // Integrated loudness / LRA are perceptually slow metrics.
-                    // Recomputing them on EVERY 100 ms block rescanned the whole
-                    // history twice and sorted up to ~108k doubles inside the audio
-                    // callback (multi-ms spikes). Throttle to once per second.
+                    // Throttle to once per second.
                     ++blocksSinceAnalysis;
                     const bool runGatedAnalysis =
-                        blocksSinceAnalysis >= 10 && !accumulatedBlocks.empty();
+                        blocksSinceAnalysis >= 10 && accCount > 0;
 
                     if (runGatedAnalysis)
                     {
@@ -2061,8 +2072,10 @@ namespace
                         {
                             double pass1Sum = 0.0;
                             size_t pass1Count = 0;
-                            for (double pwr : accumulatedBlocks)
+                            for (size_t k = 0; k < accCount; ++k)
                             {
+                                size_t idx = (accCount < MAX_ACCUMULATED_BLOCKS) ? k : ((accHead + k) % MAX_ACCUMULATED_BLOCKS);
+                                double pwr = accumulatedBlocks[idx];
                                 if (pwr >= absThresholdPwr) { pass1Sum += pwr; pass1Count++; }
                             }
                             if (pass1Count == 0)
@@ -2081,11 +2094,13 @@ namespace
 
                         double pass2Sum = 0.0;
                         size_t pass2Count = 0;
-                        std::vector<double> pass2Powers;
+                        pass2Powers.clear();
                         if (!pass2Skip)
                         {
-                            for (double pwr : accumulatedBlocks)
+                            for (size_t k = 0; k < accCount; ++k)
                             {
+                                size_t idx = (accCount < MAX_ACCUMULATED_BLOCKS) ? k : ((accHead + k) % MAX_ACCUMULATED_BLOCKS);
+                                double pwr = accumulatedBlocks[idx];
                                 if (pwr >= relThresholdPwr)
                                 {
                                     pass2Sum += pwr;
@@ -3559,7 +3574,8 @@ struct AudioEngineHandle
     int eqBandCount = 0;
     std::mutex eqMutex; // Protect EQ config changes
 
-    int resampleAlgorithm = 8; // Default to AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE (mode 8)
+    std::atomic<int> resampleAlgorithm{8}; // Default to AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE (mode 8)
+    int currentResampleAlgorithm = 8;
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
@@ -4025,11 +4041,13 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> rLock(e->deviceResamplerMutex);
         if (plan.deviceSRC)
         {
+            const int activeAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+            e->currentResampleAlgorithm = activeAlgo;
             if (!e->deviceResamplerInit ||
                 e->deviceResamplerInRate != (int)plan.engineRate ||
                 e->deviceResamplerOutRate != (int)plan.deviceRate ||
                 e->deviceResamplerCh != ch ||
-                e->deviceResamplerAlgorithm != e->resampleAlgorithm)
+                e->deviceResamplerAlgorithm != activeAlgo)
             {
                 if (e->deviceResamplerInit)
                 {
@@ -4043,11 +4061,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                     (ma_uint32)plan.deviceRate,
                     ma_resample_algorithm_linear
                 );
-                if (e->resampleAlgorithm > 0)
+                if (activeAlgo > 0)
                 {
                     rcfg.algorithm = ma_resample_algorithm_custom;
-                    rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
-                    rcfg.pBackendUserData = &e->resampleAlgorithm;
+                    rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(activeAlgo);
+                    rcfg.pBackendUserData = &e->currentResampleAlgorithm;
                 }
                 if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
                 {
@@ -4055,7 +4073,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                     e->deviceResamplerInRate = (int)plan.engineRate;
                     e->deviceResamplerOutRate = (int)plan.deviceRate;
                     e->deviceResamplerCh = ch;
-                    e->deviceResamplerAlgorithm = e->resampleAlgorithm;
+                    e->deviceResamplerAlgorithm = activeAlgo;
                 }
             }
         }
@@ -4096,11 +4114,14 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     {
         std::lock_guard<std::mutex> lock(e->dspMutex);
         const float srF = (float)sr;
+        const int ovFactor = e->dspOversamplingFactor.load(std::memory_order_relaxed);
         e->clarityDsp.setSampleRate(srF);
+        e->clarityDsp.setOversampling(ovFactor);
         e->dialogEnhancerDsp.setSampleRate(srF);
         e->harmonicBassDsp.setSampleRate(srF);
         e->dynamicSystemDsp.setSampleRate(srF);
         e->analogWarmthDsp.setSampleRate(srF);
+        e->analogWarmthDsp.setOversampling(ovFactor);
         e->deEsserDsp.setSampleRate(srF);
         e->downwardExpanderDsp.setSampleRate(srF);
         e->fftConvolverDsp.setSampleRate(srF);
@@ -4284,11 +4305,13 @@ static bool load_decoder_for_path(
 
     // Online streams: Resampling defaults to FFmpeg's built-in SwrContext resampler (not SoXR / r8brain / libsamplerate).
     // Local files: Use the user-selected high-precision resampler backend (SoXR / r8brain / libsamplerate).
-    if (!isNetwork && e->resampleAlgorithm > 0)
+    const int decAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+    e->currentResampleAlgorithm = decAlgo;
+    if (!isNetwork && decAlgo > 0)
     {
         cfg.resampling.algorithm = ma_resample_algorithm_custom;
-        cfg.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
-        cfg.resampling.pBackendUserData = &e->resampleAlgorithm;
+        cfg.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(decAlgo);
+        cfg.resampling.pBackendUserData = &e->currentResampleAlgorithm;
     }
     else
     {
@@ -4931,11 +4954,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
                     ma_decoder_config config = ma_decoder_config_init(ma_format_f32, outCh, (ma_uint32)e->sampleRate);
-                    if (e->resampleAlgorithm > 0)
+                    const int pushAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+                    e->currentResampleAlgorithm = pushAlgo;
+                    if (pushAlgo > 0)
                     {
                         config.resampling.algorithm = ma_resample_algorithm_custom;
-                        config.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(e->resampleAlgorithm);
-                        config.resampling.pBackendUserData = &e->resampleAlgorithm;
+                        config.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(pushAlgo);
+                        config.resampling.pBackendUserData = &e->currentResampleAlgorithm;
                     }
                     config.seekPointCount = 100;
 
@@ -5744,7 +5769,8 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
         }
 
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                                 !e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
 
         // =====================================================================
         // Stage 1: Input Pre-Gain (ReplayGain & Loudness Normalizer Gain)
@@ -5753,7 +5779,9 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         // Master user volume is intentionally NOT applied here so that lowering
         // listening volume never starves downstream compressors/gates or breaks
         // loudness normalization.
+        // In bit-perfect / exclusive mode (bypassAppDsp), this stage is skipped.
         // =====================================================================
+        if (!bypassAppDsp)
         {
             const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
                                          e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
@@ -5802,9 +5830,6 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                 }
             }
         }
-
-        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
-                                 !e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
 
         if (!bypassAppDsp)
         {
@@ -5863,56 +5888,65 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                                        e->stereoEnhancementEnabled || e->crystalizerEnabled || e->reverbEnabled;
             if (hasFloatPreFx)
             {
-                if (use64)
+                std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
+                if (fxLock.owns_lock())
                 {
-                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                }
-                if (e->crossfeedEnabled)
-                    e->crossfeedNode.process(processBuffer, produced, e->channels);
-                if (e->stereoWidenEnabled)
-                    e->stereoWiden.process(processBuffer, produced, e->channels);
-                if (e->stereoEnhancementEnabled)
-                    e->stereoEnhancement.process(processBuffer, produced, e->channels);
-                if (e->crystalizerEnabled)
-                    e->crystalizer.process(processBuffer, produced, e->channels);
-                if (e->reverbEnabled)
-                    e->reverbNode.process(processBuffer, produced, e->channels);
-                if (use64)
-                {
-                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                }
-            }
-
-            // Multiband EQ and mixed multiband FX
-            std::lock_guard<std::mutex> eqLock(e->eqMutex);
-            if (e->multibandEqEnabled)
-            {
-                if (use64)
-                    e->process_multiband_eq_64(buf64, produced, e->channels);
-                else
-                    e->process_multiband_eq(processBuffer, produced, e->channels);
-            }
-            if (e->multibandFxEnabled)
-            {
-                if (use64)
-                {
-                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                    e->process_multiband_fx(processBuffer, produced);
-                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                }
-                else
-                {
-                    e->process_multiband_fx(processBuffer, produced);
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    }
+                    if (e->crossfeedEnabled)
+                        e->crossfeedNode.process(processBuffer, produced, e->channels);
+                    if (e->stereoWidenEnabled)
+                        e->stereoWiden.process(processBuffer, produced, e->channels);
+                    if (e->stereoEnhancementEnabled)
+                        e->stereoEnhancement.process(processBuffer, produced, e->channels);
+                    if (e->crystalizerEnabled)
+                        e->crystalizer.process(processBuffer, produced, e->channels);
+                    if (e->reverbEnabled)
+                        e->reverbNode.process(processBuffer, produced, e->channels);
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                    }
                 }
             }
 
-            // 3-band EQ
-            if (e->eqEnabled)
+            // Multiband EQ and mixed multiband FX (try_to_lock prevents priority inversion)
             {
-                if (use64)
-                    e->eq.process(buf64, produced, e->channels);
-                else
-                    e->eq.process(processBuffer, produced, e->channels);
+                std::unique_lock<std::mutex> eqLock(e->eqMutex, std::try_to_lock);
+                if (eqLock.owns_lock())
+                {
+                    if (e->multibandEqEnabled)
+                    {
+                        if (use64)
+                            e->process_multiband_eq_64(buf64, produced, e->channels);
+                        else
+                            e->process_multiband_eq(processBuffer, produced, e->channels);
+                    }
+                    if (e->multibandFxEnabled)
+                    {
+                        if (use64)
+                        {
+                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                            e->process_multiband_fx(processBuffer, produced);
+                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                        }
+                        else
+                        {
+                            e->process_multiband_fx(processBuffer, produced);
+                        }
+                    }
+
+                    // 3-band EQ
+                    if (e->eqEnabled)
+                    {
+                        if (use64)
+                            e->eq.process(buf64, produced, e->channels);
+                        else
+                            e->eq.process(processBuffer, produced, e->channels);
+                    }
+                }
             }
 
             // Native Clean-Room Audio DSP Suite.
@@ -5992,6 +6026,7 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         // =====================================================================
         // Stage 3: Master Volume Stage (User Master Gain Fader)
         // Applied in 64-bit float precision with automated de-zippering / ramping.
+        // In Bit-Perfect / Exclusive mode with unity gain (1.0), PCM passes unscaled.
         // =====================================================================
         {
             e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
@@ -5999,20 +6034,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
                                           e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                           e->sampleRate);
             const float userGainTarget = e->paramUserGain.getTarget();
-            const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f ||
-                                        std::fabs(userGainTarget - 1.0f) > 1e-6f;
-
-            if (userGainActive)
+            const bool isUnity = std::fabs(userGainTarget - 1.0f) < 1e-6f;
+            if (bypassAppDsp && isUnity)
             {
-                if (use64)
+                e->paramUserGain.current = 1.0f;
+            }
+            else
+            {
+                const bool userGainActive = std::fabs(e->paramUserGain.current - userGainTarget) > 1e-6f || !isUnity;
+                if (userGainActive)
                 {
-                    for (size_t i = 0; i < totalSamples; ++i)
-                        buf64[i] *= static_cast<double>(e->paramUserGain.next());
-                }
-                else
-                {
-                    for (size_t i = 0; i < totalSamples; ++i)
-                        processBuffer[i] *= e->paramUserGain.next();
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            buf64[i] *= static_cast<double>(e->paramUserGain.next());
+                    }
+                    else
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i)
+                            processBuffer[i] *= e->paramUserGain.next();
+                    }
                 }
             }
         }
@@ -6038,10 +6079,14 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
             }
             else if (e->limiterEnabled)
             {
-                if (use64)
-                    e->limiter.process(buf64, produced, e->channels);
-                else
-                    e->limiter.process(processBuffer, produced, e->channels);
+                std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
+                if (fxLock.owns_lock())
+                {
+                    if (use64)
+                        e->limiter.process(buf64, produced, e->channels);
+                    else
+                        e->limiter.process(processBuffer, produced, e->channels);
+                }
             }
         }
 
@@ -8901,7 +8946,7 @@ extern "C"
                 cfg.playback.format = ma_format_u8;
                 break;
             case AE_FORMAT_S24:
-                cfg.playback.format = ma_format_s32; // WASAPI 24-bit PCM container
+                cfg.playback.format = ma_format_s24;
                 break;
             case AE_FORMAT_S32:
                 cfg.playback.format = ma_format_s32;
@@ -8920,7 +8965,8 @@ extern "C"
             // internal engine resamplers use SoXR VHQ Minimum Phase (e->resampleAlgorithm).
             cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
-            if (e->resampleAlgorithm == 1 /* Sinc Best Quality */ || e->resampleAlgorithm == 2 /* Sinc Medium Quality */)
+            const int devResampAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+            if (devResampAlgo == 1 /* Sinc Best Quality */ || devResampAlgo == 2 /* Sinc Medium Quality */)
             {
                 cfg.periodSizeInMilliseconds = 50;
                 cfg.periods = 3;
@@ -9571,13 +9617,14 @@ extern "C"
     {
         if (!engine)
             return;
-        engine->resampleAlgorithm = algorithm;
+        engine->resampleAlgorithm.store(algorithm, std::memory_order_relaxed);
+        engine->currentResampleAlgorithm = algorithm;
         restart_and_apply_config(engine);
     }
 
     AE_API int ae_get_engine_resample_algorithm(AudioEngineHandle *engine)
     {
-        return engine ? engine->resampleAlgorithm : 0;
+        return engine ? engine->resampleAlgorithm.load(std::memory_order_relaxed) : 0;
     }
 
     AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode)
@@ -9616,6 +9663,9 @@ extern "C"
         if (factor > 4) factor = 4;
         if (factor == 3) factor = 4;
         engine->dspOversamplingFactor.store(factor, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->analogWarmthDsp.setOversampling(factor);
+        engine->clarityDsp.setOversampling(factor);
     }
 
     AE_API int ae_get_dsp_oversampling(AudioEngineHandle *engine)
@@ -12256,8 +12306,30 @@ extern "C"
             info.device_sample_rate = engine->deviceSampleRate;
             const bool decoderSrcActive = (info.input_sample_rate != info.engine_sample_rate);
             const bool deviceSrcActive = engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
-            info.is_bypassed = (!decoderSrcActive && !deviceSrcActive) ? 1 : 0;
-            info.mode = info.is_bypassed ? 0 : (engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) ? 1 : 3);
+            if (info.is_bypassed)
+            {
+                info.mode = 0;
+            }
+            else if (engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
+            {
+                info.mode = 1;
+            }
+            else
+            {
+                const int algo = engine->resampleAlgorithm.load(std::memory_order_relaxed);
+                if (algo >= 7 && algo <= 10)
+                {
+                    info.mode = 4; // SoxrVHQ
+                }
+                else if (algo == 11 || algo == 12)
+                {
+                    info.mode = 5; // r8brain
+                }
+                else
+                {
+                    info.mode = 3; // SincHighQuality
+                }
+            }
 
             double latencyMs = 0.0;
             if (deviceSrcActive && engine->deviceSampleRate > 0)
@@ -12269,8 +12341,9 @@ extern "C"
                 latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)engine->engineSampleRate * 1000.0;
             }
             info.resampler_latency_ms = latencyMs;
-            info.filter_passband_ratio = 0.45 * (double)info.device_sample_rate;
-            info.is_linear_phase = (engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE || engine->resampleAlgorithm == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE) ? 1 : 0;
+            info.filter_passband_ratio = 0.45;
+            const int algo = engine->resampleAlgorithm.load(std::memory_order_relaxed);
+            info.is_linear_phase = (algo == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE || algo == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE) ? 1 : 0;
         }
         return info;
     }

@@ -38,7 +38,7 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
@@ -47,6 +47,7 @@ public:
         env_attack_coeff_ = 1.0f - std::exp(-1.0f / (0.015f * sample_rate_));
         env_release_coeff_ = 1.0f - std::exp(-1.0f / (0.120f * sample_rate_));
 
+        initialized_ = true;
         recalcBiquads();
     }
 
@@ -160,10 +161,12 @@ public:
             current_clarity_ += smoothing_coeff_ * (target_clarity_ - current_clarity_);
             current_center_focus_ += smoothing_coeff_ * (target_center_focus_ - current_center_focus_);
 
-            // Recalculate coefficients if amount or clarity has shifted appreciably
-            if (std::abs(current_amount_ - cached_amount_) > 0.005f ||
-                std::abs(current_clarity_ - cached_clarity_) > 0.005f) {
-                recalcBiquads();
+            // Recalculate coefficients at sub-block intervals (every 32 samples) if parameters shifted
+            if ((i & 31) == 0) {
+                if (std::abs(current_amount_ - cached_amount_) > 0.005f ||
+                    std::abs(current_clarity_ - cached_clarity_) > 0.005f) {
+                    recalcBiquads();
+                }
             }
 
             if (anti_pop_ < 1.0f) {
@@ -219,7 +222,8 @@ public:
             float mid_gain = 1.0f + current_center_focus_ * 0.25f;
             float side_gain = current_side_gain * (1.0f - current_center_focus_ * 0.20f);
 
-            float out_mid = mid_enhanced * mid_gain;
+            // Apply mid gain scaled by automatic headroom compensation
+            float out_mid = mid_enhanced * (mid_gain * headroom_comp_);
             float out_side = side * side_gain;
 
             // 5. Mid-Side synthesis back to Left & Right
@@ -314,10 +318,17 @@ private:
         float clarity_gain_db = current_clarity_ * 5.0f;
         calcPeakingBiquad(3800.0f, clarity_gain_db, 1.3f, sample_rate_,
                           b0_clarity_, b1_clarity_, b2_clarity_, a1_clarity_, a2_clarity_);
+
+        // Automatic headroom compensation: caps combined 3-band boost to safe +12 dB headroom
+        // preventing digital clipping when formant (+11dB), body (+3.5dB), and clarity (+5dB) peak together
+        float total_boost_db = formant_gain_db + body_gain_db + clarity_gain_db;
+        float headroom_comp_db = (total_boost_db > 12.0f) ? (12.0f - total_boost_db) : 0.0f;
+        headroom_comp_ = std::pow(10.0f, headroom_comp_db / 20.0f);
     }
 
     bool enabled_ = false;
     DialogEnhancerProfile profile_ = DialogEnhancerProfile::Cinema;
+    bool initialized_ = false;
 
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
@@ -338,6 +349,7 @@ private:
 
     float target_center_focus_ = 0.70f;
     float current_center_focus_ = 0.70f;
+    float headroom_comp_ = 1.0f;
 
     // Filter coefficients: Formant (2.4 kHz)
     float b0_formant_ = 1.0f, b1_formant_ = 0.0f, b2_formant_ = 0.0f;

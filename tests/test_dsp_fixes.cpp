@@ -31,6 +31,7 @@
 #include "dsp/downward_expander_dsp.h"
 #include "dsp/subsonic_filter.h"
 #include "dsp/denormals.h"
+#include "dsp/scaletempo_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -504,6 +505,36 @@ static void test_oversampled_saturation()
         CHECK(!hasNaN, "AudioClarityDSP HarmonicBrilliance oversampled output contains no NaN/Inf");
         CHECK(maxVal > 0.3f, "AudioClarityDSP HarmonicBrilliance excites high frequencies");
     }
+
+    // 4. AnalogWarmth & Clarity oversampling factor switching (1x, 2x, 4x)
+    {
+        sauti::dsp::AnalogWarmthDSP warmth;
+        warmth.setSampleRate(48000.0f);
+        warmth.setEnabled(true);
+        warmth.setDrive(0.5f);
+
+        sauti::dsp::AudioClarityDSP clarity;
+        clarity.setSampleRate(48000.0f);
+        clarity.setEnabled(true);
+        clarity.setProfile(sauti::dsp::AudioClarityProfile::HarmonicBrilliance);
+
+        for (int factor : {1, 2, 4}) {
+            warmth.setOversampling(factor);
+            clarity.setOversampling(factor);
+
+            std::vector<float> buf(2 * 512, 0.25f);
+            warmth.process(buf.data(), 512);
+            clarity.process(buf.data(), 512);
+
+            bool ok = true;
+            for (float v : buf) {
+                if (!std::isfinite(v)) { ok = false; break; }
+            }
+            char factorMsg[128];
+            std::snprintf(factorMsg, sizeof(factorMsg), "AnalogWarmth & Clarity process cleanly at %dx oversampling", factor);
+            CHECK(ok, factorMsg);
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -880,6 +911,29 @@ static void test_subsonic_filter_and_denormals()
         }
         CHECK(std::abs(maxAudio - 1.0f) < 0.01f, "SubsonicFilter preserves 1 kHz audio passband at unity (0.0 dB)");
     }
+
+    // 5. SubsonicFilter 6-channel (5.1) and 8-channel (7.1) multichannel processing
+    {
+        sauti::dsp::SubsonicFilter filter;
+        filter.setSampleRate(48000.0f);
+        filter.setEnabled(true);
+        filter.reset();
+
+        const uint32_t N = 48000;
+        const int ch = 6;
+        std::vector<float> multiBuf(ch * N, 1.0f); // Constant DC bias across all 6 channels
+        filter.process(multiBuf.data(), N, ch);
+
+        bool allChBlocked = true;
+        for (int c = 0; c < ch; ++c) {
+            float val = std::fabs(multiBuf[ch * (N - 1) + c]);
+            if (val >= 0.005f) {
+                allChBlocked = false;
+                break;
+            }
+        }
+        CHECK(allChBlocked, "SubsonicFilter blocks DC across all 6 channels in 5.1 surround");
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -970,6 +1024,40 @@ static void test_dialog_enhancer_dsp()
     }
 }
 
+// -----------------------------------------------------------------------------
+// ScaleTempoDSP ZNCC verification
+// -----------------------------------------------------------------------------
+static void test_scaletempo_dsp()
+{
+    std::printf("\n== ScaleTempoDSP ZNCC Correlation & Time-Stretch Verification ==\n");
+
+    sauti::dsp::ScaleTempoDSP st;
+    st.init(48000, 2);
+    st.setScale(1.25f); // 1.25x speed stretch
+
+    const uint32_t N = 4800; // 100ms
+    std::vector<float> in(2 * N);
+    for (uint32_t i = 0; i < N; ++i) {
+        float s = 0.5f * std::sin(2.0f * 3.14159265f * 440.0f * (float)i / 48000.0f);
+        in[2 * i] = s;
+        in[2 * i + 1] = s;
+    }
+
+    st.writeInput(in.data(), N);
+    size_t avail = st.availableOutputFrames();
+    CHECK(avail > 0, "ScaleTempoDSP produces available output frames after writeInput");
+
+    std::vector<float> out(2 * avail);
+    size_t read = st.readOutput(out.data(), avail);
+    CHECK(read == avail, "ScaleTempoDSP successfully reads all available output frames");
+
+    bool ok = true;
+    for (float v : out) {
+        if (!std::isfinite(v)) { ok = false; break; }
+    }
+    CHECK(ok, "ScaleTempoDSP output with ZNCC correlation is finite and contains no NaN/Inf");
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -977,7 +1065,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -991,6 +1079,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "expander") test_downward_expander_dsp();
     if (only.empty() || only == "subsonic") test_subsonic_filter_and_denormals();
     if (only.empty() || only == "dialog") test_dialog_enhancer_dsp();
+    if (only.empty() || only == "scaletempo") test_scaletempo_dsp();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

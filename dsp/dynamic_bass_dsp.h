@@ -71,11 +71,12 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         updateFilters();
         reset();
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
@@ -432,6 +433,7 @@ private:
     };
 
     bool enabled_ = false;
+    bool initialized_ = false;
     BassEnhanceProfile profile_ = BassEnhanceProfile::NaturalBass;
     int current_preset_ = 18;
     float sample_rate_ = 48000.0f;
@@ -474,6 +476,8 @@ private:
 
     // Psychoacoustic Bass States
     double harm_envelope_ = 1e-10;
+    double harm_attack_coeff_ = 0.01;
+    double harm_release_coeff_ = 0.0001;
     BiquadDirectFormI harm_lp_l_, harm_lp_r_;
     BiquadDirectFormI harm_hp_l_, harm_hp_r_;
 
@@ -536,9 +540,9 @@ private:
         // 2. Stage 1 Soft-Clip on DC-blocked bass signal alone (knee = 0.8)
         bass = softClip(y, 0.8f);
 
-        // 3. Stage 2 Soft-Clip on summed stereo channels (knee = 0.95)
-        samples[2 * i]     = softClip(samples[2 * i] + bass, 0.95f);
-        samples[2 * i + 1] = softClip(samples[2 * i + 1] + bass, 0.95f);
+        // 3. Sum bass into full-band signal without base-rate HF soft-clipping
+        samples[2 * i]     += bass;
+        samples[2 * i + 1] += bass;
     }
 
     inline void shapeMixStereo(float bass_l, float bass_r, float* samples, const uint32_t i) {
@@ -551,13 +555,13 @@ private:
         dc_x1_[1] = bass_r;
         dc_y1_[1] = y_r;
 
-        // 2. Stage 1 Soft-Clip on bass channels
+        // 2. Stage 1 Soft-Clip on bass channels alone
         bass_l = softClip(y_l, 0.8f);
         bass_r = softClip(y_r, 0.8f);
 
-        // 3. Stage 2 Soft-Clip on output
-        samples[2 * i]     = softClip(samples[2 * i] + bass_l, 0.95f);
-        samples[2 * i + 1] = softClip(samples[2 * i + 1] + bass_r, 0.95f);
+        // 3. Inject bass without base-rate HF soft-clipping
+        samples[2 * i]     += bass_l;
+        samples[2 * i + 1] += bass_r;
     }
 
     // =========================================================================
@@ -703,9 +707,9 @@ private:
             const double peak = (abs_l > abs_r) ? abs_l : abs_r;
 
             if (peak > harm_envelope_) {
-                harm_envelope_ += 0.01 * (peak - harm_envelope_);
+                harm_envelope_ += harm_attack_coeff_ * (peak - harm_envelope_);
             } else {
-                harm_envelope_ += 0.0001 * (peak - harm_envelope_);
+                harm_envelope_ += harm_release_coeff_ * (peak - harm_envelope_);
             }
             if (harm_envelope_ < 1e-10) harm_envelope_ = 1e-10;
 
@@ -831,8 +835,8 @@ private:
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
-                samples[2 * i]     = softClip(out_l, 0.95f);
-                samples[2 * i + 1] = softClip(out_r, 0.95f);
+                samples[2 * i]     = out_l;
+                samples[2 * i + 1] = out_r;
             } else {
                 // 1. Stage 1 Ladder X (Channel Decomposition)
                 float x1_l, x2_l, x3_l;
@@ -856,8 +860,8 @@ private:
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
-                samples[2 * i]     = softClip(out_l, 0.95f);
-                samples[2 * i + 1] = softClip(out_r, 0.95f);
+                samples[2 * i]     = out_l;
+                samples[2 * i + 1] = out_r;
             }
         }
     }
@@ -889,6 +893,10 @@ private:
         harm_lp_r_.setLowPass(harm_cutoff, sample_rate_, 0.717f);
         harm_hp_l_.setHighPass(harm_cutoff, sample_rate_, 0.717f);
         harm_hp_r_.setHighPass(harm_cutoff, sample_rate_, 0.717f);
+
+        // Envelope follower ballistics: ~2ms attack, ~208ms release independent of sample rate
+        harm_attack_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.00208333));
+        harm_release_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.208333));
 
         // 4. Pultec EQP-1A Low-End Trick:
         // Deep 45 Hz Low-Shelf (+0 dB to +12 dB boost)

@@ -53,9 +53,11 @@ public:
     double getA1() const { return a1_; }
     double getA2() const { return a2_; }
 
+    static constexpr size_t MAX_CHANNELS = 16;
+
     void reset() {
-        s1_l_ = s2_l_ = 0.0;
-        s1_r_ = s2_r_ = 0.0;
+        std::fill(std::begin(s1_), std::end(s1_), 0.0);
+        std::fill(std::begin(s2_), std::end(s2_), 0.0);
     }
 
     void updateCoefficients() {
@@ -78,78 +80,38 @@ public:
         a2_ = (1.0 - alpha) / a0;
     }
 
-    // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
+    // Process interleaved samples: [L0, R0, ...], mono, or multi-channel up to MAX_CHANNELS
     void process(float* interleaved_samples, uint32_t frame_count, int channels = 2) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples || channels < 1) return;
+        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
 
-        if (channels >= 2) {
-            for (uint32_t i = 0; i < frame_count; i++) {
-                const size_t idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
-                const double in_l = static_cast<double>(interleaved_samples[idx + 0]);
-                const double in_r = static_cast<double>(interleaved_samples[idx + 1]);
-
-                // Left Channel (Transposed Direct Form II in double precision)
-                double out_l = in_l * b0_ + s1_l_;
-                if (std::fabs(out_l) < 1.0e-20) out_l = 0.0;
-                s1_l_ = in_l * b1_ - out_l * a1_ + s2_l_;
-                s2_l_ = in_l * b2_ - out_l * a2_;
-
-                // Right Channel (Transposed Direct Form II in double precision)
-                double out_r = in_r * b0_ + s1_r_;
-                if (std::fabs(out_r) < 1.0e-20) out_r = 0.0;
-                s1_r_ = in_r * b1_ - out_r * a1_ + s2_r_;
-                s2_r_ = in_r * b2_ - out_r * a2_;
-
-                interleaved_samples[idx + 0] = static_cast<float>(out_l);
-                interleaved_samples[idx + 1] = static_cast<float>(out_r);
-            }
-        } else {
-            // Mono
-            for (uint32_t i = 0; i < frame_count; i++) {
-                const double in_m = static_cast<double>(interleaved_samples[i]);
-                double out_m = in_m * b0_ + s1_l_;
-                if (std::fabs(out_m) < 1.0e-20) out_m = 0.0;
-                s1_l_ = in_m * b1_ - out_m * a1_ + s2_l_;
-                s2_l_ = in_m * b2_ - out_m * a2_;
-                interleaved_samples[i] = static_cast<float>(out_m);
+        for (uint32_t i = 0; i < frame_count; i++) {
+            const size_t base_idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
+            for (size_t c = 0; c < chs; ++c) {
+                const double in_s = static_cast<double>(interleaved_samples[base_idx + c]);
+                double out_s = in_s * b0_ + s1_[c];
+                if (std::fabs(out_s) < 1.0e-20) out_s = 0.0;
+                s1_[c] = in_s * b1_ - out_s * a1_ + s2_[c];
+                s2_[c] = in_s * b2_ - out_s * a2_;
+                interleaved_samples[base_idx + c] = static_cast<float>(out_s);
             }
         }
     }
 
-    // Process double-precision interleaved stereo samples (64-Bit Float DSP mode)
+    // Process double-precision interleaved samples (64-Bit Float DSP mode)
     void process(double* interleaved_samples, uint32_t frame_count, int channels = 2) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples || channels < 1) return;
+        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
 
-        if (channels >= 2) {
-            for (uint32_t i = 0; i < frame_count; i++) {
-                const size_t idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
-                const double in_l = interleaved_samples[idx + 0];
-                const double in_r = interleaved_samples[idx + 1];
-
-                // Left Channel (Transposed Direct Form II in double precision)
-                double out_l = in_l * b0_ + s1_l_;
-                if (std::fabs(out_l) < 1.0e-20) out_l = 0.0;
-                s1_l_ = in_l * b1_ - out_l * a1_ + s2_l_;
-                s2_l_ = in_l * b2_ - out_l * a2_;
-
-                // Right Channel (Transposed Direct Form II in double precision)
-                double out_r = in_r * b0_ + s1_r_;
-                if (std::fabs(out_r) < 1.0e-20) out_r = 0.0;
-                s1_r_ = in_r * b1_ - out_r * a1_ + s2_r_;
-                s2_r_ = in_r * b2_ - out_r * a2_;
-
-                interleaved_samples[idx + 0] = out_l;
-                interleaved_samples[idx + 1] = out_r;
-            }
-        } else {
-            // Mono
-            for (uint32_t i = 0; i < frame_count; i++) {
-                const double in_m = interleaved_samples[i];
-                double out_m = in_m * b0_ + s1_l_;
-                if (std::fabs(out_m) < 1.0e-20) out_m = 0.0;
-                s1_l_ = in_m * b1_ - out_m * a1_ + s2_l_;
-                s2_l_ = in_m * b2_ - out_m * a2_;
-                interleaved_samples[i] = out_m;
+        for (uint32_t i = 0; i < frame_count; i++) {
+            const size_t base_idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
+            for (size_t c = 0; c < chs; ++c) {
+                const double in_s = interleaved_samples[base_idx + c];
+                double out_s = in_s * b0_ + s1_[c];
+                if (std::fabs(out_s) < 1.0e-20) out_s = 0.0;
+                s1_[c] = in_s * b1_ - out_s * a1_ + s2_[c];
+                s2_[c] = in_s * b2_ - out_s * a2_;
+                interleaved_samples[base_idx + c] = out_s;
             }
         }
     }
@@ -161,8 +123,8 @@ private:
     double b0_ = 1.0, b1_ = -2.0, b2_ = 1.0;
     double a1_ = 0.0, a2_ = 0.0;
 
-    double s1_l_ = 0.0, s2_l_ = 0.0;
-    double s1_r_ = 0.0, s2_r_ = 0.0;
+    double s1_[MAX_CHANNELS] = {};
+    double s2_[MAX_CHANNELS] = {};
 };
 
 } // namespace sauti::dsp

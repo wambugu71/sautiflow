@@ -107,7 +107,7 @@ public:
     // Latency contributed by the pre-delay stage (samples).
     double getLatencySamples() const
     {
-        if (!targetEnabled && currentWet < 0.0001f)
+        if (!currentEnabled && currentWet < 0.0001f)
             return 0.0;
         return (double)(currentPreDelayMs * 0.001f) * sampleRate;
     }

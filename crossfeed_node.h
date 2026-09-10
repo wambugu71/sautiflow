@@ -87,11 +87,11 @@ public:
 
     double getLatencySamples() const
     {
-        if (targetAlgorithm == CrossfeedAlgorithm::Off || targetMix < 0.0001f)
+        if (currentAlgorithm == CrossfeedAlgorithm::Off || currentMix < 0.0001f)
         {
             return 0.0;
         }
-        return (double)(targetDelayMs * 0.001f) * sampleRate;
+        return (double)(currentDelayMs * 0.001f) * sampleRate;
     }
 
     void reset()

@@ -29,13 +29,15 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateFilters();
         oversampler_.init(static_cast<int>(sample_rate_), 4096);
-        sidechain_buf_.resize(4096 * 2, 0.0f);
+        oversampler4x_.init(static_cast<int>(sample_rate_), 4096);
+        sidechain_buf_.assign(8192, 0.0f);
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
@@ -66,6 +68,12 @@ public:
     }
 
     float getIntensity() const { return target_intensity_; }
+
+    void setOversampling(int factor) {
+        oversampling_factor_ = (factor >= 4) ? 4 : ((factor >= 2) ? 2 : 1);
+    }
+
+    int getOversampling() const { return oversampling_factor_; }
 
     void reset() {
         prev_sample_l_ = 0.0f;
@@ -120,6 +128,7 @@ public:
 
 private:
     bool enabled_ = false;
+    bool initialized_ = false;
     AudioClarityProfile profile_ = AudioClarityProfile::TransientCrisp;
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
@@ -128,8 +137,10 @@ private:
     float smoothing_coeff_ = 0.002f;
     float anti_pop_ = 0.0f;
 
-    // 2x Polyphase Half-Band Oversampler for Harmonic Brilliance
+    // 2x and 4x Polyphase Half-Band Oversamplers for Harmonic Brilliance
     PolyphaseOversampler2x oversampler_;
+    PolyphaseOversampler4x oversampler4x_;
+    int oversampling_factor_ = 2;
     std::vector<float> sidechain_buf_;
 
     // --- Profile 1: Transient Crisp (Differential Enhancer + Reconstruction Filter) ---
@@ -293,25 +304,36 @@ private:
             sidechain_buf_[2 * i + 1] = hp_r;
         }
 
-        // 2. Upsample sidechain 2x
-        float* os_hp = oversampler_.upsample(sidechain_buf_.data(), frame_count);
-        if (!os_hp) return;
-
-        const uint32_t os_frames = frame_count * 2;
-        for (uint32_t i = 0; i < os_frames; i++) {
-            float hp_l = os_hp[2 * i];
-            float hp_r = os_hp[2 * i + 1];
-
-            // Asymmetric even+odd harmonic saturation in the oversampled domain
-            float harm_l = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
-            float harm_r = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
-
-            os_hp[2 * i]     = harm_l;
-            os_hp[2 * i + 1] = harm_r;
+        // 2. Harmonic saturation in configured oversampled domain
+        if (oversampling_factor_ == 1) {
+            for (uint32_t i = 0; i < frame_count; i++) {
+                float hp_l = sidechain_buf_[2 * i];
+                float hp_r = sidechain_buf_[2 * i + 1];
+                sidechain_buf_[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
+                sidechain_buf_[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
+            }
+        } else if (oversampling_factor_ == 4) {
+            oversampler4x_.process(sidechain_buf_.data(), frame_count, [](float* os_hp, uint32_t os_frames) {
+                for (uint32_t i = 0; i < os_frames; i++) {
+                    float hp_l = os_hp[2 * i];
+                    float hp_r = os_hp[2 * i + 1];
+                    os_hp[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
+                    os_hp[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
+                }
+            });
+        } else {
+            float* os_hp = oversampler_.upsample(sidechain_buf_.data(), frame_count);
+            if (os_hp) {
+                const uint32_t os_frames = frame_count * 2;
+                for (uint32_t i = 0; i < os_frames; i++) {
+                    float hp_l = os_hp[2 * i];
+                    float hp_r = os_hp[2 * i + 1];
+                    os_hp[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
+                    os_hp[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
+                }
+                oversampler_.downsample(os_hp, sidechain_buf_.data(), frame_count);
+            }
         }
-
-        // 3. Decimate and anti-alias filter generated harmonics back to native rate
-        oversampler_.downsample(os_hp, sidechain_buf_.data(), frame_count);
 
         // 4. Mix back into dry signal at native rate with smoothed intensity
         for (uint32_t i = 0; i < frame_count; i++) {
