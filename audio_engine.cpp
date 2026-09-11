@@ -49,6 +49,7 @@
 #include "dsp/denormals.h"
 #include "dsp/subsonic_filter.h"
 #include "dsp/scaletempo_dsp.h"
+#include "dsp/stereo_imager_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2386,129 +2387,74 @@ namespace
 
     struct StereoWidenState
     {
-        std::vector<float> delayBuffer;
-        size_t writeIdx = 0;
-        float width = 1.0f;
+        sauti::dsp::StereoImagerDSP imager;
+        float width = 1.2f;
         float delayMs = 15.0f;
+        int mode = 0;
+        float monoBelowHz = 150.0f;
+        float airBoostDb = 1.5f;
         int cachedSampleRate = 44100;
 
         double getLatencySamples(int sampleRate) const
         {
-            if (delayBuffer.empty()) return 0.0;
-            int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
-            return (double)(delayMs * 0.001f) * (double)sr;
+            // Audiophile StereoImagerDSP operates with zero algorithmic latency
+            (void)sampleRate;
+            return 0.0;
         }
-
-        // Crossovers for Left and Right channels to split Bass from Mids/Highs
-        struct WidenCrossover
-        {
-            float ic1eq = 0.0f, ic2eq = 0.0f;
-            float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f, k = 0.0f;
-            void set(float cutoff, float sampleRate)
-            {
-                float g = std::tan(3.14159265358979323846f * cutoff / sampleRate);
-                k = 1.0f / 0.7071f; // Q = 0.7071 (Butterworth)
-                a1 = 1.0f / (1.0f + g * (g + k));
-                a2 = g * a1;
-                a3 = g * a2;
-            }
-            void process(float input, float &lp, float &hp)
-            {
-                float v3 = input - ic2eq;
-                float v1 = a1 * ic1eq + a2 * v3;
-                float v2 = ic2eq + a2 * ic1eq + a3 * v3;
-                ic1eq = 2.0f * v1 - ic1eq;
-                ic2eq = 2.0f * v2 - ic2eq;
-                lp = v2;
-                hp = input - k * v1 - v2;
-            }
-        };
-
-        WidenCrossover crossL;
-        WidenCrossover crossR;
 
         void reset(int sampleRate)
         {
-            cachedSampleRate = sampleRate;
-            size_t delaySamples = (size_t)((delayMs / 1000.0f) * sampleRate);
-            if (delaySamples == 0)
-                delaySamples = 1;
-            delayBuffer.assign(delaySamples, 0.0f);
-            writeIdx = 0;
-
-            crossL.set(300.0f, (float)sampleRate); // 300Hz Crossover
-            crossR.set(300.0f, (float)sampleRate);
+            cachedSampleRate = (sampleRate > 0) ? sampleRate : 44100;
+            imager.setSampleRate(static_cast<float>(cachedSampleRate));
+            imager.setWidth(width);
+            imager.setMode(static_cast<sauti::dsp::StereoImagerMode>(mode));
+            imager.setMonoBelowHz(monoBelowHz);
+            imager.setAirBoostDb(airBoostDb);
+            imager.reset();
         }
 
         void updateParams(int sampleRate, float w, float dMs)
         {
             width = w;
-            if (delayMs != dMs || cachedSampleRate != sampleRate)
+            delayMs = dMs;
+            if (sampleRate > 0 && sampleRate != cachedSampleRate)
             {
-                delayMs = dMs;
-                reset(sampleRate);
+                cachedSampleRate = sampleRate;
+                imager.setSampleRate(static_cast<float>(sampleRate));
             }
+            imager.setWidth(w);
+        }
+
+        void updateParamsEx(int sampleRate, float w, int m, float monoHz, float airDb, float dMs)
+        {
+            width = w;
+            mode = m;
+            monoBelowHz = monoHz;
+            airBoostDb = airDb;
+            delayMs = dMs;
+            if (sampleRate > 0 && sampleRate != cachedSampleRate)
+            {
+                cachedSampleRate = sampleRate;
+                imager.setSampleRate(static_cast<float>(sampleRate));
+            }
+            imager.setWidth(w);
+            imager.setMode(static_cast<sauti::dsp::StereoImagerMode>(m));
+            imager.setMonoBelowHz(monoHz);
+            imager.setAirBoostDb(airDb);
         }
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 2)
-                return; // Stereo only
-            if (delayBuffer.empty())
-                return;
+            imager.setEnabled(true);
+            imager.process(interleaved, frames, channels);
+        }
 
-            for (ma_uint32 i = 0; i < frames; ++i)
-            {
-                size_t base = (size_t)i * channels;
-
-                float originalL = interleaved[base];
-                float originalR = interleaved[base + 1];
-
-                // 1. Split into Bass (low) and Mid/High (high) bands
-                float lowL, highL, lowR, highR;
-                crossL.process(originalL, lowL, highL);
-                crossR.process(originalR, lowR, highR);
-
-                // 2. Haas Effect (Delay the right channel slightly) ONLY on the High band
-                float delayedHighR = delayBuffer[writeIdx];
-                delayBuffer[writeIdx] = highR;
-
-                writeIdx++;
-                if (writeIdx >= delayBuffer.size())
-                    writeIdx = 0;
-
-                // 3. Mid/Side Processing strictly on the High band
-                float midHigh = (highL + delayedHighR) * 0.5f;
-                float sideHigh = (highL - delayedHighR) * 0.5f;
-
-                sideHigh *= width; // Widen the highs
-
-                // Recombine widened highs
-                float processHighL = midHigh + sideHigh;
-                float processHighR = midHigh - sideHigh;
-
-                // 4. Mono-center the bass
-                float monoBass = (lowL + lowR) * 0.5f;
-
-                // Mix the mono-centered bass back with the ultra-wide highs
-                float outL = monoBass + processHighL;
-                float outR = monoBass + processHighR;
-
-                // 5. Soft clip to prevent 0dBFS clipping (crackling) when width is
-                // extreme. Knee-limited so normal-level material passes untouched
-                // instead of being tanh-compressed.
-                if (outL > 0.95f)
-                    outL = 0.95f + 0.05f * std::tanh((outL - 0.95f) / 0.05f);
-                else if (outL < -0.95f)
-                    outL = -0.95f + 0.05f * std::tanh((outL + 0.95f) / 0.05f);
-                if (outR > 0.95f)
-                    outR = 0.95f + 0.05f * std::tanh((outR - 0.95f) / 0.05f);
-                else if (outR < -0.95f)
-                    outR = -0.95f + 0.05f * std::tanh((outR + 0.95f) / 0.05f);
-
-                interleaved[base] = outL;
-                interleaved[base + 1] = outR;
-            }
+        void getTelemetry(float *correlation, float *sideMidRatio)
+        {
+            if (correlation)
+                *correlation = imager.getTelemetryPhaseCorrelation();
+            if (sideMidRatio)
+                *sideMidRatio = imager.getTelemetrySideMidRatio();
         }
     };
 
@@ -3335,6 +3281,50 @@ struct Biquad64
     }
 };
 
+// Fast 32-bit float Transposed Direct Form II biquad for engine FX filters
+struct FxBiquad
+{
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a1 = 0.0f, a2 = 0.0f;
+    float s1[8] = {};
+    float s2[8] = {};
+
+    void reset()
+    {
+        std::fill(s1, s1 + 8, 0.0f);
+        std::fill(s2, s2 + 8, 0.0f);
+    }
+
+    void setCoefficients(double b0_, double b1_, double b2_, double a0_, double a1_, double a2_)
+    {
+        if (std::abs(a0_) < 1.0e-15) return;
+        const double invA0 = 1.0 / a0_;
+        b0 = static_cast<float>(b0_ * invA0);
+        b1 = static_cast<float>(b1_ * invA0);
+        b2 = static_cast<float>(b2_ * invA0);
+        a1 = static_cast<float>(a1_ * invA0);
+        a2 = static_cast<float>(a2_ * invA0);
+    }
+
+    inline void process(float *interleaved, ma_uint32 frames, int channels)
+    {
+        const int ch = std::min(channels, 8);
+        for (ma_uint32 i = 0; i < frames; ++i)
+        {
+            float *frame = interleaved + (size_t)i * (size_t)channels;
+            for (int c = 0; c < ch; ++c)
+            {
+                float in = frame[c];
+                float out = in * b0 + s1[c];
+                if (std::fabs(out) < 1.0e-20f) out = 0.0f;
+                s1[c] = in * b1 - out * a1 + s2[c];
+                s2[c] = in * b2 - out * a2;
+                frame[c] = out;
+            }
+        }
+    }
+};
+
 struct AudioEngineHandle;
 
 struct AudioEngineHandle
@@ -3610,6 +3600,11 @@ struct AudioEngineHandle
         ma_hpf2 highpass{};
         ma_loshelf2 tiltLow{};
         ma_hishelf2 tiltHigh{};
+        FxBiquad allpass{};
+        FxBiquad bandreject{};
+        FxBiquad superCutStages[4]{};
+        FxBiquad superPassStages[4]{};
+        FxBiquad superStopStages[3]{};
     };
 
     bool multibandFxEnabled = false;
@@ -3813,6 +3808,130 @@ struct AudioEngineHandle
                 (void)ma_hishelf2_init(&highConfig, nullptr, &band.tiltHigh);
                 break;
             }
+            case AE_EQ_BAND_ALLPASS:
+            {
+                band.allpass.reset();
+                constexpr double PI = 3.14159265358979323846;
+                const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
+                const double cosW0 = std::cos(w0);
+                const double sinW0 = std::sin(w0);
+                const double alpha = sinW0 / (2.0 * (double)q);
+                const double b0 = 1.0 - alpha;
+                const double b1 = -2.0 * cosW0;
+                const double b2 = 1.0 + alpha;
+                const double a0 = 1.0 + alpha;
+                const double a1 = -2.0 * cosW0;
+                const double a2 = 1.0 - alpha;
+                band.allpass.setCoefficients(b0, b1, b2, a0, a1, a2);
+                break;
+            }
+            case AE_EQ_BAND_BANDREJECT:
+            {
+                band.bandreject.reset();
+                constexpr double PI = 3.14159265358979323846;
+                const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
+                const double cosW0 = std::cos(w0);
+                const double sinW0 = std::sin(w0);
+                const double alpha = sinW0 / (2.0 * (double)q);
+                const double A = std::pow(10.0, (double)gainDb / 40.0);
+                const double b0 = 1.0 + alpha * A;
+                const double b1 = -2.0 * cosW0;
+                const double b2 = 1.0 + alpha * A;
+                const double a0 = 1.0 + alpha / A;
+                const double a1 = -2.0 * cosW0;
+                const double a2 = 1.0 - alpha / A;
+                band.bandreject.setCoefficients(b0, b1, b2, a0, a1, a2);
+                break;
+            }
+            case AE_EQ_BAND_ASUPERCUT:
+            {
+                // 8th-order Butterworth low-pass filter (4 cascaded SOS stages)
+                constexpr double PI = 3.14159265358979323846;
+                const double w0 = (double)frequencyHz / (double)sampleRateU32;
+                const double K = std::tan(PI * clampf((float)w0, 0.0001f, 0.49f));
+                const double K2 = K * K;
+                for (int s = 0; s < 4; ++s)
+                {
+                    band.superCutStages[s].reset();
+                    const double qButter = 1.0 / (2.0 * std::sin((2.0 * (double)s + 1.0) * PI / 16.0));
+                    const double norm = 1.0 / (1.0 + K / qButter + K2);
+                    const double b0 = K2 * norm;
+                    const double b1 = 2.0 * b0;
+                    const double b2 = b0;
+                    const double a1 = 2.0 * (K2 - 1.0) * norm;
+                    const double a2 = (1.0 - K / qButter + K2) * norm;
+                    band.superCutStages[s].setCoefficients(b0, b1, b2, 1.0, a1, a2);
+                }
+                break;
+            }
+            case AE_EQ_BAND_ASUPERPASS:
+            {
+                // 8th-order band-pass: 4th-order HP at fLow + 4th-order LP at fHigh
+                constexpr double PI = 3.14159265358979323846;
+                const double fCenter = (double)frequencyHz;
+                const double qVal = std::max(0.1, (double)q);
+                const double term = std::sqrt(1.0 + 1.0 / (4.0 * qVal * qVal));
+                const double fLow = clampf((float)(fCenter * (term - 0.5 / qVal)), 20.0f, (float)sampleRateU32 * 0.45f);
+                const double fHigh = clampf((float)(fCenter * (term + 0.5 / qVal)), (float)fLow + 10.0f, (float)sampleRateU32 * 0.48f);
+
+                const double Khp = std::tan(PI * fLow / (double)sampleRateU32);
+                const double Khp2 = Khp * Khp;
+                const double Klp = std::tan(PI * fHigh / (double)sampleRateU32);
+                const double Klp2 = Klp * Klp;
+
+                const double q4[2] = {
+                    1.0 / (2.0 * std::cos(PI / 8.0)),
+                    1.0 / (2.0 * std::cos(3.0 * PI / 8.0))
+                };
+
+                for (int s = 0; s < 2; ++s)
+                {
+                    // Stages 0, 1: Highpass at fLow
+                    band.superPassStages[s].reset();
+                    const double normHp = 1.0 / (1.0 + Khp / q4[s] + Khp2);
+                    const double b0hp = normHp;
+                    const double b1hp = -2.0 * b0hp;
+                    const double b2hp = b0hp;
+                    const double a1hp = 2.0 * (Khp2 - 1.0) * normHp;
+                    const double a2hp = (1.0 - Khp / q4[s] + Khp2) * normHp;
+                    band.superPassStages[s].setCoefficients(b0hp, b1hp, b2hp, 1.0, a1hp, a2hp);
+
+                    // Stages 2, 3: Lowpass at fHigh
+                    band.superPassStages[s + 2].reset();
+                    const double normLp = 1.0 / (1.0 + Klp / q4[s] + Klp2);
+                    const double b0lp = Klp2 * normLp;
+                    const double b1lp = 2.0 * b0lp;
+                    const double b2lp = b0lp;
+                    const double a1lp = 2.0 * (Klp2 - 1.0) * normLp;
+                    const double a2lp = (1.0 - Klp / q4[s] + Klp2) * normLp;
+                    band.superPassStages[s + 2].setCoefficients(b0lp, b1lp, b2lp, 1.0, a1lp, a2lp);
+                }
+                break;
+            }
+            case AE_EQ_BAND_ASUPERSTOP:
+            {
+                // Cascaded 3-stage steep notch filter around fCenter
+                constexpr double PI = 3.14159265358979323846;
+                const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
+                const double cosW0 = std::cos(w0);
+                const double sinW0 = std::sin(w0);
+                const double qBase = std::max(0.1, (double)q);
+                const double qFactors[3] = { qBase * 0.70, qBase * 1.0, qBase * 1.45 };
+
+                for (int s = 0; s < 3; ++s)
+                {
+                    band.superStopStages[s].reset();
+                    const double alpha = sinW0 / (2.0 * qFactors[s]);
+                    const double b0 = 1.0;
+                    const double b1 = -2.0 * cosW0;
+                    const double b2 = 1.0;
+                    const double a0 = 1.0 + alpha;
+                    const double a1 = -2.0 * cosW0;
+                    const double a2 = 1.0 - alpha;
+                    band.superStopStages[s].setCoefficients(b0, b1, b2, a0, a1, a2);
+                }
+                break;
+            }
             case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
             default:
@@ -3839,12 +3958,14 @@ struct AudioEngineHandle
             if (!band.enabled)
                 continue;
 
-            // 0.0 dB flat band bypass: peaking, bell, shelves, and tilt have unity response at 0 dB
+            // 0.0 dB flat band bypass: peaking, bell, shelves, tilt, and bandreject have unity response at 0 dB
             const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
                                      band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
-                                     band.type == AE_EQ_BAND_TILT);
+                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
             if (isGainType && std::abs(band.gainDb) < 0.005f)
                 continue;
+
+            const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
 
             switch (band.type)
             {
@@ -3869,6 +3990,24 @@ struct AudioEngineHandle
             case AE_EQ_BAND_TILT:
                 (void)ma_loshelf2_process_pcm_frames(&band.tiltLow, frames, frames, (ma_uint64)frameCount);
                 (void)ma_hishelf2_process_pcm_frames(&band.tiltHigh, frames, frames, (ma_uint64)frameCount);
+                break;
+            case AE_EQ_BAND_ALLPASS:
+                band.allpass.process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_BANDREJECT:
+                band.bandreject.process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_ASUPERCUT:
+                for (int s = 0; s < 4; ++s)
+                    band.superCutStages[s].process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_ASUPERPASS:
+                for (int s = 0; s < 4; ++s)
+                    band.superPassStages[s].process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_ASUPERSTOP:
+                for (int s = 0; s < 3; ++s)
+                    band.superStopStages[s].process(frames, frameCount, ch);
                 break;
             case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
@@ -8663,6 +8802,26 @@ extern "C"
         e->stereoWiden.updateParams(e->sampleRate, width, delay_ms);
     }
 
+    AE_API void ae_set_stereo_imager_params(AudioEngineHandle *e, int enabled, float width, int mode, float mono_below_hz, float air_boost_db, float delay_ms)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->stereoWidenEnabled = (enabled != 0);
+        e->stereoWiden.updateParamsEx(e->sampleRate, width, mode, mono_below_hz, air_boost_db, delay_ms);
+    }
+
+    AE_API void ae_get_stereo_imager_telemetry(AudioEngineHandle *e, float *correlation, float *side_mid_ratio)
+    {
+        if (e == nullptr)
+        {
+            if (correlation) *correlation = 1.0f;
+            if (side_mid_ratio) *side_mid_ratio = 0.0f;
+            return;
+        }
+        e->stereoWiden.getTelemetry(correlation, side_mid_ratio);
+    }
+
     AE_API void ae_set_stereo_enhancement_enabled(AudioEngineHandle *e, int enabled)
     {
         if (e == nullptr)
@@ -9972,7 +10131,7 @@ extern "C"
             AudioEngineHandle::FxBand band{};
 
             int type = types[i];
-            if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_TILT)
+            if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_ASUPERCUT)
             {
                 type = AE_EQ_BAND_PEAK;
             }

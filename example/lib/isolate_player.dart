@@ -196,6 +196,25 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setStereoImager({
+    required bool enabled,
+    required double width,
+    int mode = 0,
+    double monoBelowHz = 150.0,
+    double airBoostDb = 1.5,
+    double delayMs = 15.0,
+  }) {
+    _send({
+      'cmd': 'setStereoImager',
+      'enabled': enabled,
+      'width': width,
+      'mode': mode,
+      'monoBelowHz': monoBelowHz,
+      'airBoostDb': airBoostDb,
+      'delayMs': delayMs,
+    });
+  }
+
   // Custom Real-Time Filters
   void setCustomLpf1({required bool enabled, required double cutoffHz}) {
     _send({'cmd': 'setCustomLpf1', 'enabled': enabled, 'cutoffHz': cutoffHz});
@@ -591,6 +610,16 @@ void _isolateEntry(_IsolateInitData initData) {
               enabled: message['enabled'] ?? false,
               width: message['width'] ?? 1.0,
               delayMs: message['delayMs'] ?? 15.0);
+          break;
+        case 'setStereoImager':
+          player.setStereoImager(
+            enabled: message['enabled'] ?? false,
+            width: (message['width'] as num?)?.toDouble() ?? 1.2,
+            mode: message['mode'] ?? 0,
+            monoBelowHz: (message['monoBelowHz'] as num?)?.toDouble() ?? 150.0,
+            airBoostDb: (message['airBoostDb'] as num?)?.toDouble() ?? 1.5,
+            delayMs: (message['delayMs'] as num?)?.toDouble() ?? 15.0,
+          );
           break;
         case 'setCustomLpf1':
           player.setCustomLpf1(

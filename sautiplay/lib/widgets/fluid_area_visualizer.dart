@@ -248,18 +248,20 @@ class _FluidAreaVisualizerState extends State<FluidAreaVisualizer>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _cycleTheme,
-      behavior: HitTestBehavior.opaque,
-      child: CustomPaint(
-        size: Size(double.infinity, widget.height),
-        painter: _FluidAreaPainter(
-          points: _points,
-          primaryColor: widget.primaryColor,
-          theme: _activeTheme,
-          showGrids: widget.showGrids,
-          logScale: widget.logScale,
-          maxFreq: widget.maxFreq,
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: _cycleTheme,
+        behavior: HitTestBehavior.opaque,
+        child: CustomPaint(
+          size: Size(double.infinity, widget.height),
+          painter: _FluidAreaPainter(
+            points: _points,
+            primaryColor: widget.primaryColor,
+            theme: _activeTheme,
+            showGrids: widget.showGrids,
+            logScale: widget.logScale,
+            maxFreq: widget.maxFreq,
+          ),
         ),
       ),
     );

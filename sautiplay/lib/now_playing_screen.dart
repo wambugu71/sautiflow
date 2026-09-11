@@ -183,7 +183,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     _telemetrySub = widget.player.streamTelemetryStream.listen((tel) {
       if (mounted) {
-        setState(() => _streamTelemetry = tel);
+        final stateChanged = _streamTelemetry.state != tel.state ||
+            _streamTelemetry.codecName != tel.codecName ||
+            _streamTelemetry.bitrate != tel.bitrate ||
+            _streamTelemetry.icyTitle != tel.icyTitle ||
+            _streamTelemetry.isBuffering != tel.isBuffering;
+        _streamTelemetry = tel;
+        if (stateChanged) {
+          setState(() {});
+        }
         if (_originalBitDepth.isEmpty || _sampleRate == '...') {
           _fetchAudioProperties();
         }
@@ -397,22 +405,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _setupAnalyzer(bool enabled) {
-    if (enabled) {
-      final sr = widget.outputSampleRate > 0 ? widget.outputSampleRate : 48000;
-      _fftProcessor ??= FftProcessor(sampleRate: sr);
-      widget.player.setAnalyzerEnabled(true);
-      _analyzerSub ??= widget.player.analyzerStream.listen((frame) {
-        if (frame.isEmpty) return;
-        final bins = _fftProcessor!.processFrame(frame, targetBins: 96);
-        _analyzerValuesNotifier.value = bins;
-      });
-    } else {
-      widget.player.setAnalyzerEnabled(false);
-      _analyzerSub?.cancel();
-      _analyzerSub = null;
-      _fftProcessor?.reset();
-      _analyzerValuesNotifier.value = [];
-    }
+    // NowPlayingScreen does not render FFT visualizer bars.
+    // Avoid subscribing to the 30Hz raw PCM analyzerStream to prevent ghost FFT calculations.
+    _analyzerSub?.cancel();
+    _analyzerSub = null;
+    _fftProcessor?.reset();
+    _analyzerValuesNotifier.value = [];
   }
 
   String _formatSampleRate(int rateHz) {
@@ -1735,6 +1733,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                       .albumArt!,
                                                                   fit: BoxFit
                                                                       .cover,
+                                                                  cacheWidth:
+                                                                      800,
+                                                                  cacheHeight:
+                                                                      800,
                                                                 ),
                                                               ),
                                                             )
@@ -2403,6 +2405,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         child: Image.memory(
                                                           widget.albumArt!,
                                                           fit: BoxFit.cover,
+                                                          cacheWidth: 800,
+                                                          cacheHeight: 800,
                                                         ),
                                                       )
                                                     : RotationTransition(

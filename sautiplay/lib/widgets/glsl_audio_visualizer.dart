@@ -325,20 +325,23 @@ class _GlslAudioVisualizerWidgetState extends State<GlslAudioVisualizerWidget>
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        height: widget.height,
-        width: widget.width,
-        child: CustomPaint(
-          painter: _GlslShaderPainter(
-            program: _program!,
-            time: _elapsedTime,
-            bass: _bass,
-            mid: _mid,
-            treble: _treble,
-            energy: _energy,
-            primaryColor: widget.primaryColor ?? AppThemeService.instance.currentData.primary,
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: widget.height,
+          width: widget.width,
+          child: CustomPaint(
+            painter: _GlslShaderPainter(
+              program: _program!,
+              time: _elapsedTime,
+              bass: _bass,
+              mid: _mid,
+              treble: _treble,
+              energy: _energy,
+              primaryColor: widget.primaryColor ??
+                  AppThemeService.instance.currentData.primary,
+            ),
           ),
         ),
       ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
@@ -1120,6 +1121,30 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  static Future<Map<String, String?>> _readMetadataInBackground(
+      String filePath) {
+    return Isolate.run(() {
+      try {
+        final file = File(filePath);
+        final meta = amr.readMetadata(file, getImage: false);
+        return {
+          'title':
+              (meta.title != null && meta.title!.isNotEmpty) ? meta.title : null,
+          'artist': (meta.artist != null && meta.artist!.isNotEmpty)
+              ? meta.artist
+              : null,
+          'album':
+              (meta.album != null && meta.album!.isNotEmpty) ? meta.album : null,
+          'genre': (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty)
+              ? meta.genres.first
+              : null,
+        };
+      } catch (_) {
+        return {};
+      }
+    });
+  }
+
   Future<void> _smartScanFolders({bool showFullLoading = false}) async {
     if (_folders.isEmpty) {
       if (mounted) {
@@ -1209,25 +1234,12 @@ class LibraryScreenState extends State<LibraryScreen>
               });
             }
 
-            String? metaTitle;
-            String? metaArtist;
-            String? metaAlbum;
-            String? metaGenre;
-            try {
-              final meta = amr.readMetadata(file, getImage: false);
-              if (meta.title != null && meta.title!.isNotEmpty) {
-                metaTitle = meta.title;
-              }
-              if (meta.artist != null && meta.artist!.isNotEmpty) {
-                metaArtist = meta.artist;
-              }
-              if (meta.album != null && meta.album!.isNotEmpty) {
-                metaAlbum = meta.album;
-              }
-              if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
-                metaGenre = meta.genres.first;
-              }
-            } catch (_) {}
+            final metaMap =
+                await _readMetadataInBackground(canonicalPath);
+            final metaTitle = metaMap['title'];
+            final metaArtist = metaMap['artist'];
+            final metaAlbum = metaMap['album'];
+            final metaGenre = metaMap['genre'];
 
             updatedSongs.add(LocalSongItem.fallback(
               canonicalPath,
@@ -1298,16 +1310,16 @@ class LibraryScreenState extends State<LibraryScreen>
         list.sort((a, b) => a.sizeBytes.compareTo(b.sizeBytes));
         break;
       case 'File Extension (A-Z)':
-        list.sort((a, b) => p
-            .extension(a.path)
-            .toLowerCase()
-            .compareTo(p.extension(b.path).toLowerCase()));
+        final extMap = <String, String>{};
+        String getExt(String path) =>
+            extMap.putIfAbsent(path, () => p.extension(path).toLowerCase());
+        list.sort((a, b) => getExt(a.path).compareTo(getExt(b.path)));
         break;
       case 'File Extension (Z-A)':
-        list.sort((a, b) => p
-            .extension(b.path)
-            .toLowerCase()
-            .compareTo(p.extension(a.path).toLowerCase()));
+        final extMap = <String, String>{};
+        String getExt(String path) =>
+            extMap.putIfAbsent(path, () => p.extension(path).toLowerCase());
+        list.sort((a, b) => getExt(b.path).compareTo(getExt(a.path)));
         break;
     }
 

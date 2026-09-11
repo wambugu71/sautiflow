@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart'; // Added
@@ -244,6 +246,7 @@ class _PlayerShellState extends State<PlayerShell> {
   AudioSource? _lastPlaybackSource;
   final Set<String> _cachedTrackIdsThisSession = <String>{};
   DateTime? _lastOfflineSnackBarTime;
+  int _lastQueueSaveTimeMs = 0;
 
   void _showOfflineSnackBar({String? message}) {
     if (!mounted) return;
@@ -342,7 +345,9 @@ class _PlayerShellState extends State<PlayerShell> {
     }
     _statusSubscription = _player.statusStream.listen((s) {
       // Save position periodically (every ~5s)
-      if (s.isPlaying && (s.positionSeconds % 5 == 0)) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (s.isPlaying && (nowMs - _lastQueueSaveTimeMs >= 5000)) {
+        _lastQueueSaveTimeMs = nowMs;
         AppStateService.instance.saveQueue(
           tracks: _currentUiQueue.map((t) => t.toJson()).toList(),
           index: s.currentIndex,
@@ -848,6 +853,78 @@ class _PlayerShellState extends State<PlayerShell> {
 
   AudioSource? _lastMetadataSource;
 
+  static Future<
+          ({
+            String? artist,
+            Uint8List? albumArt,
+            double? rgTrack,
+            double? rgAlbum
+          })>
+      _readLocalTrackMetadataOffload(String filePath, {bool getImage = true}) {
+    return Isolate.run(() {
+      try {
+        final metadata = readMetadata(File(filePath), getImage: getImage);
+        String? artist;
+        if (metadata.artist != null && metadata.artist!.isNotEmpty) {
+          artist = metadata.artist;
+        }
+        Uint8List? albumArt;
+        if (getImage && metadata.pictures.isNotEmpty) {
+          albumArt = metadata.pictures.first.bytes;
+        }
+        double? rgTrack;
+        double? rgAlbum;
+
+        try {
+          final dynamic m = metadata;
+          if (m.customMetadata != null) {
+            final Map<String, String> custom = m.customMetadata;
+            if (custom.containsKey('REPLAYGAIN_TRACK_GAIN')) {
+              rgTrack = double.tryParse(custom['REPLAYGAIN_TRACK_GAIN']!
+                  .replaceAll(RegExp(r'[^\d.-]'), ''));
+            }
+            if (custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
+              rgAlbum = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
+                  .replaceAll(RegExp(r'[^\d.-]'), ''));
+            }
+          }
+        } catch (_) {}
+
+        try {
+          final dynamic m = metadata;
+          if (rgTrack == null &&
+              m.replayGainTrackGain != null &&
+              m.replayGainTrackGain.isNotEmpty) {
+            rgTrack = double.tryParse(m.replayGainTrackGain.first
+                .toString()
+                .replaceAll(RegExp(r'[^\d.-]'), ''));
+          }
+          if (rgAlbum == null &&
+              m.replayGainAlbumGain != null &&
+              m.replayGainAlbumGain.isNotEmpty) {
+            rgAlbum = double.tryParse(m.replayGainAlbumGain.first
+                .toString()
+                .replaceAll(RegExp(r'[^\d.-]'), ''));
+          }
+        } catch (_) {}
+
+        return (
+          artist: artist,
+          albumArt: albumArt,
+          rgTrack: rgTrack,
+          rgAlbum: rgAlbum,
+        );
+      } catch (_) {
+        return (
+          artist: null,
+          albumArt: null,
+          rgTrack: null,
+          rgAlbum: null,
+        );
+      }
+    });
+  }
+
   /// Pre-reads the ReplayGain value for the next track in the queue and
   /// forwards it to the engine so loudness-aware crossfade can compensate
   /// before the blend even starts.
@@ -880,43 +957,12 @@ class _PlayerShellState extends State<PlayerShell> {
 
     double rgDb = 0.0;
     try {
-      final metadata = readMetadata(File(filePath), getImage: false);
+      final meta =
+          await _readLocalTrackMetadataOffload(filePath, getImage: false);
       final rgState = await AppStateService.instance.loadReplayGainSettings();
-      double? found;
-      try {
-        final dynamic m = metadata;
-        if (m.customMetadata != null) {
-          final Map<String, String> custom = m.customMetadata;
-          if (rgState.mode == ReplayGainMode.album &&
-              custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
-            found = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
-                .replaceAll(RegExp(r'[^\d.-]'), ''));
-          }
-          found ??= double.tryParse((custom['REPLAYGAIN_TRACK_GAIN'] ?? '')
-              .replaceAll(RegExp(r'[^\d.-]'), ''));
-        }
-      } catch (_) {}
-      try {
-        final dynamic m = metadata;
-        if (found == null) {
-          if (rgState.mode == ReplayGainMode.album &&
-              m.replayGainAlbumGain != null &&
-              (m.replayGainAlbumGain as List).isNotEmpty) {
-            found = double.tryParse((m.replayGainAlbumGain as List)
-                .first
-                .toString()
-                .replaceAll(RegExp(r'[^\d.-]'), ''));
-          }
-          if (found == null &&
-              m.replayGainTrackGain != null &&
-              (m.replayGainTrackGain as List).isNotEmpty) {
-            found = double.tryParse((m.replayGainTrackGain as List)
-                .first
-                .toString()
-                .replaceAll(RegExp(r'[^\d.-]'), ''));
-          }
-        }
-      } catch (_) {}
+      final found = (rgState.mode == ReplayGainMode.album)
+          ? (meta.rgAlbum ?? meta.rgTrack)
+          : (meta.rgTrack ?? meta.rgAlbum);
       rgDb = (found ?? 0.0) + rgState.preamp;
     } catch (_) {}
 
@@ -951,7 +997,9 @@ class _PlayerShellState extends State<PlayerShell> {
                 bytes.addAll(chunk);
               }
               albumArt = Uint8List.fromList(bytes);
-              if (_thumbnailCache.length > 50) _thumbnailCache.clear();
+              if (_thumbnailCache.length >= 200) {
+                _thumbnailCache.remove(_thumbnailCache.keys.first);
+              }
               _thumbnailCache[track.thumbnailUrl!] = albumArt;
             }
             client.close(force: true);
@@ -980,13 +1028,15 @@ class _PlayerShellState extends State<PlayerShell> {
 
         if (filePath != null) {
           try {
-            final metadata = readMetadata(File(filePath), getImage: true);
-            if (metadata.artist != null && metadata.artist!.isNotEmpty) {
-              artist = metadata.artist!;
+            final meta =
+                await _readLocalTrackMetadataOffload(filePath, getImage: true);
+            if (meta.artist != null && meta.artist!.isNotEmpty) {
+              artist = meta.artist!;
             }
-            if (metadata.pictures.isNotEmpty) {
-              albumArt = metadata.pictures.first.bytes;
-            } else if (albumArt == null) {
+            albumArt = meta.albumArt;
+            rgTrack = meta.rgTrack;
+            rgAlbum = meta.rgAlbum;
+            if (albumArt == null) {
               // Fallback to directory images
               final dir = File(filePath).parent;
               if (dir.existsSync()) {
@@ -1005,37 +1055,6 @@ class _PlayerShellState extends State<PlayerShell> {
                 }
               }
             }
-
-            // Extract ReplayGain
-            try {
-              final dynamic m = metadata;
-              if (m.customMetadata != null) {
-                // MP3 ID3v2 TXXX
-                final Map<String, String> custom = m.customMetadata;
-                if (custom.containsKey('REPLAYGAIN_TRACK_GAIN')) {
-                  rgTrack = double.tryParse(custom['REPLAYGAIN_TRACK_GAIN']!
-                      .replaceAll(RegExp(r'[^\d.-]'), ''));
-                }
-                if (custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
-                  rgAlbum = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
-                      .replaceAll(RegExp(r'[^\d.-]'), ''));
-                }
-              }
-            } catch (_) {}
-
-            try {
-              final dynamic m = metadata;
-              if (m.replayGainTrackGain != null &&
-                  m.replayGainTrackGain.isNotEmpty) {
-                rgTrack = double.tryParse(m.replayGainTrackGain.first
-                    .replaceAll(RegExp(r'[^\d.-]'), ''));
-              }
-              if (m.replayGainAlbumGain != null &&
-                  m.replayGainAlbumGain.isNotEmpty) {
-                rgAlbum = double.tryParse(m.replayGainAlbumGain.first
-                    .replaceAll(RegExp(r'[^\d.-]'), ''));
-              }
-            } catch (_) {}
           } catch (e) {
             _logs.insert(0, '[metadata] Read error: $e');
           }
@@ -2554,10 +2573,10 @@ class _PlayerShellState extends State<PlayerShell> {
         maxHeight: MediaQuery.of(context).size.height,
       ),
       builder: (context) {
-        return ValueListenableBuilder<PlayerStatus>(
-          valueListenable: _status,
-          builder: (context, status, _) {
-            final idx = status.currentIndex;
+        return ValueListenableBuilder<TrackMetadata>(
+          valueListenable: _metadata,
+          builder: (context, meta, _) {
+            final idx = _status.value.currentIndex;
             final hasTrack =
                 _playlist.isNotEmpty && idx >= 0 && idx < _playlist.length;
             final currentSource = hasTrack ? _playlist[idx] : null;
@@ -2571,50 +2590,45 @@ class _PlayerShellState extends State<PlayerShell> {
                 ? _onlineTrackMetadata[currentSource!.uri]?.videoId
                 : null;
 
-            return ValueListenableBuilder<TrackMetadata>(
-              valueListenable: _metadata,
-              builder: (context, meta, _) {
-                return NowPlayingScreen(
-                  statusNotifier: _status,
-                  player: _player,
-                  albumArt: meta.albumArt,
-                  artist: meta.artist,
-                  codec: _codecFromCurrentTrack(),
-                  durationOverride:
-                      hasTrack ? _durationFromSource(currentSource!) : null,
-                  videoId: currentVideoId,
-                  getTitle: (index) => (index >= 0 && index < _playlist.length)
-                      ? _nameFromSource(_playlist[index])
-                      : 'No track selected',
-                  onMinimize: () => Navigator.of(context).pop(),
-                  queue: _currentUiQueue,
-                  onPlayQueueIndex: _playQueueIndex,
-                  onReorderQueue: _reorderQueue,
-                  onRemoveFromQueue: _removeFromQueue,
-                  onClearQueue: _clearQueue,
-                  onShuffleQueue: _shuffleQueue,
-                  sourceType: currentSourceType,
-                  onPlayTracks: _playOnlineTracks,
-                  analyzerEnabled: _analyzerEnabled,
-                  analyzerType: _analyzerType,
-                  analyzerAutoFit: _analyzerAutoFit,
-                  analyzerShowGrids: _analyzerShowGrids,
-                  outputSampleRate: _outputSampleRate,
-                  onAnalyzerEnabledChanged: (v) {
-                    setState(() => _analyzerEnabled = v);
-                    _player.setAnalyzerEnabled(v);
-                    _saveEngineSettings();
-                  },
-                  onNavigateToHistory: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => RecentlyPlayedScreen(
-                          onPlayTracks: _playHistoryTracks,
-                        ),
-                      ),
-                    );
-                  },
+            return NowPlayingScreen(
+              statusNotifier: _status,
+              player: _player,
+              albumArt: meta.albumArt,
+              artist: meta.artist,
+              codec: _codecFromCurrentTrack(),
+              durationOverride:
+                  hasTrack ? _durationFromSource(currentSource!) : null,
+              videoId: currentVideoId,
+              getTitle: (index) => (index >= 0 && index < _playlist.length)
+                  ? _nameFromSource(_playlist[index])
+                  : 'No track selected',
+              onMinimize: () => Navigator.of(context).pop(),
+              queue: _currentUiQueue,
+              onPlayQueueIndex: _playQueueIndex,
+              onReorderQueue: _reorderQueue,
+              onRemoveFromQueue: _removeFromQueue,
+              onClearQueue: _clearQueue,
+              onShuffleQueue: _shuffleQueue,
+              sourceType: currentSourceType,
+              onPlayTracks: _playOnlineTracks,
+              analyzerEnabled: _analyzerEnabled,
+              analyzerType: _analyzerType,
+              analyzerAutoFit: _analyzerAutoFit,
+              analyzerShowGrids: _analyzerShowGrids,
+              outputSampleRate: _outputSampleRate,
+              onAnalyzerEnabledChanged: (v) {
+                setState(() => _analyzerEnabled = v);
+                _player.setAnalyzerEnabled(v);
+                _saveEngineSettings();
+              },
+              onNavigateToHistory: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => RecentlyPlayedScreen(
+                      onPlayTracks: _playHistoryTracks,
+                    ),
+                  ),
                 );
               },
             );
@@ -2671,6 +2685,7 @@ class _PlayerShellState extends State<PlayerShell> {
                 initialTabIndex: _librarySubTabIndex,
               ),
               EffectsScreen(
+                isActive: _tabIndex == 2,
                 effectsKnobKey: _effectsKnobKey,
                 player: _player,
                 analyzerEnabled: _analyzerEnabled,

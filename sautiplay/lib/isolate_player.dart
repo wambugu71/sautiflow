@@ -42,15 +42,25 @@ class IsolateAudioPlayer {
   MiniAudioSystemAudioController? _systemAudio;
   DesktopSystemAudioController? _desktopAudio;
 
+  int _nextRequestId = 0;
+  final Map<int, Completer<dynamic>> _pendingRequests = {};
+  StreamSubscription<PlayerStatus>? _desktopAudioSub;
+  ReceivePort? _errorPort;
+
   Future<void> init({bool enableSystemAudio = true}) async {
-    // Spawn the isolate
+    // Spawn the isolate with an error port
     final token = RootIsolateToken.instance;
+    _errorPort = ReceivePort();
+    _errorPort!.listen((error) {
+      _logController.add('[isolate-error] $error');
+    });
 
     // Always disable system audio inside the isolate to prevent conflicts.
     // We will handle it on the main isolate.
     _isolate = await Isolate.spawn(
       _isolateEntry,
       _IsolateInitData(_receivePort.sendPort, token, false),
+      onError: _errorPort!.sendPort,
     );
 
     // Initialize system audio controller on the main isolate
@@ -83,7 +93,8 @@ class IsolateAudioPlayer {
         );
         await _desktopAudio!.enable();
 
-        _statusController.stream.listen((status) {
+        _desktopAudioSub?.cancel();
+        _desktopAudioSub = _statusController.stream.listen((status) {
           _desktopAudio?.updatePlaybackStatus(status.isPlaying);
         });
       }
@@ -105,6 +116,19 @@ class IsolateAudioPlayer {
         _lastTelemetry = message;
         _telemetryController.add(message);
       } else if (message is Map) {
+        if (message.containsKey('_replyId')) {
+          final reqId = message['_replyId'] as int;
+          final completer = _pendingRequests.remove(reqId);
+          if (completer != null && !completer.isCompleted) {
+            if (message.containsKey('error')) {
+              completer.completeError(Exception(message['error']));
+            } else {
+              completer.complete(message['result']);
+            }
+          }
+          return;
+        }
+
         if (message['type'] == 'capabilities') {
           final supported = message['networkStreamingSupported'] == true;
           _networkStreamingSupported = supported;
@@ -144,10 +168,36 @@ class IsolateAudioPlayer {
     }
   }
 
+  Future<dynamic> _request(String cmd,
+      [Map<String, dynamic>? data,
+      Duration timeout = const Duration(milliseconds: 500)]) {
+    final reqId = ++_nextRequestId;
+    final completer = Completer<dynamic>();
+    _pendingRequests[reqId] = completer;
+    _send({
+      'cmd': cmd,
+      '_reqId': reqId,
+      if (data != null) ...data,
+    });
+    return completer.future.timeout(timeout, onTimeout: () {
+      _pendingRequests.remove(reqId);
+      return null;
+    });
+  }
+
   void dispose() {
-    _seekDebounceTimer?.cancel();
+    _desktopAudioSub?.cancel();
+    _desktopAudioSub = null;
+    _errorPort?.close();
+    _errorPort = null;
+
     _send({'cmd': 'dispose'});
-    _isolate?.kill();
+
+    Future.delayed(const Duration(milliseconds: 250), () {
+      _isolate?.kill();
+      _isolate = null;
+    });
+
     _systemAudio?.disable();
     _desktopAudio?.dispose();
     _statusController.close();
@@ -156,6 +206,10 @@ class IsolateAudioPlayer {
     _telemetryController.close();
     _bufferingController.close();
     _receivePort.close();
+    for (final c in _pendingRequests.values) {
+      if (!c.isCompleted) c.complete(null);
+    }
+    _pendingRequests.clear();
   }
 
   // --- Commands ---
@@ -204,20 +258,11 @@ class IsolateAudioPlayer {
   void addAudioSource(AudioSource source) =>
       _send({'cmd': 'addAudioSource', 'source': source});
 
-  // Debounce timer for seek: collapses rapid seek calls (e.g. from system
-  // media controls) into a single command before hitting the isolate.
-  // The slider in NowPlayingScreen already uses onChangeEnd so this is a
-  // secondary safety net for programmatic callers.
-  Timer? _seekDebounceTimer;
-
   void seekTo(Duration position, {int? index}) {
-    _seekDebounceTimer?.cancel();
-    _seekDebounceTimer = Timer(const Duration(milliseconds: 80), () {
-      _send({
-        'cmd': 'seekTo',
-        'position': position.inMilliseconds,
-        'index': index
-      });
+    _send({
+      'cmd': 'seekTo',
+      'position': position.inMilliseconds,
+      'index': index,
     });
   }
 
@@ -432,16 +477,7 @@ class IsolateAudioPlayer {
       });
 
   Future<double> getCompressorGainReductionDB() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getCompressorGainReductionDB',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      return 0.0;
-    }
+    final response = await _request('getCompressorGainReductionDB');
     return (response as num?)?.toDouble() ?? 0.0;
   }
 
@@ -513,6 +549,25 @@ class IsolateAudioPlayer {
       'enabled': enabled,
       'width': width,
       'delayMs': delayMs
+    });
+  }
+
+  void setStereoImager({
+    required bool enabled,
+    required double width,
+    int mode = 0,
+    double monoBelowHz = 150.0,
+    double airBoostDb = 1.5,
+    double delayMs = 15.0,
+  }) {
+    _send({
+      'cmd': 'setStereoImager',
+      'enabled': enabled,
+      'width': width,
+      'mode': mode,
+      'monoBelowHz': monoBelowHz,
+      'airBoostDb': airBoostDb,
+      'delayMs': delayMs,
     });
   }
 
@@ -809,16 +864,7 @@ class IsolateAudioPlayer {
       });
 
   Future<double> getDeEsserGainReductionDB() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getDeEsserGainReductionDB',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      return 0.0;
-    }
+    final response = await _request('getDeEsserGainReductionDB');
     return (response as num?)?.toDouble() ?? 0.0;
   }
 
@@ -1011,21 +1057,14 @@ class IsolateAudioPlayer {
       });
 
   Future<({int periodFrames, int periodCount})> getOutputBuffer() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getOutputBuffer',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
+    final response = await _request('getOutputBuffer');
+    if (response is Map) {
+      return (
+        periodFrames: (response['periodFrames'] as int?) ?? 0,
+        periodCount: (response['periodCount'] as int?) ?? 0,
+      );
     }
-    final map = response as Map;
-    return (
-      periodFrames: (map['periodFrames'] as int?) ?? 0,
-      periodCount: (map['periodCount'] as int?) ?? 0,
-    );
+    return (periodFrames: 0, periodCount: 0);
   }
 
   void setPhaseInversion(
@@ -1058,33 +1097,15 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setExclusiveMode', 'enabled': enabled});
 
   Future<bool> getExclusiveMode() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getExclusiveMode',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
-    return response as bool;
+    final response = await _request('getExclusiveMode');
+    return response as bool? ?? false;
   }
 
   void setOutputBackend(AudioOutputBackend backend) =>
       _send({'cmd': 'setOutputBackend', 'backend': backend.value});
 
   Future<AudioOutputBackend> getOutputBackend() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getOutputBackend',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
+    final response = await _request('getOutputBackend');
     if (response is int) {
       return AudioOutputBackend.fromInt(response);
     }
@@ -1092,103 +1113,39 @@ class IsolateAudioPlayer {
   }
 
   Future<bool> isBackendSupported(AudioOutputBackend backend) async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'isBackendSupported',
-      'backend': backend.value,
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
+    final response =
+        await _request('isBackendSupported', {'backend': backend.value});
     return response as bool? ?? false;
   }
 
   Future<double> getDeviceLatencyMs() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getDeviceLatencyMs',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
-    return response as double;
+    final response = await _request('getDeviceLatencyMs');
+    return (response as num?)?.toDouble() ?? 0.0;
   }
 
   Future<PipelineAudioState> getPipelineState() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getPipelineState',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
+    final response = await _request('getPipelineState');
     return response as PipelineAudioState;
   }
 
   Future<AEHardwareInfo> getHardwareInfo() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getHardwareInfo',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
+    final response = await _request('getHardwareInfo');
     return response as AEHardwareInfo;
   }
 
   Future<Map<String, dynamic>> getAudioProperties() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getAudioProperties',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
-    return response as Map<String, dynamic>;
+    final response = await _request('getAudioProperties');
+    return (response as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>?> inspectFile(String path) async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'inspectFile',
-      'path': path,
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      return null;
-    }
-    return response as Map<String, dynamic>?;
+    final response = await _request('inspectFile', {'path': path});
+    return (response as Map?)?.cast<String, dynamic>();
   }
 
   Future<Map<String, dynamic>> getEngineTelemetry() async {
-    final responsePort = ReceivePort();
-    _send({
-      'cmd': 'getEngineTelemetry',
-      'replyTo': responsePort.sendPort,
-    });
-    final response = await responsePort.first;
-    responsePort.close();
-    if (response is Map && response.containsKey('error')) {
-      throw Exception(response['error']);
-    }
-    return (response as Map).cast<String, dynamic>();
+    final response = await _request('getEngineTelemetry');
+    return (response as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
   }
 
   void pushStream(String url) => _send({'cmd': 'pushStream', 'url': url});
@@ -1218,58 +1175,20 @@ class IsolateAudioPlayer {
     }
 
     if (_systemAudio != null) {
-      final systemAudio = _systemAudio as dynamic;
-      if (artUri != null && artUri.isNotEmpty) {
-        final parsedUri = Uri.tryParse(artUri);
-        try {
-          await Function.apply(
-            systemAudio.updateNowPlaying,
-            [],
-            {
-              #id: id,
-              #title: title,
-              #artist: artist,
-              #duration: duration,
-              #album: album,
-              #artUri: parsedUri,
-            },
-          );
-          _logController.add('[now-playing] artwork path: artUri');
-          return;
-        } catch (_) {
-          try {
-            await Function.apply(
-              systemAudio.updateNowPlaying,
-              [],
-              {
-                #id: id,
-                #title: title,
-                #artist: artist,
-                #duration: duration,
-                #album: album,
-                #artworkUri: parsedUri,
-              },
-            );
-            _logController.add('[now-playing] artwork path: artworkUri');
-            return;
-          } catch (e) {
-            _logController.add(
-                '[now-playing] artwork unsupported by API; fallback without artwork. Error: $e');
-            // fall back below
-          }
-        }
-      }
-
-      await _systemAudio!.updateNowPlaying(
-        id: id,
-        title: title,
-        artist: artist,
-        duration: duration,
-        album: album,
-      );
-      if (artUri == null || artUri.isEmpty) {
-        _logController
-            .add('[now-playing] no artwork available for current track');
+      final parsedUri = (artUri != null && artUri.isNotEmpty)
+          ? Uri.tryParse(artUri)
+          : null;
+      try {
+        await _systemAudio!.updateNowPlaying(
+          id: id,
+          title: title,
+          artist: artist,
+          duration: duration,
+          album: album,
+          artUri: parsedUri,
+        );
+      } catch (e) {
+        _logController.add('[now-playing] system audio update error: $e');
       }
     }
   }
@@ -1353,6 +1272,26 @@ void _isolateEntry(_IsolateInitData initData) {
 
   List<AudioSource> isolateSources = [];
   final Map<String, TrackNativeInfo> fileInfoCache = {};
+
+  void sendResponse(Map message, dynamic result, [Object? error]) {
+    final reqId = message['_reqId'];
+    if (reqId != null) {
+      if (error != null) {
+        initData.sendPort.send({'_replyId': reqId, 'error': error.toString()});
+      } else {
+        initData.sendPort.send({'_replyId': reqId, 'result': result});
+      }
+      return;
+    }
+    final replyTo = message['replyTo'] as SendPort?;
+    if (replyTo != null) {
+      if (error != null) {
+        replyTo.send({'error': error.toString()});
+      } else {
+        replyTo.send(result);
+      }
+    }
+  }
 
   receivePort.listen((message) {
     if (message is Map) {
@@ -1591,6 +1530,16 @@ void _isolateEntry(_IsolateInitData initData) {
               enabled: message['enabled'] ?? false,
               width: message['width'] ?? 1.5,
               delayMs: message['delayMs'] ?? 15.0);
+          break;
+        case 'setStereoImager':
+          player.setStereoImager(
+            enabled: message['enabled'] ?? false,
+            width: (message['width'] as num?)?.toDouble() ?? 1.2,
+            mode: message['mode'] ?? 0,
+            monoBelowHz: (message['monoBelowHz'] as num?)?.toDouble() ?? 150.0,
+            airBoostDb: (message['airBoostDb'] as num?)?.toDouble() ?? 1.5,
+            delayMs: (message['delayMs'] as num?)?.toDouble() ?? 15.0,
+          );
           break;
         case 'setStereoEnhancement':
           player.setStereoEnhancement(
@@ -1909,72 +1858,64 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setAutoSampleRateMatchEnabled(message['enabled'] == true);
           break;
         case 'getExclusiveMode':
-          final SendPort replyTo1 = message['replyTo'];
           try {
-            replyTo1.send(player.getExclusiveMode());
+            sendResponse(message, player.getExclusiveMode());
           } catch (e) {
-            replyTo1.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getOutputBackend':
-          final SendPort replyToBk = message['replyTo'];
           try {
-            replyToBk.send(player.getOutputBackend().value);
+            sendResponse(message, player.getOutputBackend().value);
           } catch (e) {
-            replyToBk.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'isBackendSupported':
-          final SendPort replyToSup = message['replyTo'];
           final supVal = message['backend'] as int? ?? 0;
           try {
-            replyToSup.send(player.isBackendSupported(AudioOutputBackend.fromInt(supVal)));
+            sendResponse(message, player.isBackendSupported(AudioOutputBackend.fromInt(supVal)));
           } catch (e) {
-            replyToSup.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getPipelineState':
-          final SendPort replyTo = message['replyTo'];
           try {
-            replyTo.send(player.pipelineState);
+            sendResponse(message, player.pipelineState);
           } catch (e) {
-            replyTo.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getDeviceLatencyMs':
-          final SendPort replyTo2 = message['replyTo'];
           try {
-            replyTo2.send(player.deviceLatencyMs);
+            sendResponse(message, player.deviceLatencyMs);
           } catch (e) {
-            replyTo2.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getAudioProperties':
-          final SendPort replyTo = message['replyTo'];
           try {
-            replyTo.send({
+            sendResponse(message, {
               'channels': player.getOutputChannels(),
               'format': player.getOutputFormat().name,
               'sampleRate': player.getOutputSampleRate(),
             });
           } catch (e) {
-            replyTo.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getOutputBuffer':
-          final SendPort replyTo = message['replyTo'];
           try {
             final buf = player.getOutputBuffer();
-            replyTo.send({
+            sendResponse(message, {
               'periodFrames': buf.periodFrames,
               'periodCount': buf.periodCount,
             });
           } catch (e) {
-            replyTo.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'getEngineTelemetry':
-          final SendPort replyTo = message['replyTo'];
           try {
             final hw = player.hardwareInfo;
             final ps = player.pipelineState;
@@ -2004,6 +1945,9 @@ void _isolateEntry(_IsolateInitData initData) {
                 if (info == null) {
                   info = player.inspectFile(path);
                   if (info != null) {
+                    if (fileInfoCache.length >= 500) {
+                      fileInfoCache.remove(fileInfoCache.keys.first);
+                    }
                     fileInfoCache[path] = info;
                   }
                 }
@@ -2023,7 +1967,7 @@ void _isolateEntry(_IsolateInitData initData) {
               }
             }
 
-            replyTo.send({
+            sendResponse(message, {
               'hardware': hw.toJson(),
               'fileType': fileType,
               'bitrateKbps': bitrateKbps,
@@ -2083,23 +2027,25 @@ void _isolateEntry(_IsolateInitData initData) {
               'streamIsBuffering': st.isBuffering,
             });
           } catch (e) {
-            replyTo.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'inspectFile':
-          final SendPort replyTo = message['replyTo'];
           try {
             final path = message['path'] as String;
             TrackNativeInfo? info = fileInfoCache[path];
             if (info == null) {
               info = player.inspectFile(path);
               if (info != null) {
+                if (fileInfoCache.length >= 500) {
+                  fileInfoCache.remove(fileInfoCache.keys.first);
+                }
                 fileInfoCache[path] = info;
               }
             }
-            replyTo.send(info?.toJson());
+            sendResponse(message, info?.toJson());
           } catch (e) {
-            replyTo.send({'error': e.toString()});
+            sendResponse(message, null, e);
           }
           break;
         case 'clearLastError':
@@ -2131,10 +2077,23 @@ void _isolateEntry(_IsolateInitData initData) {
           player.seekToPrevious();
           break;
         case 'move':
-          player.moveAudioSource(message['oldIndex'], message['newIndex']);
+          final oldIdx = message['oldIndex'] as int;
+          final newIdx = message['newIndex'] as int;
+          player.moveAudioSource(oldIdx, newIdx);
+          if (oldIdx >= 0 &&
+              oldIdx < isolateSources.length &&
+              newIdx >= 0 &&
+              newIdx < isolateSources.length) {
+            final item = isolateSources.removeAt(oldIdx);
+            isolateSources.insert(newIdx, item);
+          }
           break;
         case 'removeAudioSourceAt':
-          player.removeAudioSourceAt(message['index']);
+          final remIdx = message['index'] as int;
+          player.removeAudioSourceAt(remIdx);
+          if (remIdx >= 0 && remIdx < isolateSources.length) {
+            isolateSources.removeAt(remIdx);
+          }
           break;
         case 'updateNowPlaying':
           player.updateNowPlaying(
@@ -2169,13 +2128,10 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'getCompressorGainReductionDB':
-          final SendPort? replyTo = message['replyTo'] as SendPort?;
-          if (replyTo != null) {
-            try {
-              replyTo.send(player.getCompressorGainReductionDB());
-            } catch (e) {
-              replyTo.send({'error': e.toString()});
-            }
+          try {
+            sendResponse(message, player.getCompressorGainReductionDB());
+          } catch (e) {
+            sendResponse(message, null, e);
           }
           break;
         case 'setLimiterEnabled':
@@ -2291,9 +2247,10 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'getDeEsserGainReductionDB':
-          final replyTo = message['replyTo'] as SendPort?;
-          if (replyTo != null) {
-            replyTo.send(player.dsp.deEsserGainReductionDb);
+          try {
+            sendResponse(message, player.dsp.deEsserGainReductionDb);
+          } catch (e) {
+            sendResponse(message, null, e);
           }
           break;
         case 'setDownwardExpander':
@@ -2414,14 +2371,11 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'getHardwareInfo':
-          final replyTo = message['replyTo'] as SendPort?;
-          if (replyTo != null) {
-            try {
-              final info = player.getHardwareInfo();
-              replyTo.send(info);
-            } catch (e) {
-              replyTo.send({'error': e.toString()});
-            }
+          try {
+            final info = player.getHardwareInfo();
+            sendResponse(message, info);
+          } catch (e) {
+            sendResponse(message, null, e);
           }
           break;
         case 'setAbRepeat':

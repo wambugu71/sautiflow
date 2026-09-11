@@ -151,6 +151,18 @@ class _ParametricEqPainter extends CustomPainter {
           bandDbCurves[b][i] = db;
           totalDbCurve[i] += db;
         }
+      } else if (band.type == EqBandType.asupercut ||
+          band.type == EqBandType.asuperpass ||
+          band.type == EqBandType.asuperstop) {
+        final stages = _computeMultiStageCoeffs(band, sampleRate);
+        for (int i = 0; i < numPoints; i++) {
+          double db = 0.0;
+          for (final stageCoeffs in stages) {
+            db += _evalBiquadGainDb(stageCoeffs, freqs[i], sampleRate);
+          }
+          bandDbCurves[b][i] = db;
+          totalDbCurve[i] += db;
+        }
       } else {
         final coeffs = _computeBiquadCoeffs(band, sampleRate);
         for (int i = 0; i < numPoints; i++) {
@@ -486,8 +498,33 @@ class _ParametricEqPainter extends CustomPainter {
         a2 = 1.0 - alpha;
         break;
 
+      case EqBandType.allpass:
+        final q = band.q > 0 ? band.q : 1.0;
+        final alpha = sinW0 / (2.0 * q);
+        b0 = 1.0 - alpha;
+        b1 = -2.0 * cosW0;
+        b2 = 1.0 + alpha;
+        a0 = 1.0 + alpha;
+        a1 = -2.0 * cosW0;
+        a2 = 1.0 - alpha;
+        break;
+
+      case EqBandType.bandreject:
+        final q = band.q > 0 ? band.q : 1.0;
+        final alpha = sinW0 / (2.0 * q);
+        b0 = 1.0 + alpha * A;
+        b1 = -2.0 * cosW0;
+        b2 = 1.0 + alpha * A;
+        a0 = 1.0 + alpha / A;
+        a1 = -2.0 * cosW0;
+        a2 = 1.0 - alpha / A;
+        break;
+
+      case EqBandType.asupercut:
+      case EqBandType.asuperpass:
+      case EqBandType.asuperstop:
       case EqBandType.tilt:
-        // Handled via cascaded low-shelf + high-shelf in paint()
+        // Handled via cascaded multi-stage biquads in paint()
         b0 = 1.0;
         b1 = 0.0;
         b2 = 0.0;
@@ -498,6 +535,93 @@ class _ParametricEqPainter extends CustomPainter {
     }
 
     return [b0, b1, b2, a0, a1, a2];
+  }
+
+  List<List<double>> _computeMultiStageCoeffs(EqBandConfig band, double fs) {
+    final f0 = band.frequencyHz.clamp(20.0, fs / 2.1);
+    final q = band.q > 0 ? band.q : 1.0;
+
+    switch (band.type) {
+      case EqBandType.asupercut:
+        // 8th-order Butterworth low-pass (4 cascaded SOS)
+        final w0 = f0 / fs;
+        final K = math.tan(math.pi * w0.clamp(0.0001, 0.49));
+        final K2 = K * K;
+        final list = <List<double>>[];
+        for (int s = 0; s < 4; s++) {
+          final qButter = 1.0 / (2.0 * math.sin((2.0 * s + 1.0) * math.pi / 16.0));
+          final norm = 1.0 / (1.0 + K / qButter + K2);
+          final b0 = K2 * norm;
+          final b1 = 2.0 * b0;
+          final b2 = b0;
+          const a0 = 1.0;
+          final a1 = 2.0 * (K2 - 1.0) * norm;
+          final a2 = (1.0 - K / qButter + K2) * norm;
+          list.add([b0, b1, b2, a0, a1, a2]);
+        }
+        return list;
+
+      case EqBandType.asuperpass:
+        // 8th-order band-pass: 4th-order HP at fLow + 4th-order LP at fHigh
+        final term = math.sqrt(1.0 + 1.0 / (4.0 * q * q));
+        final fLow = (f0 * (term - 0.5 / q)).clamp(20.0, fs * 0.45);
+        final fHigh = (f0 * (term + 0.5 / q)).clamp(fLow + 10.0, fs * 0.48);
+
+        final Khp = math.tan(math.pi * fLow / fs);
+        final Khp2 = Khp * Khp;
+        final Klp = math.tan(math.pi * fHigh / fs);
+        final Klp2 = Klp * Klp;
+
+        final q4 = [
+          1.0 / (2.0 * math.cos(math.pi / 8.0)),
+          1.0 / (2.0 * math.cos(3.0 * math.pi / 8.0)),
+        ];
+
+        final list = <List<double>>[];
+        for (int s = 0; s < 2; s++) {
+          final normHp = 1.0 / (1.0 + Khp / q4[s] + Khp2);
+          final b0hp = normHp;
+          final b1hp = -2.0 * b0hp;
+          final b2hp = b0hp;
+          const a0 = 1.0;
+          final a1hp = 2.0 * (Khp2 - 1.0) * normHp;
+          final a2hp = (1.0 - Khp / q4[s] + Khp2) * normHp;
+          list.add([b0hp, b1hp, b2hp, a0, a1hp, a2hp]);
+        }
+        for (int s = 0; s < 2; s++) {
+          final normLp = 1.0 / (1.0 + Klp / q4[s] + Klp2);
+          final b0lp = Klp2 * normLp;
+          final b1lp = 2.0 * b0lp;
+          final b2lp = b0lp;
+          const a0 = 1.0;
+          final a1lp = 2.0 * (Klp2 - 1.0) * normLp;
+          final a2lp = (1.0 - Klp / q4[s] + Klp2) * normLp;
+          list.add([b0lp, b1lp, b2lp, a0, a1lp, a2lp]);
+        }
+        return list;
+
+      case EqBandType.asuperstop:
+        // Cascaded 3-stage steep notch filter around f0
+        final w0 = 2.0 * math.pi * f0 / fs;
+        final cosW0 = math.cos(w0);
+        final sinW0 = math.sin(w0);
+        final qFactors = [q * 0.70, q * 1.0, q * 1.45];
+        final list = <List<double>>[];
+        for (final qf in qFactors) {
+          final alpha = sinW0 / (2.0 * qf);
+          const b0 = 1.0;
+          final b1 = -2.0 * cosW0;
+          const b2 = 1.0;
+          final a0 = 1.0 + alpha;
+          final a1 = -2.0 * cosW0;
+          final a2 = 1.0 - alpha;
+          list.add([b0, b1, b2, a0, a1, a2]);
+        }
+        return list;
+
+      default:
+        return [_computeBiquadCoeffs(band, fs)];
+    }
   }
 
   double _evalBiquadGainDb(List<double> coeffs, double f, double fs) {

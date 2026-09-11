@@ -674,6 +674,28 @@ class MiniAudioPlayer {
     _engine.setStereoWiden(enabled: enabled, width: width, delayMs: delayMs);
   }
 
+  void setStereoImager({
+    required bool enabled,
+    required double width,
+    int mode = 0,
+    double monoBelowHz = 150.0,
+    double airBoostDb = 1.5,
+    double delayMs = 15.0,
+  }) {
+    _engine.setStereoImagerParams(
+      enabled: enabled,
+      width: width,
+      mode: mode,
+      monoBelowHz: monoBelowHz,
+      airBoostDb: airBoostDb,
+      delayMs: delayMs,
+    );
+  }
+
+  ({double correlation, double sideMidRatio}) getStereoImagerTelemetry() {
+    return _engine.getStereoImagerTelemetry();
+  }
+
   void setStereoEnhancement({
     required bool enabled,
     double mix = 0.5,

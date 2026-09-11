@@ -306,6 +306,16 @@ class EqScreen extends StatefulWidget {
       player.initMultibandFx(pBands,
           enabled: masterEnabled && parametricEq.enabled);
     }
+
+    final stereoWiden = await AppStateService.instance.loadStereoWiden();
+    player.setStereoImager(
+      enabled: masterEnabled && stereoWiden.enabled,
+      width: stereoWiden.width,
+      mode: stereoWiden.mode,
+      monoBelowHz: stereoWiden.monoBelowHz,
+      airBoostDb: stereoWiden.airBoostDb,
+      delayMs: stereoWiden.delayMs * 100.0,
+    );
   }
 
   @override
@@ -648,10 +658,13 @@ class _EqScreenState extends State<EqScreen>
   double _raceAlpha = 0.55;
   double _raceLpfHz = 2500.0;
 
-  // Stereo Widen
+  // Stereo Widen / Audiophile Imager
   bool _stereoWidenEnabled = false;
   double _stereoWidenWidth = 1.5;
   double _stereoWidenDelayMs = 0.15; // Maps to 15ms
+  int _stereoWidenMode = 0; // 0 = Clean M/S, 1 = Spatial 3D, 2 = Blumlein
+  double _stereoWidenMonoBelowHz = 150.0;
+  double _stereoWidenAirBoostDb = 1.5;
 
   // DSP Stereo Enhancer
   bool _stereoEnhancementEnabled = false;
@@ -892,7 +905,9 @@ class _EqScreenState extends State<EqScreen>
   bool _compressorStereoLink = true;
   bool _compressorAutoMakeup = false;
   double _compressorMix = 1.0;
-  double _compressorGainReductionDb = 0.0;
+  final ValueNotifier<double> _compressorGrNotifier = ValueNotifier(0.0);
+  double get _compressorGainReductionDb => _compressorGrNotifier.value;
+  set _compressorGainReductionDb(double v) => _compressorGrNotifier.value = v;
   Timer? _compressorMeterTimer;
 
   // ── Sauti DSP Suite States ──
@@ -937,7 +952,9 @@ class _EqScreenState extends State<EqScreen>
   double _deEsserMaxReductionDb = 12.0;
   double _deEsserAttackMs = 1.0;
   double _deEsserReleaseMs = 35.0;
-  double _deEsserGainReductionDb = 0.0;
+  final ValueNotifier<double> _deEsserGrNotifier = ValueNotifier(0.0);
+  double get _deEsserGainReductionDb => _deEsserGrNotifier.value;
+  set _deEsserGainReductionDb(double v) => _deEsserGrNotifier.value = v;
 
   // 4b. Downward Expander (Vinyl & Tape Noise Floor Reducer)
   bool _expanderEnabled = false;
@@ -1050,33 +1067,35 @@ class _EqScreenState extends State<EqScreen>
     _compressorMeterTimer =
         Timer.periodic(const Duration(milliseconds: 60), (_) async {
       if (!mounted) return;
+      if (!_isPlaying || (!_compressorEnabled && !_deEsserEnabled)) {
+        if (_compressorGrNotifier.value != 0.0) {
+          _compressorGrNotifier.value = 0.0;
+        }
+        if (_deEsserGrNotifier.value != 0.0) {
+          _deEsserGrNotifier.value = 0.0;
+        }
+        return;
+      }
+
       if (_compressorEnabled && _isPlaying) {
         final gr = await widget.player.getCompressorGainReductionDB();
-        if (mounted && (_compressorGainReductionDb - gr).abs() > 0.05) {
-          setState(() {
-            _compressorGainReductionDb = gr;
-          });
+        if (mounted && (_compressorGrNotifier.value - gr).abs() > 0.05) {
+          _compressorGrNotifier.value = gr;
         }
-      } else if (_compressorGainReductionDb != 0.0) {
+      } else if (_compressorGrNotifier.value != 0.0) {
         if (mounted) {
-          setState(() {
-            _compressorGainReductionDb = 0.0;
-          });
+          _compressorGrNotifier.value = 0.0;
         }
       }
 
       if (_deEsserEnabled && _isPlaying) {
         final deGr = await widget.player.getDeEsserGainReductionDB();
-        if (mounted && (_deEsserGainReductionDb - deGr).abs() > 0.05) {
-          setState(() {
-            _deEsserGainReductionDb = deGr;
-          });
+        if (mounted && (_deEsserGrNotifier.value - deGr).abs() > 0.05) {
+          _deEsserGrNotifier.value = deGr;
         }
-      } else if (_deEsserGainReductionDb != 0.0) {
+      } else if (_deEsserGrNotifier.value != 0.0) {
         if (mounted) {
-          setState(() {
-            _deEsserGainReductionDb = 0.0;
-          });
+          _deEsserGrNotifier.value = 0.0;
         }
       }
     });
@@ -1089,6 +1108,8 @@ class _EqScreenState extends State<EqScreen>
 
   @override
   void dispose() {
+    _compressorGrNotifier.dispose();
+    _deEsserGrNotifier.dispose();
     _compressorMeterTimer?.cancel();
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
@@ -1165,10 +1186,13 @@ class _EqScreenState extends State<EqScreen>
       _raceAlpha = raceParams.alpha;
       _raceLpfHz = raceParams.lpfHz;
 
-      // Stereo Widen
+      // Stereo Widen / Audiophile Imager
       _stereoWidenEnabled = stereoWiden.enabled;
       _stereoWidenWidth = stereoWiden.width;
       _stereoWidenDelayMs = stereoWiden.delayMs;
+      _stereoWidenMode = stereoWiden.mode;
+      _stereoWidenMonoBelowHz = stereoWiden.monoBelowHz;
+      _stereoWidenAirBoostDb = stereoWiden.airBoostDb;
 
       // DSP Stereo Enhancer
       _stereoEnhancementEnabled = stereoEnhancement.enabled;
@@ -1835,6 +1859,9 @@ class _EqScreenState extends State<EqScreen>
       enabled: _stereoWidenEnabled,
       width: _stereoWidenWidth,
       delayMs: _stereoWidenDelayMs,
+      mode: _stereoWidenMode,
+      monoBelowHz: _stereoWidenMonoBelowHz,
+      airBoostDb: _stereoWidenAirBoostDb,
     );
     AppStateService.instance.saveStereoEnhancement(
       enabled: _stereoEnhancementEnabled,
@@ -1965,6 +1992,7 @@ class _EqScreenState extends State<EqScreen>
     SharedPreferences.getInstance().then((prefs) {
       prefs.setString(_kActiveParametricPresetKey, _parametricPreset);
     });
+    _subScreenSetState?.call(() {});
   }
 
   void _dismissWarningBanner() async {
@@ -2080,7 +2108,18 @@ class _EqScreenState extends State<EqScreen>
 
       _stereoWidenEnabled = false;
       _stereoWidenWidth = 1.5;
-      widget.player.setStereoWiden(enabled: false, width: 1.5, delayMs: 15.0);
+      _stereoWidenDelayMs = 0.15;
+      _stereoWidenMode = 0;
+      _stereoWidenMonoBelowHz = 150.0;
+      _stereoWidenAirBoostDb = 1.5;
+      widget.player.setStereoImager(
+        enabled: false,
+        width: 1.5,
+        mode: 0,
+        monoBelowHz: 150.0,
+        airBoostDb: 1.5,
+        delayMs: 15.0,
+      );
 
       _stereoEnhancementEnabled = false;
       _stereoEnhancementMix = 0.5;
@@ -3283,7 +3322,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 1:
                         _openDetailScreen(
-                          'Stereo Widener',
+                          'Stereo Imager',
                           Icons.swap_horiz_rounded,
                           (_) => _buildStereoWidenSection(),
                           shape: Shapes.slanted,
@@ -3347,25 +3386,29 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.swap_horiz_rounded,
                         shape: Shapes.slanted,
-                        title: 'Stereo Widener',
+                        title: 'Stereo Imager',
                         subtitle: _stereoWidenEnabled
-                            ? 'Width: ${_stereoWidenWidth.toStringAsFixed(1)}x'
-                            : 'Disabled',
+                            ? '${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial 3D" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)'
+                            : 'Audiophile M/S, 3D Velvet & Blumlein Spatial Imager',
                         isEnabled: _stereoWidenEnabled,
                         onToggle: (v) {
                           setState(() => _stereoWidenEnabled = v);
                           if (v) {
                             _updateStereoWiden();
                           } else {
-                            widget.player.setStereoWiden(
-                                enabled: false,
-                                width: _stereoWidenWidth,
-                                delayMs: _stereoWidenDelayMs * 100.0);
+                            widget.player.setStereoImager(
+                              enabled: false,
+                              width: _stereoWidenWidth,
+                              mode: _stereoWidenMode,
+                              monoBelowHz: _stereoWidenMonoBelowHz,
+                              airBoostDb: _stereoWidenAirBoostDb,
+                              delayMs: _stereoWidenDelayMs * 100.0,
+                            );
                           }
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Stereo Widener',
+                          'Stereo Imager',
                           Icons.swap_horiz_rounded,
                           (_) => _buildStereoWidenSection(),
                           shape: Shapes.slanted,
@@ -3418,6 +3461,76 @@ class _EqScreenState extends State<EqScreen>
                 ),
               ),
             ),
+            if (_stereoWidenEnabled)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: surfaceDarkColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: primaryColor.withValues(alpha: 0.25),
+                        width: 1.0,
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.radar_rounded,
+                                color: primaryColor, size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Stereo Vectorscope • ${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial 3D" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)',
+                              style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: () => _openDetailScreen(
+                                'Stereo Imager',
+                                Icons.swap_horiz_rounded,
+                                (_) => _buildStereoWidenSection(),
+                                shape: Shapes.slanted,
+                              ),
+                              child: Text(
+                                'Tune Imager',
+                                style: TextStyle(
+                                  color: primaryColor.withValues(alpha: 0.9),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        RepaintBoundary(
+                          child: StereoVectorscopeGraph(
+                            width: _stereoWidenWidth,
+                            delayMs: _stereoWidenDelayMs,
+                            mode: _stereoWidenMode,
+                            monoBelowHz: _stereoWidenMonoBelowHz,
+                            airBoostDb: _stereoWidenAirBoostDb,
+                            isEnabled: _stereoWidenEnabled,
+                            height: 185.0,
+                            primaryColor: primaryColor,
+                            analyzerStream: widget.player.analyzerStream,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
 
             // Section 7: Acoustic Space, Convolver & Surround
             SliverToBoxAdapter(
@@ -4282,18 +4395,22 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.swap_horiz_rounded, color: primaryColor, size: 20),
         // ),
       ),
-      title: 'Stereo Widener',
-      subtitle: 'Mid/Side & Haas effect width expansion',
+      title: 'Stereo Imager',
+      subtitle: 'Audiophile M/S, 3D Velvet & Blumlein Spatial Imager',
       isEnabled: _stereoWidenEnabled,
       onToggle: (v) {
         setState(() => _stereoWidenEnabled = v);
         if (v) {
           _updateStereoWiden();
         } else {
-          widget.player.setStereoWiden(
-              enabled: false,
-              width: _stereoWidenWidth,
-              delayMs: _stereoWidenDelayMs * 100.0);
+          widget.player.setStereoImager(
+            enabled: false,
+            width: _stereoWidenWidth,
+            mode: _stereoWidenMode,
+            monoBelowHz: _stereoWidenMonoBelowHz,
+            airBoostDb: _stereoWidenAirBoostDb,
+            delayMs: _stereoWidenDelayMs * 100.0,
+          );
         }
         _saveEqState();
       },
@@ -4302,10 +4419,58 @@ class _EqScreenState extends State<EqScreen>
           child: StereoVectorscopeGraph(
             width: _stereoWidenWidth,
             delayMs: _stereoWidenDelayMs,
+            mode: _stereoWidenMode,
+            monoBelowHz: _stereoWidenMonoBelowHz,
+            airBoostDb: _stereoWidenAirBoostDb,
             isEnabled: _stereoWidenEnabled,
-            height: 195.0,
+            height: 205.0,
             primaryColor: primaryColor,
+            analyzerStream: widget.player.analyzerStream,
           ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ChoiceChip(
+              label: const Text('Clean M/S', style: TextStyle(fontSize: 12)),
+              selected: _stereoWidenMode == 0,
+              selectedColor: primaryColor.withValues(alpha: 0.3),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _stereoWidenMode = 0);
+                  if (_stereoWidenEnabled) _updateStereoWiden();
+                  _saveEqState();
+                }
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Spatial 3D', style: TextStyle(fontSize: 12)),
+              selected: _stereoWidenMode == 1,
+              selectedColor: primaryColor.withValues(alpha: 0.3),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _stereoWidenMode = 1);
+                  if (_stereoWidenEnabled) _updateStereoWiden();
+                  _saveEqState();
+                }
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Blumlein', style: TextStyle(fontSize: 12)),
+              selected: _stereoWidenMode == 2,
+              selectedColor: primaryColor.withValues(alpha: 0.3),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _stereoWidenMode = 2);
+                  if (_stereoWidenEnabled) _updateStereoWiden();
+                  _saveEqState();
+                }
+              },
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Row(
@@ -4313,21 +4478,54 @@ class _EqScreenState extends State<EqScreen>
           children: [
             ModernAudioKnob(
               label: 'WIDTH',
-              value: (_stereoWidenWidth / 5.0).clamp(0.0, 1.0),
+              value: (_stereoWidenWidth / 3.0).clamp(0.0, 1.0),
               min: 0.0,
               max: 1.0,
-              flatValue: 0.2, // Maps to 1.0
+              flatValue: 0.333, // Maps to 1.0x
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
-              displayMultiplier: 5.0,
-              valueFormatter: (v) => '${(v * 5.0).toStringAsFixed(1)}x',
+              displayMultiplier: 3.0,
+              valueFormatter: (v) => '${(v * 3.0).toStringAsFixed(1)}x',
               onChanged: (v) {
-                setState(() => _stereoWidenWidth = v * 5.0);
+                setState(() => _stereoWidenWidth = v * 3.0);
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
             ),
             ModernAudioKnob(
-              label: 'HAAS DELAY',
+              label: 'MONO BASS',
+              value: (_stereoWidenMonoBelowHz / 300.0).clamp(0.0, 1.0),
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.5, // 150 Hz
+              activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              displayMultiplier: 300.0,
+              valueFormatter: (v) {
+                final hz = (v * 300.0).toInt();
+                return hz <= 20 ? 'Off' : '${hz}Hz';
+              },
+              onChanged: (v) {
+                setState(() => _stereoWidenMonoBelowHz = v * 300.0);
+                if (_stereoWidenEnabled) _updateStereoWiden();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'AIR BOOST',
+              value: (_stereoWidenAirBoostDb / 6.0).clamp(0.0, 1.0),
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.25, // 1.5 dB
+              activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+              displayMultiplier: 6.0,
+              valueFormatter: (v) => '+${(v * 6.0).toStringAsFixed(1)}dB',
+              onChanged: (v) {
+                setState(() => _stereoWidenAirBoostDb = v * 6.0);
+                if (_stereoWidenEnabled) _updateStereoWiden();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'DECORR DLY',
               value: _stereoWidenDelayMs,
               min: 0.0,
               max: 1.0,
@@ -4468,9 +4666,12 @@ class _EqScreenState extends State<EqScreen>
 
   void _updateStereoWiden() {
     double delayMsMapping = _stereoWidenDelayMs * 100.0;
-    widget.player.setStereoWiden(
+    widget.player.setStereoImager(
       enabled: _stereoWidenEnabled,
       width: _stereoWidenWidth,
+      mode: _stereoWidenMode,
+      monoBelowHz: _stereoWidenMonoBelowHz,
+      airBoostDb: _stereoWidenAirBoostDb,
       delayMs: delayMsMapping,
     );
   }
@@ -5171,6 +5372,11 @@ class _EqScreenState extends State<EqScreen>
                             EqBandType.lowpass => 'Low-Pass',
                             EqBandType.highpass => 'High-Pass',
                             EqBandType.tilt => 'Tilt',
+                            EqBandType.allpass => 'All-Pass (Phase Shift)',
+                            EqBandType.asuperpass => 'Super-Pass (Steep Bandpass)',
+                            EqBandType.bandreject => 'Band-Reject (Band Stop)',
+                            EqBandType.asuperstop => 'Super-Stop (Steep Notch)',
+                            EqBandType.asupercut => 'Super-Cut (Ultrasonic LP)',
                           },
                         ))
                     .toList(),
@@ -5271,12 +5477,13 @@ class _EqScreenState extends State<EqScreen>
                     },
                   ),
 
-                  // Gain Knob (for Peak, Bell, Low Shelf, High Shelf, Tilt)
+                  // Gain Knob (for Peak, Bell, Low Shelf, High Shelf, Tilt, Band-Reject)
                   if (band.type == EqBandType.peak ||
                       band.type == EqBandType.bell ||
                       band.type == EqBandType.lowshelf ||
                       band.type == EqBandType.highshelf ||
-                      band.type == EqBandType.tilt)
+                      band.type == EqBandType.tilt ||
+                      band.type == EqBandType.bandreject)
                     ModernAudioKnob(
                       size: 52,
                       label: band.type == EqBandType.tilt ? 'TILT' : 'GAIN',
@@ -6442,16 +6649,21 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 10),
         RepaintBoundary(
-          child: DeEsserGraph(
-            mode: _deEsserMode,
-            frequencyHz: _deEsserFrequencyHz,
-            thresholdDb: _deEsserThresholdDb,
-            ratio: _deEsserRatio,
-            maxReductionDb: _deEsserMaxReductionDb,
-            gainReductionDb: _deEsserGainReductionDb,
-            isEnabled: _deEsserEnabled,
-            height: 130.0,
-            primaryColor: deEsserColor,
+          child: ValueListenableBuilder<double>(
+            valueListenable: _deEsserGrNotifier,
+            builder: (context, deGr, _) {
+              return DeEsserGraph(
+                mode: _deEsserMode,
+                frequencyHz: _deEsserFrequencyHz,
+                thresholdDb: _deEsserThresholdDb,
+                ratio: _deEsserRatio,
+                maxReductionDb: _deEsserMaxReductionDb,
+                gainReductionDb: deGr,
+                isEnabled: _deEsserEnabled,
+                height: 130.0,
+                primaryColor: deEsserColor,
+              );
+            },
           ),
         ),
         const SizedBox(height: 16),
@@ -8083,142 +8295,155 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        RepaintBoundary(
-          child: CompressorTransferGraph(
-            thresholdDb: _compressorThresholdDb,
-            ratio: _compressorRatio,
-            kneeDb: _compressorKneeDb,
-            makeupGainDb: _compressorMakeupGainDb,
-            gainReductionDb: _compressorGainReductionDb,
-            isEnabled: _compressorEnabled,
-            height: 135.0,
-            primaryColor: primaryColor,
-          ),
-        ),
-        const SizedBox(height: 10),
-        // Live Gain Reduction Meter
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: primaryColor.withValues(
-                  alpha: _compressorEnabled ? 0.35 : 0.1),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
+        ValueListenableBuilder<double>(
+          valueListenable: _compressorGrNotifier,
+          builder: (context, currentGr, _) {
+            final grDb = currentGr.abs();
+            final grFraction = (grDb / 24.0).clamp(0.0, 1.0);
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RepaintBoundary(
+                  child: CompressorTransferGraph(
+                    thresholdDb: _compressorThresholdDb,
+                    ratio: _compressorRatio,
+                    kneeDb: _compressorKneeDb,
+                    makeupGainDb: _compressorMakeupGainDb,
+                    gainReductionDb: currentGr,
+                    isEnabled: _compressorEnabled,
+                    height: 135.0,
+                    primaryColor: primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Live Gain Reduction Meter
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: surfaceDarkerColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: primaryColor.withValues(
+                          alpha: _compressorEnabled ? 0.35 : 0.1),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _compressorEnabled && grDb > 0.1
-                              ? primaryColor
-                              : Colors.white24,
-                          boxShadow: _compressorEnabled && grDb > 0.1
-                              ? [
-                                  BoxShadow(
-                                    color: primaryColor.withValues(alpha: 0.6),
-                                    blurRadius: 6,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'GAIN REDUCTION',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    _compressorEnabled
-                        ? (grDb > 0.05
-                            ? '-${grDb.toStringAsFixed(1)} dB'
-                            : '0.0 dB')
-                        : 'OFF',
-                    style: TextStyle(
-                      color: _compressorEnabled && grDb > 0.1
-                          ? primaryColor
-                          : Colors.white38,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Meter Bar
-              Stack(
-                children: [
-                  // Track
-                  Container(
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  // Active GR Fill
-                  FractionallySizedBox(
-                    widthFactor: _compressorEnabled ? grFraction : 0.0,
-                    child: Container(
-                      height: 8,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            primaryColor.withValues(alpha: 0.5),
-                            Color(0xFFFF9100),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: primaryColor.withValues(alpha: 0.5),
-                            blurRadius: 4,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _compressorEnabled && grDb > 0.1
+                                      ? primaryColor
+                                      : Colors.white24,
+                                  boxShadow: _compressorEnabled && grDb > 0.1
+                                      ? [
+                                          BoxShadow(
+                                            color: primaryColor.withValues(alpha: 0.6),
+                                            blurRadius: 6,
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'GAIN REDUCTION',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            _compressorEnabled
+                                ? (grDb > 0.05
+                                    ? '-${grDb.toStringAsFixed(1)} dB'
+                                    : '0.0 dB')
+                                : 'OFF',
+                            style: TextStyle(
+                              color: _compressorEnabled && grDb > 0.1
+                                  ? primaryColor
+                                  : Colors.white38,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      // Meter Bar
+                      Stack(
+                        children: [
+                          // Track
+                          Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          // Active GR Fill
+                          FractionallySizedBox(
+                            widthFactor: _compressorEnabled ? grFraction : 0.0,
+                            child: Container(
+                              height: 8,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    primaryColor.withValues(alpha: 0.5),
+                                    Color(0xFFFF9100),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: primaryColor.withValues(alpha: 0.5),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      // Scale Ticks
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('0',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                          Text('-3',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                          Text('-6',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                          Text('-12',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                          Text('-18',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                          Text('-24 dB',
+                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Scale Ticks
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('0',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                  Text('-3',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                  Text('-6',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                  Text('-12',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                  Text('-18',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                  Text('-24 dB',
-                      style: TextStyle(color: Colors.white30, fontSize: 8.5)),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            );
+          },
         ),
 
         const SizedBox(height: 14),

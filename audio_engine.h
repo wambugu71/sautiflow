@@ -84,7 +84,12 @@ extern "C"
         AE_EQ_BAND_LOWPASS = 5,
         AE_EQ_BAND_HIGHPASS = 6,
         AE_EQ_BAND_BELL = 7,
-        AE_EQ_BAND_TILT = 8
+        AE_EQ_BAND_TILT = 8,
+        AE_EQ_BAND_ALLPASS = 9,
+        AE_EQ_BAND_ASUPERPASS = 10,
+        AE_EQ_BAND_BANDREJECT = 11,
+        AE_EQ_BAND_ASUPERSTOP = 12,
+        AE_EQ_BAND_ASUPERCUT = 13
     } AEEqBandType;
 
     typedef struct AEPipelineState
@@ -202,6 +207,15 @@ extern "C"
     AE_API void ae_set_delay_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_delay_params(AudioEngineHandle *engine, float mix, float feedback, float delay_ms);
     AE_API void ae_set_stereo_widen(AudioEngineHandle *engine, int enabled, float width, float delay_ms);
+    typedef enum AEStereoImagerMode
+    {
+        AE_STEREO_IMAGER_CLEAN_MASTERING = 0,
+        AE_STEREO_IMAGER_SPATIAL_3D = 1,
+        AE_STEREO_IMAGER_BLUMLEIN_SHUFFLER = 2
+    } AEStereoImagerMode;
+
+    AE_API void ae_set_stereo_imager_params(AudioEngineHandle *engine, int enabled, float width, int mode, float mono_below_hz, float air_boost_db, float delay_ms);
+    AE_API void ae_get_stereo_imager_telemetry(AudioEngineHandle *engine, float *correlation, float *side_mid_ratio);
     AE_API void ae_set_stereo_enhancement_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_stereo_enhancement_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_stereo_enhancement_mix(AudioEngineHandle *engine, float mix);

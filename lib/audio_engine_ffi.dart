@@ -22,6 +22,11 @@ enum EqBandType {
   highpass,
   bell,
   tilt,
+  allpass,
+  asuperpass,
+  bandreject,
+  asuperstop,
+  asupercut,
 }
 
 enum AttenuationModel { none, inverse, linear, exponential }
@@ -1080,6 +1085,16 @@ typedef _SetStereoWidenNative = ffi.Void Function(
 typedef _SetStereoWidenDart = void Function(
     ffi.Pointer<ffi.Void>, int, double, double);
 
+typedef _SetStereoImagerParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Int32, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetStereoImagerParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, int, double, double, double);
+
+typedef _GetStereoImagerTelemetryNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+typedef _GetStereoImagerTelemetryDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
 typedef _SetStereoEnhancementEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetStereoEnhancementEnabledDart = void Function(
@@ -1901,6 +1916,14 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetStereoWidenNative, _SetStereoWidenDart>(
       'ae_set_stereo_widen',
     );
+    _setStereoImagerParams = _lib.lookupFunction<
+        _SetStereoImagerParamsNative, _SetStereoImagerParamsDart>(
+      'ae_set_stereo_imager_params',
+    );
+    _getStereoImagerTelemetry = _lib.lookupFunction<
+        _GetStereoImagerTelemetryNative, _GetStereoImagerTelemetryDart>(
+      'ae_get_stereo_imager_telemetry',
+    );
     _setStereoEnhancementEnabled = _lib.lookupFunction<
         _SetStereoEnhancementEnabledNative, _SetStereoEnhancementEnabledDart>(
       'ae_set_stereo_enhancement_enabled',
@@ -2497,6 +2520,8 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart _setDelayEnabled;
   late final _SetReverbParamsDart _setDelayParams;
   late final _SetStereoWidenDart _setStereoWiden;
+  late final _SetStereoImagerParamsDart _setStereoImagerParams;
+  late final _GetStereoImagerTelemetryDart _getStereoImagerTelemetry;
   late final _SetStereoEnhancementEnabledDart _setStereoEnhancementEnabled;
   late final _GetStereoEnhancementEnabledDart _getStereoEnhancementEnabled;
   late final _SetStereoEnhancementMixDart _setStereoEnhancementMix;
@@ -3412,6 +3437,41 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setStereoWiden(_engine, enabled ? 1 : 0, width, delayMs);
+  }
+
+  void setStereoImagerParams({
+    required bool enabled,
+    required double width,
+    int mode = 0,
+    double monoBelowHz = 150.0,
+    double airBoostDb = 1.5,
+    double delayMs = 15.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setStereoImagerParams(
+      _engine,
+      enabled ? 1 : 0,
+      width,
+      mode,
+      monoBelowHz,
+      airBoostDb,
+      delayMs,
+    );
+  }
+
+  ({double correlation, double sideMidRatio}) getStereoImagerTelemetry() {
+    if (_engine == ffi.nullptr) {
+      return (correlation: 1.0, sideMidRatio: 0.0);
+    }
+    final corrPtr = calloc<ffi.Float>();
+    final ratioPtr = calloc<ffi.Float>();
+    try {
+      _getStereoImagerTelemetry(_engine, corrPtr, ratioPtr);
+      return (correlation: corrPtr.value, sideMidRatio: ratioPtr.value);
+    } finally {
+      calloc.free(corrPtr);
+      calloc.free(ratioPtr);
+    }
   }
 
   void setStereoEnhancementEnabled(bool enabled) {

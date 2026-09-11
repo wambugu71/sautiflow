@@ -180,10 +180,13 @@ class AppStateService {
   static const _kDelayFeedback = 'sp_delay_feedback';
   static const _kDelayTime = 'sp_delay_time';
 
-  // ─── EQ – Stereo Widen ────────────────────────────────────────────────────
+  // ─── EQ – Stereo Widen / Audiophile Imager ───────────────────────────────
   static const _kStereoWidenEnabled = 'sp_stereo_widen_enabled';
   static const _kStereoWidenWidth = 'sp_stereo_widen_width';
   static const _kStereoWidenDelayMs = 'sp_stereo_widen_delay_ms';
+  static const _kStereoWidenMode = 'sp_stereo_widen_mode';
+  static const _kStereoWidenMonoBelowHz = 'sp_stereo_widen_mono_below_hz';
+  static const _kStereoWidenAirBoostDb = 'sp_stereo_widen_air_boost_db';
 
   static const _kCrossfeedEnabled = 'sp_crossfeed_enabled';
   static const _kCrossfeedPreset = 'sp_crossfeed_preset';
@@ -220,20 +223,36 @@ class AppStateService {
     required bool enabled,
     required double width,
     required double delayMs,
+    int mode = 0,
+    double monoBelowHz = 150.0,
+    double airBoostDb = 1.5,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kStereoWidenEnabled, enabled);
     await prefs.setDouble(_kStereoWidenWidth, width);
     await prefs.setDouble(_kStereoWidenDelayMs, delayMs);
+    await prefs.setInt(_kStereoWidenMode, mode);
+    await prefs.setDouble(_kStereoWidenMonoBelowHz, monoBelowHz);
+    await prefs.setDouble(_kStereoWidenAirBoostDb, airBoostDb);
   }
 
-  Future<({bool enabled, double width, double delayMs})>
-      loadStereoWiden() async {
+  Future<
+      ({
+        bool enabled,
+        double width,
+        double delayMs,
+        int mode,
+        double monoBelowHz,
+        double airBoostDb
+      })> loadStereoWiden() async {
     final prefs = await SharedPreferences.getInstance();
     return (
       enabled: prefs.getBool(_kStereoWidenEnabled) ?? false,
-      width: prefs.getDouble(_kStereoWidenWidth) ?? 1.5,
+      width: prefs.getDouble(_kStereoWidenWidth) ?? 1.2,
       delayMs: prefs.getDouble(_kStereoWidenDelayMs) ?? 15.0,
+      mode: prefs.getInt(_kStereoWidenMode) ?? 0,
+      monoBelowHz: prefs.getDouble(_kStereoWidenMonoBelowHz) ?? 150.0,
+      airBoostDb: prefs.getDouble(_kStereoWidenAirBoostDb) ?? 1.5,
     );
   }
 

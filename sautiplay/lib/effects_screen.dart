@@ -13,6 +13,7 @@ import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/physics_dots_visualizer.dart';
 import 'widgets/profile_selector.dart';
+import 'widgets/stereo_vectorscope_graph.dart';
 
 class EffectsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -24,6 +25,7 @@ class EffectsScreen extends StatefulWidget {
   final int outputSampleRate;
   final String spectrumStyle;
   final GlobalKey? effectsKnobKey;
+  final bool isActive;
 
   const EffectsScreen({
     super.key,
@@ -36,6 +38,7 @@ class EffectsScreen extends StatefulWidget {
     required this.outputSampleRate,
     this.spectrumStyle = 'minimal',
     this.effectsKnobKey,
+    this.isActive = true,
   });
 
   @override
@@ -104,7 +107,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
       }
     });
 
-    _setupAnalyzer(widget.analyzerEnabled);
+    _setupAnalyzer(widget.isActive && widget.analyzerEnabled);
     _statusSub = widget.player.statusStream.listen((status) {
       if (mounted && _isPlaying != status.isPlaying) {
         setState(() {
@@ -127,8 +130,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
         oldWidget.analyzerLogScale != widget.analyzerLogScale) {
       _updateAnalyzerConfig();
     }
-    if (oldWidget.analyzerEnabled != widget.analyzerEnabled) {
-      _setupAnalyzer(widget.analyzerEnabled);
+    if (oldWidget.analyzerEnabled != widget.analyzerEnabled ||
+        oldWidget.isActive != widget.isActive) {
+      _setupAnalyzer(widget.isActive && widget.analyzerEnabled);
     }
   }
 
@@ -198,6 +202,19 @@ class _EffectsScreenState extends State<EffectsScreen> {
   Widget _buildVisualizer(Color primaryColor,
       List<double> currentAnalyzerValues, List<double> peakValues) {
     final int maxFreq = _currentMaxFreq;
+
+    if (_currentAnalyzerType == 'vectorscope' ||
+        _currentAnalyzerType == 'Stereo Vectorscope') {
+      return RepaintBoundary(
+        child: StereoVectorscopeGraph(
+          width: 1.5,
+          isEnabled: true,
+          height: 160.0,
+          primaryColor: primaryColor,
+          analyzerStream: widget.player.analyzerStream,
+        ),
+      );
+    }
 
     for (final style in GlslShaderStyle.values) {
       if (_currentAnalyzerType == style.name ||
@@ -278,7 +295,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
     // Helper to get active visualizer display label
     String activeVisualizerLabel =
         'Dot Matrix (${PhysicsDotsTheme.fromString(_currentSpectrumStyle).displayName})';
-    if (_currentAnalyzerType == 'area') {
+    if (_currentAnalyzerType == 'vectorscope' ||
+        _currentAnalyzerType == 'Stereo Vectorscope') {
+      activeVisualizerLabel = 'Stereo Vectorscope (Goniometer)';
+    } else if (_currentAnalyzerType == 'area') {
       activeVisualizerLabel =
           'Fluid Wave (${FluidAreaTheme.fromString(_currentSpectrumStyle).displayName})';
     } else if (_currentAnalyzerType != 'bar') {
@@ -420,6 +440,18 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     M3EMenuGroup.entries(
                                       label: 'Standard Visualizers',
                                       entries: [
+                                        M3EMenuEntry(
+                                          label: 'Stereo Vectorscope',
+                                          leading: const Icon(
+                                              Icons.radar_rounded,
+                                              size: 18),
+                                          onPressed: () {
+                                            setState(() {
+                                              _currentAnalyzerType =
+                                                  'vectorscope';
+                                            });
+                                          },
+                                        ),
                                         M3EMenuEntry(
                                           label: 'Wave Area',
                                           leading: const Icon(
