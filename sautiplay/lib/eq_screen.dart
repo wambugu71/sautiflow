@@ -3461,76 +3461,6 @@ class _EqScreenState extends State<EqScreen>
                 ),
               ),
             ),
-            if (_stereoWidenEnabled)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: surfaceDarkColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: primaryColor.withValues(alpha: 0.25),
-                        width: 1.0,
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.radar_rounded,
-                                color: primaryColor, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Stereo Vectorscope • ${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial 3D" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)',
-                              style: TextStyle(
-                                color: primaryColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const Spacer(),
-                            GestureDetector(
-                              onTap: () => _openDetailScreen(
-                                'Stereo Imager',
-                                Icons.swap_horiz_rounded,
-                                (_) => _buildStereoWidenSection(),
-                                shape: Shapes.slanted,
-                              ),
-                              child: Text(
-                                'Tune Imager',
-                                style: TextStyle(
-                                  color: primaryColor.withValues(alpha: 0.9),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  decoration: TextDecoration.underline,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        RepaintBoundary(
-                          child: StereoVectorscopeGraph(
-                            width: _stereoWidenWidth,
-                            delayMs: _stereoWidenDelayMs,
-                            mode: _stereoWidenMode,
-                            monoBelowHz: _stereoWidenMonoBelowHz,
-                            airBoostDb: _stereoWidenAirBoostDb,
-                            isEnabled: _stereoWidenEnabled,
-                            height: 185.0,
-                            primaryColor: primaryColor,
-                            analyzerStream: widget.player.analyzerStream,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
 
             // Section 7: Acoustic Space, Convolver & Surround
             SliverToBoxAdapter(
@@ -4024,7 +3954,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'High-shelf Air boost',
+              'Air boost',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.75),
                 fontSize: 13,
@@ -4053,7 +3983,7 @@ class _EqScreenState extends State<EqScreen>
               border: Border.all(color: const Color(0x4000C9B1)),
             ),
             child: Text(
-              'Recovers transient detail lost in compressed audio',
+              'Recovers lost detail in compressed audio',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 11,
@@ -4396,7 +4326,7 @@ class _EqScreenState extends State<EqScreen>
         // ),
       ),
       title: 'Stereo Imager',
-      subtitle: 'Audiophile M/S, 3D Velvet & Blumlein Spatial Imager',
+      subtitle: '3D Velvet and Blumlein Imager',
       isEnabled: _stereoWidenEnabled,
       onToggle: (v) {
         setState(() => _stereoWidenEnabled = v);
@@ -4433,7 +4363,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ChoiceChip(
-              label: const Text('Clean M/S', style: TextStyle(fontSize: 12)),
+              label: const Text('Clean', style: TextStyle(fontSize: 12)),
               selected: _stereoWidenMode == 0,
               selectedColor: primaryColor.withValues(alpha: 0.3),
               onSelected: (selected) {
@@ -4446,7 +4376,7 @@ class _EqScreenState extends State<EqScreen>
             ),
             const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('Spatial 3D', style: TextStyle(fontSize: 12)),
+              label: const Text('Spatial', style: TextStyle(fontSize: 12)),
               selected: _stereoWidenMode == 1,
               selectedColor: primaryColor.withValues(alpha: 0.3),
               onSelected: (selected) {
@@ -5073,7 +5003,7 @@ class _EqScreenState extends State<EqScreen>
     items.add(const M3EDropdownItem<String>(
       disabled: true,
       value: '__header_builtin__',
-      label: '— PARAMETRIC PRESETS —',
+      label: '— PRESETS —',
     ));
 
     for (final name in _builtInParametricPresets.keys) {
@@ -5096,7 +5026,7 @@ class _EqScreenState extends State<EqScreen>
       items.add(const M3EDropdownItem<String>(
         disabled: true,
         value: '__header_user__',
-        label: '— SAVED PROFILES —',
+        label: '— SAVED —',
       ));
 
       for (final name in _userParametricProfiles.keys) {
@@ -5129,7 +5059,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.show_chart_rounded, color: primaryColor, size: 20),
       ),
       title: 'Parametric Equalizer',
-      subtitle: 'Dynamic cascade filter nodes',
+      subtitle: 'Dynamic filters',
       isEnabled: _parametricEqEnabled,
       onToggle: (v) {
         setState(() {
@@ -5365,18 +5295,18 @@ class _EqScreenState extends State<EqScreen>
                           value: t,
                           label: switch (t) {
                             EqBandType.peak || EqBandType.bell => 'Peak / Bell',
-                            EqBandType.bandpass => 'Band-Pass',
+                            EqBandType.bandpass => 'Band Pass',
                             EqBandType.notch => 'Notch',
                             EqBandType.lowshelf => 'Low Shelf',
                             EqBandType.highshelf => 'High Shelf',
-                            EqBandType.lowpass => 'Low-Pass',
-                            EqBandType.highpass => 'High-Pass',
+                            EqBandType.lowpass => 'Low Pass',
+                            EqBandType.highpass => 'High Pass',
                             EqBandType.tilt => 'Tilt',
-                            EqBandType.allpass => 'All-Pass (Phase Shift)',
-                            EqBandType.asuperpass => 'Super-Pass (Steep Bandpass)',
-                            EqBandType.bandreject => 'Band-Reject (Band Stop)',
-                            EqBandType.asuperstop => 'Super-Stop (Steep Notch)',
-                            EqBandType.asupercut => 'Super-Cut (Ultrasonic LP)',
+                            EqBandType.allpass => 'All Pass',
+                            EqBandType.asuperpass => 'Super Pass',
+                            EqBandType.bandreject => 'Band Reject',
+                            EqBandType.asuperstop => 'Super Stop',
+                            EqBandType.asupercut => 'Super Cut',
                           },
                         ))
                     .toList(),
@@ -8319,7 +8249,8 @@ class _EqScreenState extends State<EqScreen>
                 const SizedBox(height: 10),
                 // Live Gain Reduction Meter
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
                     color: surfaceDarkerColor,
                     borderRadius: BorderRadius.circular(12),
@@ -8347,7 +8278,8 @@ class _EqScreenState extends State<EqScreen>
                                   boxShadow: _compressorEnabled && grDb > 0.1
                                       ? [
                                           BoxShadow(
-                                            color: primaryColor.withValues(alpha: 0.6),
+                                            color: primaryColor.withValues(
+                                                alpha: 0.6),
                                             blurRadius: 6,
                                           ),
                                         ]
@@ -8425,17 +8357,23 @@ class _EqScreenState extends State<EqScreen>
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('0',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                           Text('-3',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                           Text('-6',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                           Text('-12',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                           Text('-18',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                           Text('-24 dB',
-                              style: TextStyle(color: Colors.white30, fontSize: 8.5)),
+                              style: TextStyle(
+                                  color: Colors.white30, fontSize: 8.5)),
                         ],
                       ),
                     ],

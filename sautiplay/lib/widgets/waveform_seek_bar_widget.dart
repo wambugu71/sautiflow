@@ -35,7 +35,7 @@ class WaveformSeekBarWidget extends StatefulWidget {
     this.activeColor,
     this.inactiveColor,
     this.abHighlightColor,
-    this.height = 48.0,
+    this.height = 36.0,
   });
 
   @override
@@ -146,24 +146,32 @@ class _WaveformSeekBarWidgetState extends State<WaveformSeekBarWidget> {
                 ),
 
                 // Thumb handle marker line when dragging or playing
-                Positioned(
-                  left: (progress * totalWidth - 1.5).clamp(0.0, totalWidth - 3.0),
-                  top: 4,
-                  bottom: 4,
-                  child: Container(
-                    width: _isDragging ? 4.0 : 3.0,
-                    decoration: BoxDecoration(
-                      color: _isDragging ? Colors.white : activeColor.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(2.0),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          blurRadius: 4,
-                          spreadRadius: 1,
+                Builder(
+                  builder: (context) {
+                    final thumbWidth = _isDragging ? 3.0 : 2.0;
+                    return Positioned(
+                      left: (progress * totalWidth - thumbWidth / 2)
+                          .clamp(0.0, totalWidth - thumbWidth),
+                      top: 3,
+                      bottom: 3,
+                      child: Container(
+                        width: thumbWidth,
+                        decoration: BoxDecoration(
+                          color: _isDragging
+                              ? Colors.white
+                              : activeColor.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.5),
+                              blurRadius: 3,
+                              spreadRadius: 0.5,
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -243,9 +251,9 @@ class _WaveformSeekBarPainter extends CustomPainter {
       canvas.drawLine(Offset(xA, 0), Offset(xA, height), pinAPaint);
     }
 
-    // Bar dimensions
-    const barWidth = 3.0;
-    const gap = 2.0;
+    // Bar dimensions (fine, dense, slender bars)
+    const barWidth = 1.5;
+    const gap = 0.75;
     const totalBarStep = barWidth + gap;
     final maxBars = (width / totalBarStep).floor();
 
@@ -259,14 +267,23 @@ class _WaveformSeekBarPainter extends CustomPainter {
       ..strokeWidth = barWidth
       ..strokeCap = StrokeCap.round;
 
-    final count = math.min(maxBars, peaks.length);
+    final count = math.max(0, math.min(maxBars, peaks.length));
+    if (count == 0) return;
 
     for (int i = 0; i < count; i++) {
       final barRatio = (i / count);
       final x = barRatio * width + barWidth / 2;
-      final peakVal = peaks[i].clamp(0.05, 1.0);
 
-      final barHeight = (peakVal * (height - 8)).clamp(4.0, height - 4);
+      // Sample the peak proportionally across the entire track so the
+      // waveform finely tails the whole song (interpolated fractional index).
+      final samplePos = barRatio * peaks.length;
+      final idx = samplePos.floor().clamp(0, peaks.length - 1);
+      final idxNext = (idx + 1).clamp(0, peaks.length - 1);
+      final t = samplePos - samplePos.floor();
+      final peakVal =
+          (peaks[idx] * (1.0 - t) + peaks[idxNext] * t).clamp(0.05, 1.0);
+
+      final barHeight = (peakVal * (height - 4)).clamp(2.0, height - 2);
       final topY = centerPy - (barHeight / 2);
       final bottomY = centerPy + (barHeight / 2);
 

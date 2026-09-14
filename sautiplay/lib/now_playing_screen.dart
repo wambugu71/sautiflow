@@ -250,8 +250,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (trackPath.isEmpty) return;
 
-    final peaks =
-        await WaveformExtractorService.instance.getWaveform(trackPath);
+    final peaks = await WaveformExtractorService.instance
+        .getWaveform(trackPath, numBars: 300);
     if (mounted) {
       setState(() {
         _currentWaveformPeaks = peaks;
@@ -3368,7 +3368,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         abRepeatState: _abRepeatState,
         abPointAMs: _abPointAMs,
         abPointBMs: _abPointBMs,
-        height: isMobile ? 42.0 : 48.0,
+        height: isMobile ? 48.0 : 56.0,
         activeColor: primaryColor,
         onDragStateChanged: (dragging) {
           setState(() {

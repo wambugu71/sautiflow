@@ -151,9 +151,9 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
     if (!widget.isEnabled) return Colors.grey;
     switch (widget.mode) {
       case 1: // Spatial 3D Velvet
-        return const Color(0xFFC084FC); // Vibrant Purple / Violet
+        return primary; // Vibrant Purple / Violet
       case 2: // Blumlein Shuffler
-        return const Color(0xFFFBBF24); // Warm Amber
+        return primary; // Warm Amber
       case 0: // Clean Mastering
       default:
         return primary;
@@ -163,12 +163,12 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
   String _getModeLabel() {
     switch (widget.mode) {
       case 1:
-        return 'SPATIAL 3D (VELVET)';
+        return 'VELVET';
       case 2:
-        return 'BLUMLEIN SHUFFLER';
+        return 'BLUMLEIN';
       case 0:
       default:
-        return 'CLEAN MASTERING (M/S)';
+        return 'CLEAN';
     }
   }
 
@@ -260,7 +260,8 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
                                     ? Icons.waves_rounded
                                     : Icons.tune_rounded),
                             size: 11,
-                            color: widget.isEnabled ? modeColor : Colors.white38,
+                            color:
+                                widget.isEnabled ? modeColor : Colors.white38,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -434,8 +435,10 @@ class _VectorscopePainter extends CustomPainter {
 
     // 45° Diagonal Lines for Left and Right Stereo Axes
     final diag = radius * 0.7071;
-    canvas.drawLine(center, Offset(center.dx - diag, center.dy - diag), axisPaint);
-    canvas.drawLine(center, Offset(center.dx + diag, center.dy - diag), axisPaint);
+    canvas.drawLine(
+        center, Offset(center.dx - diag, center.dy - diag), axisPaint);
+    canvas.drawLine(
+        center, Offset(center.dx + diag, center.dy - diag), axisPaint);
 
     // Labels: M (Mid/Center), L (Left), R (Right), S (Side)
     void drawText(String text, Offset pos) {
@@ -443,7 +446,8 @@ class _VectorscopePainter extends CustomPainter {
         text: TextSpan(text: text, style: labelStyle),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(pos.dx - tp.width / 2.0, pos.dy - tp.height / 2.0));
+      tp.paint(
+          canvas, Offset(pos.dx - tp.width / 2.0, pos.dy - tp.height / 2.0));
     }
 
     drawText('+M', Offset(center.dx, center.dy - radius + 8.0));
@@ -456,9 +460,11 @@ class _VectorscopePainter extends CustomPainter {
   void _drawMonoBassHalo(Canvas canvas, Offset center, double radius) {
     if (!isEnabled || monoBelowHz <= 25.0) return;
     // The sub-bass anchor radius scales with frequency (e.g. 150 Hz ~ 25% radius)
-    final anchorRadius = (radius * (monoBelowHz / 450.0)).clamp(12.0, radius * 0.45);
+    final anchorRadius =
+        (radius * (monoBelowHz / 450.0)).clamp(12.0, radius * 0.45);
     final haloPaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.08 + 0.05 * math.sin(animProgress * 2.0 * math.pi))
+      ..color = Colors.cyanAccent.withValues(
+          alpha: 0.08 + 0.05 * math.sin(animProgress * 2.0 * math.pi))
       ..style = PaintingStyle.fill;
 
     final borderPaint = Paint()
@@ -479,7 +485,8 @@ class _VectorscopePainter extends CustomPainter {
 
     for (final p in particles) {
       final driftAngle = p.phase + 2.0 * math.pi * time * p.speed;
-      final driftX = math.sin(driftAngle) * p.driftAmp * (0.5 + 0.5 * effectiveWidth);
+      final driftX =
+          math.sin(driftAngle) * p.driftAmp * (0.5 + 0.5 * effectiveWidth);
       final driftY = math.cos(driftAngle) * p.driftAmp;
 
       // Mode-specific particle physics:
@@ -490,7 +497,9 @@ class _VectorscopePainter extends CustomPainter {
         modeFlutterX = math.sin(driftAngle * 3.2) * 0.04 * effectiveWidth;
       }
 
-      final sideComponent = (p.baseSide * effectiveWidth * 0.78 + driftX + modeFlutterX) * dynamicEnergy;
+      final sideComponent =
+          (p.baseSide * effectiveWidth * 0.78 + driftX + modeFlutterX) *
+              dynamicEnergy;
       final midComponent = (p.baseMid + driftY) * dynamicEnergy;
 
       final px = (center.dx + sideComponent * radius)
@@ -537,7 +546,8 @@ class _VectorscopePainter extends CustomPainter {
     // Wide (w=2) => +0.45
     // Extreme (w=3.5) => +0.05
     final effectiveWidth = isEnabled ? width.clamp(0.0, 3.5) : 1.0;
-    double correlation = (1.0 - (effectiveWidth * 0.28) + 0.08).clamp(-1.0, 1.0);
+    double correlation =
+        (1.0 - (effectiveWidth * 0.28) + 0.08).clamp(-1.0, 1.0);
     if (!isEnabled) correlation = 0.0;
 
     // Normalized to 0.0 (-1.0) .. 1.0 (+1.0)
