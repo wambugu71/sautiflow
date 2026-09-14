@@ -258,7 +258,15 @@ void FFmpegStreamSource::resume() {
 }
 
 bool FFmpegStreamSource::seek(int64_t timestampMs) {
-    if (!m_isOpen.load(std::memory_order_acquire) || m_telemetry.isLiveStream) {
+    if (!m_isOpen.load(std::memory_order_acquire)) {
+        return false;
+    }
+    bool isLive = false;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        isLive = m_telemetry.isLiveStream;
+    }
+    if (isLive) {
         return false;
     }
     m_seekTargetMs.store(timestampMs, std::memory_order_release);
@@ -309,19 +317,32 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         return 0;
     }
 
-    size_t toRead = std::min(frameCount, available);
-    size_t readPos = m_rbReadPos.load(std::memory_order_relaxed);
+    size_t toRead;
+    {
+        // Serialize with worker-side writes and seek resets: without this, a
+        // seek reset landing between our `available` snapshot and the
+        // fetch_sub would underflow the counter (size_t wrap -> ring
+        // permanently "full" of garbage) and tear old/new audio.
+        std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
+        const size_t availNow = m_rbAvailableFrames.load(std::memory_order_acquire);
+        if (availNow == 0) {
+            toRead = 0;
+        } else {
+            toRead = std::min(frameCount, availNow);
+            const size_t readPos = m_rbReadPos.load(std::memory_order_relaxed);
 
-    size_t firstPart = std::min(toRead, m_rbCapacityFrames - readPos);
-    std::memcpy(pOut, &m_pcmRingBuffer[readPos * m_targetChannels], firstPart * m_targetChannels * sizeof(float));
+            const size_t firstPart = std::min(toRead, m_rbCapacityFrames - readPos);
+            std::memcpy(pOut, &m_pcmRingBuffer[readPos * m_targetChannels], firstPart * m_targetChannels * sizeof(float));
 
-    if (toRead > firstPart) {
-        size_t secondPart = toRead - firstPart;
-        std::memcpy(pOut + firstPart * m_targetChannels, &m_pcmRingBuffer[0], secondPart * m_targetChannels * sizeof(float));
+            if (toRead > firstPart) {
+                const size_t secondPart = toRead - firstPart;
+                std::memcpy(pOut + firstPart * m_targetChannels, &m_pcmRingBuffer[0], secondPart * m_targetChannels * sizeof(float));
+            }
+
+            m_rbReadPos.store((readPos + toRead) % m_rbCapacityFrames, std::memory_order_relaxed);
+            m_rbAvailableFrames.fetch_sub(toRead, std::memory_order_release);
+        }
     }
-
-    m_rbReadPos.store((readPos + toRead) % m_rbCapacityFrames, std::memory_order_relaxed);
-    m_rbAvailableFrames.fetch_sub(toRead, std::memory_order_release);
 
     if (toRead < frameCount) {
         std::fill(pOut + toRead * m_targetChannels, pOut + frameCount * m_targetChannels, 0.0f);
@@ -352,11 +373,22 @@ void FFmpegStreamSource::update_icy_metadata() {
             title = rawTitle;
         }
 
-        std::lock_guard<std::mutex> lock(m_stateMutex);
-        if (std::strcmp(m_telemetry.icyTitle, title.c_str()) != 0 ||
-            std::strcmp(m_telemetry.icyArtist, artist.c_str()) != 0) {
-            std::strncpy(m_telemetry.icyTitle, title.c_str(), sizeof(m_telemetry.icyTitle) - 1);
-            std::strncpy(m_telemetry.icyArtist, artist.c_str(), sizeof(m_telemetry.icyArtist) - 1);
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+            if (std::strcmp(m_telemetry.icyTitle, title.c_str()) != 0 ||
+                std::strcmp(m_telemetry.icyArtist, artist.c_str()) != 0) {
+                std::strncpy(m_telemetry.icyTitle, title.c_str(), sizeof(m_telemetry.icyTitle) - 1);
+                m_telemetry.icyTitle[sizeof(m_telemetry.icyTitle) - 1] = '\0';
+                std::strncpy(m_telemetry.icyArtist, artist.c_str(), sizeof(m_telemetry.icyArtist) - 1);
+                m_telemetry.icyArtist[sizeof(m_telemetry.icyArtist) - 1] = '\0';
+                changed = true;
+            }
+        }
+        // notify_telemetry() takes m_stateMutex itself: calling it while
+        // holding the lock deadlocks (recursive acquisition of a
+        // non-recursive std::mutex). Notify after releasing.
+        if (changed) {
             notify_telemetry();
         }
     }
@@ -523,6 +555,87 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     AVFrame* frame = av_frame_alloc();
     std::vector<float> resampleOutBuf;
 
+    // Resample a decoded frame (or, with f == nullptr, flush the SwrContext
+    // tail) and write it into the PCM ring. Returns false when aborted
+    // (stop requested / new seek pending).
+    auto push_frame = [&](AVFrame* f) -> bool {
+        if (f != nullptr) {
+            // Lazily create the SwrContext from the first decoded frame's
+            // actual properties (codec params may be unknown at open time).
+            if (!m_swrCtx) {
+                AVChannelLayout outLayout;
+                av_channel_layout_default(&outLayout, m_targetChannels == 1 ? 1 : 2);
+                swr_alloc_set_opts2(
+                    &m_swrCtx,
+                    &outLayout,
+                    AV_SAMPLE_FMT_FLT,
+                    m_targetSampleRate,
+                    &f->ch_layout,
+                    (AVSampleFormat)f->format,
+                    f->sample_rate,
+                    0,
+                    nullptr
+                );
+                av_channel_layout_uninit(&outLayout);
+                if (m_swrCtx) {
+                    init_swr_context(m_swrCtx);
+                }
+            }
+            if (!m_swrCtx) return true; // skip this frame, keep decoding
+        }
+
+        if (!m_swrCtx) return true;
+
+        const int outSamples = swr_get_out_samples(m_swrCtx, f ? f->nb_samples : 0);
+        if (outSamples <= 0) return true;
+
+        resampleOutBuf.resize((size_t)outSamples * (size_t)m_targetChannels);
+        uint8_t* outData[32] = { nullptr };
+        outData[0] = reinterpret_cast<uint8_t*>(resampleOutBuf.data());
+
+        const int converted = swr_convert(
+            m_swrCtx,
+            outData,
+            outSamples,
+            f ? const_cast<const uint8_t**>(f->data) : nullptr,
+            f ? f->nb_samples : 0
+        );
+        if (converted <= 0) return true;
+
+        // Wait for ring space (worker side of the backpressure protocol).
+        {
+            std::unique_lock<std::mutex> cvLock(m_stateMutex);
+            m_cv.wait(cvLock, [this, converted]() {
+                return m_stopRequested.load(std::memory_order_acquire) ||
+                       m_seekRequested.load(std::memory_order_acquire) ||
+                       (m_rbCapacityFrames - m_rbAvailableFrames.load(std::memory_order_acquire)) >= static_cast<size_t>(converted);
+            });
+
+            if (m_stopRequested.load(std::memory_order_acquire) || m_seekRequested.load(std::memory_order_acquire)) {
+                return false;
+            }
+        }
+
+        // Write to the ring under the access lock (consistent with
+        // read_pcm and seek resets).
+        {
+            std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
+            const size_t writePos = m_rbWritePos.load(std::memory_order_relaxed);
+            const size_t firstPart = std::min(static_cast<size_t>(converted), m_rbCapacityFrames - writePos);
+            std::memcpy(&m_pcmRingBuffer[writePos * m_targetChannels], resampleOutBuf.data(), firstPart * m_targetChannels * sizeof(float));
+
+            if (static_cast<size_t>(converted) > firstPart) {
+                const size_t secondPart = static_cast<size_t>(converted) - firstPart;
+                std::memcpy(&m_pcmRingBuffer[0], resampleOutBuf.data() + firstPart * m_targetChannels, secondPart * m_targetChannels * sizeof(float));
+            }
+
+            m_rbWritePos.store((writePos + converted) % m_rbCapacityFrames, std::memory_order_relaxed);
+            m_rbAvailableFrames.fetch_add(converted, std::memory_order_release);
+        }
+        m_cv.notify_one();
+        return true;
+    };
+
     auto lastTelemetryUpdate = std::chrono::steady_clock::now();
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
@@ -546,9 +659,15 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                     if (m_swrCtx) {
                         swr_init(m_swrCtx);
                     }
-                    m_rbReadPos.store(0, std::memory_order_release);
-                    m_rbWritePos.store(0, std::memory_order_release);
-                    m_rbAvailableFrames.store(0, std::memory_order_release);
+                    {
+                        // Reset ring under the access lock so a concurrent
+                        // read_pcm can never fetch_sub into the reset values
+                        // (underflow) or serve half-old/half-new audio.
+                        std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
+                        m_rbReadPos.store(0, std::memory_order_release);
+                        m_rbWritePos.store(0, std::memory_order_release);
+                        m_rbAvailableFrames.store(0, std::memory_order_release);
+                    }
                     m_isBuffering.store(true, std::memory_order_release);
                     m_isEnded.store(false, std::memory_order_release);
 
@@ -602,7 +721,22 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         ret = av_read_frame(m_fmtCtx, packet);
         if (ret < 0) {
             if (ret == AVERROR_EOF || (m_fmtCtx->pb && avio_feof(m_fmtCtx->pb))) {
-                // Stream reached end
+                // End of stream: drain the decoder (NULL packet) and flush the
+                // resampler tail (NULL input to swr_convert). Previously both
+                // were skipped, truncating ~one codec frame + filter delay of
+                // audio at the end of every track.
+                if (m_codecCtx) {
+                    avcodec_send_packet(m_codecCtx, nullptr);
+                    while (avcodec_receive_frame(m_codecCtx, frame) >= 0) {
+                        if (!push_frame(frame)) {
+                            break;
+                        }
+                    }
+                }
+                if (!m_stopRequested.load(std::memory_order_acquire) &&
+                    !m_seekRequested.load(std::memory_order_acquire)) {
+                    push_frame(nullptr); // swr tail flush
+                }
                 m_isEnded.store(true, std::memory_order_release);
                 m_isBuffering.store(false, std::memory_order_release);
                 break;
@@ -616,74 +750,26 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         }
 
         if (packet->stream_index == m_audioStreamIndex) {
-            if (avcodec_send_packet(m_codecCtx, packet) >= 0) {
+            int sendRes = avcodec_send_packet(m_codecCtx, packet);
+            if (sendRes == AVERROR(EAGAIN)) {
+                // Decoder output not drained: receive pending frames first,
+                // then retry the packet once instead of dropping it.
                 while (avcodec_receive_frame(m_codecCtx, frame) >= 0) {
-                    // Dynamically ensure SwrContext matches actual decoded frame properties
-                    if (!m_swrCtx) {
-                        AVChannelLayout outLayout;
-                        av_channel_layout_default(&outLayout, m_targetChannels == 1 ? 1 : 2);
-                        swr_alloc_set_opts2(
-                            &m_swrCtx,
-                            &outLayout,
-                            AV_SAMPLE_FMT_FLT,
-                            m_targetSampleRate,
-                            &frame->ch_layout,
-                            (AVSampleFormat)frame->format,
-                            frame->sample_rate,
-                            0,
-                            nullptr
-                        );
-                        av_channel_layout_uninit(&outLayout);
-                        if (m_swrCtx) {
-                            init_swr_context(m_swrCtx);
-                        }
-                    }
-
-                    if (!m_swrCtx) continue;
-
-                    // Resample decoded frame to float32 stereo
-                    int outSamples = swr_get_out_samples(m_swrCtx, frame->nb_samples);
-                    if (outSamples > 0) {
-                        resampleOutBuf.resize(outSamples * m_targetChannels);
-                        uint8_t* outData[32] = { nullptr };
-                        outData[0] = reinterpret_cast<uint8_t*>(resampleOutBuf.data());
-
-                        int converted = swr_convert(
-                            m_swrCtx,
-                            outData,
-                            outSamples,
-                            const_cast<const uint8_t**>(frame->data),
-                            frame->nb_samples
-                        );
-
-                        if (converted > 0) {
-                            // Wait for buffer space if full
-                            std::unique_lock<std::mutex> cvLock(m_stateMutex);
-                            m_cv.wait(cvLock, [this, converted]() {
-                                return m_stopRequested.load(std::memory_order_acquire) ||
-                                       m_seekRequested.load(std::memory_order_acquire) ||
-                                       (m_rbCapacityFrames - m_rbAvailableFrames.load(std::memory_order_acquire)) >= static_cast<size_t>(converted);
-                            });
-
-                            if (m_stopRequested.load(std::memory_order_acquire) || m_seekRequested.load(std::memory_order_acquire)) {
-                                break;
-                            }
-
-                            // Write to circular ring buffer
-                            size_t writePos = m_rbWritePos.load(std::memory_order_relaxed);
-                            size_t firstPart = std::min(static_cast<size_t>(converted), m_rbCapacityFrames - writePos);
-                            std::memcpy(&m_pcmRingBuffer[writePos * m_targetChannels], resampleOutBuf.data(), firstPart * m_targetChannels * sizeof(float));
-
-                            if (static_cast<size_t>(converted) > firstPart) {
-                                size_t secondPart = static_cast<size_t>(converted) - firstPart;
-                                std::memcpy(&m_pcmRingBuffer[0], resampleOutBuf.data() + firstPart * m_targetChannels, secondPart * m_targetChannels * sizeof(float));
-                            }
-
-                            m_rbWritePos.store((writePos + converted) % m_rbCapacityFrames, std::memory_order_relaxed);
-                            m_rbAvailableFrames.fetch_add(converted, std::memory_order_release);
-                        }
+                    if (!push_frame(frame)) {
+                        break;
                     }
                 }
+                sendRes = avcodec_send_packet(m_codecCtx, packet);
+            }
+            if (sendRes >= 0) {
+                bool aborted = false;
+                while (avcodec_receive_frame(m_codecCtx, frame) >= 0) {
+                    if (!push_frame(frame)) {
+                        aborted = true;
+                        break;
+                    }
+                }
+                (void)aborted;
             }
         }
         av_packet_unref(packet);

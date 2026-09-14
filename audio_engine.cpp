@@ -638,8 +638,11 @@ namespace
         LibSampleRateBackend *backend = (LibSampleRateBackend *)pAllocation;
         backend->channels = pConfig->channels;
 
-        // pUserData points to the algorithm int (from AudioEngineHandle or AEResampler)
-        int algo = pUserData ? *(int *)pUserData : 1;
+        // pUserData points to the algorithm selection (std::atomic<int>, from
+        // AudioEngineHandle or AEResampler). Atomic because the engine's
+        // control thread may switch algorithms while a decoder init runs on
+        // another thread.
+        int algo = pUserData ? static_cast<const std::atomic<int> *>(pUserData)->load(std::memory_order_relaxed) : 1;
         int converter = SRC_SINC_FASTEST;
         if (algo == 1)
             converter = SRC_SINC_BEST_QUALITY;
@@ -706,7 +709,10 @@ namespace
         srcData.data_out = (float *)pFramesOut;
         srcData.output_frames = pFramesOut ? (long)std::min<ma_uint64>(*pFrameCountOut, 0x7FFFFFFF) : 0;
         srcData.src_ratio = backend->ratio;
-        srcData.end_of_input = 0;
+        // NULL input signals end-of-stream: set end_of_input so libsamplerate
+        // emits its filter tail (previously hardcoded 0, making the tail
+        // unreachable and truncating the last frames of every stream).
+        srcData.end_of_input = (pFramesIn == nullptr) ? 1 : 0;
 
         int err = src_process(backend->state, &srcData);
         if (err)
@@ -849,7 +855,7 @@ namespace
         SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pAllocation;
         backend->channels = pConfig->channels;
 
-        int algo = pUserData ? *(int *)pUserData : 7;
+        int algo = pUserData ? static_cast<const std::atomic<int> *>(pUserData)->load(std::memory_order_relaxed) : 7;
         backend->algorithm = algo;
 
         unsigned long q_recipe = SOXR_HQ;
@@ -1056,6 +1062,7 @@ namespace
         int channels = 2;
         int algorithm = 11;
         int maxInLen = 4096;
+        int flushZeroFed = 0; // zero-frames already fed during end-of-stream flush
         std::vector<r8b::CDSPResampler *> resamplers;
         std::vector<std::vector<double>> inBufs;
         std::vector<double *> outPtrs;
@@ -1082,7 +1089,7 @@ namespace
         backend->sampleRateOut = (pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0;
         backend->ratio = (backend->sampleRateIn > 0.0) ? (backend->sampleRateOut / backend->sampleRateIn) : 1.0;
 
-        int algo = pUserData ? *(int *)pUserData : 11;
+        int algo = pUserData ? static_cast<const std::atomic<int> *>(pUserData)->load(std::memory_order_relaxed) : 11;
         backend->algorithm = algo;
 
         backend->maxInLen = 4096;
@@ -1094,17 +1101,30 @@ namespace
         backend->inBufs.resize(backend->channels);
         backend->outPtrs.resize(backend->channels, nullptr);
 
-        for (int c = 0; c < backend->channels; ++c)
+        try
         {
-            backend->inBufs[c].resize(backend->maxInLen, 0.0);
-            backend->resamplers[c] = new r8b::CDSPResampler(
-                backend->sampleRateIn,
-                backend->sampleRateOut,
-                backend->maxInLen,
-                reqTransBand,
-                reqAtten,
-                phase
-            );
+            for (int c = 0; c < backend->channels; ++c)
+            {
+                backend->inBufs[c].resize(backend->maxInLen, 0.0);
+                backend->resamplers[c] = new r8b::CDSPResampler(
+                    backend->sampleRateIn,
+                    backend->sampleRateOut,
+                    backend->maxInLen,
+                    reqTransBand,
+                    reqAtten,
+                    phase
+                );
+            }
+        }
+        catch (...)
+        {
+            // Roll back already-created channels: miniaudio frees the heap
+            // block on onInit failure without calling onUninit.
+            for (auto *r : backend->resamplers)
+                delete r;
+            backend->resamplers.clear();
+            backend->~R8brainBackend();
+            return MA_ERROR;
         }
 
         *ppBackend = (ma_resampling_backend *)backend;
@@ -1173,22 +1193,61 @@ namespace
             }
         }
 
-        if (outProduced >= outTarget || !pFramesIn || *pFrameCountIn == 0)
+        if (outProduced >= outTarget || (pFramesIn != nullptr && *pFrameCountIn == 0))
         {
             *pFrameCountIn = 0;
             *pFrameCountOut = outProduced;
             return MA_SUCCESS;
         }
 
-        // Step 2: Feed input chunk to r8brain
-        size_t inFramesToProcess = std::min<size_t>((size_t)*pFrameCountIn, (size_t)backend->maxInLen);
-
-        for (size_t i = 0; i < inFramesToProcess; ++i)
+        // Step 2: Feed input chunk to r8brain.
+        // NULL input = end-of-stream flush. r8brain has no explicit drain
+        // API; the documented way to retrieve the filter tail is feeding
+        // silence. Zero-pad bounded by the input latency, tracked across
+        // calls so repeated flush calls make progress and eventually stop
+        // (zeros beyond the tail would produce infinite zero output).
+        const bool flushing = (pFramesIn == nullptr);
+        size_t inFramesToProcess;
+        if (flushing)
         {
-            for (int c = 0; c < ch; ++c)
+            int latIn = 0;
+            if (!backend->resamplers.empty() && backend->resamplers[0])
             {
-                backend->inBufs[c][i] = (double)inSrc[i * (size_t)ch + (size_t)c];
+                latIn = backend->resamplers[0]->getInLenBeforeOutPos(0);
+                if (latIn < 0) latIn = 0;
             }
+            const int remaining = latIn - backend->flushZeroFed;
+            inFramesToProcess = (remaining > 0)
+                ? std::min<size_t>((size_t)remaining, (size_t)backend->maxInLen)
+                : 0;
+            backend->flushZeroFed += (int)inFramesToProcess;
+            if (inFramesToProcess > 0)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    std::fill(backend->inBufs[c].begin(),
+                              backend->inBufs[c].begin() + inFramesToProcess, 0.0);
+                }
+            }
+        }
+        else
+        {
+            inFramesToProcess = std::min<size_t>((size_t)*pFrameCountIn, (size_t)backend->maxInLen);
+
+            for (size_t i = 0; i < inFramesToProcess; ++i)
+            {
+                for (int c = 0; c < ch; ++c)
+                {
+                    backend->inBufs[c][i] = (double)inSrc[i * (size_t)ch + (size_t)c];
+                }
+            }
+        }
+
+        if (inFramesToProcess == 0)
+        {
+            *pFrameCountIn = 0;
+            *pFrameCountOut = outProduced;
+            return MA_SUCCESS;
         }
 
         int genFrames = 0;
@@ -1229,7 +1288,7 @@ namespace
             }
         }
 
-        *pFrameCountIn = (ma_uint64)inFramesToProcess;
+        *pFrameCountIn = flushing ? 0 : (ma_uint64)inFramesToProcess;
         *pFrameCountOut = outProduced;
         return MA_SUCCESS;
     }
@@ -1262,6 +1321,7 @@ namespace
         }
         backend->outputFifo.clear();
         backend->fifoReadPos = 0;
+        backend->flushZeroFed = 0; // fresh filter state: tail flush is armed again
         return MA_SUCCESS;
     }
 
@@ -1326,6 +1386,7 @@ namespace
             }
             backend->outputFifo.clear();
             backend->fifoReadPos = 0;
+            backend->flushZeroFed = 0;
         }
         return MA_SUCCESS;
     }
@@ -3565,7 +3626,7 @@ struct AudioEngineHandle
     std::mutex eqMutex; // Protect EQ config changes
 
     std::atomic<int> resampleAlgorithm{8}; // Default to AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE (mode 8)
-    int currentResampleAlgorithm = 8;
+    std::atomic<int> currentResampleAlgorithm{8}; // shared as backend user data; atomic: read on init threads, written by control thread
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
@@ -5637,8 +5698,75 @@ static void decode_producer_loop(AudioEngineHandle *e)
     }
 }
 
-static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
-{
+    // Exact inverses of miniaudio's X->f32 scalers (which divide by 2^(N-1)).
+    // ma_pcm_f32_to_X use an asymmetric "*((2^(N-1))-1) + truncate" fast path
+    // that shifts a quantization-grid signal by ~1 LSB of DC error, breaking a
+    // dithered int -> f32 -> int round trip. These convert with round-to-
+    // nearest against the original grid and clamp to the type's range.
+    // The U8 grid here ((u-128)/128, inverse x*128+128) matches the dither
+    // processor's U8 LSB grid exactly.
+    static void f32ToIntExact(AEAudioFormat fmt, void *dst, const float *src, size_t count)
+    {
+        switch (fmt)
+        {
+        case AE_FORMAT_U8:
+        {
+            ma_uint8 *d = (ma_uint8 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrintf(src[i] * 128.0f) + 128;
+                if (r < 0) r = 0;
+                else if (r > 255) r = 255;
+                d[i] = (ma_uint8)r;
+            }
+        }
+        break;
+        case AE_FORMAT_S16:
+        {
+            ma_int16 *d = (ma_int16 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrintf(src[i] * 32768.0f);
+                if (r < -32768) r = -32768;
+                else if (r > 32767) r = 32767;
+                d[i] = (ma_int16)r;
+            }
+        }
+        break;
+        case AE_FORMAT_S24:
+        {
+            ma_uint8 *d = (ma_uint8 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround((double)src[i] * 8388608.0);
+                if (r < -8388608LL) r = -8388608LL;
+                else if (r > 8388607LL) r = 8388607LL;
+                const ma_int32 t = (ma_int32)r;
+                d[(i * 3) + 0] = (ma_uint8)((t & 0x0000FF) >> 0);
+                d[(i * 3) + 1] = (ma_uint8)((t & 0x00FF00) >> 8);
+                d[(i * 3) + 2] = (ma_uint8)((t & 0xFF0000) >> 16);
+            }
+        }
+        break;
+        case AE_FORMAT_S32:
+        {
+            ma_int32 *d = (ma_int32 *)dst;
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround((double)src[i] * 2147483648.0);
+                if (r < (-2147483647LL - 1)) r = -2147483648LL;
+                else if (r > 2147483647LL) r = 2147483647LL;
+                d[i] = (ma_int32)r;
+            }
+        }
+        break;
+        default:
+            break;
+        }
+    }
+
+    static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
+    {
     if (pDevice == nullptr || pOutput == nullptr || frameCount == 0)
         return;
     AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pDevice->pUserData);
@@ -6372,16 +6500,55 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
 
     if (needsDeviceSRC)
     {
-        std::lock_guard<std::mutex> rLock(e->deviceResamplerMutex);
-        if (e->deviceResamplerInit)
+        // Never block the audio thread on the control thread: resampler
+        // re-creation (rate plan change) holds this mutex on the worker
+        // thread. On contention, emit silence for this block instead of
+        // risking priority inversion. Re-creation only happens during rate
+        // transitions, which already output silence.
+        std::unique_lock<std::mutex> rLock(e->deviceResamplerMutex, std::try_to_lock);
+        if (rLock.owns_lock())
         {
-            ma_uint64 inFrames = (ma_uint64)produced;
-            ma_uint64 outFrames = (ma_uint64)frameCount;
-            ma_resampler_process_pcm_frames(&e->deviceResampler, processBuffer, &inFrames, finalDstBuffer, &outFrames);
+            if (e->deviceResamplerInit)
+            {
+                // Loop until the output block is full or input is exhausted.
+                // A single non-looped call silently drops input: the r8brain
+                // backend consumes at most maxInLen (4096) frames per call,
+                // and any filter-warmup output shortfall would persist as a
+                // timing deficit.
+                const int srcCh = (e->channels > 0) ? e->channels : 2;
+                const float *inPtr = processBuffer;
+                float *outPtr = finalDstBuffer;
+                ma_uint64 inRemaining = (ma_uint64)produced;
+                ma_uint64 outRemaining = (ma_uint64)frameCount;
+                while (outRemaining > 0 && inRemaining > 0)
+                {
+                    ma_uint64 inFrames = inRemaining;
+                    ma_uint64 outFrames = outRemaining;
+                    ma_resampler_process_pcm_frames(&e->deviceResampler, inPtr, &inFrames, outPtr, &outFrames);
+                    if (inFrames == 0 && outFrames == 0)
+                        break; // Backend made no progress (warmup); avoid spinning.
+                    inPtr += (size_t)inFrames * (size_t)srcCh;
+                    inRemaining -= inFrames;
+                    outPtr += (size_t)outFrames * (size_t)srcCh;
+                    outRemaining -= outFrames;
+                }
+                if (outRemaining > 0)
+                {
+                    // Filter-latency or input-starvation shortfall: explicit
+                    // silence instead of relying on pre-silenced buffers.
+                    std::memset(outPtr, 0, (size_t)outRemaining * (size_t)srcCh * sizeof(float));
+                }
+            }
+            else
+            {
+                std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+            }
         }
         else
         {
-            std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+            const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+            std::memset(pOutput, 0, outBytes);
+            return;
         }
     }
     else
@@ -6437,21 +6604,26 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
         e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels);
     }
 
+    // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
+    // (2^(N-1)-1) scale which shifts the dithered quantization grid by ~1 LSB
+    // and breaks bit-perfect pass-through of integer sources; f32ToIntExact
+    // rounds to nearest on the true grid, preserving the dither decorrelation
+    // applied above.
     if (pDevice->playback.format == ma_format_s16)
     {
-        ma_pcm_f32_to_s16(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
+        f32ToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalSamples);
     }
     else if (pDevice->playback.format == ma_format_u8)
     {
-        ma_pcm_f32_to_u8(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
+        f32ToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalSamples);
     }
     else if (pDevice->playback.format == ma_format_s24)
     {
-        ma_pcm_f32_to_s24(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
+        f32ToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalSamples);
     }
     else if (pDevice->playback.format == ma_format_s32)
     {
-        ma_pcm_f32_to_s32(pOutput, finalDstBuffer, totalSamples, ma_dither_mode_none);
+        f32ToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalSamples);
     }
     else if (pDevice->playback.format == ma_format_f32)
     {
@@ -10483,7 +10655,7 @@ extern "C"
     struct AEResampler
     {
         ma_resampler filter;
-        int algorithmChoice = 1;
+        std::atomic<int> algorithmChoice{1}; // shared as resampler backend user data
         // Dither support: when ditherMode > 0 and the caller's format is an
         // integer type, the underlying miniaudio resampler is configured as
         // f32 internally; process() converts int->f32, dithers/quantizes on
@@ -10925,71 +11097,6 @@ extern "C"
         return ma_biquad_process_pcm_frames(&obj->filter, out_frames, in_frames, frame_count) == MA_SUCCESS;
     }
 
-    // Exact inverses of miniaudio's X->f32 scalers (which divide by 2^(N-1)).
-    // ma_pcm_f32_to_X use an asymmetric "*((2^(N-1))-1) + truncate" fast path
-    // that shifts a quantization-grid signal by ~1 LSB of DC error, breaking a
-    // dithered int -> f32 -> int round trip. These convert with round-to-
-    // nearest against the original grid and clamp to the type's range.
-    static void f32ToIntExact(AEAudioFormat fmt, void *dst, const float *src, size_t count)
-    {
-        switch (fmt)
-        {
-        case AE_FORMAT_U8:
-        {
-            ma_uint8 *d = (ma_uint8 *)dst;
-            for (size_t i = 0; i < count; ++i)
-            {
-                int r = (int)std::lrintf((src[i] + 1.0f) * 127.5f);
-                if (r < 0) r = 0;
-                else if (r > 255) r = 255;
-                d[i] = (ma_uint8)r;
-            }
-        }
-        break;
-        case AE_FORMAT_S16:
-        {
-            ma_int16 *d = (ma_int16 *)dst;
-            for (size_t i = 0; i < count; ++i)
-            {
-                int r = (int)std::lrintf(src[i] * 32768.0f);
-                if (r < -32768) r = -32768;
-                else if (r > 32767) r = 32767;
-                d[i] = (ma_int16)r;
-            }
-        }
-        break;
-        case AE_FORMAT_S24:
-        {
-            ma_uint8 *d = (ma_uint8 *)dst;
-            for (size_t i = 0; i < count; ++i)
-            {
-                long long r = (long long)std::llround((double)src[i] * 8388608.0);
-                if (r < -8388608LL) r = -8388608LL;
-                else if (r > 8388607LL) r = 8388607LL;
-                const ma_int32 t = (ma_int32)r;
-                d[(i * 3) + 0] = (ma_uint8)((t & 0x0000FF) >> 0);
-                d[(i * 3) + 1] = (ma_uint8)((t & 0x00FF00) >> 8);
-                d[(i * 3) + 2] = (ma_uint8)((t & 0xFF0000) >> 16);
-            }
-        }
-        break;
-        case AE_FORMAT_S32:
-        {
-            ma_int32 *d = (ma_int32 *)dst;
-            for (size_t i = 0; i < count; ++i)
-            {
-                long long r = (long long)std::llround((double)src[i] * 2147483648.0);
-                if (r < (-2147483647LL - 1)) r = -2147483648LL;
-                else if (r > 2147483647LL) r = 2147483647LL;
-                d[i] = (ma_int32)r;
-            }
-        }
-        break;
-        default:
-            break;
-        }
-    }
-
     // Resampler
     AE_API AEResampler *ae_resampler_create(int format, int channels, int sample_rate_in, int sample_rate_out, int algorithm, int dither_mode)
     {
@@ -11005,10 +11112,12 @@ extern "C"
             algo = ma_resample_algorithm_custom;
         }
 
-        // Dithering requires a float processing domain so we can quantize on
-        // the target integer grid with dither/noise shaping. For F32 callers
-        // there is no quantization grid, so the mode stays a documented no-op.
-        obj->floatInternal = (dither_mode > 0 && format != AE_FORMAT_F32);
+        // Integer formats always process in the float domain: the custom
+        // backends (SoXR / r8brain / libsamplerate) are float32-only, and a
+        // float domain is also required to dither/quantize on the target
+        // integer grid. For F32 callers there is no quantization grid, so
+        // dither stays a documented no-op.
+        obj->floatInternal = (format != AE_FORMAT_F32);
         const int internalFormat = obj->floatInternal ? (int)AE_FORMAT_F32 : format;
 
         ma_resampler_config config = ma_resampler_config_init(ae_format_to_ma(internalFormat), channels, sample_rate_in, sample_rate_out, algo);
@@ -11038,9 +11147,13 @@ extern "C"
         if (!obj)
             return 0;
 
-        // Dithered path (integer formats only): resample in the float domain,
-        // apply dither/noise-shaping on the target LSB grid, convert back.
-        if (obj->floatInternal && obj->ditherMode > 0)
+        // Integer-format callers: process in the float domain. The custom
+        // backends (SoXR / r8brain / libsamplerate) are float32-only —
+        // passing raw integer buffers through ma_resampler would reinterpret
+        // them as f32 and emit garbage. The float domain also enables
+        // dither/quantization on the target integer grid. Flush (NULL input)
+        // propagates to the backend and returns the filter tail.
+        if (obj->floatInternal)
         {
             const ma_uint64 inCount = in_frame_count ? *in_frame_count : 0;
             const ma_uint64 outCap = out_frame_count ? *out_frame_count : 0;
@@ -11055,7 +11168,12 @@ extern "C"
                 case AE_FORMAT_S16: ma_pcm_s16_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
                 case AE_FORMAT_S24: ma_pcm_s24_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
                 case AE_FORMAT_S32: ma_pcm_s32_to_f32(obj->inFloat.data(), in_frames, inCount * (ma_uint64)ch, ma_dither_mode_none); break;
-                default: return 0;
+                default:
+                    if (in_frame_count)
+                        *in_frame_count = 0;
+                    if (out_frame_count)
+                        *out_frame_count = 0;
+                    return 0;
                 }
             }
 
@@ -11069,8 +11187,11 @@ extern "C"
 
             if (outF > 0)
             {
-                obj->dither.process(obj->ditherMode, (AEAudioFormat)obj->requestedFormat,
-                                    obj->outFloat.data(), (size_t)outF * (size_t)ch, ch);
+                if (obj->ditherMode > 0)
+                {
+                    obj->dither.process(obj->ditherMode, (AEAudioFormat)obj->requestedFormat,
+                                        obj->outFloat.data(), (size_t)outF * (size_t)ch, ch);
+                }
                 f32ToIntExact((AEAudioFormat)obj->requestedFormat, out_frames,
                               obj->outFloat.data(), (size_t)outF * (size_t)ch);
             }
@@ -12464,7 +12585,6 @@ extern "C"
             info.engine_sample_rate = engine->engineSampleRate;
             info.device_sample_rate = engine->deviceSampleRate;
             const bool decoderSrcActive = (info.input_sample_rate != info.engine_sample_rate);
-            const bool deviceSrcActive = engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
             if (info.is_bypassed)
             {
                 info.mode = 0;
@@ -12491,9 +12611,17 @@ extern "C"
             }
 
             double latencyMs = 0.0;
-            if (deviceSrcActive && engine->deviceSampleRate > 0)
             {
-                latencyMs += (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->deviceSampleRate * 1000.0;
+                // Serialize with device-resampler re-creation (worker thread).
+                std::lock_guard<std::mutex> rLock(engine->deviceResamplerMutex);
+                const bool deviceSrcActiveLocked =
+                    engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
+                if (deviceSrcActiveLocked && engine->engineSampleRate > 0)
+                {
+                    // Input latency is expressed in ENGINE-rate frames (the
+                    // resampler's input domain), so convert with the engine rate.
+                    latencyMs += (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->engineSampleRate * 1000.0;
+                }
             }
             if (decoderSrcActive && engine->currentDecoder != nullptr && engine->engineSampleRate > 0)
             {

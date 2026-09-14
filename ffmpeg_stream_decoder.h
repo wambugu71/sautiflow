@@ -134,6 +134,10 @@ private:
     // PCM Ring Buffer
     std::vector<float> m_pcmRingBuffer;
     size_t m_rbCapacityFrames{0};
+    // Serializes ring-counter mutations (worker writes / producer reads /
+    // seek resets) so a seek reset can never race a concurrent fetch_sub
+    // into an underflow. Both sides run on non-realtime threads.
+    std::mutex m_rbAccessMutex;
     std::atomic<size_t> m_rbReadPos{0};
     std::atomic<size_t> m_rbWritePos{0};
     std::atomic<size_t> m_rbAvailableFrames{0};
