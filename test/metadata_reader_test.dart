@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sautiflow/sautiflow.dart';
 
@@ -25,5 +26,22 @@ void main() {
     expect(emptyMeta.pictures.isEmpty, isTrue);
     expect(emptyMeta.trackGainDb, 0.0);
     expect(emptyMeta.albumGainDb, 0.0);
+  });
+
+  test('NativeAudioMetadata reads real audio file inside background isolate via Isolate.run', () async {
+    const testFilePath = 'sautiplay/assets/hrirs/atmos.wav';
+    final file = File(testFilePath);
+    if (!file.existsSync()) {
+      return;
+    }
+
+    final meta = await Isolate.run(() {
+      return NativeAudioMetadata.read(testFilePath, getImage: true);
+    });
+
+    expect(meta.sampleRate, greaterThan(0));
+    expect(meta.channels, greaterThan(0));
+    expect(meta.duration, greaterThan(Duration.zero));
+    expect(meta.codec.isNotEmpty, isTrue);
   });
 }

@@ -694,6 +694,7 @@ class NativeAudioMetadata {
               Uint8List.fromList(ref.pictureData.asTypedList(ref.pictureSize));
           pics = [NativePicture(picBytes)];
           freePicFn(ref.pictureData);
+          ref.pictureData = ffi.nullptr;
         }
 
         return NativeAudioMetadata(
@@ -716,6 +717,10 @@ class NativeAudioMetadata {
           pictures: pics,
         );
       } finally {
+        if (metaPtr.ref.pictureData != ffi.nullptr) {
+          freePicFn(metaPtr.ref.pictureData);
+          metaPtr.ref.pictureData = ffi.nullptr;
+        }
         calloc.free(cPath);
         calloc.free(metaPtr);
       }
