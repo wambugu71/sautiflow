@@ -804,6 +804,50 @@ extern "C"
     AE_API int ae_get_output_backend(AudioEngineHandle *engine);
     AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend);
 
+    // Reads tags and ReplayGain for a local audio file via FFmpeg libavformat.
+    // Returns 1 on success, 0 on failure. Safe for local files; returns 0 immediately for network URLs.
+    AE_API int ae_read_file_tags(
+        const char *filePath,
+        char *outArtist, int maxArtistLen,
+        char *outTitle, int maxTitleLen,
+        char *outAlbum, int maxAlbumLen,
+        float *outTrackGainDb,
+        float *outAlbumGainDb,
+        float *outTrackPeak,
+        float *outAlbumPeak
+    );
+
+    typedef struct AEFullMetadata {
+        char artist[256];
+        char title[256];
+        char album[256];
+        char genre[128];
+        char year[32];
+        char codec[32];
+        int trackNumber;
+        double durationSecs;
+        int sampleRate;
+        int channels;
+        int bitrateKbps;
+        float trackGainDb;
+        float albumGainDb;
+        float trackPeak;
+        float albumPeak;
+        uint8_t *pictureData;
+        int pictureSize;
+    } AEFullMetadata;
+
+    // Reads comprehensive audio metadata, ReplayGain, and embedded picture for a local file via FFmpeg.
+    // Returns 1 on success, 0 on failure. Safe for local files; returns 0 immediately for network URLs.
+    AE_API int ae_read_file_metadata(
+        const char *filePath,
+        int getPicture,
+        AEFullMetadata *outMetadata
+    );
+
+    // Frees the pictureData buffer allocated by ae_read_file_metadata.
+    AE_API void ae_free_metadata_picture(uint8_t *pictureData);
+
 #ifdef __cplusplus
 }
 #endif

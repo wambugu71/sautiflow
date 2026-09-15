@@ -27,6 +27,7 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/time.h>
+#include <libavutil/replaygain.h>
 #ifdef __cplusplus
 }
 #endif
@@ -881,6 +882,228 @@ StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder) {
     return get_active_stream_telemetry();
 }
 
+bool read_file_metadata_ffmpeg(
+    const char *filePath,
+    bool getPicture,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    std::string &outGenre,
+    std::string &outYear,
+    int &outTrackNumber,
+    double &outDurationSecs,
+    int &outSampleRate,
+    int &outChannels,
+    int &outBitrateKbps,
+    std::string &outCodec,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak,
+    std::vector<uint8_t> *outPicture
+) {
+    outArtist.clear();
+    outTitle.clear();
+    outAlbum.clear();
+    outGenre.clear();
+    outYear.clear();
+    outCodec.clear();
+    outTrackNumber = 0;
+    outDurationSecs = 0.0;
+    outSampleRate = 44100;
+    outChannels = 2;
+    outBitrateKbps = 0;
+    outTrackGain = 0.0f;
+    outAlbumGain = 0.0f;
+    outTrackPeak = 1.0f;
+    outAlbumPeak = 1.0f;
+    if (outPicture) outPicture->clear();
+
+    if (!filePath || filePath[0] == '\0') {
+        return false;
+    }
+
+    // STRICT ISOLATION: Never attempt to open or probe network URLs with this file inspector!
+    if (FFmpegStreamSource::is_network_url(filePath)) {
+        return false;
+    }
+
+    AVFormatContext *fmt_ctx = nullptr;
+    AVDictionary *opts = nullptr;
+    av_dict_set(&opts, "scan_all_pmts", "0", 0);
+
+    if (avformat_open_input(&fmt_ctx, filePath, nullptr, &opts) < 0) {
+        if (opts) av_dict_free(&opts);
+        return false;
+    }
+    if (opts) av_dict_free(&opts);
+
+    (void)avformat_find_stream_info(fmt_ctx, nullptr);
+
+    if (fmt_ctx->duration > 0 && fmt_ctx->duration != AV_NOPTS_VALUE) {
+        outDurationSecs = (double)fmt_ctx->duration / (double)AV_TIME_BASE;
+    }
+
+    auto get_tag = [&](const char *key) -> const char* {
+        AVDictionaryEntry *e = av_dict_get(fmt_ctx->metadata, key, nullptr, AV_DICT_IGNORE_SUFFIX);
+        if (e && e->value) return e->value;
+        for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
+            e = av_dict_get(fmt_ctx->streams[i]->metadata, key, nullptr, AV_DICT_IGNORE_SUFFIX);
+            if (e && e->value) return e->value;
+        }
+        return nullptr;
+    };
+
+    const char *artist = get_tag("artist");
+    if (!artist) artist = get_tag("album_artist");
+    if (!artist) artist = get_tag("author");
+    if (!artist) artist = get_tag("performer");
+    if (artist) outArtist = artist;
+
+    const char *title = get_tag("title");
+    if (!title) title = get_tag("song");
+    if (title) outTitle = title;
+
+    const char *album = get_tag("album");
+    if (album) outAlbum = album;
+
+    const char *genre = get_tag("genre");
+    if (genre) outGenre = genre;
+
+    const char *date = get_tag("date");
+    if (!date) date = get_tag("year");
+    if (!date) date = get_tag("TYER");
+    if (!date) date = get_tag("TDRC");
+    if (date) outYear = date;
+
+    const char *track = get_tag("track");
+    if (!track) track = get_tag("TRCK");
+    if (track) {
+        int t = std::atoi(track);
+        if (t > 0) outTrackNumber = t;
+    }
+
+    auto parse_gain_db = [](const char *str) -> float {
+        if (!str) return 0.0f;
+        char *end = nullptr;
+        float val = std::strtof(str, &end);
+        return val;
+    };
+
+    const char *rgTrack = get_tag("REPLAYGAIN_TRACK_GAIN");
+    if (!rgTrack) rgTrack = get_tag("replaygain_track_gain");
+    if (!rgTrack) rgTrack = get_tag("R128_TRACK_GAIN");
+    if (rgTrack) outTrackGain = parse_gain_db(rgTrack);
+
+    const char *rgAlbum = get_tag("REPLAYGAIN_ALBUM_GAIN");
+    if (!rgAlbum) rgAlbum = get_tag("replaygain_album_gain");
+    if (!rgAlbum) rgAlbum = get_tag("R128_ALBUM_GAIN");
+    if (rgAlbum) outAlbumGain = parse_gain_db(rgAlbum);
+
+    const char *rgPeak = get_tag("REPLAYGAIN_TRACK_PEAK");
+    if (!rgPeak) rgPeak = get_tag("replaygain_track_peak");
+    if (rgPeak) outTrackPeak = parse_gain_db(rgPeak);
+
+    const char *rgAlbumPeak = get_tag("REPLAYGAIN_ALBUM_PEAK");
+    if (!rgAlbumPeak) rgAlbumPeak = get_tag("replaygain_album_peak");
+    if (rgAlbumPeak) outAlbumPeak = parse_gain_db(rgAlbumPeak);
+
+    for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
+        AVStream *st = fmt_ctx->streams[i];
+        if (!st || !st->codecpar) continue;
+
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            if (st->codecpar->sample_rate > 0) {
+                outSampleRate = st->codecpar->sample_rate;
+            }
+            int ch = st->codecpar->ch_layout.nb_channels;
+            if (ch > 0) {
+                outChannels = ch;
+            }
+            if (st->codecpar->bit_rate > 0) {
+                outBitrateKbps = (int)(st->codecpar->bit_rate / 1000);
+            }
+            const char *cname = avcodec_get_name(st->codecpar->codec_id);
+            if (cname && outCodec.empty()) {
+                outCodec = cname;
+            }
+            if (outDurationSecs <= 0.0 && st->duration > 0 && st->duration != AV_NOPTS_VALUE) {
+                outDurationSecs = st->duration * av_q2d(st->time_base);
+            }
+
+            const AVPacketSideData *sd = av_packet_side_data_get(
+                st->codecpar->coded_side_data,
+                st->codecpar->nb_coded_side_data,
+                AV_PKT_DATA_REPLAYGAIN
+            );
+            if (sd && sd->data && sd->size >= sizeof(AVReplayGain)) {
+                const AVReplayGain *rg = reinterpret_cast<const AVReplayGain*>(sd->data);
+                if (rg->track_gain != INT32_MIN && outTrackGain == 0.0f) {
+                    outTrackGain = (float)rg->track_gain / 100000.0f;
+                }
+                if (rg->album_gain != INT32_MIN && outAlbumGain == 0.0f) {
+                    outAlbumGain = (float)rg->album_gain / 100000.0f;
+                }
+                if (rg->track_peak > 0 && outTrackPeak == 1.0f) {
+                    outTrackPeak = (float)rg->track_peak / 100000.0f;
+                }
+                if (rg->album_peak > 0 && outAlbumPeak == 1.0f) {
+                    outAlbumPeak = (float)rg->album_peak / 100000.0f;
+                }
+            }
+        }
+
+        if (getPicture && outPicture && outPicture->empty()) {
+            if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) &&
+                st->attached_pic.size > 0 && st->attached_pic.data) {
+                outPicture->assign(st->attached_pic.data, st->attached_pic.data + st->attached_pic.size);
+            }
+        }
+    }
+
+    if (outBitrateKbps <= 0 && fmt_ctx->bit_rate > 0) {
+        outBitrateKbps = (int)(fmt_ctx->bit_rate / 1000);
+    }
+
+    avformat_close_input(&fmt_ctx);
+    return true;
+}
+
+bool read_file_tags_ffmpeg(
+    const char *filePath,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak
+) {
+    std::string dummyGenre, dummyYear, dummyCodec;
+    int dummyTrack = 0, dummySr = 0, dummyCh = 0, dummyBr = 0;
+    double dummyDur = 0.0;
+    return read_file_metadata_ffmpeg(
+        filePath,
+        false,
+        outArtist,
+        outTitle,
+        outAlbum,
+        dummyGenre,
+        dummyYear,
+        dummyTrack,
+        dummyDur,
+        dummySr,
+        dummyCh,
+        dummyBr,
+        dummyCodec,
+        outTrackGain,
+        outAlbumGain,
+        outTrackPeak,
+        outAlbumPeak,
+        nullptr
+    );
+}
+
 } // namespace sautiflow
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -1073,6 +1296,68 @@ void FFmpegStreamSource::set_error(StreamErrorCode code, const std::string& msg)
     m_telemetry.state = StreamState::Error;
     m_telemetry.errorCode = code;
     std::strncpy(m_telemetry.errorMessage, msg.c_str(), sizeof(m_telemetry.errorMessage) - 1);
+}
+
+bool read_file_tags_ffmpeg(
+    const char *filePath,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak
+) {
+    (void)filePath;
+    outArtist.clear();
+    outTitle.clear();
+    outAlbum.clear();
+    outTrackGain = 0.0f;
+    outAlbumGain = 0.0f;
+    outTrackPeak = 0.0f;
+    outAlbumPeak = 0.0f;
+    return false;
+}
+
+bool read_file_metadata_ffmpeg(
+    const char *filePath,
+    bool getPicture,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    std::string &outGenre,
+    std::string &outYear,
+    int &outTrackNumber,
+    double &outDurationSecs,
+    int &outSampleRate,
+    int &outChannels,
+    int &outBitrateKbps,
+    std::string &outCodec,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak,
+    std::vector<uint8_t> *outPicture
+) {
+    (void)filePath;
+    (void)getPicture;
+    outArtist.clear();
+    outTitle.clear();
+    outAlbum.clear();
+    outGenre.clear();
+    outYear.clear();
+    outTrackNumber = 0;
+    outDurationSecs = 0.0;
+    outSampleRate = 44100;
+    outChannels = 2;
+    outBitrateKbps = 0;
+    outCodec.clear();
+    outTrackGain = 0.0f;
+    outAlbumGain = 0.0f;
+    outTrackPeak = 1.0f;
+    outAlbumPeak = 1.0f;
+    if (outPicture) outPicture->clear();
+    return false;
 }
 
 } // namespace sautiflow

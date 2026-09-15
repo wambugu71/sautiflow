@@ -14,7 +14,6 @@ import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:material_3_expressive/components/navigation_bar/enums/m3e_nav_bar_enums.dart';
 import 'package:material_3_expressive/components/navigation_bar/models/m3e_navigation_bar_destination.dart';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -485,12 +484,17 @@ class _PlayerShellState extends State<PlayerShell> {
         gainDb += metadata.replayGainTrack!;
       }
     } else {
-      gainDb =
-          0.0; // None bypasses preamp in this logic, wait, if none, maybe preamp still applies?
-      // Let's just set it to 0 if none.
+      gainDb = 0.0;
     }
 
     _player.setReplayGain(gainDb);
+    _logs.insert(
+      0,
+      '[replaygain] Track: ${metadata.replayGainTrack?.toStringAsFixed(2) ?? "none"} dB, '
+      'Album: ${metadata.replayGainAlbum?.toStringAsFixed(2) ?? "none"} dB '
+      '-> Mode: ${rgState.mode.name}, applied: ${gainDb.toStringAsFixed(2)} dB',
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadAppState() async {
@@ -863,56 +867,15 @@ class _PlayerShellState extends State<PlayerShell> {
       _readLocalTrackMetadataOffload(String filePath, {bool getImage = true}) {
     return Isolate.run(() {
       try {
-        final metadata = readMetadata(File(filePath), getImage: getImage);
-        String? artist;
-        if (metadata.artist != null && metadata.artist!.isNotEmpty) {
-          artist = metadata.artist;
-        }
-        Uint8List? albumArt;
-        if (getImage && metadata.pictures.isNotEmpty) {
-          albumArt = metadata.pictures.first.bytes;
-        }
-        double? rgTrack;
-        double? rgAlbum;
-
-        try {
-          final dynamic m = metadata;
-          if (m.customMetadata != null) {
-            final Map<String, String> custom = m.customMetadata;
-            if (custom.containsKey('REPLAYGAIN_TRACK_GAIN')) {
-              rgTrack = double.tryParse(custom['REPLAYGAIN_TRACK_GAIN']!
-                  .replaceAll(RegExp(r'[^\d.-]'), ''));
-            }
-            if (custom.containsKey('REPLAYGAIN_ALBUM_GAIN')) {
-              rgAlbum = double.tryParse(custom['REPLAYGAIN_ALBUM_GAIN']!
-                  .replaceAll(RegExp(r'[^\d.-]'), ''));
-            }
-          }
-        } catch (_) {}
-
-        try {
-          final dynamic m = metadata;
-          if (rgTrack == null &&
-              m.replayGainTrackGain != null &&
-              m.replayGainTrackGain.isNotEmpty) {
-            rgTrack = double.tryParse(m.replayGainTrackGain.first
-                .toString()
-                .replaceAll(RegExp(r'[^\d.-]'), ''));
-          }
-          if (rgAlbum == null &&
-              m.replayGainAlbumGain != null &&
-              m.replayGainAlbumGain.isNotEmpty) {
-            rgAlbum = double.tryParse(m.replayGainAlbumGain.first
-                .toString()
-                .replaceAll(RegExp(r'[^\d.-]'), ''));
-          }
-        } catch (_) {}
-
+        final metadata =
+            NativeAudioMetadata.read(filePath, getImage: getImage);
         return (
-          artist: artist,
-          albumArt: albumArt,
-          rgTrack: rgTrack,
-          rgAlbum: rgAlbum,
+          artist: metadata.artist,
+          albumArt: metadata.pictures.isNotEmpty
+              ? metadata.pictures.first.bytes
+              : null,
+          rgTrack: metadata.trackGainDb != 0.0 ? metadata.trackGainDb : null,
+          rgAlbum: metadata.albumGainDb != 0.0 ? metadata.albumGainDb : null,
         );
       } catch (_) {
         return (
@@ -933,8 +896,16 @@ class _PlayerShellState extends State<PlayerShell> {
     if (nextIndex >= _playlist.length) return;
     final nextSource = _playlist[nextIndex];
 
-    // Prefer online track metadata (no RG in that path, send 0)
-    if (_onlineTrackMetadata.containsKey(nextSource.uri)) {
+    // Online streams: strictly isolated!
+    if (_onlineTrackMetadata.containsKey(nextSource.uri) ||
+        nextSource.uri.scheme == 'http' ||
+        nextSource.uri.scheme == 'https') {
+      _player.setNextReplayGain(0.0);
+      return;
+    }
+
+    final rgState = await AppStateService.instance.loadReplayGainSettings();
+    if (rgState.mode == ReplayGainMode.none) {
       _player.setNextReplayGain(0.0);
       return;
     }
@@ -957,12 +928,24 @@ class _PlayerShellState extends State<PlayerShell> {
 
     double rgDb = 0.0;
     try {
-      final meta =
-          await _readLocalTrackMetadataOffload(filePath, getImage: false);
-      final rgState = await AppStateService.instance.loadReplayGainSettings();
+      final tags = await _player.readFileTags(filePath);
+      double? rgTrack = (tags != null && tags['trackGain'] != null && (tags['trackGain'] as num) != 0.0)
+          ? (tags['trackGain'] as num).toDouble()
+          : null;
+      double? rgAlbum = (tags != null && tags['albumGain'] != null && (tags['albumGain'] as num) != 0.0)
+          ? (tags['albumGain'] as num).toDouble()
+          : null;
+
+      if (rgTrack == null && rgAlbum == null) {
+        final meta =
+            await _readLocalTrackMetadataOffload(filePath, getImage: false);
+        rgTrack = meta.rgTrack;
+        rgAlbum = meta.rgAlbum;
+      }
+
       final found = (rgState.mode == ReplayGainMode.album)
-          ? (meta.rgAlbum ?? meta.rgTrack)
-          : (meta.rgTrack ?? meta.rgAlbum);
+          ? (rgAlbum ?? rgTrack)
+          : (rgTrack ?? rgAlbum);
       rgDb = (found ?? 0.0) + rgState.preamp;
     } catch (_) {}
 
@@ -1028,14 +1011,28 @@ class _PlayerShellState extends State<PlayerShell> {
 
         if (filePath != null) {
           try {
+            final tags = await _player.readFileTags(filePath);
+            if (tags != null) {
+              final artStr = tags['artist'] as String?;
+              if (artStr != null && artStr.isNotEmpty) artist = artStr;
+              final tGain = (tags['trackGain'] as num?)?.toDouble();
+              if (tGain != null && tGain != 0.0) rgTrack = tGain;
+              final aGain = (tags['albumGain'] as num?)?.toDouble();
+              if (aGain != null && aGain != 0.0) rgAlbum = aGain;
+            }
+          } catch (_) {}
+
+          try {
             final meta =
                 await _readLocalTrackMetadataOffload(filePath, getImage: true);
-            if (meta.artist != null && meta.artist!.isNotEmpty) {
+            if ((artist.isEmpty || artist == _subtitleFromSource(source)) &&
+                meta.artist != null &&
+                meta.artist!.isNotEmpty) {
               artist = meta.artist!;
             }
             albumArt = meta.albumArt;
-            rgTrack = meta.rgTrack;
-            rgAlbum = meta.rgAlbum;
+            rgTrack ??= meta.rgTrack;
+            rgAlbum ??= meta.rgAlbum;
             if (albumArt == null) {
               // Fallback to directory images
               final dir = File(filePath).parent;

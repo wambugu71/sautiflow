@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -470,10 +469,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (metadata.trackNumber != null) {
                 _customTrackNum = metadata.trackNumber.toString();
               }
-              if (bitrate <= 0 &&
-                  metadata.bitrate != null &&
-                  metadata.bitrate! > 0) {
-                bitrate = metadata.bitrate!;
+              if (bitrate <= 0 && metadata.bitrate > 0) {
+                bitrate = metadata.bitrate;
               }
             } catch (_) {}
 

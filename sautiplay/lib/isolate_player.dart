@@ -1143,6 +1143,11 @@ class IsolateAudioPlayer {
     return (response as Map?)?.cast<String, dynamic>();
   }
 
+  Future<Map<String, dynamic>?> readFileTags(String path) async {
+    final response = await _request('readFileTags', {'path': path});
+    return (response as Map?)?.cast<String, dynamic>();
+  }
+
   Future<Map<String, dynamic>> getEngineTelemetry() async {
     final response = await _request('getEngineTelemetry');
     return (response as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -2044,6 +2049,15 @@ void _isolateEntry(_IsolateInitData initData) {
               }
             }
             sendResponse(message, info?.toJson());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'readFileTags':
+          try {
+            final path = message['path'] as String;
+            final tags = player.readFileTags(path);
+            sendResponse(message, tags?.toJson());
           } catch (e) {
             sendResponse(message, null, e);
           }

@@ -251,6 +251,37 @@ void main() {
         expect(type.coherentGainFactor, greaterThan(1.0));
       }
     });
+
+    test('14. readFileTags rejects network URLs and non-existent files safely', () {
+      final ok = player.init(sampleRate: 48000);
+      expect(ok, isTrue);
+
+      // Network URL must return null immediately with zero network probing
+      final httpTags = player.readFileTags('http://example.com/stream.mp3');
+      expect(httpTags, isNull);
+
+      final httpsTags = player.readFileTags('https://icecast.example.org:8000/live');
+      expect(httpsTags, isNull);
+
+      // Non-existent local file returns null safely
+      final missingTags = player.readFileTags('non_existent_file_12345.flac');
+      expect(missingTags, isNull);
+    });
+
+    test('15. ReplayGain and Next Track ReplayGain APIs', () {
+      final ok = player.init(sampleRate: 48000);
+      expect(ok, isTrue);
+
+      // Set current track ReplayGain
+      expect(() => player.setReplayGain(-6.5), returnsNormally);
+      expect(() => player.setReplayGain(0.0), returnsNormally);
+      expect(() => player.setReplayGain(2.1), returnsNormally);
+
+      // Set next track ReplayGain
+      expect(() => player.setNextReplayGain(-4.2), returnsNormally);
+      expect(() => player.setNextReplayGain(0.0), returnsNormally);
+      expect(() => player.setNextReplayGain(1.8), returnsNormally);
+    });
   });
 }
 

@@ -253,6 +253,9 @@ class MiniAudioPlayer {
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
   TrackNativeInfo? inspectFile(String path) => _engine.inspectFile(path);
+  AudioFileTags? readFileTags(String path) => _engine.readFileTags(path);
+  NativeAudioMetadata? readFileMetadata(String path, {bool getImage = false}) =>
+      _engine.readFileMetadata(path, getImage: getImage);
   AEHardwareInfo getHardwareInfo() => _engine.getHardwareInfo();
   AEHardwareInfo get hardwareInfo => getHardwareInfo();
 

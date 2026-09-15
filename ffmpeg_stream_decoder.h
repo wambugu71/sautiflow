@@ -158,5 +158,41 @@ StreamTelemetry get_active_stream_telemetry();
 // Decoder-scoped telemetry accessor (per-decoder, thread-safe)
 StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder);
 
+// Extract tags & ReplayGain from a local audio file via FFmpeg libavformat.
+// Guaranteed to immediately return false if filePath is a network URL.
+bool read_file_tags_ffmpeg(
+    const char *filePath,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak
+);
+
+// Extract comprehensive metadata, ReplayGain, and embedded album art via FFmpeg libavformat.
+// Guaranteed to immediately return false if filePath is a network URL.
+bool read_file_metadata_ffmpeg(
+    const char *filePath,
+    bool getPicture,
+    std::string &outArtist,
+    std::string &outTitle,
+    std::string &outAlbum,
+    std::string &outGenre,
+    std::string &outYear,
+    int &outTrackNumber,
+    double &outDurationSecs,
+    int &outSampleRate,
+    int &outChannels,
+    int &outBitrateKbps,
+    std::string &outCodec,
+    float &outTrackGain,
+    float &outAlbumGain,
+    float &outTrackPeak,
+    float &outAlbumPeak,
+    std::vector<uint8_t> *outPicture
+);
+
 } // namespace sautiflow
 

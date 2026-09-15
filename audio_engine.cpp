@@ -3485,6 +3485,7 @@ struct AudioEngineHandle
     std::atomic<float> currentTrackReplayGain{1.0f};
     std::atomic<float> fadingOutReplayGain{1.0f};
     std::atomic<float> nextTrackReplayGain{1.0f};
+    std::atomic<bool> nextTrackGainExplicitlySet{false};
     std::atomic<ma_uint64> crossfadeFramesRemaining{0};
     std::atomic<ma_uint64> crossfadeFramesTotal{0};
     ma_decoder* fadingOutDecoder = nullptr;
@@ -4705,6 +4706,62 @@ static void request_jump(AudioEngineHandle *e, int idx)
     e->workerCv.notify_one();
 }
 
+static float compute_preview_lufs(ma_decoder *decoder)
+{
+    if (decoder == nullptr) return -100.0f;
+    const ma_uint32 sampleRate = decoder->outputSampleRate > 0 ? decoder->outputSampleRate : 48000;
+    const ma_uint32 channels = decoder->outputChannels > 0 ? decoder->outputChannels : 2;
+    const ma_uint32 useCh = std::min(channels, 8u);
+
+    BS1770LoudnessMeter::KWeightState kFilters[8];
+    for (ma_uint32 c = 0; c < useCh; ++c) {
+        kFilters[c].updateCoefficients((double)sampleRate);
+    }
+    static const double channelWeights[8] = {1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.0, 1.0};
+
+    const ma_uint32 chunkFrames = sampleRate / 10; // 100ms
+    const ma_uint32 maxChunks = 100; // 10 seconds max
+    std::vector<float> pcmChunk((size_t)chunkFrames * (size_t)channels);
+
+    double activeBlockSumPwr = 0.0;
+    int activeBlockCount = 0;
+
+    for (ma_uint32 chunk = 0; chunk < maxChunks; ++chunk)
+    {
+        ma_uint64 framesRead = 0;
+        ma_result r = ma_decoder_read_pcm_frames(decoder, pcmChunk.data(), chunkFrames, &framesRead);
+        if (r != MA_SUCCESS || framesRead == 0) break;
+
+        double blockSumSq[8] = {0};
+        for (ma_uint64 i = 0; i < framesRead; ++i) {
+            for (ma_uint32 c = 0; c < useCh; ++c) {
+                double s = (double)pcmChunk[(size_t)i * (size_t)channels + (size_t)c];
+                double kf = kFilters[c].process(s);
+                blockSumSq[c] += kf * kf;
+            }
+        }
+
+        double blockPower = 0.0;
+        for (ma_uint32 c = 0; c < useCh; ++c) {
+            blockPower += channelWeights[c] * (blockSumSq[c] / (double)framesRead);
+        }
+
+        // Quiet intro gating: Discard blocks quieter than -50 LUFS
+        constexpr double quietGatePwr = 1.172e-5;
+        if (blockPower >= quietGatePwr) {
+            activeBlockSumPwr += blockPower;
+            activeBlockCount++;
+        }
+    }
+
+    // Rewind back to frame 0 for subsequent playback
+    (void)ma_decoder_seek_to_pcm_frame(decoder, 0);
+
+    if (activeBlockCount == 0) return -100.0f;
+    double meanPwr = activeBlockSumPwr / (double)activeBlockCount;
+    return (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
+}
+
 static void worker_loop(AudioEngineHandle *e)
 {
     while (true)
@@ -4893,6 +4950,8 @@ static void worker_loop(AudioEngineHandle *e)
                 e->nextIndex = -1;
                 e->nextLengthFrames = 0;
                 e->hasNext = false;
+                e->nextTrackReplayGain.store(1.0f, std::memory_order_relaxed);
+                e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
             }
 
             // Deferred auto-play: mark isPlaying=true NOW that the decoder is loaded.
@@ -4972,6 +5031,35 @@ static void worker_loop(AudioEngineHandle *e)
 #endif
                 );
                 continue;
+            }
+
+            // Loudness & ReplayGain Preload for local files (NEVER touch online streams)
+            if (!is_network_url(nextPath) && !e->nextTrackGainExplicitlySet.load(std::memory_order_relaxed))
+            {
+                float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
+                std::string art, tit, alb;
+                bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+                if (hasTags && trackGain != 0.0f)
+                {
+                    float linearGain = std::pow(10.0f, trackGain / 20.0f);
+                    e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
+                    engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f)", trackGain, linearGain);
+                }
+                else if (decoded != nullptr)
+                {
+                    // Fallback: Autonomous BS.1770-4 preview LUFS
+                    float previewLufs = compute_preview_lufs(decoded);
+                    if (previewLufs > -70.0f)
+                    {
+                        // Target -14.0 LUFS
+                        float gainDb = -14.0f - previewLufs;
+                        // Strict clamp: [-12 dB, +3 dB]
+                        gainDb = std::clamp(gainDb, -12.0f, 3.0f);
+                        float linearGain = std::pow(10.0f, gainDb / 20.0f);
+                        e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
+                        engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f)", previewLufs, gainDb, linearGain);
+                    }
+                }
             }
 
             {
@@ -5284,7 +5372,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->crossfadeFramesRemaining.store(fadeLen, std::memory_order_relaxed);
 
                             e->fadingOutReplayGain.store(e->currentTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
-                            e->currentTrackReplayGain.store(e->nextTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            const float promotedGain = e->nextTrackReplayGain.load(std::memory_order_relaxed);
+                            e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
+                            e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
+                            e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
 
                             e->fadingOutDecoder = e->currentDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -5612,7 +5703,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         , e->currentStream
 #endif
                     );
-                    e->currentTrackReplayGain.store(e->nextTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                    const float promotedGain = e->nextTrackReplayGain.load(std::memory_order_relaxed);
+                    e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
+                    e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
+                    e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
                     e->currentDecoder = e->nextDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     e->currentStream = e->nextStream;
@@ -5877,6 +5971,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
+        bool crossfadeProcessedThisBlock = false;
         
         // MIXING FADEOUT DECODER (if active).
         // The old track is decoded by decode_producer_loop into
@@ -5938,8 +6033,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const ma_uint64 abortFramesTotal = aborting ? e->crossfadeAbortFramesTotal.load(std::memory_order_relaxed) : 0;
                 ma_uint64 abortFramesDone = aborting ? e->crossfadeAbortFramesDone.load(std::memory_order_relaxed) : 0;
 
+                crossfadeProcessedThisBlock = loudnessAware;
                 const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                 constexpr float halfPi = 1.57079632679f;
+                ma_uint32 fadeFramesDone = 0;
                 for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                 {
                     const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
@@ -5966,6 +6063,19 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * outEnv);
                     }
                     fadeRemaining -= 1;
+                    fadeFramesDone += 1;
+                }
+                // If crossfade completed mid-block, scale trailing incoming frames by inGain so level remains smooth
+                if (loudnessAware && fadeFramesDone < produced)
+                {
+                    for (ma_uint32 i = fadeFramesDone; i < produced; ++i)
+                    {
+                        const size_t base = (size_t)i * (size_t)e->channels;
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            processBuffer[base + (size_t)c] *= inGain;
+                        }
+                    }
                 }
                 e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_release);
 
@@ -6050,7 +6160,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // =====================================================================
         if (!bypassAppDsp)
         {
-            const bool crossfadeMixing = e->isCrossfading.load(std::memory_order_relaxed) &&
+            const bool crossfadeMixing = (e->isCrossfading.load(std::memory_order_relaxed) || crossfadeProcessedThisBlock) &&
                                          e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
             const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
 
@@ -8482,6 +8592,7 @@ extern "C"
             return;
         const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
         e->nextTrackReplayGain.store(linear, std::memory_order_relaxed);
+        e->nextTrackGainExplicitlySet.store(gain_db != 0.0f, std::memory_order_relaxed);
     }
 
     AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)
@@ -12659,6 +12770,101 @@ extern "C"
             t.underrun_count = engine->underrunCount.load(std::memory_order_relaxed);
         }
         return t;
+    }
+
+    AE_API int ae_read_file_tags(
+        const char *filePath,
+        char *outArtist, int maxArtistLen,
+        char *outTitle, int maxTitleLen,
+        char *outAlbum, int maxAlbumLen,
+        float *outTrackGainDb,
+        float *outAlbumGainDb,
+        float *outTrackPeak,
+        float *outAlbumPeak
+    )
+    {
+        if (!filePath) return 0;
+        std::string artist, title, album;
+        float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
+        bool ok = sautiflow::read_file_tags_ffmpeg(filePath, artist, title, album, trackGain, albumGain, trackPeak, albumPeak);
+        if (outTrackGainDb) *outTrackGainDb = trackGain;
+        if (outAlbumGainDb) *outAlbumGainDb = albumGain;
+        if (outTrackPeak) *outTrackPeak = trackPeak;
+        if (outAlbumPeak) *outAlbumPeak = albumPeak;
+        if (outArtist && maxArtistLen > 0) {
+            std::strncpy(outArtist, artist.c_str(), (size_t)(maxArtistLen - 1));
+            outArtist[maxArtistLen - 1] = '\0';
+        }
+        if (outTitle && maxTitleLen > 0) {
+            std::strncpy(outTitle, title.c_str(), (size_t)(maxTitleLen - 1));
+            outTitle[maxTitleLen - 1] = '\0';
+        }
+        if (outAlbum && maxAlbumLen > 0) {
+            std::strncpy(outAlbum, album.c_str(), (size_t)(maxAlbumLen - 1));
+            outAlbum[maxAlbumLen - 1] = '\0';
+        }
+        return ok ? 1 : 0;
+    }
+
+    AE_API int ae_read_file_metadata(
+        const char *filePath,
+        int getPicture,
+        AEFullMetadata *outMetadata
+    ) {
+        if (!filePath || !outMetadata) return 0;
+        std::memset(outMetadata, 0, sizeof(AEFullMetadata));
+        outMetadata->trackPeak = 1.0f;
+        outMetadata->albumPeak = 1.0f;
+
+        std::string artist, title, album, genre, year, codec;
+        int trackNumber = 0, sampleRate = 44100, channels = 2, bitrateKbps = 0;
+        double durationSecs = 0.0;
+        float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
+        std::vector<uint8_t> picBytes;
+
+        bool ok = sautiflow::read_file_metadata_ffmpeg(
+            filePath,
+            getPicture != 0,
+            artist, title, album, genre, year,
+            trackNumber, durationSecs, sampleRate, channels, bitrateKbps, codec,
+            trackGain, albumGain, trackPeak, albumPeak,
+            (getPicture != 0) ? &picBytes : nullptr
+        );
+
+        if (ok) {
+            std::strncpy(outMetadata->artist, artist.c_str(), sizeof(outMetadata->artist) - 1);
+            std::strncpy(outMetadata->title, title.c_str(), sizeof(outMetadata->title) - 1);
+            std::strncpy(outMetadata->album, album.c_str(), sizeof(outMetadata->album) - 1);
+            std::strncpy(outMetadata->genre, genre.c_str(), sizeof(outMetadata->genre) - 1);
+            std::strncpy(outMetadata->year, year.c_str(), sizeof(outMetadata->year) - 1);
+            std::strncpy(outMetadata->codec, codec.c_str(), sizeof(outMetadata->codec) - 1);
+            outMetadata->trackNumber = trackNumber;
+            outMetadata->durationSecs = durationSecs;
+            outMetadata->sampleRate = sampleRate;
+            outMetadata->channels = channels;
+            outMetadata->bitrateKbps = bitrateKbps;
+            outMetadata->trackGainDb = trackGain;
+            outMetadata->albumGainDb = albumGain;
+            outMetadata->trackPeak = trackPeak;
+            outMetadata->albumPeak = albumPeak;
+
+            if (getPicture != 0 && !picBytes.empty()) {
+                uint8_t *mem = (uint8_t*)std::malloc(picBytes.size());
+                if (mem) {
+                    std::memcpy(mem, picBytes.data(), picBytes.size());
+                    outMetadata->pictureData = mem;
+                    outMetadata->pictureSize = (int)picBytes.size();
+                }
+            }
+            return 1;
+        }
+        return 0;
+    }
+
+    AE_API void ae_free_metadata_picture(uint8_t *pictureData) {
+        if (pictureData) {
+            std::free(pictureData);
+        }
     }
 
 } // extern "C"

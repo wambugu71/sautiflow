@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
+import 'package:sautiflow/sautiflow.dart';
 import '../isolate_player.dart';
 
 class AudioFileInfo {
@@ -120,16 +120,18 @@ class AudioFileInspector {
         raf.closeSync();
       }
 
-      // Fallback: use audio_metadata_reader
+      // Fallback: use sautiflow native FFmpeg metadata reader
       try {
-        final meta = amr.readMetadata(file, getImage: false);
-        final sr = meta.sampleRate ?? 44100;
+        final meta = NativeAudioMetadata.read(filePath, getImage: false);
+        final sr = meta.sampleRate;
         return AudioFileInfo(
           sampleRate: sr > 0 ? sr : 44100,
           bitDepth: 16,
-          channels: 2,
-          bitrateKbps: meta.bitrate ?? 0,
-          codec: ext.toUpperCase(),
+          channels: meta.channels > 0 ? meta.channels : 2,
+          bitrateKbps: meta.bitrate,
+          codec: meta.codec.isNotEmpty
+              ? meta.codec.toUpperCase()
+              : ext.toUpperCase(),
         );
       } catch (_) {}
     } catch (e) {

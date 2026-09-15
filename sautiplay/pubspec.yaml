@@ -30,8 +30,6 @@ dependencies:
   shimmer: ^3.0.0
   loading_indicator_m3e: ^0.1.1
   file_selector: ^1.1.0
-  audio_metadata_reader:
-    path: ../dependencies/audio_metadata_reader
   text_scroll: ^0.2.1
   marquee: ^2.2.1
   share_plus: ^10.1.4

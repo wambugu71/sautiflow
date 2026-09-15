@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import '../services/app_theme_service.dart';
 

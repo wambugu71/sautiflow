@@ -496,6 +496,241 @@ class TrackNativeInfo {
       };
 }
 
+class AudioFileTags {
+  final String artist;
+  final String title;
+  final String album;
+  final double trackGainDb;
+  final double albumGainDb;
+  final double trackPeak;
+  final double albumPeak;
+
+  const AudioFileTags({
+    this.artist = '',
+    this.title = '',
+    this.album = '',
+    this.trackGainDb = 0.0,
+    this.albumGainDb = 0.0,
+    this.trackPeak = 1.0,
+    this.albumPeak = 1.0,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'artist': artist,
+        'title': title,
+        'album': album,
+        'trackGainDb': trackGainDb,
+        'albumGainDb': albumGainDb,
+        'trackPeak': trackPeak,
+        'albumPeak': albumPeak,
+      };
+}
+
+class NativePicture {
+  final Uint8List bytes;
+  const NativePicture(this.bytes);
+}
+
+final class _AEFullMetadataNative extends ffi.Struct {
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> artist;
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> title;
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> album;
+  @ffi.Array(128)
+  external ffi.Array<ffi.Uint8> genre;
+  @ffi.Array(32)
+  external ffi.Array<ffi.Uint8> year;
+  @ffi.Array(32)
+  external ffi.Array<ffi.Uint8> codec;
+  @ffi.Int32()
+  external int trackNumber;
+  @ffi.Double()
+  external double durationSecs;
+  @ffi.Int32()
+  external int sampleRate;
+  @ffi.Int32()
+  external int channels;
+  @ffi.Int32()
+  external int bitrateKbps;
+  @ffi.Float()
+  external double trackGainDb;
+  @ffi.Float()
+  external double albumGainDb;
+  @ffi.Float()
+  external double trackPeak;
+  @ffi.Float()
+  external double albumPeak;
+  external ffi.Pointer<ffi.Uint8> pictureData;
+  @ffi.Int32()
+  external int pictureSize;
+}
+
+class NativeAudioMetadata {
+  final String? artist;
+  final String? title;
+  final String? album;
+  final String? genre;
+  final int? year;
+  final int? trackNumber;
+  final Duration duration;
+  final int sampleRate;
+  final int channels;
+  final int bitrate;
+  final String codec;
+  final double trackGainDb;
+  final double albumGainDb;
+  final double trackPeak;
+  final double albumPeak;
+  final List<NativePicture> pictures;
+
+  const NativeAudioMetadata({
+    this.artist,
+    this.title,
+    this.album,
+    this.genre,
+    this.year,
+    this.trackNumber,
+    this.duration = Duration.zero,
+    this.sampleRate = 44100,
+    this.channels = 2,
+    this.bitrate = 0,
+    this.codec = '',
+    this.trackGainDb = 0.0,
+    this.albumGainDb = 0.0,
+    this.trackPeak = 1.0,
+    this.albumPeak = 1.0,
+    this.pictures = const [],
+  });
+
+  List<String> get genres =>
+      (genre != null && genre!.isNotEmpty) ? [genre!] : const [];
+
+  Map<String, dynamic> toJson() => {
+        'artist': artist,
+        'title': title,
+        'album': album,
+        'genre': genre,
+        'year': year,
+        'trackNumber': trackNumber,
+        'durationSecs': duration.inMicroseconds / 1000000.0,
+        'sampleRate': sampleRate,
+        'channels': channels,
+        'bitrate': bitrate,
+        'codec': codec,
+        'trackGainDb': trackGainDb,
+        'albumGainDb': albumGainDb,
+        'trackPeak': trackPeak,
+        'albumPeak': albumPeak,
+        'hasPicture': pictures.isNotEmpty,
+      };
+
+  static NativeAudioMetadata read(String filePath,
+      {bool getImage = false, String? libraryPath}) {
+    // STRICT ISOLATION: Zero probing, file I/O or network connections for online streams
+    if (filePath.isEmpty ||
+        filePath.startsWith('http://') ||
+        filePath.startsWith('https://') ||
+        filePath.startsWith('rtmp://') ||
+        filePath.startsWith('rtsp://') ||
+        filePath.contains('.m3u8') ||
+        filePath.contains('.mpd')) {
+      return const NativeAudioMetadata();
+    }
+
+    try {
+      final lib = AudioEngineFFI.openLibrary(libraryPath);
+      final readFn =
+          lib.lookupFunction<_ReadFileMetadataNative, _ReadFileMetadataDart>(
+        'ae_read_file_metadata',
+      );
+      final freePicFn = lib.lookupFunction<_FreeMetadataPictureNative,
+          _FreeMetadataPictureDart>(
+        'ae_free_metadata_picture',
+      );
+
+      final cPath = filePath.toNativeUtf8();
+      final metaPtr = calloc<_AEFullMetadataNative>();
+
+      try {
+        final res = readFn(cPath.cast<ffi.Char>(), getImage ? 1 : 0, metaPtr);
+        if (res != 1) {
+          return const NativeAudioMetadata();
+        }
+
+        final ref = metaPtr.ref;
+
+        String decodeArr(ffi.Array<ffi.Uint8> arr, int maxLen) {
+          final bytes = <int>[];
+          for (int i = 0; i < maxLen; i++) {
+            final b = arr[i];
+            if (b == 0) break;
+            bytes.add(b);
+          }
+          return utf8.decode(bytes, allowMalformed: true).trim();
+        }
+
+        final artistStr = decodeArr(ref.artist, 256);
+        final titleStr = decodeArr(ref.title, 256);
+        final albumStr = decodeArr(ref.album, 256);
+        final genreStr = decodeArr(ref.genre, 128);
+        final yearStr = decodeArr(ref.year, 32);
+        final codecStr = decodeArr(ref.codec, 32);
+
+        int? parsedYear;
+        if (yearStr.isNotEmpty) {
+          final match = RegExp(r'\b(19\d\d|20\d\d)\b').firstMatch(yearStr);
+          if (match != null) {
+            parsedYear = int.tryParse(match.group(1)!);
+          } else {
+            parsedYear = int.tryParse(yearStr);
+          }
+        }
+
+        List<NativePicture> pics = const [];
+        if (getImage && ref.pictureData != ffi.nullptr && ref.pictureSize > 0) {
+          final picBytes =
+              Uint8List.fromList(ref.pictureData.asTypedList(ref.pictureSize));
+          pics = [NativePicture(picBytes)];
+          freePicFn(ref.pictureData);
+        }
+
+        return NativeAudioMetadata(
+          artist: artistStr.isNotEmpty ? artistStr : null,
+          title: titleStr.isNotEmpty ? titleStr : null,
+          album: albumStr.isNotEmpty ? albumStr : null,
+          genre: genreStr.isNotEmpty ? genreStr : null,
+          year: parsedYear,
+          trackNumber: ref.trackNumber > 0 ? ref.trackNumber : null,
+          duration:
+              Duration(microseconds: (ref.durationSecs * 1000000).round()),
+          sampleRate: ref.sampleRate > 0 ? ref.sampleRate : 44100,
+          channels: ref.channels > 0 ? ref.channels : 2,
+          bitrate: ref.bitrateKbps,
+          codec: codecStr,
+          trackGainDb: ref.trackGainDb,
+          albumGainDb: ref.albumGainDb,
+          trackPeak: ref.trackPeak,
+          albumPeak: ref.albumPeak,
+          pictures: pics,
+        );
+      } finally {
+        calloc.free(cPath);
+        calloc.free(metaPtr);
+      }
+    } catch (_) {
+      return const NativeAudioMetadata();
+    }
+  }
+}
+
+/// Drop-in top-level replacement for package:audio_metadata_reader `readMetadata`
+NativeAudioMetadata readMetadata(dynamic fileOrPath, {bool getImage = false}) {
+  final path = fileOrPath is File ? fileOrPath.path : fileOrPath.toString();
+  return NativeAudioMetadata.read(path, getImage: getImage);
+}
+
 final class AEHardwareInfoNative extends ffi.Struct {
   @ffi.Array(32)
   external ffi.Array<ffi.Uint8> backend_name;
@@ -1441,6 +1676,54 @@ typedef _SetMultibandFxBandsDart = void Function(
 typedef _InspectFileNative = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 typedef _InspectFileDart = AETrackInfoNative Function(ffi.Pointer<ffi.Char>);
 
+typedef _ReadFileTagsNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Char> filePath,
+  ffi.Pointer<ffi.Char> outArtist,
+  ffi.Int32 maxArtistLen,
+  ffi.Pointer<ffi.Char> outTitle,
+  ffi.Int32 maxTitleLen,
+  ffi.Pointer<ffi.Char> outAlbum,
+  ffi.Int32 maxAlbumLen,
+  ffi.Pointer<ffi.Float> outTrackGainDb,
+  ffi.Pointer<ffi.Float> outAlbumGainDb,
+  ffi.Pointer<ffi.Float> outTrackPeak,
+  ffi.Pointer<ffi.Float> outAlbumPeak,
+);
+
+typedef _ReadFileTagsDart = int Function(
+  ffi.Pointer<ffi.Char> filePath,
+  ffi.Pointer<ffi.Char> outArtist,
+  int maxArtistLen,
+  ffi.Pointer<ffi.Char> outTitle,
+  int maxTitleLen,
+  ffi.Pointer<ffi.Char> outAlbum,
+  int maxAlbumLen,
+  ffi.Pointer<ffi.Float> outTrackGainDb,
+  ffi.Pointer<ffi.Float> outAlbumGainDb,
+  ffi.Pointer<ffi.Float> outTrackPeak,
+  ffi.Pointer<ffi.Float> outAlbumPeak,
+);
+
+typedef _ReadFileMetadataNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Char> filePath,
+  ffi.Int32 getPicture,
+  ffi.Pointer<_AEFullMetadataNative> outMetadata,
+);
+
+typedef _ReadFileMetadataDart = int Function(
+  ffi.Pointer<ffi.Char> filePath,
+  int getPicture,
+  ffi.Pointer<_AEFullMetadataNative> outMetadata,
+);
+
+typedef _FreeMetadataPictureNative = ffi.Void Function(
+  ffi.Pointer<ffi.Uint8> pictureData,
+);
+
+typedef _FreeMetadataPictureDart = void Function(
+  ffi.Pointer<ffi.Uint8> pictureData,
+);
+
 typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(
     ffi.Pointer<ffi.Void>);
 typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(
@@ -1810,6 +2093,26 @@ class AudioEngineFFI {
       _setLoudnessCrossfadeEnabled = null;
       _getLoudnessCrossfadeEnabled = null;
       _setNextReplayGain = null;
+    }
+
+    try {
+      _readFileTags = _lib.lookupFunction<_ReadFileTagsNative, _ReadFileTagsDart>(
+        'ae_read_file_tags',
+      );
+    } catch (_) {
+      _readFileTags = null;
+    }
+
+    try {
+      _readFileMetadata = _lib.lookupFunction<_ReadFileMetadataNative, _ReadFileMetadataDart>(
+        'ae_read_file_metadata',
+      );
+      _freeMetadataPicture = _lib.lookupFunction<_FreeMetadataPictureNative, _FreeMetadataPictureDart>(
+        'ae_free_metadata_picture',
+      );
+    } catch (_) {
+      _readFileMetadata = null;
+      _freeMetadataPicture = null;
     }
 
     _setReverbEnabled =
@@ -2496,6 +2799,9 @@ class AudioEngineFFI {
   _SetIntDart? _setLoudnessCrossfadeEnabled;
   _GetIntDart? _getLoudnessCrossfadeEnabled;
   _SetSingleFloatDart? _setNextReplayGain;
+  _ReadFileTagsDart? _readFileTags;
+  _ReadFileMetadataDart? _readFileMetadata;
+  _FreeMetadataPictureDart? _freeMetadataPicture;
   late final _SetFxEnabledDart _setReverbEnabled;
   late final _SetReverbParamsDart _setReverbParams;
   late final _SetReverbParamsExDart _setReverbParamsEx;
@@ -3076,6 +3382,62 @@ class AudioEngineFFI {
     } finally {
       _freePtr(c.cast<ffi.Void>());
     }
+  }
+
+  AudioFileTags? readFileTags(String path) {
+    if (_readFileTags == null) return null;
+    final c = _toNativeChar(path);
+    final artistPtr = calloc<ffi.Char>(256);
+    final titlePtr = calloc<ffi.Char>(256);
+    final albumPtr = calloc<ffi.Char>(256);
+    final trackGainPtr = calloc<ffi.Float>();
+    final albumGainPtr = calloc<ffi.Float>();
+    final trackPeakPtr = calloc<ffi.Float>();
+    final albumPeakPtr = calloc<ffi.Float>();
+
+    try {
+      final res = _readFileTags!(
+        c,
+        artistPtr,
+        256,
+        titlePtr,
+        256,
+        albumPtr,
+        256,
+        trackGainPtr,
+        albumGainPtr,
+        trackPeakPtr,
+        albumPeakPtr,
+      );
+
+      if (res == 1) {
+        return AudioFileTags(
+          artist: artistPtr.cast<Utf8>().toDartString(),
+          title: titlePtr.cast<Utf8>().toDartString(),
+          album: albumPtr.cast<Utf8>().toDartString(),
+          trackGainDb: trackGainPtr.value.toDouble(),
+          albumGainDb: albumGainPtr.value.toDouble(),
+          trackPeak: trackPeakPtr.value.toDouble(),
+          albumPeak: albumPeakPtr.value.toDouble(),
+        );
+      }
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      _freePtr(c.cast<ffi.Void>());
+      calloc.free(artistPtr);
+      calloc.free(titlePtr);
+      calloc.free(albumPtr);
+      calloc.free(trackGainPtr);
+      calloc.free(albumGainPtr);
+      calloc.free(trackPeakPtr);
+      calloc.free(albumPeakPtr);
+    }
+  }
+
+  NativeAudioMetadata? readFileMetadata(String path, {bool getImage = false}) {
+    return NativeAudioMetadata.read(path, getImage: getImage);
   }
 
   AEHardwareInfo getHardwareInfo() {

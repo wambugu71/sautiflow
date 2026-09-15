@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -1125,8 +1124,7 @@ class LibraryScreenState extends State<LibraryScreen>
       String filePath) {
     return Isolate.run(() {
       try {
-        final file = File(filePath);
-        final meta = amr.readMetadata(file, getImage: false);
+        final meta = NativeAudioMetadata.read(filePath, getImage: false);
         return {
           'title':
               (meta.title != null && meta.title!.isNotEmpty) ? meta.title : null,
@@ -1754,7 +1752,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
     try {
       if (file.existsSync()) {
-        final meta = amr.readMetadata(file, getImage: true);
+        final meta = NativeAudioMetadata.read(file.path, getImage: true);
         if (meta.title != null && meta.title!.isNotEmpty) title = meta.title!;
         if (meta.artist != null && meta.artist!.isNotEmpty) {
           artist = meta.artist!;
@@ -1766,7 +1764,7 @@ class LibraryScreenState extends State<LibraryScreen>
         if (meta.year != null) year = meta.year.toString();
         if (meta.trackNumber != null) trackNumber = meta.trackNumber.toString();
         if (meta.pictures.isNotEmpty) albumArt = meta.pictures.first.bytes;
-        if (meta.duration != null) duration = meta.duration!;
+        if (meta.duration > Duration.zero) duration = meta.duration;
       }
     } catch (_) {}
 
@@ -4423,8 +4421,8 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         Duration d = Duration.zero;
         Uint8List? art;
         try {
-          final meta = amr.readMetadata(file, getImage: true);
-          if (meta.duration != null) d = meta.duration!;
+          final meta = NativeAudioMetadata.read(file.path, getImage: true);
+          if (meta.duration > Duration.zero) d = meta.duration;
           if (meta.pictures.isNotEmpty) art = meta.pictures.first.bytes;
         } catch (_) {}
         await MusicInfoDialog.show(

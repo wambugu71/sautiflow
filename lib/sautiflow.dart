@@ -19,6 +19,10 @@ export 'audio_engine_ffi.dart'
         CrossfeedParams,
         AEResamplingPolicyInfo,
         AEResampleAlgorithm,
+        AudioFileTags,
+        NativePicture,
+        NativeAudioMetadata,
+        readMetadata,
         FftWindowType;
 export 'src/filters_api.dart';
 export 'src/m3u_parser.dart' show M3uParser, M3uEntry;
