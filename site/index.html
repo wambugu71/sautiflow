@@ -373,6 +373,14 @@
       </article>
 
       <article class="feat">
+        <h3 class="mono">Q: WHEN BIT-PERFECT IS ENABLED, IS IT ACTUALLY BIT-PERFECT?</h3>
+        <p>It depends on your music files, your DAC hardware capabilities, and your operating system platform:</p>
+        <p><strong>Random Song Formats vs. DAC Capabilities:</strong> Music tracks come in arbitrary sample rates (44.1, 48, 88.2, 96, 192&nbsp;kHz) and bit depths (16, 24, 32-bit float). However, physical DACs only support a discrete list of native hardware clocks and formats. If a song's sample rate or bit depth is not natively supported by your DAC hardware, mathematically exact 1:1 bit transmission without conversion is impossible — the audio stream must be resampled or format-adapted.</p>
+        <p><strong>On Android:</strong> Audio fidelity is not 100% guaranteed on every device due to restrictive OEM HALs and the system <code>AudioFlinger</code> mixer, which typically forces 48&nbsp;kHz resampling. However, when enabled in Sautiplay, it requests native AAudio MMAP Exclusive mode on supported devices, bypassing system mixing entirely and taking direct hardware control. On devices where exclusive mode is declined by the HAL, Sautiplay falls back cleanly to its transparent 64-bit float engine.</p>
+        <p><strong>On Desktop:</strong> Bit-perfect playback works exceptionally well. Using WASAPI Exclusive on Windows (or direct ALSA on Linux), Sautiplay acquires full exclusive ownership of the audio endpoint, reconfigures the DAC clock dynamically to match the track's native sample rate and bit depth, and outputs pristine, unaltered 1:1 audio with zero system mixing.</p>
+      </article>
+
+      <article class="feat">
         <h3 class="mono">Q: HOW DOES AUTO-RATE MATCHING DIFFER FROM BIT-PERFECT?</h3>
         <p>Bit-Perfect mode attempts to lock exclusive ownership of the hardware output so no other app or system notification can mix in.</p>
         <p><strong>Auto Sample-Rate Match</strong> detects the exact sample rate of whatever song you're playing (44.1, 48, 96, 192&nbsp;kHz) and asks the DAC to switch its internal clock to match that track. If both are on, Sautiplay manages rate-switching and exclusive access together.</p>

@@ -12,6 +12,7 @@ import 'styles/m3e_dismissible_list_style.dart';
 import 'styles/m3e_expandable_style.dart';
 import 'styles/m3e_list_theme.dart';
 
+export 'components/m3e_card_list_item.dart';
 export 'components/m3e_expandable_data.dart';
 export 'components/m3e_expandable_item.dart';
 export 'enums/m3e_expandable_enums.dart';

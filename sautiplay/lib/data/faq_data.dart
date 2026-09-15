@@ -26,6 +26,28 @@ const List<FaqItem> sautiplayFaqItems = [
         'engine for any required processing.',
   ),
   FaqItem(
+    id: 'is-bit-perfect-actually-bit-perfect',
+    question: 'When Bit-Perfect is enabled, is it actually bit-perfect?',
+    category: 'Hardware & Bit-Perfect',
+    tags: [
+      'bit-perfect',
+      'dac',
+      'sample rate',
+      'bit depth',
+      'android',
+      'desktop',
+      'exclusive mode',
+      'fidelity',
+      'wasapi',
+      'aaudio'
+    ],
+    answer:
+        'It depends on your music files, your DAC hardware capabilities, and your operating system platform.\n\n'
+        'Music tracks come in arbitrary sample rates (44.1, 48, 88.2, 96, 192 kHz) and bit depths (16-bit, 24-bit, 32-bit float). However, physical DACs only support a discrete list of native hardware clocks and formats. If a song\'s sample rate or bit depth is not natively supported by your DAC hardware, mathematically exact 1:1 bit transmission without conversion is impossible — the audio stream must be resampled or format-adapted.\n\n'
+        'On Android, fidelity is not 100% guaranteed across all devices due to restrictive OEM audio drivers and the system AudioFlinger mixer, which typically forces 48 kHz resampling. When you enable Bit-Perfect in Sautiplay on Android, it requests native AAudio MMAP Exclusive mode on supported devices, bypassing system mixers and taking direct hardware control. If your device\'s HAL declines exclusive access, Sautiplay falls back to clean low-latency shared mode with transparent 64-bit float internal processing.\n\n'
+        'On Desktop (Windows WASAPI Exclusive, Linux ALSA direct, and macOS CoreAudio), bit-perfect mode works exceptionally well. Sautiplay acquires full exclusive lock on the audio endpoint, reconfigures the DAC clock dynamically to the song\'s exact native sample rate and bit depth, and delivers genuine 100% bit-perfect audio without any OS resampling or intermediate processing.',
+  ),
+  FaqItem(
     id: 'auto-rate-matching',
     question: 'How does Auto-Rate Matching differ from Bit-Perfect?',
     category: 'Hardware & Bit-Perfect',
