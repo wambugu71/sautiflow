@@ -24,6 +24,7 @@ import 'streaming_service.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
 import 'widgets/album_art_shape_selector.dart';
+import 'faq_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -687,7 +688,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     return _buildCategoryCard(
                                       title: 'Misc & System',
                                       subtitle:
-                                          'Open source licenses, updates, TLS, diagnostic logs',
+                                          'FAQs, open source licenses, updates, TLS, diagnostic logs',
                                       icon: Icons.admin_panel_settings_outlined,
                                       accentColor: hasUpdate
                                           ? Colors.greenAccent
@@ -3629,6 +3630,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     }
                   },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('HELP & FREQUENTLY ASKED QUESTIONS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                M3EListItem(
+                  headline: 'Frequently Asked Questions',
+                  supportingText:
+                      'Bit-perfect, AAudio MMAP, resamplers, 64-bit float & DSP',
+                  leading: _buildLeadingIcon(Icons.quiz_outlined),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: _primary.withValues(alpha: 0.4)),
+                        ),
+                        child: Text(
+                          '9 TOPICS',
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20),
+                    ],
+                  ),
+                  onTap: () => _navigateToSubScreen(const FaqScreen()),
                 ),
               ],
             ),

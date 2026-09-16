@@ -1,0 +1,137 @@
+[
+  {
+    "id": "why-does-my-device-say-hardwar",
+    "question": "Why Does My Device Say \"hardware Declined Exclusive Mode\"?",
+    "answer": "Android devices have wildly different hardware abstraction layers (HALs). When you request Bit-Perfect Exclusive mode, Sautiplay asks the operating system for direct, unmixed hardware access (via AAudio MMAP).\n\nSome internal phone DACs and vendor ROMs decline this exclusive lock. When that happens, Sautiplay doesn't crash or fail \u2014 it notifies you and falls back to low-latency shared mode, using its own clean internal floating-point engine for any required processing.",
+    "category": "General",
+    "tags": [
+      "faq",
+      "sautiplay"
+    ]
+  },
+  {
+    "id": "auto-rate-matching",
+    "question": "How Does Auto-rate Matching Differ From Bit-perfect?",
+    "answer": "Bit-Perfect mode attempts to lock exclusive ownership of the hardware output so no other app or system notification can mix in.\n\nAuto Sample-Rate Match detects the exact sample rate of whatever song you're playing (44.1, 48, 96, 192 kHz) and asks the DAC to switch its internal clock to match that track. If both are on, Sautiplay manages rate-switching and exclusive access together.",
+    "category": "Hardware & Bit-Perfect",
+    "tags": [
+      "auto-rate",
+      "sample rate",
+      "bit-perfect",
+      "clock",
+      "dac",
+      "exclusive",
+      "khz"
+    ]
+  },
+  {
+    "id": "bypass-oem-equalizers",
+    "question": "How Does Sautiplay Bypass OEM Equalizers & Dolby ATMOS Without Root?",
+    "answer": "On supported Android devices, Sautiplay requests low-latency MMAP (Memory-Mapped) streams through Android's native AAudio C API.\n\nWhen supported, MMAP audio writes directly to the ALSA driver and DSP hardware, completely bypassing Android's user-space AudioFlinger mixer where forced OEM sound \"enhancements\" (Dolby Atmos, DTS:X, and factory equalizers) are normally injected. No root required.",
+    "category": "Audio Routing",
+    "tags": [
+      "oem",
+      "dolby atmos",
+      "dts",
+      "equalizer",
+      "audioflinger",
+      "root",
+      "mmap",
+      "alsa",
+      "aaudio"
+    ]
+  },
+  {
+    "id": "which-resampler",
+    "question": "Which Resampler Should I Choose (libsamplerate, R8brain, Libsoxr)?",
+    "answer": "All three are top-tier sinc resamplers: libsamplerate provides classic mastering-grade sinc conversion; r8brain offers ultra-clean linear/minimum phase modes with over -160 dB stopband attenuation; and libsoxr provides exceptional fidelity with very light CPU usage.\n\nFor local files, any of the three delivers mathematically transparent rate conversion with zero audible distortion or high-frequency loss.",
+    "category": "DSP & Resampling",
+    "tags": [
+      "resampler",
+      "libsamplerate",
+      "r8brain",
+      "libsoxr",
+      "sinc",
+      "phase",
+      "stopband",
+      "dsp"
+    ]
+  },
+  {
+    "id": "streaming-tracks",
+    "question": "Why Do Streaming Tracks Use Ffmpeg's Resampler Instead?",
+    "answer": "Online streams (like YouTube Music or direct URL radio) require real-time chunk demuxing, variable network bitrates, and live buffering.\n\nFFmpeg's built-in swresample is tightly integrated into the streaming decoder pipeline to guarantee glitch-free, instantaneous live playback without buffer underruns.",
+    "category": "DSP & Resampling",
+    "tags": [
+      "streaming",
+      "ffmpeg",
+      "swresample",
+      "resampler",
+      "youtube music",
+      "buffer",
+      "demuxing"
+    ]
+  },
+  {
+    "id": "64-bit-float",
+    "question": "What Does 64-bit Float Processing Do?",
+    "answer": "Standard digital audio processing uses 32-bit float (around 144\u2013150 dB of dynamic range). When you enable 64-Bit Float Processing in Sautiplay, the entire DSP chain (equalizers, crossfeed, surround virtualizer, limiter, and volume) computes in double precision.\n\nThis yields over 320 dB of internal calculation headroom, completely eliminating accumulated rounding noise or clipping during complex multi-effect chains.",
+    "category": "DSP & Resampling",
+    "tags": [
+      "64-bit",
+      "32-bit",
+      "float",
+      "double precision",
+      "dynamic range",
+      "headroom",
+      "clipping",
+      "dsp"
+    ]
+  },
+  {
+    "id": "auto-rate-matching",
+    "question": "Can I Import Autoeq Profiles Or Headphone Impulse Responses?",
+    "answer": "Yes. Sautiplay has native support for AutoEQ (importing parametric or graphic EQ curves for thousands of headphones), Viper4Android VDC/DDC profiles, and a Convolver that can load custom stereo impulse response (.wav) files for acoustic room simulation or headphone correction.",
+    "category": "Hardware & Bit-Perfect",
+    "tags": [
+      "auto-rate",
+      "sample rate",
+      "bit-perfect",
+      "clock",
+      "dac",
+      "exclusive",
+      "khz"
+    ]
+  },
+  {
+    "id": "cast-to-dlna",
+    "question": "Can I Cast To DLNA Or Use Sautiplay As A Wireless Receiver?",
+    "answer": "Both! Sautiplay can cast out to UPnP/DLNA network speakers and smart TVs. It also includes a built-in DLNA MediaRenderer service that turns Sautiplay into a wireless receiver, letting you stream music from other phones, tablets, or computers on your local Wi-Fi network directly into Sautiplay.",
+    "category": "Network & Casting",
+    "tags": [
+      "dlna",
+      "upnp",
+      "cast",
+      "wireless",
+      "receiver",
+      "mediarenderer",
+      "wifi",
+      "streaming"
+    ]
+  },
+  {
+    "id": "ads-tracking",
+    "question": "Are There Ads, Tracking, Or Mandatory Accounts?",
+    "answer": "None. Sautiplay is 100% open source, privacy-focused, and offline-first. There are zero ads, zero telemetry, and no mandatory account sign-ins. All audio playback, DSP calculations, and library indexing happen entirely locally on your device.",
+    "category": "Privacy & Open Source",
+    "tags": [
+      "ads",
+      "tracking",
+      "telemetry",
+      "privacy",
+      "account",
+      "open source",
+      "offline"
+    ]
+  }
+]
