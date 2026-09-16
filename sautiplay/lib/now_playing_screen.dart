@@ -2244,7 +2244,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       onPressed: () =>
                                                           showAudioEngineDiagnosticPanel(
                                                               context,
-                                                              widget.player),
+                                                              widget.player,
+                                                              filePath: widget.videoId != null &&
+                                                                      widget.videoId!.startsWith('file://')
+                                                                  ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                                  : widget.videoId),
                                                     ),
                                                     Text(
                                                       _fmt(duration),
@@ -2768,7 +2772,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   trackPosition),
                                               onPressed: () =>
                                                   showAudioEngineDiagnosticPanel(
-                                                      context, widget.player),
+                                                      context,
+                                                      widget.player,
+                                                      filePath: widget.videoId != null &&
+                                                              widget.videoId!.startsWith('file://')
+                                                          ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                          : widget.videoId),
                                             ),
                                           ),
                                         ),

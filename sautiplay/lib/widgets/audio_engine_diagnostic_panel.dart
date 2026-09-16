@@ -1,27 +1,32 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/components/progress_indicators/m3e_progress_indicators.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
 void showAudioEngineDiagnosticPanel(
-    BuildContext context, IsolateAudioPlayer player) {
+    BuildContext context, IsolateAudioPlayer player,
+    {String? filePath}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.65),
-    builder: (ctx) => AudioEngineDiagnosticPanel(player: player),
+    builder: (ctx) =>
+        AudioEngineDiagnosticPanel(player: player, filePath: filePath),
   );
 }
 
 class AudioEngineDiagnosticPanel extends StatefulWidget {
   final IsolateAudioPlayer player;
+  final String? filePath;
 
   const AudioEngineDiagnosticPanel({
     super.key,
     required this.player,
+    this.filePath,
   });
 
   @override
@@ -218,7 +223,7 @@ class _AudioEngineDiagnosticPanelState
 
   Widget _buildDiagnosticsContent(BuildContext context) {
     final t = _telemetry!;
-    final hw = t['hardware'] as Map<String, dynamic>? ?? {};
+    final hw = (t['hardware'] as Map?)?.cast<String, dynamic>() ?? {};
 
     final specs = _hardwareSpecs ??
         AudioHardwareInspector.currentSpecs ??
@@ -233,6 +238,45 @@ class _AudioEngineDiagnosticPanelState
     final String fileType = (t['fileType'] as String? ?? 'PCM').toUpperCase();
     final int bitrateKbps = t['bitrateKbps'] as int? ?? 0;
     final int fileSizeBytes = t['fileSizeBytes'] as int? ?? 0;
+
+    double? rgTrack = (t['replayGainTrack'] as num?)?.toDouble();
+    double? rgAlbum = (t['replayGainAlbum'] as num?)?.toDouble();
+    final String? activeFilePath =
+        (t['filePath'] as String?) ?? widget.filePath;
+
+    // Fallback: If telemetry did not provide ReplayGain and a local file path exists,
+    // read directly via the metadata reader.
+    if (rgTrack == null &&
+        rgAlbum == null &&
+        activeFilePath != null &&
+        activeFilePath.isNotEmpty) {
+      try {
+        final meta = readMetadata(activeFilePath, getImage: false);
+        if (meta.trackGainDb != 0.0) rgTrack = meta.trackGainDb;
+        if (meta.albumGainDb != 0.0) rgAlbum = meta.albumGainDb;
+      } catch (_) {}
+    }
+
+    String replayGainDisplay = 'null';
+    bool hasReplayGain = false;
+    if (rgTrack != null && rgAlbum != null) {
+      hasReplayGain = true;
+      final tStr =
+          '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
+      final aStr =
+          '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
+      replayGainDisplay = '$tStr (Track) / $aStr (Album)';
+    } else if (rgTrack != null) {
+      hasReplayGain = true;
+      final tStr =
+          '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
+      replayGainDisplay = '$tStr (Track)';
+    } else if (rgAlbum != null) {
+      hasReplayGain = true;
+      final aStr =
+          '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
+      replayGainDisplay = '$aStr (Album)';
+    }
 
     String bitrateDisplay = 'N/A';
     if (bitrateKbps > 0) {
@@ -387,6 +431,8 @@ class _AudioEngineDiagnosticPanelState
                 _buildTelemetryRow('File Size',
                     '${(fileSizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB',
                     isValueActive: true),
+              _buildTelemetryRow('ReplayGain', replayGainDisplay,
+                  isValueActive: hasReplayGain),
               _buildTelemetryRow('Source',
                   '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM'),
               _buildTelemetryRow('Decoder',
@@ -636,7 +682,7 @@ class _AudioEngineDiagnosticPanelState
       ),
     );
   }
-*/
+
   Widget _buildMiniSpecBadge({
     required IconData icon,
     required String label,
@@ -720,6 +766,7 @@ class _AudioEngineDiagnosticPanelState
     }
     return Icons.speaker_rounded;
   }
+*/
 
   Widget _buildPerNodeLatencyCard(
       List<_NodeLatencyInfo> nodes, double totalMs, double dspSamples) {

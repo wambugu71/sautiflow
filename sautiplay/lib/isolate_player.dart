@@ -1277,6 +1277,7 @@ void _isolateEntry(_IsolateInitData initData) {
 
   List<AudioSource> isolateSources = [];
   final Map<String, TrackNativeInfo> fileInfoCache = {};
+  final Map<String, NativeAudioMetadata> metadataCache = {};
 
   void sendResponse(Map message, dynamic result, [Object? error]) {
     final reqId = message['_reqId'];
@@ -1940,29 +1941,70 @@ void _isolateEntry(_IsolateInitData initData) {
             String fileType = 'PCM';
             int bitrateKbps = 0;
             int fileSizeBytes = 0;
+            double? rgTrack;
+            double? rgAlbum;
+            double? rgTrackPeak;
+            double? rgAlbumPeak;
+            String? currentFilePath;
             final status = player.status;
             if (status.currentIndex >= 0 &&
                 status.currentIndex < isolateSources.length) {
               final src = isolateSources[status.currentIndex];
               if (!src.isNetwork) {
-                final path = src.uri.toFilePath();
-                TrackNativeInfo? info = fileInfoCache[path];
-                if (info == null) {
-                  info = player.inspectFile(path);
-                  if (info != null) {
-                    if (fileInfoCache.length >= 500) {
-                      fileInfoCache.remove(fileInfoCache.keys.first);
+                String? path;
+                try {
+                  if (src.uri.scheme == 'file') {
+                    path = src.uri.toFilePath();
+                  } else {
+                    final str = Uri.decodeFull(src.uri.toString());
+                    if (str.startsWith(RegExp(r'^[a-zA-Z]:[\\/]')) ||
+                        str.startsWith('/')) {
+                      path = str;
                     }
-                    fileInfoCache[path] = info;
                   }
-                }
-                if (info != null) {
-                  if (info.sampleRate > 0) inputRate = info.sampleRate;
-                  if (info.channels > 0) inputChannels = info.channels;
-                  if (info.bitDepth > 0) inputBitDepth = info.bitDepth;
-                  if (info.formatName.isNotEmpty) fileType = info.formatName;
-                  bitrateKbps = info.bitrateKbps;
-                  fileSizeBytes = info.fileSizeBytes;
+                } catch (_) {}
+
+                if (path != null) {
+                  currentFilePath = path;
+                  TrackNativeInfo? info = fileInfoCache[path];
+                  if (info == null) {
+                    info = player.inspectFile(path);
+                    if (info != null) {
+                      if (fileInfoCache.length >= 500) {
+                        fileInfoCache.remove(fileInfoCache.keys.first);
+                      }
+                      fileInfoCache[path] = info;
+                    }
+                  }
+                  if (info != null) {
+                    if (info.sampleRate > 0) inputRate = info.sampleRate;
+                    if (info.channels > 0) inputChannels = info.channels;
+                    if (info.bitDepth > 0) inputBitDepth = info.bitDepth;
+                    if (info.formatName.isNotEmpty) fileType = info.formatName;
+                    bitrateKbps = info.bitrateKbps;
+                    fileSizeBytes = info.fileSizeBytes;
+                  }
+
+                  NativeAudioMetadata? meta = metadataCache[path];
+                  if (meta == null) {
+                    try {
+                      meta = readMetadata(path, getImage: false);
+                      if (metadataCache.length >= 500) {
+                        metadataCache.remove(metadataCache.keys.first);
+                      }
+                      metadataCache[path] = meta;
+                    } catch (_) {}
+                  }
+                  if (meta != null) {
+                    if (meta.trackGainDb != 0.0) rgTrack = meta.trackGainDb;
+                    if (meta.albumGainDb != 0.0) rgAlbum = meta.albumGainDb;
+                    if (meta.trackPeak != 1.0 && meta.trackPeak > 0.0) {
+                      rgTrackPeak = meta.trackPeak;
+                    }
+                    if (meta.albumPeak != 1.0 && meta.albumPeak > 0.0) {
+                      rgAlbumPeak = meta.albumPeak;
+                    }
+                  }
                 }
               } else {
                 fileType = st.codecName.isNotEmpty
@@ -1977,6 +2019,11 @@ void _isolateEntry(_IsolateInitData initData) {
               'fileType': fileType,
               'bitrateKbps': bitrateKbps,
               'fileSizeBytes': fileSizeBytes,
+              'filePath': currentFilePath,
+              'replayGainTrack': rgTrack,
+              'replayGainAlbum': rgAlbum,
+              'replayGainTrackPeak': rgTrackPeak,
+              'replayGainAlbumPeak': rgAlbumPeak,
               'inputFormat': ps.inputFormat,
               'inputSampleRate': inputRate,
               'inputChannels': inputChannels,
