@@ -1,3 +1,12 @@
+## v0.6.28 — 2026-09-16
+- Parametric EQ Filter Expansion: Added allpass, asuperpass, bandreject, asuperstop, and asupercut filters with analytical biquad coefficient derivation and real-time acoustic curves
+- Native FFmpeg Metadata Reader: Fast native extraction of audio tags, embedded album art, and ReplayGain packet side-data
+- Audiophile DSP & Real-Time Safety: Lock-free audio callbacks, active oversampling for warmth & clarity DSPs, anti-aliasing fixes, and true bit-perfect bypass
+- Resampler & Stream Correctness: Flushed resampler filter tails, thread-safe algorithm transitions, and deadlock-free network stream decoder
+- In-App FAQ & User Manual: Interactive Material 3 Expressive FAQ viewer with search, category filters, and bit-perfect playback guidance
+- Live ReplayGain Telemetry: Real-time track and album ReplayGain gain and peak readouts in Audio Engine Diagnostic panel
+- Refined Waveform Seek Bar: Taller, finer bars with interpolated audio sampling for accurate seeking
+
 ## v0.6.27 — 2026-09-08
 - True 64-Bit Float DSP Pipeline: IEEE 754 double precision processing across the entire active DSP chain with zero-allocation buffer safety
 - Remez Equiripple Oversampler: Flat passband response (<0.75 dB ripple), exact DC unity gain, and inverted tap chronology fix
