@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include "simd_math.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -162,8 +163,10 @@ public:
         gain_linear_ = 1.0f;
         anti_pop_ = enabled_ ? 1.0f : 0.0f;
         current_gr_db_ = 0.0f;
-        hp_x1_l_ = hp_x2_l_ = hp_y1_l_ = hp_y2_l_ = 0.0f;
-        hp_x1_r_ = hp_x2_r_ = hp_y1_r_ = hp_y2_r_ = 0.0f;
+        hp_x1_ = SimdDouble2(0.0);
+        hp_x2_ = SimdDouble2(0.0);
+        hp_y1_ = SimdDouble2(0.0);
+        hp_y2_ = SimdDouble2(0.0);
     }
 
     float getCurrentGainReductionDb() const {
@@ -183,6 +186,11 @@ public:
         }
 
         const float half_knee = knee_db_ * 0.5f;
+        const SimdDouble2 vb0(hp_b0_);
+        const SimdDouble2 vb1(hp_b1_);
+        const SimdDouble2 vb2(hp_b2_);
+        const SimdDouble2 va1(hp_a1_);
+        const SimdDouble2 va2(hp_a2_);
 
         for (uint32_t i = 0; i < frame_count; ++i) {
             // Anti-pop crossfade smoothing
@@ -202,19 +210,14 @@ public:
             float sc_r = in_r;
 
             if (sidechain_hpf_hz_ >= 15.0f) {
-                // Left channel biquad
-                float y_l = hp_b0_ * in_l + hp_b1_ * hp_x1_l_ + hp_b2_ * hp_x2_l_
-                          - hp_a1_ * hp_y1_l_ - hp_a2_ * hp_y2_l_;
-                hp_x2_l_ = hp_x1_l_; hp_x1_l_ = in_l;
-                hp_y2_l_ = hp_y1_l_; hp_y1_l_ = y_l;
-                sc_l = y_l;
+                // Vectorized stereo Direct Form I biquad in 64-bit double precision
+                const SimdDouble2 v_in(static_cast<double>(in_l), static_cast<double>(in_r));
+                const SimdDouble2 y = (vb0 * v_in) + (vb1 * hp_x1_) + (vb2 * hp_x2_) - (va1 * hp_y1_) - (va2 * hp_y2_);
+                hp_x2_ = hp_x1_; hp_x1_ = v_in;
+                hp_y2_ = hp_y1_; hp_y1_ = y;
 
-                // Right channel biquad
-                float y_r = hp_b0_ * in_r + hp_b1_ * hp_x1_r_ + hp_b2_ * hp_x2_r_
-                          - hp_a1_ * hp_y1_r_ - hp_a2_ * hp_y2_r_;
-                hp_x2_r_ = hp_x1_r_; hp_x1_r_ = in_r;
-                hp_y2_r_ = hp_y1_r_; hp_y1_r_ = y_r;
-                sc_r = y_r;
+                sc_l = static_cast<float>(y.get_low());
+                sc_r = static_cast<float>(y.get_high());
             }
 
             // 2. Peak Envelope Detection (Stereo Linked)
@@ -307,9 +310,11 @@ private:
     float hp_b0_{1.0f}, hp_b1_{0.0f}, hp_b2_{0.0f};
     float hp_a1_{0.0f}, hp_a2_{0.0f};
 
-    // Filter states
-    float hp_x1_l_{0.0f}, hp_x2_l_{0.0f}, hp_y1_l_{0.0f}, hp_y2_l_{0.0f};
-    float hp_x1_r_{0.0f}, hp_x2_r_{0.0f}, hp_y1_r_{0.0f}, hp_y2_r_{0.0f};
+    // 64-bit Stereo Sidechain Biquad Filter states (Left=lane 0, Right=lane 1)
+    SimdDouble2 hp_x1_{0.0};
+    SimdDouble2 hp_x2_{0.0};
+    SimdDouble2 hp_y1_{0.0};
+    SimdDouble2 hp_y2_{0.0};
 
     // Runtime state
     float envelope_{0.0f};

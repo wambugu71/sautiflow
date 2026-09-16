@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -159,10 +160,8 @@ public:
     }
 
     void reset() {
-        filter_x_[0] = LadderChannel{};
-        filter_x_[1] = LadderChannel{};
-        filter_y_[0] = LadderChannel{};
-        filter_y_[1] = LadderChannel{};
+        ladder_x_.reset();
+        ladder_y_.reset();
 
         dynamic_lp_biquad_.reset();
 
@@ -198,29 +197,29 @@ public:
             float out_r = in_r;
 
             if (x_low_ <= 120.0f) {
-                // Sub-120Hz dynamic resonant path: variable-Q low-pass bass injection
+                // Sub-120Hz dynamic resonant path: variable-Q low-pass bass injection (64-bit precision)
                 const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
                 const float low_out = static_cast<float>(dynamic_lp_biquad_.process(mono_in));
                 out_l = in_l + low_out * (current_bass_gain_ - 1.0f);
                 out_r = in_r + low_out * (current_bass_gain_ - 1.0f);
             } else {
-                // 2. Stage 1: 4-Pole Ladder X (Left & Right Channel Multi-Band Decomposition)
-                float x1_l, x2_l, x3_l;
-                processLadder(&filter_x_[0], in_l, current_low_ang_x_, current_upp_ang_x_, x1_l, x2_l, x3_l);
-
-                float x1_r, x2_r, x3_r;
-                processLadder(&filter_x_[1], in_r, current_low_ang_x_, current_upp_ang_x_, x1_r, x2_r, x3_r);
+                // 2. Stage 1: 4-Pole Ladder X (Vectorized Stereo Multi-Band Decomposition)
+                const SimdFloat4 vin(in_l, in_r, 0.0f, 0.0f);
+                SimdFloat4 x1, x2, x3;
+                processLadderStereo(&ladder_x_, vin, current_low_ang_x_, current_upp_ang_x_, x1, x2, x3);
 
                 // 3. Stage 2: 4-Pole Ladder Y (Dynamic Bass Resonance & Transducer Excitation)
-                float y1_l, y2_l, y3_l;
-                processLadder(&filter_y_[0], current_bass_gain_ * x1_l, current_low_ang_y_, current_upp_ang_y_, y1_l, y2_l, y3_l);
+                SimdFloat4 y1, y2, y3;
+                const SimdFloat4 v_bass_gain(current_bass_gain_);
+                processLadderStereo(&ladder_y_, v_bass_gain * x1, current_low_ang_y_, current_upp_ang_y_, y1, y2, y3);
 
-                float y1_r, y2_r, y3_r;
-                processLadder(&filter_y_[1], current_bass_gain_ * x1_r, current_low_ang_y_, current_upp_ang_y_, y1_r, y2_r, y3_r);
+                // 4. Phase-Aligned Matrix Reconstruction in SIMD
+                const SimdFloat4 v_side_x(current_side_gain_x_);
+                const SimdFloat4 v_side_y(current_side_gain_y_);
+                const SimdFloat4 v_out = x2 + y3 + (v_side_x * y2) + (v_side_y * y1) + x3;
 
-                // 4. Phase-Aligned Matrix Reconstruction
-                out_l = x2_l + y3_l + current_side_gain_x_ * y2_l + current_side_gain_y_ * y1_l + x3_l;
-                out_r = x2_r + y3_r + current_side_gain_x_ * y2_r + current_side_gain_y_ * y1_r + x3_r;
+                out_l = v_out.get(0);
+                out_r = v_out.get(1);
             }
 
             // 5. Anti-pop smooth crossfade on activation / profile change
@@ -237,10 +236,18 @@ public:
     }
 
 private:
-    struct LadderChannel {
-        float in[3]{};
-        float x[4]{};
-        float y[4]{};
+    struct LadderChannelStereo {
+        SimdFloat4 in[3]{};
+        SimdFloat4 x[4]{};
+        SimdFloat4 y[4]{};
+
+        void reset() {
+            for (int i = 0; i < 3; ++i) in[i] = SimdFloat4(0.0f);
+            for (int i = 0; i < 4; ++i) {
+                x[i] = SimdFloat4(0.0f);
+                y[i] = SimdFloat4(0.0f);
+            }
+        }
     };
 
     class DynamicBiquad {
@@ -320,8 +327,8 @@ private:
     float smoothing_coeff_ = 0.00069f; // ~30ms smooth parameter ramp
     float anti_pop_ = 0.0f;
 
-    LadderChannel filter_x_[2]{};
-    LadderChannel filter_y_[2]{};
+    LadderChannelStereo ladder_x_{};
+    LadderChannelStereo ladder_y_{};
     DynamicBiquad dynamic_lp_biquad_{};
 
     static constexpr float kDenormal = 1e-25f;
@@ -335,26 +342,31 @@ private:
         return v * (shaped / drive);
     }
 
-    inline void processLadder(LadderChannel* ch, float sample, float low_ang, float upp_ang, float& out1, float& out2, float& out3) {
+    inline void processLadderStereo(LadderChannelStereo* ch, const SimdFloat4& sample, float low_ang, float upp_ang,
+                                    SimdFloat4& out1, SimdFloat4& out2, SimdFloat4& out3) {
         ch->in[2] = ch->in[1];
         ch->in[1] = ch->in[0];
         ch->in[0] = sample;
 
+        const SimdFloat4 v_low_ang(low_ang);
+        const SimdFloat4 v_upp_ang(upp_ang);
+        const SimdFloat4 v_denormal(kDenormal);
+
         // 4-Pole Low-Pass Ladder (x)
-        ch->x[0] += low_ang * (sample - ch->x[0]) + kDenormal;
-        ch->x[1] += low_ang * (ch->x[0] - ch->x[1]) + kDenormal;
-        ch->x[2] += low_ang * (ch->x[1] - ch->x[2]) + kDenormal;
-        ch->x[3] += low_ang * (ch->x[2] - ch->x[3]) + kDenormal;
+        ch->x[0] = ch->x[0] + (v_low_ang * (sample - ch->x[0])) + v_denormal;
+        ch->x[1] = ch->x[1] + (v_low_ang * (ch->x[0] - ch->x[1])) + v_denormal;
+        ch->x[2] = ch->x[2] + (v_low_ang * (ch->x[1] - ch->x[2])) + v_denormal;
+        ch->x[3] = ch->x[3] + (v_low_ang * (ch->x[2] - ch->x[3])) + v_denormal;
 
         // 4-Pole High-Pass / Upper Ladder (y)
-        ch->y[0] += upp_ang * (sample - ch->y[0]) + kDenormal;
-        ch->y[1] += upp_ang * (ch->y[0] - ch->y[1]) + kDenormal;
-        ch->y[2] += upp_ang * (ch->y[1] - ch->y[2]) + kDenormal;
-        ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + kDenormal;
+        ch->y[0] = ch->y[0] + (v_upp_ang * (sample - ch->y[0])) + v_denormal;
+        ch->y[1] = ch->y[1] + (v_upp_ang * (ch->y[0] - ch->y[1])) + v_denormal;
+        ch->y[2] = ch->y[2] + (v_upp_ang * (ch->y[1] - ch->y[2])) + v_denormal;
+        ch->y[3] = ch->y[3] + (v_upp_ang * (ch->y[2] - ch->y[3])) + v_denormal;
 
-        out1 = ch->x[3];            // Low-pass filtered sub-band
-        out2 = sample - ch->y[3];   // High-pass residual (aligned against sample input)
-        out3 = ch->y[3] - ch->x[3]; // Mid-frequency crossover band
+        out1 = ch->x[3];            // Low-pass filtered sub-band [L, R]
+        out2 = sample - ch->y[3];   // High-pass residual (aligned against sample input) [L, R]
+        out3 = ch->y[3] - ch->x[3]; // Mid-frequency crossover band [L, R]
     }
 
     void updatePresetParams() {

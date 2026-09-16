@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -189,8 +190,10 @@ public:
         shelf_x1_r_ = shelf_x2_r_ = shelf_y1_r_ = shelf_y2_r_ = 0.0f;
 
         // Reset Sidechain HPF states
-        sc_x1_l_ = sc_x2_l_ = sc_y1_l_ = sc_y2_l_ = 0.0f;
-        sc_x1_r_ = sc_x2_r_ = sc_y1_r_ = sc_y2_r_ = 0.0f;
+        sc_x1_ = SimdDouble2(0.0);
+        sc_x2_ = SimdDouble2(0.0);
+        sc_y1_ = SimdDouble2(0.0);
+        sc_y2_ = SimdDouble2(0.0);
 
         env_l_ = 0.0f;
         env_r_ = 0.0f;
@@ -215,6 +218,12 @@ public:
     void process(float* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
+        const SimdDouble2 v_sc_b0(sc_b0_);
+        const SimdDouble2 v_sc_b1(sc_b1_);
+        const SimdDouble2 v_sc_b2(sc_b2_);
+        const SimdDouble2 v_sc_a1(sc_a1_);
+        const SimdDouble2 v_sc_a2(sc_a2_);
+
         for (uint32_t i = 0; i < frame_count; i++) {
             // Smooth macro intensity and threshold parameters
             current_intensity_    += smoothing_coeff_ * (target_intensity_ - current_intensity_);
@@ -227,12 +236,15 @@ public:
             const float in_l = interleaved_samples[2 * i];
             const float in_r = interleaved_samples[2 * i + 1];
 
-            // 1. Sidechain High-Pass Filter (evaluates sibilant energy above fc)
-            float sc_l = sc_b0_ * in_l + sc_b1_ * sc_x1_l_ + sc_b2_ * sc_x2_l_ - sc_a1_ * sc_y1_l_ - sc_a2_ * sc_y2_l_;
-            sc_x2_l_ = sc_x1_l_; sc_x1_l_ = in_l; sc_y2_l_ = sc_y1_l_; sc_y1_l_ = sc_l;
+            // 1. Sidechain High-Pass Filter (vectorized stereo Direct Form I in 64-bit precision)
+            const SimdDouble2 v_sc_in(static_cast<double>(in_l), static_cast<double>(in_r));
+            const SimdDouble2 sc_y = (v_sc_b0 * v_sc_in) + (v_sc_b1 * sc_x1_) + (v_sc_b2 * sc_x2_)
+                                   - (v_sc_a1 * sc_y1_) - (v_sc_a2 * sc_y2_);
+            sc_x2_ = sc_x1_; sc_x1_ = v_sc_in;
+            sc_y2_ = sc_y1_; sc_y1_ = sc_y;
 
-            float sc_r = sc_b0_ * in_r + sc_b1_ * sc_x1_r_ + sc_b2_ * sc_x2_r_ - sc_a1_ * sc_y1_r_ - sc_a2_ * sc_y2_r_;
-            sc_x2_r_ = sc_x1_r_; sc_x1_r_ = in_r; sc_y2_r_ = sc_y1_r_; sc_y1_r_ = sc_r;
+            const float sc_l = static_cast<float>(sc_y.get_low());
+            const float sc_r = static_cast<float>(sc_y.get_high());
 
             // 2. Sidechain Envelope Detection (Fast Attack / Smooth Release)
             float sc_abs_l = std::abs(sc_l);
@@ -364,10 +376,12 @@ private:
     float shelf_x1_l_ = 0.0f, shelf_x2_l_ = 0.0f, shelf_y1_l_ = 0.0f, shelf_y2_l_ = 0.0f;
     float shelf_x1_r_ = 0.0f, shelf_x2_r_ = 0.0f, shelf_y1_r_ = 0.0f, shelf_y2_r_ = 0.0f;
 
-    // Sidechain HPF Coefficients and states
+    // Sidechain HPF Coefficients and states (SimdDouble2 stereo Direct Form I)
     float sc_b0_ = 1.0f, sc_b1_ = 0.0f, sc_b2_ = 0.0f, sc_a1_ = 0.0f, sc_a2_ = 0.0f;
-    float sc_x1_l_ = 0.0f, sc_x2_l_ = 0.0f, sc_y1_l_ = 0.0f, sc_y2_l_ = 0.0f;
-    float sc_x1_r_ = 0.0f, sc_x2_r_ = 0.0f, sc_y1_r_ = 0.0f, sc_y2_r_ = 0.0f;
+    SimdDouble2 sc_x1_{0.0};
+    SimdDouble2 sc_x2_{0.0};
+    SimdDouble2 sc_y1_{0.0};
+    SimdDouble2 sc_y2_{0.0};
 
     // Envelope followers
     float env_l_ = 0.0f;

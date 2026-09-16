@@ -61,6 +61,20 @@ Write-Host "== Running test_dsp_fixes.exe =="
 if ($LASTEXITCODE -ne 0) { Write-Host "test_dsp_fixes FAILED"; $failed = $true }
 
 # ---------------------------------------------------------------------------
+# Test 1b: SIMD DSP Precision Verification (self-contained, fast)
+# ---------------------------------------------------------------------------
+Write-Host "== Building test_simd_dsp.exe =="
+g++ -std=c++20 -O2 -Wall -c tests/test_simd_dsp.cpp -o "$objDir/test_simd_dsp.o" @includes @defines
+if ($LASTEXITCODE -ne 0) { throw "g++ failed on test_simd_dsp.cpp" }
+
+g++ -std=c++20 -O2 -o test_simd_dsp.exe "$objDir/test_simd_dsp.o" -static-libgcc -static-libstdc++
+if ($LASTEXITCODE -ne 0) { throw "linking test_simd_dsp.exe failed" }
+
+Write-Host "== Running test_simd_dsp.exe =="
+./test_simd_dsp.exe
+if ($LASTEXITCODE -ne 0) { Write-Host "test_simd_dsp FAILED"; $failed = $true }
+
+# ---------------------------------------------------------------------------
 # Test 2: engine API tests (needs full engine + third-party objects)
 # ---------------------------------------------------------------------------
 Write-Host "== Building test_engine_api.exe =="

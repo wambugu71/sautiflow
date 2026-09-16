@@ -18,7 +18,7 @@ enum class DialogEnhancerProfile {
 
 // =============================================================================
 // DialogEnhancerDSP: Clean-room dialogue booster & background noise ducking
-// reconstructed from Dolby DAP / DS1 Dialog Enhancer architecture.
+//
 //
 // Key Subsystems:
 //   1. Vocal Formant Peaking Filter: 2400 Hz (Q = 1.25) primary speech intelligibility
@@ -286,7 +286,7 @@ private:
             a1 = 0.0f; a2 = 0.0f;
             return;
         }
-        // Audio EQ Cookbook peaking formula (same as Dolby player reference)
+        // Audio EQ Cookbook peaking formula 
         const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
         const double w0 = 2.0 * 3.14159265358979323846 * static_cast<double>(f0) / static_cast<double>(fs);
         const double alpha = std::sin(w0) / (2.0 * static_cast<double>(q));
@@ -303,7 +303,7 @@ private:
         cached_amount_ = current_amount_;
         cached_clarity_ = current_clarity_;
 
-        // 1. Primary vocal formant peak at 2400 Hz (Dolby DAP reference formant frequency)
+        // 1. Primary vocal formant peak at 2400 Hz 
         // Amount [0.0, 1.0] maps from 0.0 dB to +11.0 dB
         float formant_gain_db = current_amount_ * 11.0f;
         calcPeakingBiquad(2400.0f, formant_gain_db, 1.25f, sample_rate_,

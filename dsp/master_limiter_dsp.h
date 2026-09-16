@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -83,11 +84,13 @@ public:
             current_output_gain_linear_ += smoothing_coeff_ * (target_output_gain_linear_ - current_output_gain_linear_);
             current_ceiling_linear_     += smoothing_coeff_ * (target_ceiling_linear_ - current_ceiling_linear_);
 
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
+            const float in_l = interleaved_samples[2 * i];
+            const float in_r = interleaved_samples[2 * i + 1];
 
-            // 1. Peak Envelope Detection across both channels
-            float peak = std::max(std::abs(in_l), std::abs(in_r));
+            // 1. Peak Envelope Detection across both channels via SIMD
+            const SimdFloat4 v_in(in_l, in_r, 0.0f, 0.0f);
+            const SimdFloat4 v_abs = SimdFloat4::abs(v_in);
+            const float peak = std::max(v_abs.get(0), v_abs.get(1));
 
             if (peak > envelope_) {
                 envelope_ = attack_coeff_ * envelope_ + (1.0f - attack_coeff_) * peak;
@@ -101,9 +104,7 @@ public:
                 target_gain = current_ceiling_linear_ / envelope_;
             }
 
-            // Instant attack / smoothed release: engaging the reduction through a
-            // one-pole attack let the first milliseconds of every transient
-            // overshoot into the hard clamp.
+            // Instant attack / smoothed release
             if (target_gain < current_gain_) {
                 current_gain_ = target_gain;
             } else {
@@ -111,8 +112,8 @@ public:
             }
 
             // 3. Read delayed sample from lookahead ring buffer
-            float delayed_l = lookahead_buf_l_[lookahead_pos_];
-            float delayed_r = lookahead_buf_r_[lookahead_pos_];
+            const float delayed_l = lookahead_buf_l_[lookahead_pos_];
+            const float delayed_r = lookahead_buf_r_[lookahead_pos_];
 
             // Write current input into lookahead buffer
             lookahead_buf_l_[lookahead_pos_] = in_l;
@@ -120,13 +121,17 @@ public:
 
             lookahead_pos_ = (lookahead_pos_ + 1) % lookahead_samples_;
 
-            // 4. Apply gain reduction and master output volume
-            float out_l = delayed_l * current_gain_ * current_output_gain_linear_;
-            float out_r = delayed_r * current_gain_ * current_output_gain_linear_;
+            // 4. Vectorized gain scaling and safety ceiling clamping
+            const float total_gain = current_gain_ * current_output_gain_linear_;
+            const SimdFloat4 v_delayed(delayed_l, delayed_r, 0.0f, 0.0f);
+            const SimdFloat4 v_scaled = v_delayed * SimdFloat4(total_gain);
+            const SimdFloat4 v_ceil(current_ceiling_linear_);
+            const SimdFloat4 v_neg_ceil(-current_ceiling_linear_);
+            const SimdFloat4 v_clamped = SimdFloat4::min(v_ceil, SimdFloat4::max(v_neg_ceil, v_scaled));
 
-            // Final safety ceiling hard-protection
-            interleaved_samples[2 * i]     = std::clamp(out_l, -current_ceiling_linear_, current_ceiling_linear_);
-            interleaved_samples[2 * i + 1] = std::clamp(out_r, -current_ceiling_linear_, current_ceiling_linear_);
+            // Final output assignment
+            interleaved_samples[2 * i]     = v_clamped.get(0);
+            interleaved_samples[2 * i + 1] = v_clamped.get(1);
         }
     }
 

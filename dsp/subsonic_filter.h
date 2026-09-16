@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <iterator>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -18,6 +20,7 @@ namespace sauti::dsp {
 //   preserves maximum dynamic headroom for DAC reconstruction.
 // - Transposed Direct Form II (TDF2) architecture with double-precision states
 //   for optimal numerical stability and zero phase distortion.
+// - SIMD-accelerated stereo processing using SimdDouble2 (SSE2 / ARM NEON / AVX).
 // =============================================================================
 class SubsonicFilter {
 public:
@@ -83,8 +86,51 @@ public:
     // Process interleaved samples: [L0, R0, ...], mono, or multi-channel up to MAX_CHANNELS
     void process(float* interleaved_samples, uint32_t frame_count, int channels = 2) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples || channels < 1) return;
-        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
 
+        if (channels == 2) {
+            const SimdDouble2 vb0(b0_);
+            const SimdDouble2 vb1(b1_);
+            const SimdDouble2 vb2(b2_);
+            const SimdDouble2 va1(a1_);
+            const SimdDouble2 va2(a2_);
+            SimdDouble2 vs1(s1_[0], s1_[1]);
+            SimdDouble2 vs2(s2_[0], s2_[1]);
+
+            for (uint32_t i = 0; i < frame_count; i++) {
+                const size_t base_idx = static_cast<size_t>(i) * 2;
+                SimdDouble2 in_s(static_cast<double>(interleaved_samples[base_idx]),
+                                 static_cast<double>(interleaved_samples[base_idx + 1]));
+
+                // out_s = in_s * b0 + s1
+                SimdDouble2 out_s = SimdDouble2::fma(in_s, vb0, vs1);
+
+                // Denormal flush threshold
+                alignas(16) double out_d[2];
+                out_s.store_u(out_d);
+                if (std::fabs(out_d[0]) < 1.0e-20) out_d[0] = 0.0;
+                if (std::fabs(out_d[1]) < 1.0e-20) out_d[1] = 0.0;
+                out_s = SimdDouble2::load_u(out_d);
+
+                // s1 = in_s * b1 - out_s * a1 + s2
+                vs1 = SimdDouble2::fma(in_s, vb1, vs2) - (out_s * va1);
+
+                // s2 = in_s * b2 - out_s * a2
+                vs2 = (in_s * vb2) - (out_s * va2);
+
+                interleaved_samples[base_idx]     = static_cast<float>(out_d[0]);
+                interleaved_samples[base_idx + 1] = static_cast<float>(out_d[1]);
+            }
+
+            alignas(16) double final_s1[2];
+            alignas(16) double final_s2[2];
+            vs1.store_u(final_s1);
+            vs2.store_u(final_s2);
+            s1_[0] = final_s1[0]; s1_[1] = final_s1[1];
+            s2_[0] = final_s2[0]; s2_[1] = final_s2[1];
+            return;
+        }
+
+        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
         for (uint32_t i = 0; i < frame_count; i++) {
             const size_t base_idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
             for (size_t c = 0; c < chs; ++c) {
@@ -101,8 +147,44 @@ public:
     // Process double-precision interleaved samples (64-Bit Float DSP mode)
     void process(double* interleaved_samples, uint32_t frame_count, int channels = 2) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples || channels < 1) return;
-        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
 
+        if (channels == 2) {
+            const SimdDouble2 vb0(b0_);
+            const SimdDouble2 vb1(b1_);
+            const SimdDouble2 vb2(b2_);
+            const SimdDouble2 va1(a1_);
+            const SimdDouble2 va2(a2_);
+            SimdDouble2 vs1(s1_[0], s1_[1]);
+            SimdDouble2 vs2(s2_[0], s2_[1]);
+
+            for (uint32_t i = 0; i < frame_count; i++) {
+                const size_t base_idx = static_cast<size_t>(i) * 2;
+                SimdDouble2 in_s = SimdDouble2::load_u(&interleaved_samples[base_idx]);
+
+                SimdDouble2 out_s = SimdDouble2::fma(in_s, vb0, vs1);
+
+                alignas(16) double out_d[2];
+                out_s.store_u(out_d);
+                if (std::fabs(out_d[0]) < 1.0e-20) out_d[0] = 0.0;
+                if (std::fabs(out_d[1]) < 1.0e-20) out_d[1] = 0.0;
+                out_s = SimdDouble2::load_u(out_d);
+
+                vs1 = SimdDouble2::fma(in_s, vb1, vs2) - (out_s * va1);
+                vs2 = (in_s * vb2) - (out_s * va2);
+
+                out_s.store_u(&interleaved_samples[base_idx]);
+            }
+
+            alignas(16) double final_s1[2];
+            alignas(16) double final_s2[2];
+            vs1.store_u(final_s1);
+            vs2.store_u(final_s2);
+            s1_[0] = final_s1[0]; s1_[1] = final_s1[1];
+            s2_[0] = final_s2[0]; s2_[1] = final_s2[1];
+            return;
+        }
+
+        const size_t chs = static_cast<size_t>(std::min<int>(channels, static_cast<int>(MAX_CHANNELS)));
         for (uint32_t i = 0; i < frame_count; i++) {
             const size_t base_idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
             for (size_t c = 0; c < chs; ++c) {

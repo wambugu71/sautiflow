@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include <type_traits>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -59,6 +61,69 @@ public:
         const int idx1  = (hist_idx_up_ - 1 + 16) & 15;
         const int idx10 = (hist_idx_up_ - 10 + 16) & 15;
 
+        // Fast SIMD path for single precision (float)
+        if constexpr (std::is_same_v<T, float>) {
+            const SimdFloat4 s01(history_up_[0][idx5] + history_up_[0][idx6],
+                                 history_up_[1][idx5] + history_up_[1][idx6],
+                                 history_up_[0][idx4] + history_up_[0][idx7],
+                                 history_up_[1][idx4] + history_up_[1][idx7]);
+
+            const SimdFloat4 s23(history_up_[0][idx3] + history_up_[0][idx8],
+                                 history_up_[1][idx3] + history_up_[1][idx8],
+                                 history_up_[0][idx2] + history_up_[0][idx9],
+                                 history_up_[1][idx2] + history_up_[1][idx9]);
+
+            const SimdFloat4 s4(history_up_[0][idx1] + history_up_[0][idx10],
+                                history_up_[1][idx1] + history_up_[1][idx10],
+                                0.0f, 0.0f);
+
+            const SimdFloat4 c01(static_cast<float>(C[0]), static_cast<float>(C[0]),
+                                 static_cast<float>(C[1]), static_cast<float>(C[1]));
+            const SimdFloat4 c23(static_cast<float>(C[2]), static_cast<float>(C[2]),
+                                 static_cast<float>(C[3]), static_cast<float>(C[3]));
+            const SimdFloat4 c4(static_cast<float>(C[4]), static_cast<float>(C[4]), 0.0f, 0.0f);
+
+            SimdFloat4 acc = s01 * c01;
+            acc = SimdFloat4::fma(s23, c23, acc);
+            acc = SimdFloat4::fma(s4, c4, acc);
+
+            alignas(16) float res[4];
+            acc.store_u(res);
+
+            out_l0 = res[0] + res[2];
+            out_r0 = res[1] + res[3];
+            out_l1 = history_up_[0][idx5];
+            out_r1 = history_up_[1][idx5];
+
+            hist_idx_up_ = (hist_idx_up_ + 1) & 15;
+            return;
+        }
+
+        // Fast SIMD path for double precision (double)
+        if constexpr (std::is_same_v<T, double>) {
+            const SimdDouble2 s0(history_up_[0][idx5] + history_up_[0][idx6], history_up_[1][idx5] + history_up_[1][idx6]);
+            const SimdDouble2 s1(history_up_[0][idx4] + history_up_[0][idx7], history_up_[1][idx4] + history_up_[1][idx7]);
+            const SimdDouble2 s2(history_up_[0][idx3] + history_up_[0][idx8], history_up_[1][idx3] + history_up_[1][idx8]);
+            const SimdDouble2 s3(history_up_[0][idx2] + history_up_[0][idx9], history_up_[1][idx2] + history_up_[1][idx9]);
+            const SimdDouble2 s4(history_up_[0][idx1] + history_up_[0][idx10], history_up_[1][idx1] + history_up_[1][idx10]);
+
+            SimdDouble2 acc = s0 * SimdDouble2(C[0]);
+            acc = SimdDouble2::fma(s1, SimdDouble2(C[1]), acc);
+            acc = SimdDouble2::fma(s2, SimdDouble2(C[2]), acc);
+            acc = SimdDouble2::fma(s3, SimdDouble2(C[3]), acc);
+            acc = SimdDouble2::fma(s4, SimdDouble2(C[4]), acc);
+
+            alignas(16) double res[2];
+            acc.store_u(res);
+            out_l0 = res[0];
+            out_r0 = res[1];
+            out_l1 = history_up_[0][idx5];
+            out_r1 = history_up_[1][idx5];
+
+            hist_idx_up_ = (hist_idx_up_ + 1) & 15;
+            return;
+        }
+
         const T c0 = static_cast<T>(C[0]);
         const T c1 = static_cast<T>(C[1]);
         const T c2 = static_cast<T>(C[2]);
@@ -111,6 +176,59 @@ public:
         const int p5 = (center + 5) & 31; const int m5 = (center - 5 + 32) & 31;
         const int p7 = (center + 7) & 31; const int m7 = (center - 7 + 32) & 31;
         const int p9 = (center + 9) & 31; const int m9 = (center - 9 + 32) & 31;
+
+        if constexpr (std::is_same_v<T, float>) {
+            const SimdFloat4 s01(history_down_[0][p1] + history_down_[0][m1],
+                                 history_down_[1][p1] + history_down_[1][m1],
+                                 history_down_[0][p3] + history_down_[0][m3],
+                                 history_down_[1][p3] + history_down_[1][m3]);
+
+            const SimdFloat4 s23(history_down_[0][p5] + history_down_[0][m5],
+                                 history_down_[1][p5] + history_down_[1][m5],
+                                 history_down_[0][p7] + history_down_[0][m7],
+                                 history_down_[1][p7] + history_down_[1][m7]);
+
+            const SimdFloat4 s4(history_down_[0][p9] + history_down_[0][m9],
+                                history_down_[1][p9] + history_down_[1][m9],
+                                0.0f, 0.0f);
+
+            const SimdFloat4 c01(static_cast<float>(C[0] * 0.5), static_cast<float>(C[0] * 0.5),
+                                 static_cast<float>(C[1] * 0.5), static_cast<float>(C[1] * 0.5));
+            const SimdFloat4 c23(static_cast<float>(C[2] * 0.5), static_cast<float>(C[2] * 0.5),
+                                 static_cast<float>(C[3] * 0.5), static_cast<float>(C[3] * 0.5));
+            const SimdFloat4 c4(static_cast<float>(C[4] * 0.5), static_cast<float>(C[4] * 0.5), 0.0f, 0.0f);
+
+            SimdFloat4 acc = s01 * c01;
+            acc = SimdFloat4::fma(s23, c23, acc);
+            acc = SimdFloat4::fma(s4, c4, acc);
+
+            alignas(16) float res[4];
+            acc.store_u(res);
+
+            out_l = center_l + (res[0] + res[2]);
+            out_r = center_r + (res[1] + res[3]);
+            return;
+        }
+
+        if constexpr (std::is_same_v<T, double>) {
+            const SimdDouble2 s0(history_down_[0][p1] + history_down_[0][m1], history_down_[1][p1] + history_down_[1][m1]);
+            const SimdDouble2 s1(history_down_[0][p3] + history_down_[0][m3], history_down_[1][p3] + history_down_[1][m3]);
+            const SimdDouble2 s2(history_down_[0][p5] + history_down_[0][m5], history_down_[1][p5] + history_down_[1][m5]);
+            const SimdDouble2 s3(history_down_[0][p7] + history_down_[0][m7], history_down_[1][p7] + history_down_[1][m7]);
+            const SimdDouble2 s4(history_down_[0][p9] + history_down_[0][m9], history_down_[1][p9] + history_down_[1][m9]);
+
+            SimdDouble2 acc = s0 * SimdDouble2(C[0] * 0.5);
+            acc = SimdDouble2::fma(s1, SimdDouble2(C[1] * 0.5), acc);
+            acc = SimdDouble2::fma(s2, SimdDouble2(C[2] * 0.5), acc);
+            acc = SimdDouble2::fma(s3, SimdDouble2(C[3] * 0.5), acc);
+            acc = SimdDouble2::fma(s4, SimdDouble2(C[4] * 0.5), acc);
+
+            alignas(16) double res[2];
+            acc.store_u(res);
+            out_l = center_l + res[0];
+            out_r = center_r + res[1];
+            return;
+        }
 
         const T c0_half = static_cast<T>(C[0] * 0.5);
         const T c1_half = static_cast<T>(C[1] * 0.5);

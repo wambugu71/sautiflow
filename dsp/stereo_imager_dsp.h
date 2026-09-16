@@ -6,6 +6,7 @@
 #include <vector>
 #include <atomic>
 #include "denormals.h"
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -16,6 +17,48 @@ enum class StereoImagerMode {
     CleanMastering   = 0, // Pure symmetric Mid/Side expansion + sub-bass mono anchor
     Spatial3D        = 1, // Transient-gated Velvet Noise sparse decorrelation
     BlumleinShuffler = 2  // Low-frequency Gerzon/Blumlein acoustic shuffling matrix
+};
+
+// 64-Bit Direct Form I Biquad for sub-bass mono anchor filtering
+struct StereoImagerBiquadDouble {
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+
+    void reset() {
+        x1 = x2 = y1 = y2 = 0.0;
+    }
+
+    inline double process(double x) {
+        const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x;
+        y2 = y1; y1 = (std::fabs(y) < 1.0e-25) ? 0.0 : y;
+        return y1;
+    }
+
+    // 2nd-Order Butterworth Highpass (Q = 0.7071)
+    void setHighpass(double fs, double fc) {
+        if (fc <= 20.0 || fs <= 0.0) {
+            b0 = 1.0; b1 = 0.0; b2 = 0.0;
+            a1 = 0.0; a2 = 0.0;
+            return;
+        }
+        constexpr double PI = 3.14159265358979323846;
+        double w0 = 2.0 * PI * fc / fs;
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        if (w0 < 1.0e-4) w0 = 1.0e-4;
+
+        const double cos_w = std::cos(w0);
+        const double sin_w = std::sin(w0);
+        const double alpha = sin_w / (2.0 * 0.7071067811865475); // Q = 1/sqrt(2)
+
+        const double a0 = 1.0 + alpha;
+        b0 = (1.0 + cos_w) / (2.0 * a0);
+        b1 = -(1.0 + cos_w) / a0;
+        b2 = (1.0 + cos_w) / (2.0 * a0);
+        a1 = (-2.0 * cos_w) / a0;
+        a2 = (1.0 - alpha) / a0;
+    }
 };
 
 // Direct Form I Biquad for filtering Side channel
@@ -246,9 +289,9 @@ public:
             const float mid  = 0.5f * (in_l + in_r);
             float side = 0.5f * (in_l - in_r);
 
-            // 3. Sub-Bass Mono Anchor (Elliptical High-Pass Filter on Side channel)
+            // 3. Sub-Bass Mono Anchor (64-Bit Elliptical High-Pass Filter on Side channel)
             if (hasMonoAnchor) {
-                side = elliptical_filter_.process(side);
+                side = static_cast<float>(elliptical_filter_.process(static_cast<double>(side)));
             }
 
             // 4. Mode-Specific Spatialization
@@ -273,14 +316,25 @@ public:
                 // Write mid to velvet delay buffer
                 velvet_buffer_[velvet_write_] = mid;
 
-                // Sparse pseudo-random taps convolution with alternating signs (+1, -1)
-                float decorr = 0.0f;
-                for (int t = 0; t < 12; ++t) {
-                    const int tapOffset = velvet_taps_[t];
-                    int readIdx = static_cast<int>(velvet_write_) - tapOffset;
-                    if (readIdx < 0) readIdx += static_cast<int>(bufSize);
-                    decorr += velvet_signs_[t] * velvet_buffer_[(size_t)readIdx];
+                // Vectorized 12-tap Velvet Noise convolution (3 chunks x 4 taps)
+                SimdFloat4 v_decorr(0.0f);
+                for (int t = 0; t < 12; t += 4) {
+                    int r0 = static_cast<int>(velvet_write_) - velvet_taps_[t + 0];
+                    int r1 = static_cast<int>(velvet_write_) - velvet_taps_[t + 1];
+                    int r2 = static_cast<int>(velvet_write_) - velvet_taps_[t + 2];
+                    int r3 = static_cast<int>(velvet_write_) - velvet_taps_[t + 3];
+
+                    if (r0 < 0) r0 += static_cast<int>(bufSize);
+                    if (r1 < 0) r1 += static_cast<int>(bufSize);
+                    if (r2 < 0) r2 += static_cast<int>(bufSize);
+                    if (r3 < 0) r3 += static_cast<int>(bufSize);
+
+                    const SimdFloat4 v_samples(velvet_buffer_[r0], velvet_buffer_[r1], velvet_buffer_[r2], velvet_buffer_[r3]);
+                    const SimdFloat4 v_signs = SimdFloat4::load_u(&velvet_signs_[t]);
+                    v_decorr = SimdFloat4::fma(v_samples, v_signs, v_decorr);
                 }
+                float decorr = v_decorr.reduce_sum();
+
                 // Normalize and scale by transient gate
                 decorr *= (0.288f * transient_gate_); // 1/sqrt(12)
 
@@ -356,7 +410,7 @@ private:
     float transient_gate_ = 1.0f;
 
     // Side-channel filters
-    StereoImagerBiquad elliptical_filter_;
+    StereoImagerBiquadDouble elliptical_filter_;
     StereoImagerBiquad air_shelf_filter_;
     StereoImagerBiquad shuffler_shelf_filter_;
 

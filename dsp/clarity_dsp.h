@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include "oversampler.h"
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -304,33 +305,36 @@ private:
             sidechain_buf_[2 * i + 1] = hp_r;
         }
 
-        // 2. Harmonic saturation in configured oversampled domain
-        if (oversampling_factor_ == 1) {
-            for (uint32_t i = 0; i < frame_count; i++) {
-                float hp_l = sidechain_buf_[2 * i];
-                float hp_r = sidechain_buf_[2 * i + 1];
-                sidechain_buf_[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
-                sidechain_buf_[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
+        // 2. Harmonic saturation in configured oversampled domain (4-wide SIMD fast_tanh + vector FMA)
+        auto apply_saturation = [](float* buf, uint32_t num_frames) {
+            const uint32_t total = num_frames * 2;
+            uint32_t i = 0;
+            const SimdFloat4 c_scale(2.2f);
+            const SimdFloat4 c_quad(0.25f);
+            for (; i + 4 <= total; i += 4) {
+                SimdFloat4 v = SimdFloat4::load_u(buf + i);
+                SimdFloat4 v_tanh = SimdFloat4::fast_tanh(v * c_scale);
+                SimdFloat4 v_sq = v * v;
+                SimdFloat4 res = SimdFloat4::fma(v_sq, c_quad, v_tanh);
+                res.store_u(buf + i);
             }
+            for (; i < total; ++i) {
+                float hp = buf[i];
+                float c = std::clamp(hp * 2.2f, -3.0f, 3.0f);
+                float x2 = c * c;
+                float t = c * (27.0f + x2) / (27.0f + 9.0f * x2);
+                buf[i] = t + 0.25f * (hp * hp);
+            }
+        };
+
+        if (oversampling_factor_ == 1) {
+            apply_saturation(sidechain_buf_.data(), frame_count);
         } else if (oversampling_factor_ == 4) {
-            oversampler4x_.process(sidechain_buf_.data(), frame_count, [](float* os_hp, uint32_t os_frames) {
-                for (uint32_t i = 0; i < os_frames; i++) {
-                    float hp_l = os_hp[2 * i];
-                    float hp_r = os_hp[2 * i + 1];
-                    os_hp[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
-                    os_hp[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
-                }
-            });
+            oversampler4x_.process(sidechain_buf_.data(), frame_count, apply_saturation);
         } else {
             float* os_hp = oversampler_.upsample(sidechain_buf_.data(), frame_count);
             if (os_hp) {
-                const uint32_t os_frames = frame_count * 2;
-                for (uint32_t i = 0; i < os_frames; i++) {
-                    float hp_l = os_hp[2 * i];
-                    float hp_r = os_hp[2 * i + 1];
-                    os_hp[2 * i]     = std::tanh(hp_l * 2.2f) + 0.25f * (hp_l * hp_l);
-                    os_hp[2 * i + 1] = std::tanh(hp_r * 2.2f) + 0.25f * (hp_r * hp_r);
-                }
+                apply_saturation(os_hp, frame_count * 2);
                 oversampler_.downsample(os_hp, sidechain_buf_.data(), frame_count);
             }
         }

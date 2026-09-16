@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include "simd_math.h"
 
 // =============================================================================
 // SpatialSurroundDSP: Professional Zero-Latency Surround & 3D Spatial Suite
@@ -13,18 +14,18 @@
 //    - Center dialogue focus extraction & LFE channel isolation
 //    - Parametric spherical-head HRTF rendering for 5 virtual speaker positions
 //
-// 2. Binaural HRTF Virtualizer (Reconstructed from Dolby analysis_dlby2)
+// 2. Binaural HRTF Virtualizer
 //    - Headphone HRTF: Contralateral interaural time delay (ITD) buffer
 //      (~11 samples @ 48 kHz / 0.23 ms) + 2nd-order Butterworth 3.5 kHz
 //      head-shadow lowpass + crossfeed phase cancellation
 //    - Multi-Room Acoustic Modeling: 4-tap vector delay lines with early reflection
 //      diffusion for Studio (DH1), Cinema (DH2), and Concert Hall (DH3)
-//    - Speaker Virtualizer (Dolby Virtual Speaker): Mid/Side soundfield widening,
+//    - Speaker Virtualizer: Mid/Side soundfield widening,
 //      speaker spread angles (Narrow 10 deg, Standard 30 deg, Wide 45 deg),
 //      and all-pass decorrelation
 //
-// 3. 3D Acoustic Stage (Reconstructed from AM3D Zirene re_workspace)
-//    - 3D Virtual Surround (0x1356d8 / Category 3): Interaural acoustic cross-talk
+// 3. 3D Acoustic Stage 
+//    - 3D Virtual Surround: Interaural acoustic cross-talk
 //      cancellation for Normal/Studio (D=25000, alpha=0.28) and Wide/Panoramic
 //      (D=10000, alpha=0.42) soundstage apertures
 //    - Stereo Soundstage Expander (Category 12): Independent 2D soundstage width
@@ -43,8 +44,8 @@ namespace sauti::dsp {
 enum class SurroundMode {
     Off = 0,
     MatrixSurround = 1,      // Retained Pro Logic II Dematrix -> 5.1 Spherical HRTF
-    BinauralVirtualizer = 2, // Reconstructed from analysis_dlby2 (Headphone HRTF + Speaker Virtualizer + Room)
-    AcousticStage = 3        // Reconstructed from am3d-zirene-RE (Cross-talk cancellation + M/S Expander + Air Contour)
+    BinauralVirtualizer = 2, // (Headphone HRTF + Speaker Virtualizer + Room)
+    AcousticStage = 3        // (Cross-talk cancellation + M/S Expander + Air Contour)
 };
 
 inline float surround_sanitize(float v)
@@ -68,6 +69,62 @@ struct SurroundBiquad {
         x2 = x1; x1 = x;
         y2 = y1; y1 = surround_sanitize(y);
         return y1;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Stereo Direct Form I biquad (SIMD single-precision)
+// ---------------------------------------------------------------------------
+struct SurroundBiquadStereo {
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a1 = 0.0f, a2 = 0.0f;
+    SimdFloat4 x1{0.0f}, x2{0.0f}, y1{0.0f}, y2{0.0f};
+
+    void reset() {
+        x1 = x2 = y1 = y2 = SimdFloat4(0.0f);
+    }
+
+    void setCoeffs(float in_b0, float in_b1, float in_b2, float in_a1, float in_a2) {
+        b0 = in_b0; b1 = in_b1; b2 = in_b2;
+        a1 = in_a1; a2 = in_a2;
+    }
+
+    inline void process(float xl, float xr, float &yl, float &yr) {
+        const SimdFloat4 in_s(xl, xr, 0.0f, 0.0f);
+        const SimdFloat4 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
+        const SimdFloat4 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
+        x2 = x1; x1 = in_s;
+        y2 = y1; y1 = y;
+        yl = surround_sanitize(y.get(0));
+        yr = surround_sanitize(y.get(1));
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Stereo Direct Form I biquad (SIMD 64-bit double-precision for sub-bass)
+// ---------------------------------------------------------------------------
+struct SurroundBiquadStereoDouble {
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    SimdDouble2 x1{0.0}, x2{0.0}, y1{0.0}, y2{0.0};
+
+    void reset() {
+        x1 = x2 = y1 = y2 = SimdDouble2(0.0);
+    }
+
+    void setCoeffs(double in_b0, double in_b1, double in_b2, double in_a1, double in_a2) {
+        b0 = in_b0; b1 = in_b1; b2 = in_b2;
+        a1 = in_a1; a2 = in_a2;
+    }
+
+    inline void process(float xl, float xr, float &yl, float &yr) {
+        const SimdDouble2 in_s(static_cast<double>(xl), static_cast<double>(xr));
+        const SimdDouble2 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
+        const SimdDouble2 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
+        x2 = x1; x1 = in_s;
+        y2 = y1; y1 = y;
+        yl = surround_sanitize(static_cast<float>(y.get_low()));
+        yr = surround_sanitize(static_cast<float>(y.get_high()));
     }
 };
 
@@ -144,6 +201,37 @@ inline void surround_set_highshelf(SurroundBiquad &bq, double fs, double f0, dou
     bq.b2 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cw - two_sqrt_A_alpha)) / a0);
     bq.a1 = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cw)) / a0);
     bq.a2 = static_cast<float>(((A + 1.0) - (A - 1.0) * cw - two_sqrt_A_alpha) / a0);
+}
+
+inline void surround_set_lowpass(SurroundBiquadStereo &bq, double fs, double f0, double Q = 0.7071)
+{
+    SurroundBiquad tmp;
+    surround_set_lowpass(tmp, fs, f0, Q);
+    bq.setCoeffs(tmp.b0, tmp.b1, tmp.b2, tmp.a1, tmp.a2);
+}
+
+inline void surround_set_highpass(SurroundBiquadStereoDouble &bq, double fs, double f0, double Q = 0.7071)
+{
+    constexpr double PI = 3.14159265358979323846;
+    double w0 = 2.0 * PI * f0 / fs;
+    if (w0 > PI * 0.95) w0 = PI * 0.95;
+    if (w0 < 1.0e-4) w0 = 1.0e-4;
+    const double cw = std::cos(w0);
+    const double alpha = std::sin(w0) / (2.0 * Q);
+
+    const double a0 = 1.0 + alpha;
+    bq.setCoeffs(((1.0 + cw) / 2.0) / a0,
+                 (-(1.0 + cw)) / a0,
+                 ((1.0 + cw) / 2.0) / a0,
+                 (-2.0 * cw) / a0,
+                 (1.0 - alpha) / a0);
+}
+
+inline void surround_set_highshelf(SurroundBiquadStereo &bq, double fs, double f0, double gain_db, double S = 1.0)
+{
+    SurroundBiquad tmp;
+    surround_set_highshelf(tmp, fs, f0, gain_db, S);
+    bq.setCoeffs(tmp.b0, tmp.b1, tmp.b2, tmp.a1, tmp.a2);
 }
 
 // First-order head-shadow shelf (Brown & Duda structural HRTF)
@@ -400,7 +488,7 @@ public:
     void setBinauralSpeakerAngle(int angle)  { binaural_speaker_angle_ = clampi(angle, 0, 2); } // 0=Narrow (10), 1=Standard (30), 2=Wide (45)
     void setBinauralShadowCutoff(float hz)   { binaural_shadow_cutoff_ = clampf(hz, 2000.0f, 6000.0f); need_filter_update_ = true; }
 
-    // --- Mode 3: 3D Acoustic Stage Parameters (from am3d-zirene-RE) ---
+    // --- Mode 3: 3D Acoustic Stage Parameters ---
     void setStageProfile(int profile)        { stage_profile_ = clampi(profile, 0, 1); } // 0=Headset, 1=Speaker
     void setStageMode(int mode)              { stage_mode_ = clampi(mode, 0, 1); } // 0=Studio (Normal), 1=Panoramic (Wide)
     void setStageWidth(float width)          { stage_width_ = clampf(width, 0.0f, 2.0f); }
@@ -445,7 +533,7 @@ public:
 
         // Binaural Virtualizer
         binaural_itd_l_.clear(); binaural_itd_r_.clear();
-        binaural_shadow_l_.reset(); binaural_shadow_r_.reset();
+        binaural_shadow_.reset();
         for (int i = 0; i < 4; ++i) {
             binaural_room_delays_[i].clear();
         }
@@ -454,9 +542,9 @@ public:
         binaural_reverb_state_r_ = 0.0f;
 
         // 3D Acoustic Stage
-        stage_air_l_.reset(); stage_air_r_.reset();
+        stage_air_.reset();
         stage_bass_lp_.reset();
-        stage_bass_hp_l_.reset(); stage_bass_hp_r_.reset();
+        stage_bass_hp_.reset();
 
         // Parameter smoothing state
         smooth_center_focus_   = center_focus_;
@@ -512,7 +600,7 @@ private:
     float srScale() const { return sample_rate_ / 48000.0f; }
 
     // -------------------------------------------------------------------------
-    // Mode 1: Cinema Matrix 5.1 (Dolby Pro Logic II Cleanroom)
+    // Mode 1: Cinema Matrix 5.1
     // -------------------------------------------------------------------------
     void processMatrix(float *s, uint32_t frames)
     {
@@ -592,9 +680,9 @@ private:
                 const float del_r = binaural_itd_r_.pushAndRead(itd_samples, r_in);
                 const float del_l = binaural_itd_l_.pushAndRead(itd_samples, l_in);
 
-                // Contralateral head-shadow filter (2nd order Butterworth lowpass at 3.5 kHz)
-                const float shadow_r = binaural_shadow_r_.process(del_r);
-                const float shadow_l = binaural_shadow_l_.process(del_l);
+                // Contralateral head-shadow filter (2nd order Butterworth lowpass at 3.5 kHz, stereo vector biquad)
+                float shadow_r, shadow_l;
+                binaural_shadow_.process(del_r, del_l, shadow_r, shadow_l);
 
                 // Binaural crossfeed injection
                 const float b = smooth_binaural_boost_;
@@ -607,21 +695,24 @@ private:
                 out_l = boost_gain * l_binaural - cross_gain * shadow_r;
                 out_r = boost_gain * r_binaural - cross_gain * shadow_l;
 
-                // Dolby Headphone 4-tap Room Acoustics Reverb (dh_reverb)
+                // 4-tap Room Acoustics Reverb (vectorized 4-wide early reflection diffusion)
                 if (smooth_binaural_room_ > 0.001f) {
-                    float refl_l = 0.0f;
-                    float refl_r = 0.0f;
-
                     // Push current frame into 4-tap vector delay lines
                     binaural_room_delays_[0].push(l_in);
                     binaural_room_delays_[1].push(r_in);
                     binaural_room_delays_[2].push(l_in + 0.5f * r_in);
                     binaural_room_delays_[3].push(r_in + 0.5f * l_in);
 
-                    refl_l += 0.35f * binaural_room_delays_[0].read(room_delay_samples_[0]);
-                    refl_l += 0.25f * binaural_room_delays_[2].read(room_delay_samples_[2]);
-                    refl_r += 0.35f * binaural_room_delays_[1].read(room_delay_samples_[1]);
-                    refl_r += 0.25f * binaural_room_delays_[3].read(room_delay_samples_[3]);
+                    const float t0 = binaural_room_delays_[0].read(room_delay_samples_[0]);
+                    const float t1 = binaural_room_delays_[1].read(room_delay_samples_[1]);
+                    const float t2 = binaural_room_delays_[2].read(room_delay_samples_[2]);
+                    const float t3 = binaural_room_delays_[3].read(room_delay_samples_[3]);
+
+                    const SimdFloat4 v_tap(t0, t1, t2, t3);
+                    const SimdFloat4 v_wl(0.35f, 0.0f, 0.25f, 0.0f);
+                    const SimdFloat4 v_wr(0.0f, 0.35f, 0.0f, 0.25f);
+                    const float refl_l = (v_tap * v_wl).reduce_sum();
+                    const float refl_r = (v_tap * v_wr).reduce_sum();
 
                     // One-pole HF air damping on reflections
                     const float damp_a = 0.70f;
@@ -634,7 +725,7 @@ private:
                     out_r += room_wet * binaural_reverb_state_r_;
                 }
             } else {
-                // --- Speaker Soundfield Virtualizer (Dolby Virtual Speaker dvs_*) ---
+                // --- Speaker Soundfield Virtualizer ---
                 const float b = smooth_binaural_boost_;
 
                 // Speaker spread angle multiplier: Narrow (10 deg), Standard (30 deg), Wide (45 deg)
@@ -663,7 +754,7 @@ private:
     }
 
     // -------------------------------------------------------------------------
-    // Mode 3: 3D Acoustic Stage (Reconstructed from am3d-zirene-RE)
+    // Mode 3: 3D Acoustic Stage 
     // -------------------------------------------------------------------------
     void processStage(float *s, uint32_t frames)
     {
@@ -697,13 +788,13 @@ private:
             // Low-pass mono anchor guarantees center punch and zero bass cancellation
             const float mono_raw = 0.5f * (l_in + r_in);
             const float anchor_bass = stage_bass_lp_.process(mono_raw);
-            out_l = stage_bass_hp_l_.process(out_l) + anchor_bass;
-            out_r = stage_bass_hp_r_.process(out_r) + anchor_bass;
+            stage_bass_hp_.process(out_l, out_r, out_l, out_r);
+            out_l += anchor_bass;
+            out_r += anchor_bass;
 
             // 4. High-Frequency Air Presence Contour (Category 11)
-            // Restores airy highs and spatial micro-dynamics
-            out_l = stage_air_l_.process(out_l);
-            out_r = stage_air_r_.process(out_r);
+            // Restores airy highs and spatial micro-dynamics (vectorized stereo biquad)
+            stage_air_.process(out_l, out_r, out_l, out_r);
 
             s[2 * i]     = surround_sanitize(out_l);
             s[2 * i + 1] = surround_sanitize(out_r);
@@ -762,18 +853,15 @@ private:
         surround_set_lowpass(lfe_lpf_,    fs, 120.0, 0.7071);
 
         // Binaural Virtualizer head-shadow lowpass filter (3500 Hz default)
-        surround_set_lowpass(binaural_shadow_l_, fs, binaural_shadow_cutoff_, 0.7071);
-        surround_set_lowpass(binaural_shadow_r_, fs, binaural_shadow_cutoff_, 0.7071);
+        surround_set_lowpass(binaural_shadow_, fs, binaural_shadow_cutoff_, 0.7071);
 
         // 3D Acoustic Stage: Sub-bass Anchor (lowpass + highpass crossover)
         surround_set_lowpass(stage_bass_lp_, fs, stage_bass_anchor_hz_, 0.7071);
-        surround_set_highpass(stage_bass_hp_l_, fs, stage_bass_anchor_hz_, 0.7071);
-        surround_set_highpass(stage_bass_hp_r_, fs, stage_bass_anchor_hz_, 0.7071);
+        surround_set_highpass(stage_bass_hp_, fs, stage_bass_anchor_hz_, 0.7071);
 
         // 3D Acoustic Stage: High-shelf Air Presence Contour (10 kHz, gain up to +4.5 dB)
         const double air_gain_db = stage_air_presence_ * 4.5;
-        surround_set_highshelf(stage_air_l_, fs, 10000.0, air_gain_db);
-        surround_set_highshelf(stage_air_r_, fs, 10000.0, air_gain_db);
+        surround_set_highshelf(stage_air_, fs, 10000.0, air_gain_db);
     }
 
     void reconfigureHrtf()
@@ -848,7 +936,7 @@ private:
 
     // Mode 2: Binaural Virtualizer DSP Nodes
     SurroundDelay  binaural_itd_l_, binaural_itd_r_;
-    SurroundBiquad binaural_shadow_l_, binaural_shadow_r_;
+    SurroundBiquadStereo binaural_shadow_;
     SurroundDelay  binaural_room_delays_[4];
     float          room_delay_samples_[4] = { 480.0f, 672.0f, 624.0f, 816.0f };
     SurroundDiffuserAP binaural_diffuser_l_, binaural_diffuser_r_;
@@ -856,9 +944,9 @@ private:
     float          binaural_reverb_state_r_ = 0.0f;
 
     // Mode 3: 3D Acoustic Stage DSP Nodes
-    SurroundBiquad stage_air_l_, stage_air_r_;
+    SurroundBiquadStereo stage_air_;
     SurroundBiquad stage_bass_lp_;
-    SurroundBiquad stage_bass_hp_l_, stage_bass_hp_r_;
+    SurroundBiquadStereoDouble stage_bass_hp_;
 };
 
 } // namespace sauti::dsp

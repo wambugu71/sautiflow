@@ -7,6 +7,7 @@
 #include <complex>
 #include <mutex>
 #include <cstring>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -302,18 +303,29 @@ private:
 
         for (uint32_t seg = 0; seg < segments_count_; seg++) {
             size_t fdl_slot = (fdl_head_ + segments_count_ - seg) % segments_count_;
-            const std::complex<float>* in_spec_l = &fdl_l_[fdl_slot * FFT_SIZE];
-            const std::complex<float>* ir_spec_l = &ir_partitions_l_[seg * FFT_SIZE];
+            const float* in_ptr_l = reinterpret_cast<const float*>(&fdl_l_[fdl_slot * FFT_SIZE]);
+            const float* ir_ptr_l = reinterpret_cast<const float*>(&ir_partitions_l_[seg * FFT_SIZE]);
+            float* acc_ptr_l = reinterpret_cast<float*>(accum_l_);
 
-            for (size_t k = 0; k < FFT_SIZE; k++) {
-                accum_l_[k] += in_spec_l[k] * ir_spec_l[k];
+            for (size_t k = 0; k < FFT_SIZE * 2; k += 4) {
+                const SimdFloat4 a = SimdFloat4::load_u(&in_ptr_l[k]);
+                const SimdFloat4 b = SimdFloat4::load_u(&ir_ptr_l[k]);
+                const SimdFloat4 acc = SimdFloat4::load_u(&acc_ptr_l[k]);
+                SimdFloat4 res = SimdFloat4::complex_mul_accumulate_2(a, b, acc);
+                res.store_u(&acc_ptr_l[k]);
             }
 
             if (ir_channels_ == 2) {
-                const std::complex<float>* in_spec_r = &fdl_r_[fdl_slot * FFT_SIZE];
-                const std::complex<float>* ir_spec_r = &ir_partitions_r_[seg * FFT_SIZE];
-                for (size_t k = 0; k < FFT_SIZE; k++) {
-                    accum_r_[k] += in_spec_r[k] * ir_spec_r[k];
+                const float* in_ptr_r = reinterpret_cast<const float*>(&fdl_r_[fdl_slot * FFT_SIZE]);
+                const float* ir_ptr_r = reinterpret_cast<const float*>(&ir_partitions_r_[seg * FFT_SIZE]);
+                float* acc_ptr_r = reinterpret_cast<float*>(accum_r_);
+
+                for (size_t k = 0; k < FFT_SIZE * 2; k += 4) {
+                    const SimdFloat4 a = SimdFloat4::load_u(&in_ptr_r[k]);
+                    const SimdFloat4 b = SimdFloat4::load_u(&ir_ptr_r[k]);
+                    const SimdFloat4 acc = SimdFloat4::load_u(&acc_ptr_r[k]);
+                    SimdFloat4 res = SimdFloat4::complex_mul_accumulate_2(a, b, acc);
+                    res.store_u(&acc_ptr_r[k]);
                 }
             }
         }
@@ -337,10 +349,15 @@ private:
         std::memcpy(out_buf_r_, out_buf_r_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
         std::memset(out_buf_r_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
 
-        // Add current IFFT output block
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            out_buf_l_[i] += scratch_time_l_[i];
-            out_buf_r_[i] += scratch_time_r_[i];
+        // Add current IFFT output block using SIMD
+        for (size_t i = 0; i < FFT_SIZE; i += 4) {
+            SimdFloat4 out_l = SimdFloat4::load_u(&out_buf_l_[i]);
+            SimdFloat4 scr_l = SimdFloat4::load_u(&scratch_time_l_[i]);
+            (out_l + scr_l).store_u(&out_buf_l_[i]);
+
+            SimdFloat4 out_r = SimdFloat4::load_u(&out_buf_r_[i]);
+            SimdFloat4 scr_r = SimdFloat4::load_u(&scratch_time_r_[i]);
+            (out_r + scr_r).store_u(&out_buf_r_[i]);
         }
     }
 

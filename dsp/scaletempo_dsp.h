@@ -5,6 +5,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdint>
+#include "simd_math.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -375,12 +376,28 @@ private:
         const float *inPtr = m_monoInput.data() + offset;
         const float *ovPtr = m_monoOverlap.data();
 
-        float sumIn = 0.0f;
-        float sumInSq = 0.0f;
-        float dot = 0.0f;
+        // Vectorize dot product (ovPtr[i] * inPtr[i]), sumIn, and sumInSq in 4-wide vectors
+        SimdFloat4 v_dot(0.0f);
+        SimdFloat4 v_sum(0.0f);
+        SimdFloat4 v_sum_sq(0.0f);
 
-        // Vectorizable correlation calculation
-        for (size_t i = 0; i < m_overlapFrames; ++i)
+        size_t i = 0;
+        const size_t vecLimit = (m_overlapFrames >= 4) ? (m_overlapFrames - 3) : 0;
+        for (; i < vecLimit; i += 4)
+        {
+            SimdFloat4 s = SimdFloat4::load_u(inPtr + i);
+            SimdFloat4 ov = SimdFloat4::load_u(ovPtr + i);
+            v_sum += s;
+            v_sum_sq = SimdFloat4::fma(s, s, v_sum_sq);
+            v_dot = SimdFloat4::fma(ov, s, v_dot);
+        }
+
+        float sumIn = v_sum.reduce_sum();
+        float sumInSq = v_sum_sq.reduce_sum();
+        float dot = v_dot.reduce_sum();
+
+        // Process remaining tail frames
+        for (; i < m_overlapFrames; ++i)
         {
             const float s = inPtr[i];
             sumIn += s;

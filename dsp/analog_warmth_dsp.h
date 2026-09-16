@@ -97,16 +97,13 @@ public:
 
                 switch (profile_) {
                     case AnalogWarmthProfile::Triode12AX7:
-                        out_l = processTriode(in_l);
-                        out_r = processTriode(in_r);
+                        processTriodeStereo(in_l, in_r, out_l, out_r);
                         break;
                     case AnalogWarmthProfile::MagneticTape:
-                        out_l = processTape(in_l, tape_prev_l_);
-                        out_r = processTape(in_r, tape_prev_r_);
+                        processTapeStereo(in_l, in_r, out_l, out_r);
                         break;
                     case AnalogWarmthProfile::VintagePreamp:
-                        out_l = processPreamp(in_l);
-                        out_r = processPreamp(in_r);
+                        processPreampStereo(in_l, in_r, out_l, out_r);
                         break;
                 }
                 interleaved_samples[2 * i]     = out_l;
@@ -124,16 +121,13 @@ public:
 
                     switch (profile_) {
                         case AnalogWarmthProfile::Triode12AX7:
-                            out_l = processTriode(in_l);
-                            out_r = processTriode(in_r);
+                            processTriodeStereo(in_l, in_r, out_l, out_r);
                             break;
                         case AnalogWarmthProfile::MagneticTape:
-                            out_l = processTape(in_l, tape_prev_l_);
-                            out_r = processTape(in_r, tape_prev_r_);
+                            processTapeStereo(in_l, in_r, out_l, out_r);
                             break;
                         case AnalogWarmthProfile::VintagePreamp:
-                            out_l = processPreamp(in_l);
-                            out_r = processPreamp(in_r);
+                            processPreampStereo(in_l, in_r, out_l, out_r);
                             break;
                     }
                     oversampled[2 * i]     = out_l;
@@ -154,16 +148,13 @@ public:
 
                     switch (profile_) {
                         case AnalogWarmthProfile::Triode12AX7:
-                            out_l = processTriode(in_l);
-                            out_r = processTriode(in_r);
+                            processTriodeStereo(in_l, in_r, out_l, out_r);
                             break;
                         case AnalogWarmthProfile::MagneticTape:
-                            out_l = processTape(in_l, tape_prev_l_);
-                            out_r = processTape(in_r, tape_prev_r_);
+                            processTapeStereo(in_l, in_r, out_l, out_r);
                             break;
                         case AnalogWarmthProfile::VintagePreamp:
-                            out_l = processPreamp(in_l);
-                            out_r = processPreamp(in_r);
+                            processPreampStereo(in_l, in_r, out_l, out_r);
                             break;
                     }
 
@@ -292,6 +283,44 @@ private:
         // 3-term polynomial saturation: y = x - 0.15*x^2 - 0.1*x^3
         float out = x - (x2 * 0.15f * drive_scale) - (x3 * 0.10f * drive_scale);
         return std::clamp(out, -1.0f, 1.0f);
+    }
+
+    inline void processTriodeStereo(float in_l, float in_r, float& out_l, float& out_r) {
+        out_l = processTriode(in_l);
+        out_r = processTriode(in_r);
+    }
+
+    inline void processTapeStereo(float in_l, float in_r, float& out_l, float& out_r) {
+        const float gain = 1.0f + current_drive_ * 2.0f;
+        const SimdFloat4 in_v(in_l, in_r, 0.0f, 0.0f);
+        const SimdFloat4 driven = in_v * SimdFloat4(gain);
+        const SimdFloat4 sat = SimdFloat4::fast_tanh(driven);
+        alignas(16) float sat_arr[4];
+        sat.store_u(sat_arr);
+
+        const float smoothed_l = sat_arr[0] * (1.0f - tape_damping_) + tape_prev_l_ * tape_damping_;
+        const float smoothed_r = sat_arr[1] * (1.0f - tape_damping_) + tape_prev_r_ * tape_damping_;
+        tape_prev_l_ = sat_arr[0];
+        tape_prev_r_ = sat_arr[1];
+
+        const float comp = 1.0f / (1.0f + current_drive_ * 0.4f);
+        out_l = smoothed_l * comp;
+        out_r = smoothed_r * comp;
+    }
+
+    inline void processPreampStereo(float in_l, float in_r, float& out_l, float& out_r) {
+        const float drive_scale = current_drive_ * 0.5f;
+        const SimdFloat4 x(in_l, in_r, 0.0f, 0.0f);
+        const SimdFloat4 x2 = x * x;
+        const SimdFloat4 x3 = x2 * x;
+        const SimdFloat4 c15(0.15f * drive_scale);
+        const SimdFloat4 c10(0.10f * drive_scale);
+        SimdFloat4 out_v = x - (x2 * c15) - (x3 * c10);
+        out_v = SimdFloat4::max(SimdFloat4(-1.0f), SimdFloat4::min(SimdFloat4(1.0f), out_v));
+        alignas(16) float res[4];
+        out_v.store_u(res);
+        out_l = res[0];
+        out_r = res[1];
     }
 
     void updateTapeFilter() {

@@ -6,6 +6,7 @@
 #include <vector>
 #include <array>
 #include <cstring>
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -459,11 +460,11 @@ private:
     BiquadDirectFormI biquad_stereo_[2];
 
     // Polyphase 63-Tap FIR Filter States (Pure Bass+)
-    float fir_hist_l_[63] = {0.0f};
-    float fir_hist_r_[63] = {0.0f};
+    float fir_hist_l_[126] = {0.0f};
+    float fir_hist_r_[126] = {0.0f};
     size_t fir_head_l_ = 0;
     size_t fir_head_r_ = 0;
-    float polyphase_kernel_[63] = {0.0f};
+    float polyphase_kernel_[64] = {0.0f};
 
     // 63-Sample Latency Compensation Delay Line (Pure Bass+)
     float bass_delay_ring_[63] = {0.0f};
@@ -619,25 +620,39 @@ private:
             const float delayed_bass = bass_delay_ring_[delayed_idx];
             bass_delay_head_ = (bass_delay_head_ + 1) % 63;
 
-            // 3. Polyphase 63-tap FIR convolution on Left channel
+            // 3. Polyphase 63-tap FIR convolution on Left channel (SIMD 4-wide FMA unrolled + tail)
+            fir_head_l_ = (fir_head_l_ == 0) ? 62 : (fir_head_l_ - 1);
             fir_hist_l_[fir_head_l_] = in_l;
-            float fir_out_l = 0.0f;
-            size_t idx_l = fir_head_l_;
-            for (size_t j = 0; j < 63; j++) {
-                fir_out_l += polyphase_kernel_[j] * fir_hist_l_[idx_l];
-                idx_l = (idx_l == 0) ? 62 : idx_l - 1;
-            }
-            fir_head_l_ = (fir_head_l_ + 1) % 63;
+            fir_hist_l_[fir_head_l_ + 63] = in_l;
 
-            // 4. Polyphase 63-tap FIR convolution on Right channel
-            fir_hist_r_[fir_head_r_] = in_r;
-            float fir_out_r = 0.0f;
-            size_t idx_r = fir_head_r_;
-            for (size_t j = 0; j < 63; j++) {
-                fir_out_r += polyphase_kernel_[j] * fir_hist_r_[idx_r];
-                idx_r = (idx_r == 0) ? 62 : idx_r - 1;
+            SimdFloat4 acc_l(0.0f);
+            size_t j = 0;
+            for (; j < 60; j += 4) {
+                SimdFloat4 k = SimdFloat4::load_u(&polyphase_kernel_[j]);
+                SimdFloat4 h = SimdFloat4::load_u(&fir_hist_l_[fir_head_l_ + j]);
+                acc_l = SimdFloat4::fma(k, h, acc_l);
             }
-            fir_head_r_ = (fir_head_r_ + 1) % 63;
+            float fir_out_l = acc_l.reduce_sum();
+            for (; j < 63; ++j) {
+                fir_out_l += polyphase_kernel_[j] * fir_hist_l_[fir_head_l_ + j];
+            }
+
+            // 4. Polyphase 63-tap FIR convolution on Right channel (SIMD 4-wide FMA unrolled + tail)
+            fir_head_r_ = (fir_head_r_ == 0) ? 62 : (fir_head_r_ - 1);
+            fir_hist_r_[fir_head_r_] = in_r;
+            fir_hist_r_[fir_head_r_ + 63] = in_r;
+
+            SimdFloat4 acc_r(0.0f);
+            j = 0;
+            for (; j < 60; j += 4) {
+                SimdFloat4 k = SimdFloat4::load_u(&polyphase_kernel_[j]);
+                SimdFloat4 h = SimdFloat4::load_u(&fir_hist_r_[fir_head_r_ + j]);
+                acc_r = SimdFloat4::fma(k, h, acc_r);
+            }
+            float fir_out_r = acc_r.reduce_sum();
+            for (; j < 63; ++j) {
+                fir_out_r += polyphase_kernel_[j] * fir_hist_r_[fir_head_r_ + j];
+            }
 
             // Write polyphase phase-shaped audio
             samples[2 * i]     = fir_out_l;
