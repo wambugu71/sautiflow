@@ -1378,12 +1378,12 @@ class _EqScreenState extends State<EqScreen>
   ]);
 
   // Dynamic EQ State & Presets
-  String _dynamicEqPreset = 'Default (Balanced)';
+  String _dynamicEqPreset = 'Default';
   final ScrollController _dynamicEqScrollController = ScrollController();
 
   static final Map<String, List<_DynamicEqBandState>> _builtInDynamicEqPresets =
       {
-    'Default (Balanced)': [
+    'Default': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
@@ -1457,7 +1457,7 @@ class _EqScreenState extends State<EqScreen>
         releaseMs: 80.0,
       ),
     ],
-    'Vocal De-Box & De-Harsh': [
+    'Warm': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
@@ -1531,7 +1531,7 @@ class _EqScreenState extends State<EqScreen>
         releaseMs: 90.0,
       ),
     ],
-    'Bass Punch & Sub Control': [
+    'Bass Control': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
@@ -1607,7 +1607,7 @@ class _EqScreenState extends State<EqScreen>
         enabled: false,
       ),
     ],
-    'High-End Air & De-Esser': [
+    'Crisp': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.staticMode,
@@ -1683,7 +1683,7 @@ class _EqScreenState extends State<EqScreen>
         releaseMs: 80.0,
       ),
     ],
-    'Acoustic Clarity & Tamer': [
+    'Acoustic': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
@@ -1757,7 +1757,7 @@ class _EqScreenState extends State<EqScreen>
         releaseMs: 80.0,
       ),
     ],
-    'Mastering Bus Polish': [
+    'Mastering': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
@@ -1848,7 +1848,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _resetDynamicEqToDefaults() {
-    _applyDynamicEqPreset('Default (Balanced)');
+    _applyDynamicEqPreset('Default');
   }
 
   void _scrollToDynamicEqBand(int index) {
@@ -2311,8 +2311,10 @@ class _EqScreenState extends State<EqScreen>
 
         // Dynamic EQ
         _dynamicEqEnabled = dspMap['dynamicEqEnabled'] ?? false;
-        _dynamicEqPreset =
-            (dspMap['dynamicEqPreset'] as String?) ?? 'Default (Balanced)';
+        final rawDynPreset = dspMap['dynamicEqPreset'] as String?;
+        _dynamicEqPreset = (rawDynPreset == 'Default (Balanced)')
+            ? 'Default'
+            : (rawDynPreset ?? 'Default');
         final rawDynBands = dspMap['dynamicEqBands'];
         if (rawDynBands is List && rawDynBands.isNotEmpty) {
           final loadedBands = <_DynamicEqBandState>[];
@@ -11310,7 +11312,7 @@ class _EqScreenState extends State<EqScreen>
 
             // Reset to defaults button
             M3EIconButton(
-              tooltip: 'Reset to Balanced Default',
+              tooltip: 'Reset to Default',
               icon: const Icon(Icons.restart_alt_rounded, size: 18),
               variant: M3EIconButtonVariant.standard,
               onPressed: _resetDynamicEqToDefaults,
