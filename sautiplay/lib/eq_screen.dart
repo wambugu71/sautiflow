@@ -22,6 +22,7 @@ import 'widgets/dynamic_bass_graph.dart';
 import 'widgets/dynamic_system_graph.dart';
 import 'widgets/graphic_eq_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
+import 'widgets/dynamic_eq_graph.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/open_stage_visualizer.dart';
 import 'widgets/race_visualizer.dart';
@@ -90,6 +91,45 @@ class _DynamicEqBandState {
         attackMs: (json['attackMs'] as num?)?.toDouble() ?? 2.0,
         releaseMs: (json['releaseMs'] as num?)?.toDouble() ?? 60.0,
         enabled: json['enabled'] as bool? ?? true,
+      );
+
+  DynamicEqBandModel toModel() => DynamicEqBandModel(
+        filterType: filterType,
+        mode: mode,
+        freqHz: freqHz,
+        q: q,
+        baseGainDb: baseGainDb,
+        thresholdDb: thresholdDb,
+        rangeDb: rangeDb,
+        ratio: ratio,
+        enabled: enabled,
+      );
+
+  _DynamicEqBandState copyWith({
+    DynamicEqFilterType? filterType,
+    DynamicEqMode? mode,
+    double? freqHz,
+    double? q,
+    double? baseGainDb,
+    double? thresholdDb,
+    double? rangeDb,
+    double? ratio,
+    double? attackMs,
+    double? releaseMs,
+    bool? enabled,
+  }) =>
+      _DynamicEqBandState(
+        filterType: filterType ?? this.filterType,
+        mode: mode ?? this.mode,
+        freqHz: freqHz ?? this.freqHz,
+        q: q ?? this.q,
+        baseGainDb: baseGainDb ?? this.baseGainDb,
+        thresholdDb: thresholdDb ?? this.thresholdDb,
+        rangeDb: rangeDb ?? this.rangeDb,
+        ratio: ratio ?? this.ratio,
+        attackMs: attackMs ?? this.attackMs,
+        releaseMs: releaseMs ?? this.releaseMs,
+        enabled: enabled ?? this.enabled,
       );
 }
 
@@ -1295,6 +1335,348 @@ class _EqScreenState extends State<EqScreen>
     ),
   ];
 
+  // Dynamic EQ State & Presets
+  String _dynamicEqPreset = 'Default (Balanced)';
+  final ScrollController _dynamicEqScrollController = ScrollController();
+
+  static final Map<String, List<_DynamicEqBandState>> _builtInDynamicEqPresets = {
+    'Default (Balanced)': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 100.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 3.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 400.0,
+        q: 1.2,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 2500.0,
+        q: 1.5,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 3.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 8000.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+    ],
+    'Vocal De-Box & De-Harsh': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 120.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 4.0,
+        ratio: 2.5,
+        attackMs: 3.0,
+        releaseMs: 80.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 450.0,
+        q: 1.8,
+        baseGainDb: 0.0,
+        thresholdDb: -20.0,
+        rangeDb: 6.0,
+        ratio: 3.0,
+        attackMs: 1.5,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 3500.0,
+        q: 2.2,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 8.0,
+        ratio: 4.0,
+        attackMs: 1.0,
+        releaseMs: 40.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.expand,
+        freqHz: 10000.0,
+        q: 0.8,
+        baseGainDb: 1.0,
+        thresholdDb: -26.0,
+        rangeDb: 4.0,
+        ratio: 2.0,
+        attackMs: 5.0,
+        releaseMs: 100.0,
+      ),
+    ],
+    'Bass Punch & Sub Control': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 50.0,
+        q: 0.8,
+        baseGainDb: 1.5,
+        thresholdDb: -18.0,
+        rangeDb: 8.0,
+        ratio: 3.5,
+        attackMs: 4.0,
+        releaseMs: 90.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.expand,
+        freqHz: 110.0,
+        q: 1.6,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 5.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 50.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 300.0,
+        q: 1.4,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 5.0,
+        ratio: 3.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.staticMode,
+        freqHz: 7500.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 0.0,
+        ratio: 2.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+        enabled: false,
+      ),
+    ],
+    'High-End Air & De-Esser': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.staticMode,
+        freqHz: 100.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 0.0,
+        ratio: 2.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+        enabled: false,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 2800.0,
+        q: 1.8,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 5.0,
+        ratio: 3.0,
+        attackMs: 1.0,
+        releaseMs: 40.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 6500.0,
+        q: 2.5,
+        baseGainDb: 0.0,
+        thresholdDb: -26.0,
+        rangeDb: 7.0,
+        ratio: 4.0,
+        attackMs: 0.8,
+        releaseMs: 35.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.expand,
+        freqHz: 12000.0,
+        q: 0.7,
+        baseGainDb: 1.0,
+        thresholdDb: -28.0,
+        rangeDb: 4.0,
+        ratio: 2.2,
+        attackMs: 4.0,
+        releaseMs: 90.0,
+      ),
+    ],
+    'Acoustic Clarity & Tamer': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 180.0,
+        q: 1.0,
+        baseGainDb: -1.0,
+        thresholdDb: -20.0,
+        rangeDb: 6.0,
+        ratio: 3.0,
+        attackMs: 3.0,
+        releaseMs: 70.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 850.0,
+        q: 1.5,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 4.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 50.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 3200.0,
+        q: 2.0,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 5.0,
+        ratio: 3.2,
+        attackMs: 1.2,
+        releaseMs: 45.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.expand,
+        freqHz: 9000.0,
+        q: 0.8,
+        baseGainDb: 0.5,
+        thresholdDb: -25.0,
+        rangeDb: 3.5,
+        ratio: 2.0,
+        attackMs: 4.0,
+        releaseMs: 80.0,
+      ),
+    ],
+    'Mastering Bus Polish': [
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.lowShelf,
+        mode: DynamicEqMode.compress,
+        freqHz: 60.0,
+        q: 0.7,
+        baseGainDb: 0.0,
+        thresholdDb: -18.0,
+        rangeDb: 3.0,
+        ratio: 2.0,
+        attackMs: 10.0,
+        releaseMs: 120.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 350.0,
+        q: 1.2,
+        baseGainDb: 0.0,
+        thresholdDb: -20.0,
+        rangeDb: 3.0,
+        ratio: 2.2,
+        attackMs: 8.0,
+        releaseMs: 100.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 3000.0,
+        q: 1.4,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 3.5,
+        ratio: 2.5,
+        attackMs: 5.0,
+        releaseMs: 80.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.highShelf,
+        mode: DynamicEqMode.expand,
+        freqHz: 11000.0,
+        q: 0.7,
+        baseGainDb: 0.5,
+        thresholdDb: -24.0,
+        rangeDb: 3.0,
+        ratio: 1.8,
+        attackMs: 10.0,
+        releaseMs: 120.0,
+      ),
+    ],
+  };
+
+  void _applyDynamicEqPreset(String name) {
+    final presetBands = _builtInDynamicEqPresets[name];
+    if (presetBands == null) return;
+    setState(() {
+      _dynamicEqPreset = name;
+      _dynamicEqBands.clear();
+      for (final b in presetBands) {
+        _dynamicEqBands.add(b.copyWith());
+      }
+      if (_dynamicEqEnabled) _updateDynamicEq();
+      _saveEqState();
+    });
+  }
+
+  void _resetDynamicEqToDefaults() {
+    _applyDynamicEqPreset('Default (Balanced)');
+  }
+
+  void _scrollToDynamicEqBand(int index) {
+    setState(() => _selectedDynamicEqBand = index);
+    if (_dynamicEqScrollController.hasClients) {
+      const cardWidth = 320.0;
+      const cardMargin = 14.0;
+      final targetOffset = (index * (cardWidth + cardMargin))
+          .clamp(0.0, _dynamicEqScrollController.position.maxScrollExtent);
+      _dynamicEqScrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   // 11. Vintage Tape Wow, Flutter & Drift (TapeDriftDSP)
   bool _tapeDriftEnabled = false;
   TapeDriftPreset _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
@@ -1415,6 +1797,7 @@ class _EqScreenState extends State<EqScreen>
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
     _hrirDropdownController.dispose();
+    _dynamicEqScrollController.dispose();
     widget.player.setAnalyzerEnabled(false);
     super.dispose();
   }
@@ -1739,6 +2122,8 @@ class _EqScreenState extends State<EqScreen>
 
         // Dynamic EQ
         _dynamicEqEnabled = dspMap['dynamicEqEnabled'] ?? false;
+        _dynamicEqPreset =
+            (dspMap['dynamicEqPreset'] as String?) ?? 'Default (Balanced)';
         final rawDynBands = dspMap['dynamicEqBands'];
         if (rawDynBands is List && rawDynBands.length == 4) {
           _dynamicEqBands.clear();
@@ -2474,6 +2859,7 @@ class _EqScreenState extends State<EqScreen>
       'levellerMaxAttenuationDb': _levellerMaxAttenuationDb,
       'levellerSilenceGateLufs': _levellerSilenceGateLufs,
       'dynamicEqEnabled': _dynamicEqEnabled,
+      'dynamicEqPreset': _dynamicEqPreset,
       'dynamicEqBands': _dynamicEqBands.map((b) => b.toJson()).toList(),
       'tapeDriftEnabled': _tapeDriftEnabled,
       'tapeDriftPreset': _tapeDriftPreset.value,
@@ -3361,7 +3747,7 @@ class _EqScreenState extends State<EqScreen>
                           'Broadcast Leveller',
                           Icons.stacked_bar_chart_rounded,
                           (_) => _buildLevellerSection(),
-                          shape: Shapes.squircle,
+                          shape: Shapes.square,
                         );
                         break;
                       case 3:
@@ -3423,7 +3809,7 @@ class _EqScreenState extends State<EqScreen>
                     if (index == 2) {
                       return _buildEffectTileCard(
                         icon: Icons.stacked_bar_chart_rounded,
-                        shape: Shapes.squircle,
+                        shape: Shapes.square,
                         title: 'Broadcast Leveller',
                         subtitle: _levellerEnabled
                             ? 'Slow-Window AGC · ${_levellerTargetLufs.toInt()} LUFS (Rise: ${_levellerMaxRiseDbSec.toStringAsFixed(2)} dB/s)'
@@ -3438,7 +3824,7 @@ class _EqScreenState extends State<EqScreen>
                           'Broadcast Leveller',
                           Icons.stacked_bar_chart_rounded,
                           (_) => _buildLevellerSection(),
-                          shape: Shapes.squircle,
+                          shape: Shapes.square,
                         ),
                       );
                     }
@@ -3671,7 +4057,7 @@ class _EqScreenState extends State<EqScreen>
                       shape: Shapes.burst,
                       title: 'Dynamic EQ',
                       subtitle: _dynamicEqEnabled
-                          ? '4-Band Dynamic · ${_dynamicEqBands.where((b) => b.enabled).length} Active Bands'
+                          ? '4-Band Dynamic · $_dynamicEqPreset'
                           : 'Disabled',
                       isEnabled: _dynamicEqEnabled,
                       onToggle: (v) {
@@ -5804,7 +6190,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _importAutoEqProfile(String profileText, {String? profileName}) {
-    widget.player.loadAutoEqProfileString(profileText, applyPreamp: true);
+    widget.player.loadAutoEqProfileString(profileText);
 
     final lines = profileText.split('\n');
     final newBands = <EqBandConfig>[];
@@ -5836,19 +6222,19 @@ class _EqScreenState extends State<EqScreen>
         final gain = double.tryParse(filterMatch.group(4)!) ?? 0.0;
         final q = double.tryParse(filterMatch.group(5)!) ?? 1.0;
 
-        EqFilterType fType = EqFilterType.peak;
+        EqBandType fType = EqBandType.peak;
         if (typeStr == 'LSC' || typeStr == 'LOWSHELF') {
-          fType = EqFilterType.lowShelf;
+          fType = EqBandType.lowshelf;
         } else if (typeStr == 'HSC' || typeStr == 'HIGHSHELF') {
-          fType = EqFilterType.highShelf;
+          fType = EqBandType.highshelf;
         } else if (typeStr == 'LP' || typeStr == 'LOWPASS') {
-          fType = EqFilterType.lowPass;
+          fType = EqBandType.lowpass;
         } else if (typeStr == 'HP' || typeStr == 'HIGHPASS') {
-          fType = EqFilterType.highPass;
+          fType = EqBandType.highpass;
         } else if (typeStr == 'BP' || typeStr == 'BANDPASS') {
-          fType = EqFilterType.bandPass;
+          fType = EqBandType.bandpass;
         } else if (typeStr == 'NO' || typeStr == 'NOTCH') {
-          fType = EqFilterType.notch;
+          fType = EqBandType.notch;
         }
 
         newBands.add(EqBandConfig(
@@ -5860,17 +6246,17 @@ class _EqScreenState extends State<EqScreen>
       }
     }
 
+    String? createdProfileName;
     setState(() {
       if (newBands.isNotEmpty) {
         _parametricBands.clear();
         _parametricBands.addAll(newBands);
         _parametricEqEnabled = true;
-        final name = (profileName != null && profileName.trim().isNotEmpty)
+        createdProfileName = (profileName != null && profileName.trim().isNotEmpty)
             ? profileName.trim()
             : 'AutoEQ (${newBands.length} Bands)';
-        _parametricPreset = name;
-        _userParametricProfiles[name] = List.from(newBands);
-        _saveUserParametricProfilesToPrefs();
+        _parametricPreset = createdProfileName!;
+        _userParametricProfiles[createdProfileName!] = List.from(newBands);
       }
       if (parsedPreamp != null) {
         _preampDb = parsedPreamp;
@@ -5878,6 +6264,9 @@ class _EqScreenState extends State<EqScreen>
         widget.player.setGain(linearGain);
       }
     });
+    if (createdProfileName != null) {
+      _saveUserParametricProfile(createdProfileName!);
+    }
     _applyParametricBands();
     _saveEqState();
   }
@@ -10668,7 +11057,6 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildDynamicEqSection() {
     final primaryColor = context.primaryColor;
-    final curBand = _dynamicEqBands[_selectedDynamicEqBand];
 
     return _CollapsibleSection(
       icon: Center(
@@ -10676,7 +11064,7 @@ class _EqScreenState extends State<EqScreen>
             color: primaryColor, size: 20),
       ),
       title: 'Dynamic Equalizer',
-      subtitle: '4-Band dynamic parametric biquad equalizer',
+      subtitle: '4-Band studio-grade dynamic parametric equalizer',
       isEnabled: _dynamicEqEnabled,
       onToggle: (v) {
         setState(() => _dynamicEqEnabled = v);
@@ -10684,330 +11072,497 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // Band Selector Tabs
+        // 1. Dynamic EQ Visualization Graph
+        RepaintBoundary(
+          child: DynamicEqGraph(
+            bands: _dynamicEqBands.map((b) => b.toModel()).toList(),
+            isEnabled: _dynamicEqEnabled,
+            height: 135.0,
+            primaryColor: primaryColor,
+            selectedBandIndex: _selectedDynamicEqBand,
+            onBandSelected: _scrollToDynamicEqBand,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // 2. Presets Toolbar & Quick Reset
         Row(
           children: [
-            for (int i = 0; i < _dynamicEqBands.length; i++)
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: i == 0 ? 0 : 3,
-                    right: i == _dynamicEqBands.length - 1 ? 0 : 3,
-                  ),
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedDynamicEqBand = i),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: _selectedDynamicEqBand == i
-                            ? primaryColor.withValues(alpha: 0.25)
-                            : surfaceDarkerColor,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _selectedDynamicEqBand == i
-                              ? primaryColor
-                              : (_dynamicEqBands[i].enabled
-                                  ? Colors.white24
-                                  : Colors.white10),
-                          width: _selectedDynamicEqBand == i ? 1.5 : 1.0,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Band ${i + 1}',
-                            style: TextStyle(
-                              color: _selectedDynamicEqBand == i
-                                  ? primaryColor
-                                  : (_dynamicEqBands[i].enabled
-                                      ? Colors.white
-                                      : Colors.white38),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _dynamicEqBands[i].freqHz < 1000
-                                ? '${_dynamicEqBands[i].freqHz.toInt()}Hz'
-                                : '${(_dynamicEqBands[i].freqHz / 1000).toStringAsFixed(1)}k',
-                            style: TextStyle(
-                              color: _selectedDynamicEqBand == i
-                                  ? Colors.white
-                                  : Colors.white54,
-                              fontSize: 10,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ],
-                      ),
+            // Presets Dropdown
+            Expanded(
+              child: _buildM3EDropdown<String>(
+                value: _builtInDynamicEqPresets.containsKey(_dynamicEqPreset)
+                    ? _dynamicEqPreset
+                    : 'Custom',
+                items: [
+                  ..._builtInDynamicEqPresets.keys.map(
+                    (name) => M3EDropdownItem<String>(
+                      value: name,
+                      label: name,
                     ),
                   ),
-                ),
+                  const M3EDropdownItem<String>(
+                    value: 'Custom',
+                    label: 'Custom',
+                    disabled: true,
+                  ),
+                ],
+                onChanged: (v) {
+                  if (v != 'Custom') {
+                    _applyDynamicEqPreset(v);
+                  }
+                },
               ),
+            ),
+            const SizedBox(width: 8),
+
+            // Reset to defaults button
+            M3EIconButton(
+              tooltip: 'Reset to Balanced Default',
+              icon: const Icon(Icons.restart_alt_rounded, size: 18),
+              variant: M3EIconButtonVariant.standard,
+              onPressed: _resetDynamicEqToDefaults,
+            ),
           ],
         ),
         const SizedBox(height: 14),
 
-        // Band Header: Active Switch, Filter Type & Mode
-        Container(
-          padding: const EdgeInsets.all(12),
+        // 3. Horizontal Scrollable List of Dynamic Band Cards
+        SizedBox(
+          height: 410,
+          child: ListView.builder(
+            controller: _dynamicEqScrollController,
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: _dynamicEqBands.length,
+            itemBuilder: (context, index) {
+              final band = _dynamicEqBands[index];
+              return _buildDynamicEqBandCard(index, band);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDynamicEqBandCard(int index, _DynamicEqBandState band) {
+    final isSelected = _selectedDynamicEqBand == index;
+    final bandColor =
+        DynamicEqGraph.bandColors[index % DynamicEqGraph.bandColors.length];
+    final isStatic = band.mode == DynamicEqMode.staticMode;
+
+    return Container(
+      width: 320,
+      margin: const EdgeInsets.only(right: 14),
+      child: GestureDetector(
+        onTap: () {
+          if (_selectedDynamicEqBand != index) {
+            setState(() => _selectedDynamicEqBand = index);
+          }
+        },
+        child: Container(
           decoration: BoxDecoration(
             color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Band ${_selectedDynamicEqBand + 1} Active',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? bandColor
+                  : Colors.white.withValues(alpha: 0.12),
+              width: isSelected ? 1.6 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: bandColor.withValues(alpha: 0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                  M3ESwitch(
-                    selectedIcon: Icon(Icons.check, color: primaryColor),
-                    value: curBand.enabled,
-                    onChanged: (v) {
-                      setState(() => curBand.enabled = v);
-                      if (_dynamicEqEnabled) _updateDynamicEq();
-                      _saveEqState();
-                    },
-                  ),
-                ],
-              ),
-              const Divider(color: Colors.white10, height: 16),
+                  ]
+                : null,
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Band Header: Badge + Title + Freq + Mode Chip + Enable Switch
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Filter Type',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
                   Row(
                     children: [
-                      for (final ft in [
-                        (DynamicEqFilterType.peak, 'Peak'),
-                        (DynamicEqFilterType.lowShelf, 'Low Shelf'),
-                        (DynamicEqFilterType.highShelf, 'High Shelf'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4.0),
-                          child: ChoiceChip(
-                            label: Text(ft.$2,
-                                style: const TextStyle(fontSize: 11)),
-                            selected: curBand.filterType == ft.$1,
-                            selectedColor: primaryColor.withValues(alpha: 0.3),
-                            onSelected: (selected) {
-                              if (selected) {
-                                setState(() => curBand.filterType = ft.$1);
-                                if (_dynamicEqEnabled) _updateDynamicEq();
-                                _saveEqState();
-                              }
-                            },
+                      Container(
+                        width: 22,
+                        height: 22,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: bandColor,
+                        ),
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Band ${index + 1}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13.5,
+                            ),
+                          ),
+                          Text(
+                            band.freqHz < 1000
+                                ? '${band.freqHz.toInt()} Hz'
+                                : '${(band.freqHz / 1000).toStringAsFixed(1)} kHz',
+                            style: TextStyle(
+                              color: bandColor,
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isStatic
+                              ? Colors.white10
+                              : (band.mode == DynamicEqMode.compress
+                                  ? Colors.amber.withValues(alpha: 0.15)
+                                  : Colors.purpleAccent.withValues(alpha: 0.15)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          switch (band.mode) {
+                            DynamicEqMode.compress => 'COMPRESS',
+                            DynamicEqMode.expand => 'EXPAND',
+                            DynamicEqMode.staticMode => 'STATIC',
+                          },
+                          style: TextStyle(
+                            color: isStatic
+                                ? Colors.white38
+                                : (band.mode == DynamicEqMode.compress
+                                    ? Colors.amber
+                                    : Colors.purpleAccent),
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      M3ESwitch(
+                        value: band.enabled,
+                        onChanged: (v) {
+                          setState(() => band.enabled = v);
+                          if (_dynamicEqEnabled) _updateDynamicEq();
+                          _saveEqState();
+                        },
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 8),
+
+              // Filter Type & Dynamic Mode Selectors Row
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Dynamic Mode',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
-                  Row(
-                    children: [
-                      for (final dm in [
-                        (DynamicEqMode.compress, 'Compress'),
-                        (DynamicEqMode.expand, 'Expand'),
-                        (DynamicEqMode.staticMode, 'Static'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4.0),
-                          child: ChoiceChip(
-                            label: Text(dm.$2,
-                                style: const TextStyle(fontSize: 11)),
-                            selected: curBand.mode == dm.$1,
-                            selectedColor: primaryColor.withValues(alpha: 0.3),
-                            onSelected: (selected) {
-                              if (selected) {
-                                setState(() => curBand.mode = dm.$1);
-                                if (_dynamicEqEnabled) _updateDynamicEq();
-                                _saveEqState();
-                              }
-                            },
-                          ),
+                  // Filter Type Dropdown
+                  Expanded(
+                    child: _buildM3EDropdown<DynamicEqFilterType>(
+                      value: band.filterType,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      items: const [
+                        M3EDropdownItem<DynamicEqFilterType>(
+                          value: DynamicEqFilterType.peak,
+                          label: 'Peak / Bell',
                         ),
-                    ],
+                        M3EDropdownItem<DynamicEqFilterType>(
+                          value: DynamicEqFilterType.lowShelf,
+                          label: 'Low Shelf',
+                        ),
+                        M3EDropdownItem<DynamicEqFilterType>(
+                          value: DynamicEqFilterType.highShelf,
+                          label: 'High Shelf',
+                        ),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          band.filterType = v;
+                          _dynamicEqPreset = 'Custom';
+                          if (_dynamicEqEnabled) _updateDynamicEq();
+                          _saveEqState();
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  // Mode Dropdown
+                  Expanded(
+                    child: _buildM3EDropdown<DynamicEqMode>(
+                      value: band.mode,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      items: const [
+                        M3EDropdownItem<DynamicEqMode>(
+                          value: DynamicEqMode.compress,
+                          label: 'Compress',
+                        ),
+                        M3EDropdownItem<DynamicEqMode>(
+                          value: DynamicEqMode.expand,
+                          label: 'Expand',
+                        ),
+                        M3EDropdownItem<DynamicEqMode>(
+                          value: DynamicEqMode.staticMode,
+                          label: 'Static EQ',
+                        ),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          band.mode = v;
+                          _dynamicEqPreset = 'Custom';
+                          if (_dynamicEqEnabled) _updateDynamicEq();
+                          _saveEqState();
+                        });
+                      },
+                    ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+
+              // Knobs body (dimmed if disabled)
+              Expanded(
+                child: Opacity(
+                  opacity: band.enabled ? 1.0 : 0.45,
+                  child: IgnorePointer(
+                    ignoring: !band.enabled,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // Row 1: Frequency, Q Factor, Base Gain
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'FREQ',
+                              value: band.freqHz.clamp(20.0, 20000.0),
+                              min: 20.0,
+                              max: 20000.0,
+                              flatValue: 1000.0,
+                              activeColor: _dynamicEqEnabled && band.enabled
+                                  ? bandColor
+                                  : Colors.white38,
+                              valueFormatter: (v) => v < 1000
+                                  ? '${v.toInt()}Hz'
+                                  : '${(v / 1000).toStringAsFixed(1)}k',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.freqHz = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'Q',
+                              value: band.q,
+                              min: 0.1,
+                              max: 10.0,
+                              flatValue: 1.0,
+                              activeColor: _dynamicEqEnabled && band.enabled
+                                  ? bandColor
+                                  : Colors.white38,
+                              valueFormatter: (v) => v.toStringAsFixed(2),
+                              onChanged: (v) {
+                                setState(() {
+                                  band.q = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'GAIN',
+                              value: band.baseGainDb,
+                              min: -15.0,
+                              max: 15.0,
+                              flatValue: 0.0,
+                              activeColor: _dynamicEqEnabled && band.enabled
+                                  ? bandColor
+                                  : Colors.white38,
+                              valueFormatter: (v) =>
+                                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)}dB',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.baseGainDb = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+
+                        // Row 2: Threshold, Max Range, Ratio
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'THRESH',
+                              value: band.thresholdDb,
+                              min: -48.0,
+                              max: 0.0,
+                              flatValue: -24.0,
+                              activeColor: _dynamicEqEnabled &&
+                                      band.enabled &&
+                                      !isStatic
+                                  ? bandColor
+                                  : Colors.white24,
+                              valueFormatter: (v) =>
+                                  '${v.toStringAsFixed(0)}dB',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.thresholdDb = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'RANGE',
+                              value: band.rangeDb,
+                              min: 0.0,
+                              max: 18.0,
+                              flatValue: 6.0,
+                              activeColor: _dynamicEqEnabled &&
+                                      band.enabled &&
+                                      !isStatic
+                                  ? bandColor
+                                  : Colors.white24,
+                              valueFormatter: (v) =>
+                                  '${v.toStringAsFixed(1)}dB',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.rangeDb = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'RATIO',
+                              value: band.ratio,
+                              min: 1.0,
+                              max: 10.0,
+                              flatValue: 3.0,
+                              activeColor: _dynamicEqEnabled &&
+                                      band.enabled &&
+                                      !isStatic
+                                  ? bandColor
+                                  : Colors.white24,
+                              valueFormatter: (v) =>
+                                  '${v.toStringAsFixed(1)}:1',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.ratio = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+
+                        // Row 3: Attack, Release
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'ATTACK',
+                              value: band.attackMs,
+                              min: 0.5,
+                              max: 100.0,
+                              flatValue: 2.0,
+                              activeColor: _dynamicEqEnabled &&
+                                      band.enabled &&
+                                      !isStatic
+                                  ? bandColor
+                                  : Colors.white24,
+                              valueFormatter: (v) =>
+                                  '${v.toStringAsFixed(1)}ms',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.attackMs = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                            ModernAudioKnob(
+                              size: 46,
+                              label: 'RELEASE',
+                              value: band.releaseMs,
+                              min: 10.0,
+                              max: 500.0,
+                              flatValue: 60.0,
+                              activeColor: _dynamicEqEnabled &&
+                                      band.enabled &&
+                                      !isStatic
+                                  ? bandColor
+                                  : Colors.white24,
+                              valueFormatter: (v) => '${v.toInt()}ms',
+                              onChanged: (v) {
+                                setState(() {
+                                  band.releaseMs = v;
+                                  _dynamicEqPreset = 'Custom';
+                                  if (_dynamicEqEnabled) _updateDynamicEq();
+                                  _saveEqState();
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-
-        // Knobs Row 1: Frequency, Q Factor, Base Gain
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'FREQUENCY',
-              value: curBand.freqHz,
-              min: 20.0,
-              max: 20000.0,
-              flatValue: 1000.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => v < 1000
-                  ? '${v.toInt()} Hz'
-                  : '${(v / 1000).toStringAsFixed(1)} kHz',
-              onChanged: (v) {
-                setState(() => curBand.freqHz = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'Q FACTOR',
-              value: curBand.q,
-              min: 0.1,
-              max: 10.0,
-              flatValue: 1.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => v.toStringAsFixed(2),
-              onChanged: (v) {
-                setState(() => curBand.q = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'BASE GAIN',
-              value: curBand.baseGainDb,
-              min: -15.0,
-              max: 15.0,
-              flatValue: 0.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) =>
-                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() => curBand.baseGainDb = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Knobs Row 2: Threshold, Max Range, Ratio
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'THRESHOLD',
-              value: curBand.thresholdDb,
-              min: -48.0,
-              max: 0.0,
-              flatValue: -24.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() => curBand.thresholdDb = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'MAX RANGE',
-              value: curBand.rangeDb,
-              min: 0.0,
-              max: 18.0,
-              flatValue: 6.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
-              onChanged: (v) {
-                setState(() => curBand.rangeDb = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'RATIO',
-              value: curBand.ratio,
-              min: 1.0,
-              max: 10.0,
-              flatValue: 3.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
-              onChanged: (v) {
-                setState(() => curBand.ratio = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        // Knobs Row 3: Attack, Release
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'ATTACK',
-              value: curBand.attackMs,
-              min: 0.5,
-              max: 100.0,
-              flatValue: 2.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
-              onChanged: (v) {
-                setState(() => curBand.attackMs = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'RELEASE',
-              value: curBand.releaseMs,
-              min: 10.0,
-              max: 500.0,
-              flatValue: 60.0,
-              activeColor: _dynamicEqEnabled && curBand.enabled
-                  ? primaryColor
-                  : Colors.white38,
-              valueFormatter: (v) => '${v.toInt()} ms',
-              onChanged: (v) {
-                setState(() => curBand.releaseMs = v);
-                if (_dynamicEqEnabled) _updateDynamicEq();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-      ],
+      ),
     );
   }
 
