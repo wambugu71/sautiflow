@@ -4623,7 +4623,7 @@ class _EqScreenState extends State<EqScreen>
                                             ? 'Custom Natural'
                                             : _crossfeedAlgorithmIndex == 5
                                                 ? 'Ambiophonics'
-                                                : 'OpenStage (Acoustic)')
+                                                : 'OpenStage')
                             : 'Disabled',
                         isEnabled: _crossfeedEnabled,
                         onToggle: (v) {
@@ -5400,7 +5400,7 @@ class _EqScreenState extends State<EqScreen>
                   M3EDropdownItem(label: 'Jan Meier', value: 3),
                   M3EDropdownItem(label: 'Custom Natural', value: 4),
                   M3EDropdownItem(label: 'Ambiophonics', value: 5),
-                  M3EDropdownItem(label: 'OpenStage (Acoustic)', value: 6),
+                  M3EDropdownItem(label: 'OpenStage', value: 6),
                 ],
                 onChanged: (val) {
                   setState(() {
