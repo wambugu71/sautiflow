@@ -4236,7 +4236,7 @@ class _EqScreenState extends State<EqScreen>
                       shape: Shapes.burst,
                       title: 'Dynamic EQ',
                       subtitle: _dynamicEqEnabled
-                          ? '4-Band Dynamic · $_dynamicEqPreset'
+                          ? '6-Band Dynamic · $_dynamicEqPreset'
                           : 'Disabled',
                       isEnabled: _dynamicEqEnabled,
                       onToggle: (v) {

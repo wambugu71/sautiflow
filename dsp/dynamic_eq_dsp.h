@@ -11,10 +11,10 @@
 namespace sauti::dsp {
 
 // =============================================================================
-// DynamicEqDSP: 4-Band Studio-Grade Dynamic Parametric Equalizer
+// DynamicEqDSP: 6-Band Studio-Grade Dynamic Parametric Equalizer
 //
 // Features:
-// - 4 independent, fully parametric dynamic bands across 20 Hz – 20 kHz.
+// - 6 independent, fully parametric dynamic bands across 20 Hz – 20 kHz.
 // - Filter Types: Peak / Bell, Low-Shelf, High-Shelf.
 // - Dynamic Modes:
 //     - Static (traditional clean parametric EQ)

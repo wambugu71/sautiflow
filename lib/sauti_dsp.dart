@@ -1562,7 +1562,7 @@ class SautiDsp {
     return _getLevellerCurrentGainDb(_enginePtr);
   }
 
-  /// 4-Band Dynamic Equalizer (DynamicEqDSP).
+  /// 6-Band Dynamic Equalizer (DynamicEqDSP).
   void setDynamicEqEnabled(bool enabled) {
     if (_enginePtr == ffi.nullptr) return;
     _setDynamicEqEnabled(_enginePtr, enabled ? 1 : 0);

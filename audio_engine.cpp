@@ -11875,7 +11875,7 @@ extern "C"
         return engine->levellerDsp.getCurrentGainDb();
     }
 
-    // 4-Band Dynamic Equalizer (DynamicEqDSP)
+    // 6-Band Dynamic Equalizer (DynamicEqDSP)
     AE_API void ae_dsp_set_dynamic_eq_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;

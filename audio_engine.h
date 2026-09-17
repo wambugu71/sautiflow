@@ -691,7 +691,7 @@ extern "C"
     AE_API void ae_dsp_get_leveller_params(AudioEngineHandle *engine, float *out_target_lufs, float *out_max_rise, float *out_max_fall, float *out_max_boost, float *out_max_attenuation, float *out_silence_gate);
     AE_API float ae_dsp_get_leveller_current_gain_db(AudioEngineHandle *engine);
 
-    // 4-Band Dynamic Equalizer (DynamicEqDSP)
+    // 6-Band Dynamic Equalizer (DynamicEqDSP)
     AE_API void  ae_dsp_set_dynamic_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int   ae_dsp_get_dynamic_eq_enabled(AudioEngineHandle *engine);
     AE_API void  ae_dsp_set_dynamic_eq_band(AudioEngineHandle *engine, int band_index, int filter_type, int mode, float freq_hz, float q, float base_gain_db, float threshold_db, float range_db, float ratio, float attack_ms, float release_ms, int enabled);

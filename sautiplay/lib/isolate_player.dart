@@ -1138,7 +1138,7 @@ class IsolateAudioPlayer {
     return (response as num?)?.toDouble() ?? 0.0;
   }
 
-  // --- 4-Band Dynamic Parametric EQ (DynamicEqDSP) ---
+  // --- 6-Band Dynamic Parametric EQ (DynamicEqDSP) ---
   void setDynamicEqEnabled(bool enabled) =>
       _send({'cmd': 'setDynamicEqEnabled', 'enabled': enabled});
 
