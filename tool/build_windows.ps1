@@ -35,8 +35,6 @@ $includes = @(
     "-I.",
     "-Idsp",
     "-Ithird_party",
-    "-Ithird_party/faad2/include",
-    "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
@@ -82,7 +80,7 @@ $soxrSources = @(
     "third_party/libsoxr/src/vr-coefs.c",
     "third_party/libsoxr/src/util32s.c"
 )
-$cFiles = (Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
+$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
 foreach ($f in $cFiles) {
     $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"
     $objPath = Join-Path $objDir $objName
@@ -93,7 +91,6 @@ foreach ($f in $cFiles) {
 Write-Host "Compiling C++ sources with g++..."
 $cppFiles = @(
     "audio_engine.cpp",
-    "mp4_aac_decoder.cpp",
     "ffmpeg_stream_decoder.cpp"
 )
 

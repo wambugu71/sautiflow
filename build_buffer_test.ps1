@@ -7,8 +7,6 @@ $includes = @(
     "-I.",
     "-Itests",
     "-Ithird_party",
-    "-Ithird_party/faad2/include",
-    "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
@@ -29,7 +27,6 @@ if ($LASTEXITCODE -ne 0) { throw "g++ failed on test_buffer_config.cpp" }
 
 $linkObjs = @(
     "$objDir/audio_engine.o",
-    "$objDir/mp4_aac_decoder.o",
     "$objDir/ffmpeg_stream_decoder.o",
     "$objDir/test_buffer_config.o"
 ) + $dllObjs

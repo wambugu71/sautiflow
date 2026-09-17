@@ -19,8 +19,6 @@ INCLUDES=(
   "-I."
   "-Idsp"
   "-Ithird_party"
-  "-Ithird_party/faad2/include"
-  "-Ithird_party/faad2/libfaad"
   "-Ithird_party/libsamplerate/include"
   "-Ithird_party/libsoxr/include"
   "-Ithird_party/libsoxr/src"
@@ -84,7 +82,7 @@ for ABI in "${ABIS[@]}"; do
 
   "$CLANG" \
     -std=c++17 -O2 -fPIC -shared \
-    audio_engine.cpp mp4_aac_decoder.cpp third_party/faad2/libfaad/*.c third_party/libsamplerate/src/*.c "${SOXR_SRCS[@]}" \
+    audio_engine.cpp third_party/libsamplerate/src/*.c "${SOXR_SRCS[@]}" \
     -o "$OUT_DIR/libaudio_engine.so" \
     -D__ANDROID_API__=$API "${INCLUDES[@]}" "${DEFINES[@]}" \
     $AE_EXTRA_CXXFLAGS \

@@ -6,17 +6,11 @@ This project incorporates, links against, or builds with several open-source lib
 
 ## C / C++ Engine Dependencies
 
-### FAAD2
-- **Project:** FAAD2 (Freeware Advanced Audio Decoder)
-- **Copyright:** (C) 2003-2005 M. Bakker, Nero AG
-- **License:** GNU General Public License v2.0 or later (GPLv2+)
-- **Usage:** AAC audio decoding within MP4 containers (`mp4_aac_decoder.cpp`).
-
 ### FFmpeg
 - **Project:** FFmpeg
 - **Website:** https://ffmpeg.org/
 - **License:** GNU Lesser General Public License v2.1 or later (LGPLv2.1+ / LGPLv3)
-- **Usage:** Stream demuxing, audio decoding, and default network stream resampling via dynamic linking (`libavformat`, `libavcodec`, `libavutil`, `libswresample`).
+- **Usage:** Stream and local file demuxing, audio decoding (AAC, MP4, M4A, etc.), and network stream resampling via dynamic linking (`libavformat`, `libavcodec`, `libavutil`, `libswresample`).
 
 ### miniaudio
 - **Project:** miniaudio
@@ -43,13 +37,6 @@ This project incorporates, links against, or builds with several open-source lib
 - **Author:** Rob Sykes
 - **License:** GNU Lesser General Public License v2.1 or later (LGPLv2.1+)
 - **Usage:** High-quality resampling algorithms.
-
-### minimp4
-- **Project:** minimp4
-- **Author:** Dmitry Kozlov (lieff)
-- **Website:** https://github.com/lieff/minimp4
-- **License:** Creative Commons Zero v1.0 Universal (CC0 1.0 / Public Domain)
-- **Usage:** Header-only MP4/M4A/fMP4 container demuxing.
 
 ### cURL (Optional / Android Network Streaming)
 - **Project:** cURL

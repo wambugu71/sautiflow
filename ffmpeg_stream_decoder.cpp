@@ -780,6 +780,250 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     av_packet_free(&packet);
 }
 
+// ============================================================================
+// FFmpegLocalFileSource IMPLEMENTATION (Synchronous Audiophile Local Decoder)
+// ============================================================================
+
+FFmpegLocalFileSource::FFmpegLocalFileSource() {}
+
+FFmpegLocalFileSource::~FFmpegLocalFileSource() {
+    close();
+}
+
+void FFmpegLocalFileSource::close() {
+    if (m_swrCtx) {
+        swr_free(&m_swrCtx);
+        m_swrCtx = nullptr;
+    }
+    if (m_frame) {
+        av_frame_free(&m_frame);
+        m_frame = nullptr;
+    }
+    if (m_packet) {
+        av_packet_free(&m_packet);
+        m_packet = nullptr;
+    }
+    if (m_codecCtx) {
+        avcodec_free_context(&m_codecCtx);
+        m_codecCtx = nullptr;
+    }
+    if (m_fmtCtx) {
+        avformat_close_input(&m_fmtCtx);
+        m_fmtCtx = nullptr;
+    }
+    m_residualBuffer.clear();
+    m_residualOffset = 0;
+    m_audioStreamIndex = -1;
+    m_sampleRate = 0;
+    m_channels = 0;
+    m_totalFrames = 0;
+    m_cursor = 0;
+    m_isEnded = false;
+}
+
+bool FFmpegLocalFileSource::open(const std::string& filePath) {
+    close();
+    m_filePath = filePath;
+
+    if (filePath.empty()) return false;
+
+    AVDictionary* opts = nullptr;
+    av_dict_set(&opts, "scan_all_pmts", "0", 0);
+
+    if (avformat_open_input(&m_fmtCtx, filePath.c_str(), nullptr, &opts) < 0) {
+        if (opts) av_dict_free(&opts);
+        return false;
+    }
+    if (opts) av_dict_free(&opts);
+
+    if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
+        close();
+        return false;
+    }
+
+    const AVCodec* decoder = nullptr;
+    m_audioStreamIndex = av_find_best_stream(m_fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &decoder, 0);
+    if (m_audioStreamIndex < 0 || !decoder) {
+        close();
+        return false;
+    }
+
+    AVStream* audioStream = m_fmtCtx->streams[m_audioStreamIndex];
+    m_codecCtx = avcodec_alloc_context3(decoder);
+    if (!m_codecCtx) {
+        close();
+        return false;
+    }
+
+    if (avcodec_parameters_to_context(m_codecCtx, audioStream->codecpar) < 0) {
+        close();
+        return false;
+    }
+
+    if (avcodec_open2(m_codecCtx, decoder, nullptr) < 0) {
+        close();
+        return false;
+    }
+
+    m_sampleRate = m_codecCtx->sample_rate > 0 ? m_codecCtx->sample_rate : 44100;
+    m_channels = m_codecCtx->ch_layout.nb_channels > 0 ? m_codecCtx->ch_layout.nb_channels : 2;
+
+    if (audioStream->duration > 0 && audioStream->duration != AV_NOPTS_VALUE) {
+        m_totalFrames = av_rescale_q(audioStream->duration, audioStream->time_base, AVRational{1, m_sampleRate});
+    } else if (m_fmtCtx->duration > 0 && m_fmtCtx->duration != AV_NOPTS_VALUE) {
+        m_totalFrames = static_cast<ma_uint64>(((double)m_fmtCtx->duration / AV_TIME_BASE) * m_sampleRate);
+    } else {
+        m_totalFrames = 0;
+    }
+
+    m_packet = av_packet_alloc();
+    m_frame = av_frame_alloc();
+    if (!m_packet || !m_frame) {
+        close();
+        return false;
+    }
+
+    AVChannelLayout outLayout;
+    av_channel_layout_default(&outLayout, m_channels);
+
+    int ret = swr_alloc_set_opts2(
+        &m_swrCtx,
+        &outLayout,
+        AV_SAMPLE_FMT_FLT, // Interleaved 32-bit float
+        m_sampleRate,       // Native sample rate preserved
+        &m_codecCtx->ch_layout,
+        m_codecCtx->sample_fmt,
+        m_codecCtx->sample_rate,
+        0,
+        nullptr
+    );
+    av_channel_layout_uninit(&outLayout);
+
+    if (ret < 0 || !m_swrCtx || swr_init(m_swrCtx) < 0) {
+        close();
+        return false;
+    }
+
+    m_cursor = 0;
+    m_isEnded = false;
+    return true;
+}
+
+bool FFmpegLocalFileSource::read_and_decode_next_packet() {
+    if (!m_fmtCtx || !m_codecCtx || !m_packet) return false;
+
+    while (true) {
+        av_packet_unref(m_packet);
+        int ret = av_read_frame(m_fmtCtx, m_packet);
+        if (ret < 0) {
+            return false;
+        }
+
+        if (m_packet->stream_index == m_audioStreamIndex) {
+            int sendRes = avcodec_send_packet(m_codecCtx, m_packet);
+            av_packet_unref(m_packet);
+            if (sendRes < 0 && sendRes != AVERROR(EAGAIN)) {
+                return false;
+            }
+            return true;
+        }
+    }
+}
+
+size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
+    if (!m_fmtCtx || !m_codecCtx || !pOut || frameCount == 0 || m_channels <= 0) {
+        return 0;
+    }
+
+    size_t framesRead = 0;
+
+    // 1. Drain residual buffer if any
+    size_t residualFrames = (m_residualBuffer.size() / m_channels) - m_residualOffset;
+    if (residualFrames > 0) {
+        size_t toCopy = std::min(frameCount, residualFrames);
+        std::memcpy(pOut, m_residualBuffer.data() + (m_residualOffset * m_channels), toCopy * m_channels * sizeof(float));
+        m_residualOffset += toCopy;
+        framesRead += toCopy;
+        if (m_residualOffset >= m_residualBuffer.size() / m_channels) {
+            m_residualBuffer.clear();
+            m_residualOffset = 0;
+        }
+    }
+
+    // 2. Decode frames as needed until frameCount is satisfied
+    while (framesRead < frameCount && !m_isEnded) {
+        int recvRes = avcodec_receive_frame(m_codecCtx, m_frame);
+        if (recvRes == 0) {
+            int inSamples = m_frame->nb_samples;
+            if (inSamples <= 0) continue;
+
+            int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);
+            if (outMaxSamples <= 0) outMaxSamples = inSamples;
+
+            std::vector<float> converted(outMaxSamples * m_channels);
+            uint8_t* outPtr = reinterpret_cast<uint8_t*>(converted.data());
+
+            int outSamples = swr_convert(
+                m_swrCtx,
+                &outPtr,
+                outMaxSamples,
+                const_cast<const uint8_t**>(m_frame->extended_data),
+                inSamples
+            );
+
+            if (outSamples > 0) {
+                size_t needed = frameCount - framesRead;
+                size_t directCopy = std::min(needed, static_cast<size_t>(outSamples));
+
+                std::memcpy(pOut + (framesRead * m_channels), converted.data(), directCopy * m_channels * sizeof(float));
+                framesRead += directCopy;
+
+                size_t leftover = outSamples - directCopy;
+                if (leftover > 0) {
+                    m_residualBuffer.assign(
+                        converted.data() + (directCopy * m_channels),
+                        converted.data() + (outSamples * m_channels)
+                    );
+                    m_residualOffset = 0;
+                }
+            }
+        } else if (recvRes == AVERROR(EAGAIN)) {
+            if (!read_and_decode_next_packet()) {
+                // End of input stream: flush decoder
+                avcodec_send_packet(m_codecCtx, nullptr);
+            }
+        } else if (recvRes == AVERROR_EOF) {
+            m_isEnded = true;
+            break;
+        } else {
+            break;
+        }
+    }
+
+    m_cursor += framesRead;
+    return framesRead;
+}
+
+bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
+    if (!m_fmtCtx || !m_codecCtx || m_audioStreamIndex < 0 || m_sampleRate <= 0) {
+        return false;
+    }
+
+    AVStream* st = m_fmtCtx->streams[m_audioStreamIndex];
+    int64_t targetPts = av_rescale_q(static_cast<int64_t>(frameIndex), AVRational{1, m_sampleRate}, st->time_base);
+
+    if (av_seek_frame(m_fmtCtx, m_audioStreamIndex, targetPts, AVSEEK_FLAG_BACKWARD) < 0) {
+        return false;
+    }
+
+    avcodec_flush_buffers(m_codecCtx);
+    m_residualBuffer.clear();
+    m_residualOffset = 0;
+    m_isEnded = false;
+    m_cursor = frameIndex;
+    return true;
+}
+
 } // namespace sautiflow
 
 // ============================================================================
@@ -788,7 +1032,9 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
 
 struct ma_ffmpeg_data_source {
     ma_data_source_base base;
+    bool isNetwork;
     sautiflow::FFmpegStreamSource* stream;
+    sautiflow::FFmpegLocalFileSource* local;
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
@@ -797,33 +1043,57 @@ struct ma_ffmpeg_data_source {
 
 static ma_result ma_ffmpeg_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead) {
     auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDataSource);
-    if (!ds || !ds->stream) return MA_INVALID_ARGS;
+    if (!ds) return MA_INVALID_ARGS;
 
-    size_t read = ds->stream->read_pcm(reinterpret_cast<float*>(pFramesOut), static_cast<size_t>(frameCount));
-    if (pFramesRead) *pFramesRead = read;
-    ds->cursor += read;
-    if (read == 0) {
-        if (ds->stream->is_buffering()) {
-            std::memset(pFramesOut, 0, frameCount * ds->channels * sizeof(float));
-            return MA_BUSY;
+    if (ds->isNetwork) {
+        if (!ds->stream) return MA_INVALID_ARGS;
+        size_t read = ds->stream->read_pcm(reinterpret_cast<float*>(pFramesOut), static_cast<size_t>(frameCount));
+        if (pFramesRead) *pFramesRead = read;
+        ds->cursor += read;
+        if (read == 0) {
+            if (ds->stream->is_buffering()) {
+                std::memset(pFramesOut, 0, frameCount * ds->channels * sizeof(float));
+                return MA_BUSY;
+            }
+            if (ds->stream->is_ended()) {
+                return MA_AT_END;
+            }
         }
-        if (ds->stream->is_ended()) {
-            return MA_AT_END;
+        return MA_SUCCESS;
+    } else {
+        if (!ds->local) return MA_INVALID_ARGS;
+        size_t read = ds->local->read_pcm(reinterpret_cast<float*>(pFramesOut), static_cast<size_t>(frameCount));
+        if (pFramesRead) *pFramesRead = read;
+        ds->cursor = ds->local->get_cursor();
+        if (read == 0) {
+            if (ds->local->is_ended()) {
+                return MA_AT_END;
+            }
         }
+        return MA_SUCCESS;
     }
-    return MA_SUCCESS;
 }
 
 static ma_result ma_ffmpeg_ds_seek(ma_data_source* pDataSource, ma_uint64 frameIndex) {
     auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDataSource);
-    if (!ds || !ds->stream) return MA_INVALID_ARGS;
+    if (!ds) return MA_INVALID_ARGS;
 
-    if (ds->sampleRate > 0) {
-        int64_t ms = (frameIndex * 1000) / ds->sampleRate;
-        ds->stream->seek(ms);
-        ds->cursor = frameIndex;
+    if (ds->isNetwork) {
+        if (!ds->stream) return MA_INVALID_ARGS;
+        if (ds->sampleRate > 0) {
+            int64_t ms = (frameIndex * 1000) / ds->sampleRate;
+            ds->stream->seek(ms);
+            ds->cursor = frameIndex;
+        }
+        return MA_SUCCESS;
+    } else {
+        if (!ds->local) return MA_INVALID_ARGS;
+        if (ds->local->seek(frameIndex)) {
+            ds->cursor = frameIndex;
+            return MA_SUCCESS;
+        }
+        return MA_ERROR;
     }
-    return MA_SUCCESS;
 }
 
 static ma_result ma_ffmpeg_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap) {
@@ -846,17 +1116,26 @@ static ma_result ma_ffmpeg_ds_get_cursor(ma_data_source* pDataSource, ma_uint64*
 
 static ma_result ma_ffmpeg_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength) {
     auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDataSource);
-    if (!ds || !ds->stream) return MA_INVALID_ARGS;
+    if (!ds) return MA_INVALID_ARGS;
 
-    auto tel = ds->stream->get_telemetry();
-    if (pLength) {
-        if (tel.isLiveStream || tel.totalDurationSec <= 0) {
-            *pLength = 0;
-        } else {
-            *pLength = static_cast<ma_uint64>(tel.totalDurationSec * ds->sampleRate);
+    if (ds->isNetwork) {
+        if (!ds->stream) return MA_INVALID_ARGS;
+        auto tel = ds->stream->get_telemetry();
+        if (pLength) {
+            if (tel.isLiveStream || tel.totalDurationSec <= 0) {
+                *pLength = 0;
+            } else {
+                *pLength = static_cast<ma_uint64>(tel.totalDurationSec * ds->sampleRate);
+            }
         }
+        return MA_SUCCESS;
+    } else {
+        if (!ds->local) return MA_INVALID_ARGS;
+        if (pLength) {
+            *pLength = ds->local->get_total_frames();
+        }
+        return MA_SUCCESS;
     }
-    return MA_SUCCESS;
 }
 
 static ma_data_source_vtable g_ma_ffmpeg_ds_vtable = {
@@ -876,8 +1155,19 @@ StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder) {
         return get_active_stream_telemetry();
     }
     auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDecoder->pBackend);
-    if (ds && ds->base.vtable == &g_ma_ffmpeg_ds_vtable && ds->stream) {
-        return ds->stream->get_telemetry();
+    if (ds && ds->base.vtable == &g_ma_ffmpeg_ds_vtable) {
+        if (ds->isNetwork && ds->stream) {
+            return ds->stream->get_telemetry();
+        } else if (!ds->isNetwork && ds->local) {
+            StreamTelemetry tel;
+            tel.state = ds->local->is_ended() ? StreamState::Ended : StreamState::Playing;
+            tel.sampleRate = ds->local->get_sample_rate();
+            tel.channels = ds->local->get_channels();
+            tel.totalDurationSec = ds->local->get_sample_rate() > 0 ? (double)ds->local->get_total_frames() / ds->local->get_sample_rate() : 0.0;
+            tel.isLiveStream = false;
+            tel.isSeekable = true;
+            return tel;
+        }
     }
     return get_active_stream_telemetry();
 }
@@ -1130,8 +1420,7 @@ static bool is_miniaudio_native_local_file(const char* path) {
     std::string ext = s.substr(dot);
     for (auto &c : ext) c = (char)::tolower(c);
     return (ext == ".flac" || ext == ".mp3" || ext == ".wav" ||
-            ext == ".ogg"  || ext == ".oga" || ext == ".m4a" ||
-            ext == ".aac"  || ext == ".mp4");
+            ext == ".ogg"  || ext == ".oga");
 }
 
 static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
@@ -1149,51 +1438,94 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
         return MA_NO_BACKEND;
     }
 
-    ma_uint32 outChannels = 2;
-    ma_uint32 outSampleRate = 48000;
-    if (pUserData != nullptr) {
-        const auto* initCfg = static_cast<const sautiflow::FFmpegDecoderInitConfig*>(pUserData);
-        if (initCfg->targetChannels > 0) outChannels = (ma_uint32)initCfg->targetChannels;
-        if (initCfg->targetSampleRate > 0) outSampleRate = (ma_uint32)initCfg->targetSampleRate;
-    }
-    int prebufferMs = isNetwork ? 1500 : 0;
+    if (isNetwork) {
+        ma_uint32 outChannels = 2;
+        ma_uint32 outSampleRate = 48000;
+        if (pUserData != nullptr) {
+            const auto* initCfg = static_cast<const sautiflow::FFmpegDecoderInitConfig*>(pUserData);
+            if (initCfg->targetChannels > 0) outChannels = (ma_uint32)initCfg->targetChannels;
+            if (initCfg->targetSampleRate > 0) outSampleRate = (ma_uint32)initCfg->targetSampleRate;
+        }
+        int prebufferMs = 1500;
 
-    std::printf("[ffmpeg_backend] Requesting universal decoder for %s: %s\n",
-                isNetwork ? "network URL" : "local file", pFilePath);
-    std::fflush(stdout);
-
-    auto* stream = new sautiflow::FFmpegStreamSource();
-    if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
-        std::printf("[ffmpeg_backend] Universal decoder failed to open: %s\n", pFilePath);
+        std::printf("[ffmpeg_backend] Requesting online stream decoder for: %s\n", pFilePath);
         std::fflush(stdout);
-        delete stream;
-        return MA_ERROR;
+
+        auto* stream = new sautiflow::FFmpegStreamSource();
+        if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
+            std::printf("[ffmpeg_backend] Online stream decoder failed to open: %s\n", pFilePath);
+            std::fflush(stdout);
+            delete stream;
+            return MA_ERROR;
+        }
+
+        auto* ds = static_cast<ma_ffmpeg_data_source*>(std::malloc(sizeof(ma_ffmpeg_data_source)));
+        if (!ds) {
+            stream->close();
+            delete stream;
+            return MA_OUT_OF_MEMORY;
+        }
+
+        ds->isNetwork = true;
+        ds->stream = stream;
+        ds->local = nullptr;
+        ds->format = ma_format_f32;
+        ds->channels = outChannels;
+        ds->sampleRate = outSampleRate;
+        ds->cursor = 0;
+
+        ma_data_source_config baseConfig = ma_data_source_config_init();
+        baseConfig.vtable = &g_ma_ffmpeg_ds_vtable;
+        ma_result res = ma_data_source_init(&baseConfig, &ds->base);
+        if (res != MA_SUCCESS) {
+            stream->close();
+            delete stream;
+            std::free(ds);
+            return res;
+        }
+
+        *ppBackend = reinterpret_cast<ma_data_source*>(ds);
+        return MA_SUCCESS;
+    } else {
+        std::printf("[ffmpeg_backend] Requesting native local file decoder for: %s\n", pFilePath);
+        std::fflush(stdout);
+
+        auto* local = new sautiflow::FFmpegLocalFileSource();
+        if (!local->open(pFilePath)) {
+            std::printf("[ffmpeg_backend] Local file decoder failed to open: %s\n", pFilePath);
+            std::fflush(stdout);
+            delete local;
+            return MA_ERROR;
+        }
+
+        auto* ds = static_cast<ma_ffmpeg_data_source*>(std::malloc(sizeof(ma_ffmpeg_data_source)));
+        if (!ds) {
+            local->close();
+            delete local;
+            return MA_OUT_OF_MEMORY;
+        }
+
+        ds->isNetwork = false;
+        ds->stream = nullptr;
+        ds->local = local;
+        ds->format = ma_format_f32;
+        ds->channels = static_cast<ma_uint32>(local->get_channels());
+        ds->sampleRate = static_cast<ma_uint32>(local->get_sample_rate());
+        ds->cursor = 0;
+
+        ma_data_source_config baseConfig = ma_data_source_config_init();
+        baseConfig.vtable = &g_ma_ffmpeg_ds_vtable;
+        ma_result res = ma_data_source_init(&baseConfig, &ds->base);
+        if (res != MA_SUCCESS) {
+            local->close();
+            delete local;
+            std::free(ds);
+            return res;
+        }
+
+        *ppBackend = reinterpret_cast<ma_data_source*>(ds);
+        return MA_SUCCESS;
     }
-
-    auto* ds = static_cast<ma_ffmpeg_data_source*>(std::malloc(sizeof(ma_ffmpeg_data_source)));
-    if (!ds) {
-        stream->close();
-        delete stream;
-        return MA_OUT_OF_MEMORY;
-    }
-
-    ds->stream = stream;
-    ds->format = ma_format_f32;
-    ds->channels = outChannels;
-    ds->sampleRate = outSampleRate;
-
-    ma_data_source_config baseConfig = ma_data_source_config_init();
-    baseConfig.vtable = &g_ma_ffmpeg_ds_vtable;
-    ma_result res = ma_data_source_init(&baseConfig, &ds->base);
-    if (res != MA_SUCCESS) {
-        stream->close();
-        delete stream;
-        std::free(ds);
-        return res;
-    }
-
-    *ppBackend = reinterpret_cast<ma_data_source*>(ds);
-    return MA_SUCCESS;
 }
 
 static ma_result ma_decoding_backend_init_file_w__ffmpeg(void* pUserData, const wchar_t* pFilePathW, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend) {
@@ -1228,6 +1560,11 @@ static void ma_decoding_backend_uninit__ffmpeg(void* pUserData, ma_data_source* 
         ds->stream->close();
         delete ds->stream;
         ds->stream = nullptr;
+    }
+    if (ds->local) {
+        ds->local->close();
+        delete ds->local;
+        ds->local = nullptr;
     }
     std::free(ds);
 }

@@ -7,7 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-file(GLOB FAAD2_SOURCES "../third_party/faad2/libfaad/*.c")
 file(GLOB LIBSAMPLERATE_SOURCES "../third_party/libsamplerate/src/*.c")
 set(LIBSOXR_SOURCES
   "../third_party/libsoxr/src/soxr.c"
@@ -28,9 +27,7 @@ set(LIBSOXR_SOURCES
 )
 add_library(audio_engine SHARED
   ../audio_engine.cpp
-  ../mp4_aac_decoder.cpp
   ../ffmpeg_stream_decoder.cpp
-  ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
   ${LIBSOXR_SOURCES}
 )
@@ -39,8 +36,6 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../dsp
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
-  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/faad2/libfaad
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsoxr/src
@@ -76,9 +71,6 @@ target_compile_definitions(audio_engine PRIVATE
 if(MSVC)
   # /FS forces synchronous PDB writes, preventing C1041 errors in parallel builds
   target_compile_options(audio_engine PRIVATE /FS /std:c11 $<$<NOT:$<CONFIG:Debug>>:/O2 /fp:fast>)
-  set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
-    COMPILE_FLAGS "/wd4100 /wd4244 /wd4267 /wd4701 /wd4706"
-  )
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
 endif()

@@ -152,6 +152,47 @@ private:
     StreamTelemetryCallback m_telemetryCb;
 };
 
+class FFmpegLocalFileSource {
+public:
+    FFmpegLocalFileSource();
+    ~FFmpegLocalFileSource();
+
+    FFmpegLocalFileSource(const FFmpegLocalFileSource&) = delete;
+    FFmpegLocalFileSource& operator=(const FFmpegLocalFileSource&) = delete;
+
+    bool open(const std::string& filePath);
+    void close();
+
+    size_t read_pcm(float* pOut, size_t frameCount);
+    bool seek(ma_uint64 frameIndex);
+
+    int get_sample_rate() const { return m_sampleRate; }
+    int get_channels() const { return m_channels; }
+    ma_uint64 get_total_frames() const { return m_totalFrames; }
+    ma_uint64 get_cursor() const { return m_cursor; }
+    bool is_ended() const { return m_isEnded; }
+
+private:
+    bool read_and_decode_next_packet();
+
+    std::string m_filePath;
+    AVFormatContext* m_fmtCtx{nullptr};
+    AVCodecContext* m_codecCtx{nullptr};
+    SwrContext* m_swrCtx{nullptr};
+    AVPacket* m_packet{nullptr};
+    AVFrame* m_frame{nullptr};
+    int m_audioStreamIndex{-1};
+
+    int m_sampleRate{0};
+    int m_channels{0};
+    ma_uint64 m_totalFrames{0};
+    ma_uint64 m_cursor{0};
+    bool m_isEnded{false};
+
+    std::vector<float> m_residualBuffer;
+    size_t m_residualOffset{0};
+};
+
 // Global telemetry accessor for active engine streams
 StreamTelemetry get_active_stream_telemetry();
 

@@ -26,8 +26,6 @@ $includes = @(
     "-I.",
     "-Idsp",
     "-Ithird_party",
-    "-Ithird_party/faad2/include",
-    "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
@@ -69,9 +67,8 @@ $soxrSources = @(
 )
 
 $allSources = @(
-    "audio_engine.cpp",
-    "mp4_aac_decoder.cpp"
-) + (Get-ChildItem -Path "third_party/faad2/libfaad/*.c", "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
+    "audio_engine.cpp"
+) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
 
 foreach ($t in $targets) {
     $abi = $t.Abi

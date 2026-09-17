@@ -4,7 +4,6 @@ project(miniaudiodart_android LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-file(GLOB FAAD2_SOURCES "../../../../third_party/faad2/libfaad/*.c")
 file(GLOB LIBSAMPLERATE_SOURCES "../../../../third_party/libsamplerate/src/*.c")
 set(LIBSOXR_SOURCES
   "../../../../third_party/libsoxr/src/soxr.c"
@@ -25,9 +24,7 @@ set(LIBSOXR_SOURCES
 )
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
-  ../../../../mp4_aac_decoder.cpp
   ../../../../ffmpeg_stream_decoder.cpp
-  ${FAAD2_SOURCES}
   ${LIBSAMPLERATE_SOURCES}
   ${LIBSOXR_SOURCES}
 )
@@ -36,8 +33,6 @@ target_include_directories(audio_engine PRIVATE
   ../../../../
   ../../../../dsp
   ../../../../third_party
-  ../../../../third_party/faad2/include
-  ../../../../third_party/faad2/libfaad
   ../../../../third_party/libsamplerate/include
   ../../../../third_party/libsoxr/include
   ../../../../third_party/libsoxr/src
