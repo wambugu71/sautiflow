@@ -232,6 +232,6 @@ Project inspired by `just_audio` for simplicity and familiarity of API design, b
 
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
 
-For third-party software attributions and licenses (including miniaudio, FFmpeg, FAAD2, libsamplerate, r8brain, libsoxr), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+For third-party software attributions and licenses (including miniaudio, FFmpeg, libsamplerate, r8brain, libsoxr), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 
