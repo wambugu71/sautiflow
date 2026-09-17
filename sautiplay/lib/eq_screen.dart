@@ -4057,7 +4057,7 @@ class _EqScreenState extends State<EqScreen>
                         _persistReplayGainSettings();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'ReplayGain Metadata',
+                        'ReplayGain',
                         Icons.equalizer_rounded,
                         (_) => _buildReplayGainSection(),
                         shape: Shapes.c4SidedCookie,
