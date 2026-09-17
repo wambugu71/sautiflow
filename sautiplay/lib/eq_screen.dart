@@ -1915,58 +1915,71 @@ class _EqScreenState extends State<EqScreen>
     _compressorMeterTimer =
         Timer.periodic(const Duration(milliseconds: 60), (_) async {
       if (!mounted) return;
-      if (!_isPlaying || (!_compressorEnabled && !_deEsserEnabled)) {
+      final anyDynamicsActive = _compressorEnabled ||
+          _deEsserEnabled ||
+          _noiseGateEnabled ||
+          _levellerEnabled;
+
+      if (!_isPlaying || !anyDynamicsActive) {
         if (_compressorGrNotifier.value != 0.0) {
           _compressorGrNotifier.value = 0.0;
         }
         if (_deEsserGrNotifier.value != 0.0) {
           _deEsserGrNotifier.value = 0.0;
         }
+        if (_noiseGateGrNotifier.value != 0.0) {
+          _noiseGateGrNotifier.value = 0.0;
+        }
+        if (_levellerGainNotifier.value != 0.0) {
+          _levellerGainNotifier.value = 0.0;
+        }
         return;
       }
 
+      final futures = <Future<void>>[];
+
       if (_compressorEnabled && _isPlaying) {
-        final gr = await widget.player.getCompressorGainReductionDB();
-        if (mounted && (_compressorGrNotifier.value - gr).abs() > 0.05) {
-          _compressorGrNotifier.value = gr;
-        }
+        futures.add(widget.player.getCompressorGainReductionDB().then((gr) {
+          if (mounted && (_compressorGrNotifier.value - gr).abs() > 0.05) {
+            _compressorGrNotifier.value = gr;
+          }
+        }));
       } else if (_compressorGrNotifier.value != 0.0) {
-        if (mounted) {
-          _compressorGrNotifier.value = 0.0;
-        }
+        if (mounted) _compressorGrNotifier.value = 0.0;
       }
 
       if (_deEsserEnabled && _isPlaying) {
-        final deGr = await widget.player.getDeEsserGainReductionDB();
-        if (mounted && (_deEsserGrNotifier.value - deGr).abs() > 0.05) {
-          _deEsserGrNotifier.value = deGr;
-        }
+        futures.add(widget.player.getDeEsserGainReductionDB().then((deGr) {
+          if (mounted && (_deEsserGrNotifier.value - deGr).abs() > 0.05) {
+            _deEsserGrNotifier.value = deGr;
+          }
+        }));
       } else if (_deEsserGrNotifier.value != 0.0) {
-        if (mounted) {
-          _deEsserGrNotifier.value = 0.0;
-        }
+        if (mounted) _deEsserGrNotifier.value = 0.0;
       }
 
       if (_noiseGateEnabled && _isPlaying) {
-        final gateGr = await widget.player.getNoiseGateGainReductionDb();
-        if (mounted && (_noiseGateGrNotifier.value - gateGr).abs() > 0.05) {
-          _noiseGateGrNotifier.value = gateGr;
-        }
+        futures.add(widget.player.getNoiseGateGainReductionDb().then((gateGr) {
+          if (mounted && (_noiseGateGrNotifier.value - gateGr).abs() > 0.05) {
+            _noiseGateGrNotifier.value = gateGr;
+          }
+        }));
       } else if (_noiseGateGrNotifier.value != 0.0) {
-        if (mounted) {
-          _noiseGateGrNotifier.value = 0.0;
-        }
+        if (mounted) _noiseGateGrNotifier.value = 0.0;
       }
 
       if (_levellerEnabled && _isPlaying) {
-        final levGain = await widget.player.getLevellerCurrentGainDb();
-        if (mounted && (_levellerGainNotifier.value - levGain).abs() > 0.05) {
-          _levellerGainNotifier.value = levGain;
-        }
+        futures.add(widget.player.getLevellerCurrentGainDb().then((levGain) {
+          if (mounted && (_levellerGainNotifier.value - levGain).abs() > 0.05) {
+            _levellerGainNotifier.value = levGain;
+          }
+        }));
       } else if (_levellerGainNotifier.value != 0.0) {
-        if (mounted) {
-          _levellerGainNotifier.value = 0.0;
-        }
+        if (mounted) _levellerGainNotifier.value = 0.0;
+      }
+
+      if (futures.isNotEmpty) {
+        await Future.wait(futures);
       }
     });
 
@@ -3937,7 +3950,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
-                          'Broadcast Leveller',
+                          'Auto Gain Control',
                           Icons.stacked_bar_chart_rounded,
                           (_) => _buildLevellerSection(),
                           shape: Shapes.square,
@@ -3953,7 +3966,7 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 4:
                         _openDetailScreen(
-                          'ReplayGain Metadata',
+                          'ReplayGain',
                           Icons.equalizer_rounded,
                           (_) => _buildReplayGainSection(),
                           shape: Shapes.c4SidedCookie,
@@ -4009,7 +4022,10 @@ class _EqScreenState extends State<EqScreen>
                             : 'Disabled',
                         isEnabled: _levellerEnabled,
                         onToggle: (v) {
-                          setState(() => _levellerEnabled = v);
+                          setState(() {
+                            _levellerEnabled = v;
+                            if (!v) _levellerGainNotifier.value = 0.0;
+                          });
                           _updateLeveller();
                           _saveEqState();
                         },
@@ -4529,13 +4545,16 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.door_sliding_rounded,
                       shape: Shapes.diamond,
-                      title: 'Studio Noise Gate',
+                      title: 'Noise Gate',
                       subtitle: _noiseGateEnabled
                           ? 'Hysteresis (${_noiseGateOpenThreshDb.toInt()} / ${_noiseGateCloseThreshDb.toInt()} dB) · Hold ${_noiseGateHoldMs.toInt()}ms'
                           : 'Disabled',
                       isEnabled: _noiseGateEnabled,
                       onToggle: (v) {
-                        setState(() => _noiseGateEnabled = v);
+                        setState(() {
+                          _noiseGateEnabled = v;
+                          if (!v) _noiseGateGrNotifier.value = 0.0;
+                        });
                         _updateNoiseGate();
                         _saveEqState();
                       },
@@ -4650,8 +4669,8 @@ class _EqScreenState extends State<EqScreen>
                         shape: Shapes.slanted,
                         title: 'Stereo Imager',
                         subtitle: _stereoWidenEnabled
-                            ? '${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial 3D" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)'
-                            : 'Audiophile M/S, 3D Velvet & Blumlein Spatial Imager',
+                            ? '${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)'
+                            : 'Stereo Imager',
                         isEnabled: _stereoWidenEnabled,
                         onToggle: (v) {
                           setState(() => _stereoWidenEnabled = v);
@@ -7326,10 +7345,10 @@ class _EqScreenState extends State<EqScreen>
 
   String _getTapeDriftPresetName(TapeDriftPreset preset) {
     return switch (preset) {
-      TapeDriftPreset.subtleHiFi => 'Subtle Hi-Fi',
-      TapeDriftPreset.vintageReelToReel => 'Vintage Reel-to-Reel',
-      TapeDriftPreset.warpedVinyl => 'Warped Vinyl',
-      TapeDriftPreset.cassetteLoFi => 'Cassette Lo-Fi',
+      TapeDriftPreset.subtleHiFi => 'Subtle',
+      TapeDriftPreset.vintageReelToReel => 'Vintage',
+      TapeDriftPreset.warpedVinyl => 'Vinyl',
+      TapeDriftPreset.cassetteLoFi => 'Cassette',
       TapeDriftPreset.custom => 'Custom',
     };
   }
@@ -10482,7 +10501,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.auto_awesome, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Loudness',
-      subtitle: 'ISO 226 equal-loudness contour (Fletcher-Munson)',
+      subtitle: 'ISO 226 equal-loudness (bass/treble)',
       isEnabled: _dynamicLoudnessEnabled,
       onToggle: (v) {
         setState(() => _dynamicLoudnessEnabled = v);
@@ -10490,36 +10509,6 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: primaryColor.withValues(
-                  alpha: _dynamicLoudnessEnabled ? 0.35 : 0.1),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline_rounded,
-                  size: 18,
-                  color:
-                      _dynamicLoudnessEnabled ? primaryColor : Colors.white38),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'ISO 226:2003 equal-loudness contour automatically adapts bass & treble boost relative to listening volume. Quiet volumes receive full physiological compensation; at reference level, response smoothly flattens.',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75),
-                    fontSize: 11.5,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 14),
 
         // Quick Preset Chips
@@ -10530,9 +10519,9 @@ class _EqScreenState extends State<EqScreen>
             children: [
               for (final p in [
                 ('Gentle (+6dB / +3dB)', 0.0, 6.0, 3.0),
-                ('Standard ISO 226 (+9dB / +4.5dB)', 0.0, 9.0, 4.5),
-                ('Night Low-Volume (+12dB / +6dB)', -3.0, 12.0, 6.0),
-                ('Audiophile Subtle (+3.5dB / +2dB)', 0.0, 3.5, 2.0),
+                ('Standard (+9dB / +4.5dB)', 0.0, 9.0, 4.5),
+                ('Night (+12dB / +6dB)', -3.0, 12.0, 6.0),
+                ('Subtle (+3.5dB / +2dB)', 0.0, 3.5, 2.0),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6.0),
@@ -10659,11 +10648,14 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(Icons.stacked_bar_chart_rounded,
             color: primaryColor, size: 20),
       ),
-      title: 'Broadcast Leveller',
-      subtitle: 'Slow-window automatic gain control (dual-speed AGC)',
+      title: 'Auto Gain Control',
+      subtitle: 'Slow-window automatic gain control',
       isEnabled: _levellerEnabled,
       onToggle: (v) {
-        setState(() => _levellerEnabled = v);
+        setState(() {
+          _levellerEnabled = v;
+          if (!v) _levellerGainNotifier.value = 0.0;
+        });
         _updateLeveller();
         _saveEqState();
       },
@@ -10672,12 +10664,14 @@ class _EqScreenState extends State<EqScreen>
         ValueListenableBuilder<double>(
           valueListenable: _levellerGainNotifier,
           builder: (context, currentGain, _) {
-            final isBoosting = currentGain > 0.05;
-            final isAttenuating = currentGain < -0.05;
+            final isBoosting = _isPlaying && currentGain > 0.05;
+            final isAttenuating = _isPlaying && currentGain < -0.05;
             final gainColor = isBoosting
                 ? primaryColor
                 : (isAttenuating ? const Color(0xFFFF9100) : Colors.white54);
-            final clampedRatio = (currentGain / 18.0).clamp(-1.0, 1.0);
+            final clampedRatio = _isPlaying
+                ? (currentGain / 18.0).clamp(-1.0, 1.0)
+                : 0.0;
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -10703,10 +10697,14 @@ class _EqScreenState extends State<EqScreen>
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: _levellerEnabled &&
+                                      _isPlaying &&
                                       (isBoosting || isAttenuating)
                                   ? gainColor
-                                  : Colors.white24,
+                                  : (_levellerEnabled
+                                      ? primaryColor.withValues(alpha: 0.4)
+                                      : Colors.white24),
                               boxShadow: _levellerEnabled &&
+                                      _isPlaying &&
                                       (isBoosting || isAttenuating)
                                   ? [
                                       BoxShadow(
@@ -10719,7 +10717,7 @@ class _EqScreenState extends State<EqScreen>
                           ),
                           const SizedBox(width: 6),
                           const Text(
-                            'LEVELLER GAIN OFFSET',
+                            'Gain Offset',
                             style: TextStyle(
                               color: Colors.white70,
                               fontSize: 10.5,
@@ -10731,10 +10729,16 @@ class _EqScreenState extends State<EqScreen>
                       ),
                       Text(
                         _levellerEnabled
-                            ? '${currentGain >= 0 ? '+' : ''}${currentGain.toStringAsFixed(1)} dB'
+                            ? (!_isPlaying
+                                ? '0.0 dB'
+                                : '${currentGain >= 0 ? '+' : ''}${currentGain.toStringAsFixed(1)} dB')
                             : 'OFF',
                         style: TextStyle(
-                          color: _levellerEnabled ? gainColor : Colors.white38,
+                          color: _levellerEnabled && _isPlaying
+                              ? gainColor
+                              : (_levellerEnabled
+                                  ? Colors.white70
+                                  : Colors.white38),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
@@ -10744,41 +10748,83 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   const SizedBox(height: 8),
                   // Bipolar Offset Meter Bar (-18dB to +18dB with 0dB center)
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      Container(width: 2, height: 12, color: Colors.white30),
-                      if (_levellerEnabled && clampedRatio.abs() > 0.01)
-                        Align(
-                          alignment: clampedRatio > 0
-                              ? Alignment.centerLeft
-                              : Alignment.centerRight,
-                          child: FractionallySizedBox(
-                            widthFactor:
-                                (clampedRatio.abs() * 0.5).clamp(0.0, 0.5),
-                            child: Container(
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: gainColor,
-                                borderRadius: BorderRadius.circular(4),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: gainColor.withValues(alpha: 0.5),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                            ),
+                  SizedBox(
+                    height: 12,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
                           ),
                         ),
-                    ],
+                        // Center 0 dB calibration tick
+                        Container(width: 2, height: 12, color: Colors.white38),
+                        // Dynamic Bipolar Deflection Bar
+                        if (_levellerEnabled && _isPlaying && clampedRatio.abs() > 0.005)
+                          Positioned.fill(
+                            child: Row(
+                              children: [
+                                // Left half (-18 dB to 0 dB attenuation)
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: clampedRatio < 0
+                                        ? FractionallySizedBox(
+                                            widthFactor: clampedRatio.abs().clamp(0.0, 1.0),
+                                            child: Container(
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: gainColor,
+                                                borderRadius: const BorderRadius.horizontal(
+                                                  left: Radius.circular(4),
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: gainColor.withValues(alpha: 0.5),
+                                                    blurRadius: 4,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ),
+                                const SizedBox(width: 2), // gap for center tick
+                                // Right half (0 dB to +18 dB boost)
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: clampedRatio > 0
+                                        ? FractionallySizedBox(
+                                            widthFactor: clampedRatio.clamp(0.0, 1.0),
+                                            child: Container(
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: gainColor,
+                                                borderRadius: const BorderRadius.horizontal(
+                                                  right: Radius.circular(4),
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: gainColor.withValues(alpha: 0.5),
+                                                    blurRadius: 4,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 4),
                   const Row(
@@ -10809,10 +10855,10 @@ class _EqScreenState extends State<EqScreen>
           child: Row(
             children: [
               for (final p in [
-                ('Broadcast EBU (-23 LUFS)', -23.0, 0.5, 1.0, 9.0, 12.0),
-                ('Streaming / Podcast (-16 LUFS)', -16.0, 0.75, 1.5, 9.0, 12.0),
-                ('Club / Pop (-14 LUFS)', -14.0, 1.0, 2.0, 6.0, 14.0),
-                ('Gentle Hi-Fi (-18 LUFS)', -18.0, 0.35, 0.8, 6.0, 8.0),
+                ('EBU (-23 LUFS)', -23.0, 0.5, 1.0, 9.0, 12.0),
+                ('Streaming (-16 LUFS)', -16.0, 0.75, 1.5, 9.0, 12.0),
+                ('Pop (-14 LUFS)', -14.0, 1.0, 2.0, 6.0, 14.0),
+                ('Flat (-18  LUFS)', -18.0, 0.35, 0.8, 6.0, 8.0),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6.0),
@@ -10949,11 +10995,14 @@ class _EqScreenState extends State<EqScreen>
       icon: Center(
         child: Icon(Icons.door_sliding_rounded, color: primaryColor, size: 20),
       ),
-      title: 'Studio Noise Gate',
-      subtitle: 'Hysteresis & hold-time downward noise suppressor',
+      title: 'Noise Gate',
+      subtitle: 'Downward Noise Suppressor',
       isEnabled: _noiseGateEnabled,
       onToggle: (v) {
-        setState(() => _noiseGateEnabled = v);
+        setState(() {
+          _noiseGateEnabled = v;
+          if (!v) _noiseGateGrNotifier.value = 0.0;
+        });
         _updateNoiseGate();
         _saveEqState();
       },
@@ -10963,13 +11012,19 @@ class _EqScreenState extends State<EqScreen>
           valueListenable: _noiseGateGrNotifier,
           builder: (context, currentGr, _) {
             final grDb = currentGr.abs();
-            final isOpen = grDb < 0.2;
-            final isClosed = grDb > 10.0;
-            final gateColor = isOpen
-                ? primaryColor
-                : (isClosed
-                    ? const Color(0xFFFF5252)
-                    : const Color(0xFFFFB300));
+            final isGateActive = _noiseGateEnabled && _isPlaying;
+            final isOpen = isGateActive && grDb < 0.2;
+            final isClosed = !isGateActive || grDb > 10.0;
+            final isHold = isGateActive && !isOpen && !isClosed;
+            final gateColor = !_noiseGateEnabled
+                ? Colors.white24
+                : (!isGateActive
+                    ? Colors.white38
+                    : (isOpen
+                        ? primaryColor
+                        : (isClosed
+                            ? const Color(0xFFFF5252)
+                            : const Color(0xFFFFB300))));
             final grFraction = (grDb / 48.0).clamp(0.0, 1.0);
 
             return Container(
@@ -10995,10 +11050,12 @@ class _EqScreenState extends State<EqScreen>
                             height: 8,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: _noiseGateEnabled
+                              color: _noiseGateEnabled && _isPlaying
                                   ? gateColor
-                                  : Colors.white24,
-                              boxShadow: _noiseGateEnabled
+                                  : (_noiseGateEnabled
+                                      ? primaryColor.withValues(alpha: 0.4)
+                                      : Colors.white24),
+                              boxShadow: _noiseGateEnabled && _isPlaying
                                   ? [
                                       BoxShadow(
                                         color: gateColor.withValues(alpha: 0.6),
@@ -11010,15 +11067,19 @@ class _EqScreenState extends State<EqScreen>
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _noiseGateEnabled
-                                ? (isOpen
-                                    ? 'GATE OPEN'
-                                    : (isClosed ? 'GATE CLOSED' : 'GATE HOLD'))
-                                : 'GATE DISABLED',
+                            !_noiseGateEnabled
+                                ? 'GATE DISABLED'
+                                : (!_isPlaying
+                                    ? 'STANDBY (IDLE)'
+                                    : (isOpen
+                                        ? 'GATE OPEN'
+                                        : (isClosed
+                                            ? 'GATE CLOSED'
+                                            : 'GATE HOLD'))),
                             style: TextStyle(
                               color: _noiseGateEnabled
-                                  ? gateColor
-                                  : Colors.white70,
+                                  ? (_isPlaying ? gateColor : Colors.white70)
+                                  : Colors.white38,
                               fontSize: 10.5,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 0.8,
@@ -11027,13 +11088,19 @@ class _EqScreenState extends State<EqScreen>
                         ],
                       ),
                       Text(
-                        _noiseGateEnabled
-                            ? (grDb > 0.05
-                                ? '-${grDb.toStringAsFixed(1)} dB'
-                                : '0.0 dB')
-                            : 'OFF',
+                        !_noiseGateEnabled
+                            ? 'OFF'
+                            : (!_isPlaying
+                                ? '0.0 dB'
+                                : (grDb > 0.05
+                                    ? '-${grDb.toStringAsFixed(1)} dB'
+                                    : '0.0 dB')),
                         style: TextStyle(
-                          color: _noiseGateEnabled ? gateColor : Colors.white38,
+                          color: _noiseGateEnabled && _isPlaying
+                              ? gateColor
+                              : (_noiseGateEnabled
+                                  ? Colors.white70
+                                  : Colors.white38),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
@@ -11053,7 +11120,7 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       ),
                       FractionallySizedBox(
-                        widthFactor: _noiseGateEnabled ? grFraction : 0.0,
+                        widthFactor: isGateActive ? grFraction : 0.0,
                         child: Container(
                           height: 8,
                           decoration: BoxDecoration(
@@ -11105,10 +11172,10 @@ class _EqScreenState extends State<EqScreen>
           child: Row(
             children: [
               for (final p in [
-                ('Vocal / Podcast', -38.0, -44.0, 100.0, 1.0, 120.0, 100.0),
-                ('Vinyl & Tape Clean', -48.0, -54.0, 60.0, 2.0, 150.0, 60.0),
-                ('Fast Percussion', -32.0, -38.0, 30.0, 0.5, 60.0, 40.0),
-                ('Gentle Room', -55.0, -62.0, 150.0, 3.0, 250.0, 80.0),
+                ('Vocal', -38.0, -44.0, 100.0, 1.0, 120.0, 100.0),
+                ('Vinyl', -48.0, -54.0, 60.0, 2.0, 150.0, 60.0),
+                ('Fast', -32.0, -38.0, 30.0, 0.5, 60.0, 40.0),
+                ('Gentle', -55.0, -62.0, 150.0, 3.0, 250.0, 80.0),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6.0),
