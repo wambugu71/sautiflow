@@ -29,7 +29,7 @@ class DynamicEqBandModel {
 }
 
 /// A sleek, studio-grade real-time frequency response visualization graph
-/// specifically engineered for the 4-Band Dynamic Equalizer.
+/// specifically engineered for the Dynamic Equalizer (up to 6 bands).
 ///
 /// Features:
 /// - Exact biquad transfer functions H(z) matching `dsp/dynamic_eq_dsp.h`
@@ -56,10 +56,12 @@ class DynamicEqGraph extends StatelessWidget {
   });
 
   static const List<Color> bandColors = [
-    Color(0xFF00E5FF), // Band 1: Cyan
-    Color(0xFFFFB300), // Band 2: Warm Amber
-    Color(0xFFE040FB), // Band 3: Electric Magenta
-    Color(0xFF00E676), // Band 4: Neon Green
+    Color(0xFF78909C), // Band 1 (Sub): Slate Blue
+    Color(0xFFD4A373), // Band 2 (Bass): Muted Ochre
+    Color(0xFF81B29A), // Band 3 (Low-Mid): Sage Green
+    Color(0xFFE07A5F), // Band 4 (Mid-High): Muted Terracotta
+    Color(0xFF9D8DF1), // Band 5 (Presence): Muted Lavender
+    Color(0xFF48BFE3), // Band 6 (Air): Steel Teal
   ];
 
   @override
@@ -73,19 +75,12 @@ class DynamicEqGraph extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 8.0),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(14.0),
+        borderRadius: BorderRadius.circular(12.0),
         border:
-            Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+            Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.0),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14.0),
+        borderRadius: BorderRadius.circular(12.0),
         child: LayoutBuilder(
           builder: (context, constraints) {
             return GestureDetector(
@@ -176,7 +171,7 @@ class DynamicEqGraph extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             isEnabled
-                ? '$activeCount/4 Active'
+                ? '$activeCount/${bands.length} Active'
                 : 'Bypassed',
             style: TextStyle(
               color: isEnabled ? Colors.white70 : Colors.white38,
@@ -388,30 +383,22 @@ class _DynamicEqPainter extends CustomPainter {
       canvas.drawPath(baselineFill, fillPaint);
     }
 
-    // 5. Draw Master Combined Composite Curve
+    // 5. Draw Master Combined Composite Curve (Clean Hairline, No Glow)
     final masterPath = Path();
     masterPath.moveTo(xCoords[0], dbToY(totalDbCurve[0]));
     for (int i = 1; i < numPoints; i++) {
       masterPath.lineTo(xCoords[i], dbToY(totalDbCurve[i]));
     }
 
-    // Glow stroke
-    final glowPaint = Paint()
-      ..color = primaryColor.withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.0
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
-    canvas.drawPath(masterPath, glowPaint);
-
-    // Bright crisp master line
+    // Clean, crisp master line
     final masterStrokePaint = Paint()
       ..color = primaryColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
+      ..strokeWidth = 1.6
       ..strokeCap = StrokeCap.round;
     canvas.drawPath(masterPath, masterStrokePaint);
 
-    // Master gradient fill down to 0 dB line
+    // Subtle master gradient fill down to 0 dB line
     final masterFillPath = Path.from(masterPath);
     masterFillPath.lineTo(xCoords.last, zeroY);
     masterFillPath.lineTo(xCoords.first, zeroY);
@@ -422,7 +409,7 @@ class _DynamicEqPainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          primaryColor.withValues(alpha: 0.20),
+          primaryColor.withValues(alpha: 0.08),
           primaryColor.withValues(alpha: 0.0),
         ],
       ).createShader(
@@ -430,7 +417,7 @@ class _DynamicEqPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawPath(masterFillPath, masterFillPaint);
 
-    // 6. Draw Band Center Handles & Badges (1, 2, 3, 4)
+    // 6. Draw Band Center Handles & Badges (Clean Studio Aesthetic)
     for (int b = 0; b < bands.length; b++) {
       final band = bands[b];
       if (!band.enabled) continue;
@@ -454,46 +441,49 @@ class _DynamicEqPainter extends CustomPainter {
       final bandNetDb = _evalBiquadGainDb(coeffs, freq, sampleRate);
       final handleY = dbToY(bandNetDb);
 
-      // Selected outer pulsing halo
+      // Selected clean outer boundary ring (1px stroke, no blur)
       if (isSelected) {
         canvas.drawCircle(
           Offset(handleX, handleY),
-          14.0,
-          Paint()..color = color.withValues(alpha: 0.22),
+          11.0,
+          Paint()
+            ..color = color.withValues(alpha: 0.75)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.0,
         );
       }
 
-      // Outer ring
+      // Background matte disk
       canvas.drawCircle(
         Offset(handleX, handleY),
-        isSelected ? 10.5 : 8.5,
-        Paint()..color = color.withValues(alpha: 0.40),
+        8.0,
+        Paint()..color = const Color(0xFF1B1D22),
       );
 
-      // Inner solid circle
+      // Inner color circle
       canvas.drawCircle(
         Offset(handleX, handleY),
-        isSelected ? 8.0 : 6.5,
-        Paint()..color = color,
+        7.0,
+        Paint()..color = isSelected ? color : color.withValues(alpha: 0.85),
       );
 
-      // White boundary ring
+      // Clean hairline inner border
       canvas.drawCircle(
         Offset(handleX, handleY),
-        isSelected ? 8.0 : 6.5,
+        7.0,
         Paint()
-          ..color = Colors.white
+          ..color = Colors.white.withValues(alpha: 0.35)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2,
+          ..strokeWidth = 0.8,
       );
 
-      // Band Number Label (1-4)
+      // Band Number Label (1-6)
       final textSpan = TextSpan(
         text: '${b + 1}',
         style: TextStyle(
-          color: Colors.black,
-          fontSize: isSelected ? 9.5 : 8.5,
-          fontWeight: FontWeight.w900,
+          color: Colors.white,
+          fontSize: isSelected ? 9.0 : 8.0,
+          fontWeight: FontWeight.w700,
         ),
       );
       final textPainter = TextPainter(

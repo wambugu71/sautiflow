@@ -475,13 +475,13 @@ class EqScreen extends StatefulWidget {
           (state['levellerSilenceGateLufs'] as num?)?.toDouble() ?? -45.0,
     );
 
-    // 4-Band Dynamic Parametric Equalizer
+    // 6-Band Dynamic Parametric Equalizer
     final dynamicEqEnabled =
         masterEnabled && (state['dynamicEqEnabled'] ?? false);
     player.setDynamicEqEnabled(dynamicEqEnabled);
     final rawDynBands = state['dynamicEqBands'];
     if (rawDynBands is List) {
-      for (int i = 0; i < rawDynBands.length && i < 4; i++) {
+      for (int i = 0; i < rawDynBands.length && i < 6; i++) {
         final b = rawDynBands[i];
         if (b is Map) {
           final tIdx = (b['filterType'] as num?)?.toInt() ?? 0;
@@ -1281,30 +1281,30 @@ class _EqScreenState extends State<EqScreen>
   double get _levellerCurrentGainDb => _levellerGainNotifier.value;
   set _levellerCurrentGainDb(double v) => _levellerGainNotifier.value = v;
 
-  // 10. 4-Band Dynamic Equalizer (DynamicEqDSP)
+  // 10. 6-Band Dynamic Equalizer (DynamicEqDSP)
   bool _dynamicEqEnabled = false;
   int _selectedDynamicEqBand = 0;
   late final List<_DynamicEqBandState> _dynamicEqBands = [
     _DynamicEqBandState(
       filterType: DynamicEqFilterType.lowShelf,
       mode: DynamicEqMode.compress,
-      freqHz: 100.0,
-      q: 0.7,
+      freqHz: 60.0,
+      q: 0.71,
       baseGainDb: 0.0,
-      thresholdDb: -24.0,
+      thresholdDb: -20.0,
       rangeDb: 6.0,
       ratio: 3.0,
-      attackMs: 2.0,
-      releaseMs: 60.0,
+      attackMs: 3.0,
+      releaseMs: 80.0,
     ),
     _DynamicEqBandState(
       filterType: DynamicEqFilterType.peak,
       mode: DynamicEqMode.compress,
-      freqHz: 400.0,
+      freqHz: 180.0,
       q: 1.2,
       baseGainDb: 0.0,
-      thresholdDb: -24.0,
-      rangeDb: 6.0,
+      thresholdDb: -20.0,
+      rangeDb: 5.0,
       ratio: 2.5,
       attackMs: 2.0,
       releaseMs: 60.0,
@@ -1312,26 +1312,50 @@ class _EqScreenState extends State<EqScreen>
     _DynamicEqBandState(
       filterType: DynamicEqFilterType.peak,
       mode: DynamicEqMode.compress,
-      freqHz: 2500.0,
-      q: 1.5,
+      freqHz: 600.0,
+      q: 1.4,
+      baseGainDb: 0.0,
+      thresholdDb: -22.0,
+      rangeDb: 5.0,
+      ratio: 2.5,
+      attackMs: 2.0,
+      releaseMs: 60.0,
+    ),
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.peak,
+      mode: DynamicEqMode.compress,
+      freqHz: 2000.0,
+      q: 1.6,
       baseGainDb: 0.0,
       thresholdDb: -24.0,
       rangeDb: 6.0,
       ratio: 3.0,
       attackMs: 2.0,
-      releaseMs: 60.0,
+      releaseMs: 50.0,
+    ),
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.peak,
+      mode: DynamicEqMode.compress,
+      freqHz: 6000.0,
+      q: 2.0,
+      baseGainDb: 0.0,
+      thresholdDb: -24.0,
+      rangeDb: 6.0,
+      ratio: 3.5,
+      attackMs: 1.5,
+      releaseMs: 40.0,
     ),
     _DynamicEqBandState(
       filterType: DynamicEqFilterType.highShelf,
       mode: DynamicEqMode.compress,
-      freqHz: 8000.0,
-      q: 0.7,
+      freqHz: 12000.0,
+      q: 0.71,
       baseGainDb: 0.0,
-      thresholdDb: -24.0,
-      rangeDb: 6.0,
-      ratio: 2.5,
-      attackMs: 2.0,
-      releaseMs: 60.0,
+      thresholdDb: -22.0,
+      rangeDb: 4.0,
+      ratio: 2.0,
+      attackMs: 4.0,
+      releaseMs: 80.0,
     ),
   ];
 
@@ -1344,23 +1368,23 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 100.0,
-        q: 0.7,
+        freqHz: 60.0,
+        q: 0.71,
         baseGainDb: 0.0,
-        thresholdDb: -24.0,
+        thresholdDb: -20.0,
         rangeDb: 6.0,
         ratio: 3.0,
-        attackMs: 2.0,
-        releaseMs: 60.0,
+        attackMs: 3.0,
+        releaseMs: 80.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 400.0,
+        freqHz: 180.0,
         q: 1.2,
         baseGainDb: 0.0,
-        thresholdDb: -24.0,
-        rangeDb: 6.0,
+        thresholdDb: -20.0,
+        rangeDb: 5.0,
         ratio: 2.5,
         attackMs: 2.0,
         releaseMs: 60.0,
@@ -1368,36 +1392,60 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 2500.0,
-        q: 1.5,
+        freqHz: 600.0,
+        q: 1.4,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 5.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 2000.0,
+        q: 1.6,
         baseGainDb: 0.0,
         thresholdDb: -24.0,
         rangeDb: 6.0,
         ratio: 3.0,
         attackMs: 2.0,
-        releaseMs: 60.0,
+        releaseMs: 50.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 6000.0,
+        q: 2.0,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 3.5,
+        attackMs: 1.5,
+        releaseMs: 40.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 8000.0,
-        q: 0.7,
+        freqHz: 12000.0,
+        q: 0.71,
         baseGainDb: 0.0,
-        thresholdDb: -24.0,
-        rangeDb: 6.0,
-        ratio: 2.5,
-        attackMs: 2.0,
-        releaseMs: 60.0,
+        thresholdDb: -22.0,
+        rangeDb: 4.0,
+        ratio: 2.0,
+        attackMs: 4.0,
+        releaseMs: 80.0,
       ),
     ],
     'Vocal De-Box & De-Harsh': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 120.0,
+        freqHz: 100.0,
         q: 0.7,
         baseGainDb: 0.0,
-        thresholdDb: -22.0,
+        thresholdDb: -24.0,
         rangeDb: 4.0,
         ratio: 2.5,
         attackMs: 3.0,
@@ -1406,45 +1454,69 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 450.0,
+        freqHz: 300.0,
         q: 1.8,
-        baseGainDb: 0.0,
+        baseGainDb: -0.5,
         thresholdDb: -20.0,
-        rangeDb: 6.0,
+        rangeDb: 5.0,
         ratio: 3.0,
-        attackMs: 1.5,
+        attackMs: 2.0,
         releaseMs: 60.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 3500.0,
+        freqHz: 750.0,
+        q: 1.5,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 4.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 50.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 3200.0,
         q: 2.2,
         baseGainDb: 0.0,
         thresholdDb: -24.0,
-        rangeDb: 8.0,
-        ratio: 4.0,
+        rangeDb: 7.0,
+        ratio: 3.5,
         attackMs: 1.0,
         releaseMs: 40.0,
       ),
       _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 6500.0,
+        q: 2.5,
+        baseGainDb: 0.0,
+        thresholdDb: -26.0,
+        rangeDb: 8.0,
+        ratio: 4.0,
+        attackMs: 0.8,
+        releaseMs: 35.0,
+      ),
+      _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.expand,
-        freqHz: 10000.0,
+        freqHz: 11000.0,
         q: 0.8,
         baseGainDb: 1.0,
-        thresholdDb: -26.0,
+        thresholdDb: -24.0,
         rangeDb: 4.0,
         ratio: 2.0,
-        attackMs: 5.0,
-        releaseMs: 100.0,
+        attackMs: 4.0,
+        releaseMs: 90.0,
       ),
     ],
     'Bass Punch & Sub Control': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 50.0,
+        freqHz: 45.0,
         q: 0.8,
         baseGainDb: 1.5,
         thresholdDb: -18.0,
@@ -1456,31 +1528,56 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.expand,
-        freqHz: 110.0,
+        freqHz: 90.0,
         q: 1.6,
         baseGainDb: 0.0,
-        thresholdDb: -22.0,
-        rangeDb: 5.0,
-        ratio: 2.5,
+        thresholdDb: -20.0,
+        rangeDb: 6.0,
+        ratio: 2.8,
         attackMs: 2.0,
         releaseMs: 50.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 300.0,
+        freqHz: 220.0,
         q: 1.4,
         baseGainDb: 0.0,
-        thresholdDb: -24.0,
+        thresholdDb: -22.0,
         rangeDb: 5.0,
         ratio: 3.0,
         attackMs: 2.0,
         releaseMs: 60.0,
       ),
       _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 700.0,
+        q: 1.5,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 4.0,
+        ratio: 2.5,
+        attackMs: 2.0,
+        releaseMs: 50.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.staticMode,
+        freqHz: 2500.0,
+        q: 1.8,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 0.0,
+        ratio: 2.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+        enabled: false,
+      ),
+      _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.staticMode,
-        freqHz: 7500.0,
+        freqHz: 8000.0,
         q: 0.7,
         baseGainDb: 0.0,
         thresholdDb: -24.0,
@@ -1495,7 +1592,7 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.staticMode,
-        freqHz: 100.0,
+        freqHz: 80.0,
         q: 0.7,
         baseGainDb: 0.0,
         thresholdDb: -24.0,
@@ -1507,59 +1604,96 @@ class _EqScreenState extends State<EqScreen>
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.staticMode,
+        freqHz: 400.0,
+        q: 1.2,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 0.0,
+        ratio: 2.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+        enabled: false,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 2800.0,
+        freqHz: 2500.0,
         q: 1.8,
         baseGainDb: 0.0,
         thresholdDb: -22.0,
-        rangeDb: 5.0,
-        ratio: 3.0,
+        rangeDb: 4.0,
+        ratio: 2.5,
+        attackMs: 1.5,
+        releaseMs: 45.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 5500.0,
+        q: 2.5,
+        baseGainDb: 0.0,
+        thresholdDb: -25.0,
+        rangeDb: 6.0,
+        ratio: 3.5,
         attackMs: 1.0,
         releaseMs: 40.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 6500.0,
-        q: 2.5,
+        freqHz: 8000.0,
+        q: 2.8,
         baseGainDb: 0.0,
         thresholdDb: -26.0,
-        rangeDb: 7.0,
+        rangeDb: 8.0,
         ratio: 4.0,
-        attackMs: 0.8,
-        releaseMs: 35.0,
+        attackMs: 0.7,
+        releaseMs: 30.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.expand,
-        freqHz: 12000.0,
+        freqHz: 12500.0,
         q: 0.7,
         baseGainDb: 1.0,
         thresholdDb: -28.0,
         rangeDb: 4.0,
         ratio: 2.2,
         attackMs: 4.0,
-        releaseMs: 90.0,
+        releaseMs: 80.0,
       ),
     ],
     'Acoustic Clarity & Tamer': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 180.0,
-        q: 1.0,
+        freqHz: 120.0,
+        q: 0.8,
         baseGainDb: -1.0,
         thresholdDb: -20.0,
-        rangeDb: 6.0,
-        ratio: 3.0,
+        rangeDb: 5.0,
+        ratio: 2.8,
         attackMs: 3.0,
         releaseMs: 70.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 850.0,
-        q: 1.5,
+        freqHz: 280.0,
+        q: 1.6,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 5.0,
+        ratio: 3.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 800.0,
+        q: 1.4,
         baseGainDb: 0.0,
         thresholdDb: -24.0,
         rangeDb: 4.0,
@@ -1570,19 +1704,31 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 3200.0,
-        q: 2.0,
+        freqHz: 2400.0,
+        q: 1.8,
         baseGainDb: 0.0,
         thresholdDb: -22.0,
-        rangeDb: 5.0,
-        ratio: 3.2,
-        attackMs: 1.2,
+        rangeDb: 4.0,
+        ratio: 2.8,
+        attackMs: 1.5,
         releaseMs: 45.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 4500.0,
+        q: 2.0,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 5.0,
+        ratio: 3.0,
+        attackMs: 1.0,
+        releaseMs: 40.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.expand,
-        freqHz: 9000.0,
+        freqHz: 10000.0,
         q: 0.8,
         baseGainDb: 0.5,
         thresholdDb: -25.0,
@@ -1596,7 +1742,7 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
         mode: DynamicEqMode.compress,
-        freqHz: 60.0,
+        freqHz: 50.0,
         q: 0.7,
         baseGainDb: 0.0,
         thresholdDb: -18.0,
@@ -1608,35 +1754,59 @@ class _EqScreenState extends State<EqScreen>
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 350.0,
+        freqHz: 160.0,
         q: 1.2,
         baseGainDb: 0.0,
         thresholdDb: -20.0,
-        rangeDb: 3.0,
-        ratio: 2.2,
+        rangeDb: 2.5,
+        ratio: 2.0,
         attackMs: 8.0,
         releaseMs: 100.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.peak,
         mode: DynamicEqMode.compress,
-        freqHz: 3000.0,
+        freqHz: 500.0,
+        q: 1.3,
+        baseGainDb: 0.0,
+        thresholdDb: -22.0,
+        rangeDb: 2.5,
+        ratio: 2.0,
+        attackMs: 6.0,
+        releaseMs: 80.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 2500.0,
         q: 1.4,
         baseGainDb: 0.0,
         thresholdDb: -22.0,
-        rangeDb: 3.5,
-        ratio: 2.5,
+        rangeDb: 3.0,
+        ratio: 2.2,
         attackMs: 5.0,
-        releaseMs: 80.0,
+        releaseMs: 70.0,
+      ),
+      _DynamicEqBandState(
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 6000.0,
+        q: 1.8,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 3.0,
+        ratio: 2.5,
+        attackMs: 4.0,
+        releaseMs: 60.0,
       ),
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.highShelf,
         mode: DynamicEqMode.expand,
-        freqHz: 11000.0,
+        freqHz: 12000.0,
         q: 0.7,
         baseGainDb: 0.5,
         thresholdDb: -24.0,
-        rangeDb: 3.0,
+        rangeDb: 2.5,
         ratio: 1.8,
         attackMs: 10.0,
         releaseMs: 120.0,
@@ -2125,15 +2295,24 @@ class _EqScreenState extends State<EqScreen>
         _dynamicEqPreset =
             (dspMap['dynamicEqPreset'] as String?) ?? 'Default (Balanced)';
         final rawDynBands = dspMap['dynamicEqBands'];
-        if (rawDynBands is List && rawDynBands.length == 4) {
+        if (rawDynBands is List && rawDynBands.isNotEmpty) {
           _dynamicEqBands.clear();
           for (var b in rawDynBands) {
+            if (_dynamicEqBands.length >= 6) break;
             if (b is Map<String, dynamic>) {
               _dynamicEqBands.add(_DynamicEqBandState.fromJson(b));
             } else if (b is Map) {
               _dynamicEqBands.add(_DynamicEqBandState.fromJson(
                   Map<String, dynamic>.from(b)));
             }
+          }
+          // If migrated from older 4-band save, fill remaining bands from default
+          final defaultBands =
+              _builtInDynamicEqPresets['Default (Balanced)'] ?? [];
+          while (_dynamicEqBands.length < 6 &&
+              _dynamicEqBands.length < defaultBands.length) {
+            _dynamicEqBands
+                .add(defaultBands[_dynamicEqBands.length].copyWith());
           }
         }
 
@@ -11064,7 +11243,7 @@ class _EqScreenState extends State<EqScreen>
             color: primaryColor, size: 20),
       ),
       title: 'Dynamic Equalizer',
-      subtitle: '4-Band studio-grade dynamic parametric equalizer',
+      subtitle: '6-Band studio-grade dynamic parametric equalizer',
       isEnabled: _dynamicEqEnabled,
       onToggle: (v) {
         setState(() => _dynamicEqEnabled = v);
@@ -11163,22 +11342,13 @@ class _EqScreenState extends State<EqScreen>
         child: Container(
           decoration: BoxDecoration(
             color: surfaceDarkerColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isSelected
-                  ? bandColor
-                  : Colors.white.withValues(alpha: 0.12),
-              width: isSelected ? 1.6 : 1.0,
+                  ? bandColor.withValues(alpha: 0.55)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: 1.0,
             ),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: bandColor.withValues(alpha: 0.18),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
           ),
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -11196,14 +11366,18 @@ class _EqScreenState extends State<EqScreen>
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: bandColor,
+                          color: bandColor.withValues(alpha: 0.18),
+                          border: Border.all(
+                            color: bandColor.withValues(alpha: 0.65),
+                            width: 1.0,
+                          ),
                         ),
                         child: Text(
                           '${index + 1}',
-                          style: const TextStyle(
-                            color: Colors.black,
+                          style: TextStyle(
+                            color: bandColor,
                             fontSize: 11,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -11241,11 +11415,23 @@ class _EqScreenState extends State<EqScreen>
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: isStatic
-                              ? Colors.white10
+                              ? Colors.white.withValues(alpha: 0.05)
                               : (band.mode == DynamicEqMode.compress
-                                  ? Colors.amber.withValues(alpha: 0.15)
-                                  : Colors.purpleAccent.withValues(alpha: 0.15)),
+                                  ? const Color(0xFFD4A373)
+                                      .withValues(alpha: 0.12)
+                                  : const Color(0xFF9D8DF1)
+                                      .withValues(alpha: 0.12)),
                           borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: isStatic
+                                ? Colors.white.withValues(alpha: 0.10)
+                                : (band.mode == DynamicEqMode.compress
+                                    ? const Color(0xFFD4A373)
+                                        .withValues(alpha: 0.35)
+                                    : const Color(0xFF9D8DF1)
+                                        .withValues(alpha: 0.35)),
+                            width: 0.8,
+                          ),
                         ),
                         child: Text(
                           switch (band.mode) {
@@ -11255,12 +11441,12 @@ class _EqScreenState extends State<EqScreen>
                           },
                           style: TextStyle(
                             color: isStatic
-                                ? Colors.white38
+                                ? Colors.white54
                                 : (band.mode == DynamicEqMode.compress
-                                    ? Colors.amber
-                                    : Colors.purpleAccent),
+                                    ? const Color(0xFFD4A373)
+                                    : const Color(0xFF9D8DF1)),
                             fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
                           ),
                         ),

@@ -58,41 +58,56 @@ struct DynamicEqBandConfig {
 
 class DynamicEqDSP {
 public:
-    static constexpr size_t kMaxBands = 4;
+    static constexpr size_t kMaxBands = 6;
     static constexpr size_t kMaxChannels = 2;
     static constexpr size_t kSubBlockSize = 32;
 
     DynamicEqDSP() {
         setSampleRate(48000.0f);
-        // Default band configurations for musical utility
-        // Band 0: Low-Mid warmth / resonance tamer (200 Hz)
-        bands_[0].config.freq_hz = 200.0f;
-        bands_[0].config.q = 1.2f;
+        // Default 6-band configuration spanning full audible spectrum
+        // Band 0: Sub / Low-end rumble & boom control (60 Hz, Low-Shelf)
+        bands_[0].config.type = DynamicEqFilterType::LowShelf;
+        bands_[0].config.freq_hz = 60.0f;
+        bands_[0].config.q = 0.707f;
         bands_[0].config.threshold_db = -20.0f;
         bands_[0].config.range_db = 6.0f;
-        bands_[0].config.ratio = 2.5f;
+        bands_[0].config.ratio = 3.0f;
 
-        // Band 1: Mid-range boxiness tamer (800 Hz)
-        bands_[1].config.freq_hz = 800.0f;
-        bands_[1].config.q = 1.5f;
-        bands_[1].config.threshold_db = -22.0f;
-        bands_[1].config.range_db = 6.0f;
-        bands_[1].config.ratio = 3.0f;
+        // Band 1: Bass / warmth & punch tamer (180 Hz)
+        bands_[1].config.freq_hz = 180.0f;
+        bands_[1].config.q = 1.2f;
+        bands_[1].config.threshold_db = -20.0f;
+        bands_[1].config.range_db = 5.0f;
+        bands_[1].config.ratio = 2.5f;
 
-        // Band 2: Harshness / sibilance tamer (3500 Hz)
-        bands_[2].config.freq_hz = 3500.0f;
-        bands_[2].config.q = 2.0f;
-        bands_[2].config.threshold_db = -24.0f;
-        bands_[2].config.range_db = 8.0f;
-        bands_[2].config.ratio = 4.0f;
+        // Band 2: Low-Mid boxiness & mud tamer (600 Hz)
+        bands_[2].config.freq_hz = 600.0f;
+        bands_[2].config.q = 1.4f;
+        bands_[2].config.threshold_db = -22.0f;
+        bands_[2].config.range_db = 5.0f;
+        bands_[2].config.ratio = 2.5f;
 
-        // Band 3: High-end air / splash controller (9000 Hz, High-Shelf)
-        bands_[3].config.type = DynamicEqFilterType::HighShelf;
-        bands_[3].config.freq_hz = 9000.0f;
-        bands_[3].config.q = 0.707f;
-        bands_[3].config.threshold_db = -20.0f;
+        // Band 3: Core Mid clarity / bite controller (2000 Hz)
+        bands_[3].config.freq_hz = 2000.0f;
+        bands_[3].config.q = 1.6f;
+        bands_[3].config.threshold_db = -24.0f;
         bands_[3].config.range_db = 6.0f;
-        bands_[3].config.ratio = 2.0f;
+        bands_[3].config.ratio = 3.0f;
+
+        // Band 4: Presence / sibilance tamer (6000 Hz)
+        bands_[4].config.freq_hz = 6000.0f;
+        bands_[4].config.q = 2.0f;
+        bands_[4].config.threshold_db = -24.0f;
+        bands_[4].config.range_db = 6.0f;
+        bands_[4].config.ratio = 3.5f;
+
+        // Band 5: High-end air & brilliance (12000 Hz, High-Shelf)
+        bands_[5].config.type = DynamicEqFilterType::HighShelf;
+        bands_[5].config.freq_hz = 12000.0f;
+        bands_[5].config.q = 0.707f;
+        bands_[5].config.threshold_db = -22.0f;
+        bands_[5].config.range_db = 4.0f;
+        bands_[5].config.ratio = 2.0f;
 
         reset();
     }
