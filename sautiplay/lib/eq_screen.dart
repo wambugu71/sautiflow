@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
@@ -27,6 +28,70 @@ import 'widgets/race_visualizer.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
 
 import 'services/app_theme_service.dart';
+class _DynamicEqBandState {
+  DynamicEqFilterType filterType;
+  DynamicEqMode mode;
+  double freqHz;
+  double q;
+  double baseGainDb;
+  double thresholdDb;
+  double rangeDb;
+  double ratio;
+  double attackMs;
+  double releaseMs;
+  bool enabled;
+
+  _DynamicEqBandState({
+    required this.filterType,
+    required this.mode,
+    required this.freqHz,
+    this.q = 1.0,
+    this.baseGainDb = 0.0,
+    this.thresholdDb = -24.0,
+    this.rangeDb = 6.0,
+    this.ratio = 3.0,
+    this.attackMs = 2.0,
+    this.releaseMs = 60.0,
+    this.enabled = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'filterType': filterType.value,
+        'mode': mode.value,
+        'freqHz': freqHz,
+        'q': q,
+        'baseGainDb': baseGainDb,
+        'thresholdDb': thresholdDb,
+        'rangeDb': rangeDb,
+        'ratio': ratio,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'enabled': enabled,
+      };
+
+  factory _DynamicEqBandState.fromJson(Map<String, dynamic> json) =>
+      _DynamicEqBandState(
+        filterType: (json['filterType'] is int &&
+                json['filterType'] >= 0 &&
+                json['filterType'] < DynamicEqFilterType.values.length)
+            ? DynamicEqFilterType.values[json['filterType']]
+            : DynamicEqFilterType.peak,
+        mode: (json['mode'] is int &&
+                json['mode'] >= 0 &&
+                json['mode'] < DynamicEqMode.values.length)
+            ? DynamicEqMode.values[json['mode']]
+            : DynamicEqMode.compress,
+        freqHz: (json['freqHz'] as num?)?.toDouble() ?? 1000.0,
+        q: (json['q'] as num?)?.toDouble() ?? 1.0,
+        baseGainDb: (json['baseGainDb'] as num?)?.toDouble() ?? 0.0,
+        thresholdDb: (json['thresholdDb'] as num?)?.toDouble() ?? -24.0,
+        rangeDb: (json['rangeDb'] as num?)?.toDouble() ?? 6.0,
+        ratio: (json['ratio'] as num?)?.toDouble() ?? 3.0,
+        attackMs: (json['attackMs'] as num?)?.toDouble() ?? 2.0,
+        releaseMs: (json['releaseMs'] as num?)?.toDouble() ?? 60.0,
+        enabled: json['enabled'] as bool? ?? true,
+      );
+}
 
 class EqScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -317,6 +382,118 @@ class EqScreen extends StatefulWidget {
       airBoostDb: stereoWiden.airBoostDb,
       delayMs: stereoWiden.delayMs * 100.0,
     );
+
+    // Dynamic Loudness (ISO 226 Equal-Loudness Contour)
+    final dynamicLoudnessEnabled =
+        masterEnabled && (state['dynamicLoudnessEnabled'] ?? false);
+    player.setDynamicLoudnessEnabled(dynamicLoudnessEnabled);
+    player.setDynamicLoudnessParams(
+      refLevelDb:
+          (state['dynamicLoudnessRefDb'] as num?)?.toDouble() ?? 0.0,
+      maxBassBoostDb:
+          (state['dynamicLoudnessMaxBassDb'] as num?)?.toDouble() ?? 9.0,
+      maxTrebleBoostDb:
+          (state['dynamicLoudnessMaxTrebleDb'] as num?)?.toDouble() ?? 4.5,
+      bassFreqHz:
+          (state['dynamicLoudnessBassCutoff'] as num?)?.toDouble() ?? 90.0,
+      trebleFreqHz:
+          (state['dynamicLoudnessTrebleCutoff'] as num?)?.toDouble() ?? 9000.0,
+    );
+
+    // Studio Noise Gate (Hysteresis & Hold Time)
+    final noiseGateEnabled =
+        masterEnabled && (state['noiseGateEnabled'] ?? false);
+    player.setNoiseGateEnabled(noiseGateEnabled);
+    player.setNoiseGateParams(
+      openThreshDb:
+          (state['noiseGateOpenThreshDb'] as num?)?.toDouble() ?? -42.0,
+      closeThreshDb:
+          (state['noiseGateCloseThreshDb'] as num?)?.toDouble() ?? -48.0,
+      holdMs: (state['noiseGateHoldMs'] as num?)?.toDouble() ?? 80.0,
+      attackMs: (state['noiseGateAttackMs'] as num?)?.toDouble() ?? 1.0,
+      releaseMs: (state['noiseGateReleaseMs'] as num?)?.toDouble() ?? 120.0,
+      sidechainHpfHz:
+          (state['noiseGateHpfHz'] as num?)?.toDouble() ?? 80.0,
+    );
+
+    // Broadcast Leveller (Slow-Window AGC)
+    final levellerEnabled =
+        masterEnabled && (state['levellerEnabled'] ?? false);
+    player.setLevellerEnabled(levellerEnabled);
+    player.setLevellerParams(
+      targetLufs:
+          (state['levellerTargetLufs'] as num?)?.toDouble() ?? -16.0,
+      maxRiseDbSec:
+          (state['levellerMaxRiseDbSec'] as num?)?.toDouble() ?? 0.75,
+      maxFallDbSec:
+          (state['levellerMaxFallDbSec'] as num?)?.toDouble() ?? 1.5,
+      maxBoostDb:
+          (state['levellerMaxBoostDb'] as num?)?.toDouble() ?? 9.0,
+      maxAttenuationDb:
+          (state['levellerMaxAttenuationDb'] as num?)?.toDouble() ?? 12.0,
+      silenceGateLufs:
+          (state['levellerSilenceGateLufs'] as num?)?.toDouble() ?? -45.0,
+    );
+
+    // 4-Band Dynamic Parametric Equalizer
+    final dynamicEqEnabled =
+        masterEnabled && (state['dynamicEqEnabled'] ?? false);
+    player.setDynamicEqEnabled(dynamicEqEnabled);
+    final rawDynBands = state['dynamicEqBands'];
+    if (rawDynBands is List) {
+      for (int i = 0; i < rawDynBands.length && i < 4; i++) {
+        final b = rawDynBands[i];
+        if (b is Map) {
+          final tIdx = (b['filterType'] as num?)?.toInt() ?? 0;
+          final mIdx = (b['mode'] as num?)?.toInt() ?? 0;
+          player.setDynamicEqBand(
+            bandIndex: i,
+            filterType: (tIdx >= 0 && tIdx < DynamicEqFilterType.values.length)
+                ? DynamicEqFilterType.values[tIdx]
+                : DynamicEqFilterType.peak,
+            mode: (mIdx >= 0 && mIdx < DynamicEqMode.values.length)
+                ? DynamicEqMode.values[mIdx]
+                : DynamicEqMode.compress,
+            freqHz: (b['freqHz'] as num?)?.toDouble() ?? 1000.0,
+            q: (b['q'] as num?)?.toDouble() ?? 1.0,
+            baseGainDb: (b['baseGainDb'] as num?)?.toDouble() ?? 0.0,
+            thresholdDb: (b['thresholdDb'] as num?)?.toDouble() ?? -24.0,
+            rangeDb: (b['rangeDb'] as num?)?.toDouble() ?? 6.0,
+            ratio: (b['ratio'] as num?)?.toDouble() ?? 3.0,
+            attackMs: (b['attackMs'] as num?)?.toDouble() ?? 2.0,
+            releaseMs: (b['releaseMs'] as num?)?.toDouble() ?? 60.0,
+            enabled: b['enabled'] as bool? ?? true,
+          );
+        }
+      }
+    }
+
+    // Vintage Tape Wow, Flutter & Drift
+    final tapeDriftEnabled =
+        masterEnabled && (state['tapeDriftEnabled'] ?? false);
+    player.setTapeDriftEnabled(tapeDriftEnabled);
+    final tapePresetIdx = (state['tapeDriftPreset'] as num?)?.toInt() ?? 0;
+    final tapePreset = (tapePresetIdx >= 0 &&
+            tapePresetIdx < TapeDriftPreset.values.length)
+        ? TapeDriftPreset.values[tapePresetIdx]
+        : TapeDriftPreset.subtleHiFi;
+    player.setTapeDriftPreset(tapePreset);
+    if (tapePreset == TapeDriftPreset.custom) {
+      player.setTapeDriftParams(
+        wowRateHz: (state['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.8,
+        wowDepthMs: (state['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.35,
+        flutterRateHz:
+            (state['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 12.0,
+        flutterDepthMs:
+            (state['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.08,
+        driftDepthMs:
+            (state['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.10,
+        stereoPhaseDeg:
+            (state['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 45.0,
+        hfDampingHz:
+            (state['tapeDriftHfDamping'] as num?)?.toDouble() ?? 18000.0,
+      );
+    }
   }
 
   @override
@@ -1032,6 +1209,103 @@ class _EqScreenState extends State<EqScreen>
   double _masterLimiterOutputGainDb = 0.0;
   double _masterLimiterReleaseMs = 60.0;
 
+  // 7. Dynamic Loudness (ISO 226 Equal-Loudness Contour)
+  bool _dynamicLoudnessEnabled = false;
+  double _dynamicLoudnessRefDb = 0.0;
+  double _dynamicLoudnessMaxBassDb = 9.0;
+  double _dynamicLoudnessMaxTrebleDb = 4.5;
+  double _dynamicLoudnessBassCutoff = 90.0;
+  double _dynamicLoudnessTrebleCutoff = 9000.0;
+
+  // 8. Studio Noise Gate (Hysteresis & Hold Time)
+  bool _noiseGateEnabled = false;
+  double _noiseGateOpenThreshDb = -42.0;
+  double _noiseGateCloseThreshDb = -48.0;
+  double _noiseGateHoldMs = 80.0;
+  double _noiseGateAttackMs = 1.0;
+  double _noiseGateReleaseMs = 120.0;
+  double _noiseGateHpfHz = 80.0;
+  final ValueNotifier<double> _noiseGateGrNotifier = ValueNotifier(0.0);
+  double get _noiseGateGainReductionDb => _noiseGateGrNotifier.value;
+  set _noiseGateGainReductionDb(double v) => _noiseGateGrNotifier.value = v;
+
+  // 9. Broadcast Leveller (Slow-Window AGC)
+  bool _levellerEnabled = false;
+  double _levellerTargetLufs = -16.0;
+  double _levellerMaxRiseDbSec = 0.75;
+  double _levellerMaxFallDbSec = 1.5;
+  double _levellerMaxBoostDb = 9.0;
+  double _levellerMaxAttenuationDb = 12.0;
+  double _levellerSilenceGateLufs = -45.0;
+  final ValueNotifier<double> _levellerGainNotifier = ValueNotifier(0.0);
+  double get _levellerCurrentGainDb => _levellerGainNotifier.value;
+  set _levellerCurrentGainDb(double v) => _levellerGainNotifier.value = v;
+
+  // 10. 4-Band Dynamic Equalizer (DynamicEqDSP)
+  bool _dynamicEqEnabled = false;
+  int _selectedDynamicEqBand = 0;
+  late final List<_DynamicEqBandState> _dynamicEqBands = [
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.lowShelf,
+      mode: DynamicEqMode.compress,
+      freqHz: 100.0,
+      q: 0.7,
+      baseGainDb: 0.0,
+      thresholdDb: -24.0,
+      rangeDb: 6.0,
+      ratio: 3.0,
+      attackMs: 2.0,
+      releaseMs: 60.0,
+    ),
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.peak,
+      mode: DynamicEqMode.compress,
+      freqHz: 400.0,
+      q: 1.2,
+      baseGainDb: 0.0,
+      thresholdDb: -24.0,
+      rangeDb: 6.0,
+      ratio: 2.5,
+      attackMs: 2.0,
+      releaseMs: 60.0,
+    ),
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.peak,
+      mode: DynamicEqMode.compress,
+      freqHz: 2500.0,
+      q: 1.5,
+      baseGainDb: 0.0,
+      thresholdDb: -24.0,
+      rangeDb: 6.0,
+      ratio: 3.0,
+      attackMs: 2.0,
+      releaseMs: 60.0,
+    ),
+    _DynamicEqBandState(
+      filterType: DynamicEqFilterType.highShelf,
+      mode: DynamicEqMode.compress,
+      freqHz: 8000.0,
+      q: 0.7,
+      baseGainDb: 0.0,
+      thresholdDb: -24.0,
+      rangeDb: 6.0,
+      ratio: 2.5,
+      attackMs: 2.0,
+      releaseMs: 60.0,
+    ),
+  ];
+
+  // 11. Vintage Tape Wow, Flutter & Drift (TapeDriftDSP)
+  bool _tapeDriftEnabled = false;
+  TapeDriftPreset _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
+  double _tapeDriftWowRate = 0.8;
+  double _tapeDriftWowDepth = 0.35;
+  double _tapeDriftFlutterRate = 12.0;
+  double _tapeDriftFlutterDepth = 0.08;
+  double _tapeDriftDriftDepth = 0.10;
+  double _tapeDriftStereoPhase = 45.0;
+  double _tapeDriftHfDamping = 18000.0;
+
   // Playback Speed, Pitch & Status
   double _playbackRate = 1.0;
   double _playbackPitch = 1.0;
@@ -1101,6 +1375,28 @@ class _EqScreenState extends State<EqScreen>
           _deEsserGrNotifier.value = 0.0;
         }
       }
+
+      if (_noiseGateEnabled && _isPlaying) {
+        final gateGr = await widget.player.getNoiseGateGainReductionDb();
+        if (mounted && (_noiseGateGrNotifier.value - gateGr).abs() > 0.05) {
+          _noiseGateGrNotifier.value = gateGr;
+        }
+      } else if (_noiseGateGrNotifier.value != 0.0) {
+        if (mounted) {
+          _noiseGateGrNotifier.value = 0.0;
+        }
+      }
+
+      if (_levellerEnabled && _isPlaying) {
+        final levGain = await widget.player.getLevellerCurrentGainDb();
+        if (mounted && (_levellerGainNotifier.value - levGain).abs() > 0.05) {
+          _levellerGainNotifier.value = levGain;
+        }
+      } else if (_levellerGainNotifier.value != 0.0) {
+        if (mounted) {
+          _levellerGainNotifier.value = 0.0;
+        }
+      }
     });
 
     _eqSettingsSub =
@@ -1113,6 +1409,8 @@ class _EqScreenState extends State<EqScreen>
   void dispose() {
     _compressorGrNotifier.dispose();
     _deEsserGrNotifier.dispose();
+    _noiseGateGrNotifier.dispose();
+    _levellerGainNotifier.dispose();
     _compressorMeterTimer?.cancel();
     _statusSub?.cancel();
     _eqSettingsSub?.cancel();
@@ -1394,6 +1692,88 @@ class _EqScreenState extends State<EqScreen>
             (dspMap['limiterOutputGainDb'] as num?)?.toDouble() ?? 0.0;
         _masterLimiterReleaseMs =
             (dspMap['limiterReleaseMs'] as num?)?.toDouble() ?? 60.0;
+
+        // Dynamic Loudness
+        _dynamicLoudnessEnabled = dspMap['dynamicLoudnessEnabled'] ?? false;
+        _dynamicLoudnessRefDb =
+            (dspMap['dynamicLoudnessRefDb'] as num?)?.toDouble() ?? 0.0;
+        _dynamicLoudnessMaxBassDb =
+            (dspMap['dynamicLoudnessMaxBassDb'] as num?)?.toDouble() ?? 9.0;
+        _dynamicLoudnessMaxTrebleDb =
+            (dspMap['dynamicLoudnessMaxTrebleDb'] as num?)?.toDouble() ?? 4.5;
+        _dynamicLoudnessBassCutoff =
+            (dspMap['dynamicLoudnessBassCutoff'] as num?)?.toDouble() ?? 90.0;
+        _dynamicLoudnessTrebleCutoff =
+            (dspMap['dynamicLoudnessTrebleCutoff'] as num?)?.toDouble() ??
+                9000.0;
+
+        // Studio Noise Gate
+        _noiseGateEnabled = dspMap['noiseGateEnabled'] ?? false;
+        _noiseGateOpenThreshDb =
+            (dspMap['noiseGateOpenThreshDb'] as num?)?.toDouble() ?? -42.0;
+        _noiseGateCloseThreshDb =
+            (dspMap['noiseGateCloseThreshDb'] as num?)?.toDouble() ?? -48.0;
+        _noiseGateHoldMs =
+            (dspMap['noiseGateHoldMs'] as num?)?.toDouble() ?? 80.0;
+        _noiseGateAttackMs =
+            (dspMap['noiseGateAttackMs'] as num?)?.toDouble() ?? 1.0;
+        _noiseGateReleaseMs =
+            (dspMap['noiseGateReleaseMs'] as num?)?.toDouble() ?? 120.0;
+        _noiseGateHpfHz =
+            (dspMap['noiseGateHpfHz'] as num?)?.toDouble() ?? 80.0;
+
+        // Broadcast Leveller
+        _levellerEnabled = dspMap['levellerEnabled'] ?? false;
+        _levellerTargetLufs =
+            (dspMap['levellerTargetLufs'] as num?)?.toDouble() ?? -16.0;
+        _levellerMaxRiseDbSec =
+            (dspMap['levellerMaxRiseDbSec'] as num?)?.toDouble() ?? 0.75;
+        _levellerMaxFallDbSec =
+            (dspMap['levellerMaxFallDbSec'] as num?)?.toDouble() ?? 1.5;
+        _levellerMaxBoostDb =
+            (dspMap['levellerMaxBoostDb'] as num?)?.toDouble() ?? 9.0;
+        _levellerMaxAttenuationDb =
+            (dspMap['levellerMaxAttenuationDb'] as num?)?.toDouble() ?? 12.0;
+        _levellerSilenceGateLufs =
+            (dspMap['levellerSilenceGateLufs'] as num?)?.toDouble() ?? -45.0;
+
+        // Dynamic EQ
+        _dynamicEqEnabled = dspMap['dynamicEqEnabled'] ?? false;
+        final rawDynBands = dspMap['dynamicEqBands'];
+        if (rawDynBands is List && rawDynBands.length == 4) {
+          _dynamicEqBands.clear();
+          for (var b in rawDynBands) {
+            if (b is Map<String, dynamic>) {
+              _dynamicEqBands.add(_DynamicEqBandState.fromJson(b));
+            } else if (b is Map) {
+              _dynamicEqBands.add(_DynamicEqBandState.fromJson(
+                  Map<String, dynamic>.from(b)));
+            }
+          }
+        }
+
+        // Vintage Tape Drift
+        _tapeDriftEnabled = dspMap['tapeDriftEnabled'] ?? false;
+        final tapePresetVal =
+            (dspMap['tapeDriftPreset'] as num?)?.toInt() ?? 0;
+        _tapeDriftPreset = (tapePresetVal >= 0 &&
+                tapePresetVal < TapeDriftPreset.values.length)
+            ? TapeDriftPreset.values[tapePresetVal]
+            : TapeDriftPreset.subtleHiFi;
+        _tapeDriftWowRate =
+            (dspMap['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.8;
+        _tapeDriftWowDepth =
+            (dspMap['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.35;
+        _tapeDriftFlutterRate =
+            (dspMap['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 12.0;
+        _tapeDriftFlutterDepth =
+            (dspMap['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.08;
+        _tapeDriftDriftDepth =
+            (dspMap['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.10;
+        _tapeDriftStereoPhase =
+            (dspMap['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 45.0;
+        _tapeDriftHfDamping =
+            (dspMap['tapeDriftHfDamping'] as num?)?.toDouble() ?? 18000.0;
       });
     }
 
@@ -1454,6 +1834,11 @@ class _EqScreenState extends State<EqScreen>
     _updateConvolver();
     _updateSurround();
     _updateMasterLimiter();
+    _updateDynamicLoudness();
+    _updateNoiseGate();
+    _updateLeveller();
+    _updateDynamicEq();
+    _updateTapeDrift();
 
     // Load user parametric profiles and saved parametric EQ
     await _loadUserParametricProfiles();
@@ -1753,6 +2138,88 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  void _updateDynamicLoudness() {
+    widget.player.setDynamicLoudnessEnabled(_dynamicLoudnessEnabled);
+    if (_dynamicLoudnessEnabled) {
+      widget.player.setDynamicLoudnessParams(
+        refLevelDb: _dynamicLoudnessRefDb,
+        maxBassBoostDb: _dynamicLoudnessMaxBassDb,
+        maxTrebleBoostDb: _dynamicLoudnessMaxTrebleDb,
+        bassFreqHz: _dynamicLoudnessBassCutoff,
+        trebleFreqHz: _dynamicLoudnessTrebleCutoff,
+      );
+    }
+  }
+
+  void _updateNoiseGate() {
+    widget.player.setNoiseGateEnabled(_noiseGateEnabled);
+    if (_noiseGateEnabled) {
+      widget.player.setNoiseGateParams(
+        openThreshDb: _noiseGateOpenThreshDb,
+        closeThreshDb: _noiseGateCloseThreshDb,
+        holdMs: _noiseGateHoldMs,
+        attackMs: _noiseGateAttackMs,
+        releaseMs: _noiseGateReleaseMs,
+        sidechainHpfHz: _noiseGateHpfHz,
+      );
+    }
+  }
+
+  void _updateLeveller() {
+    widget.player.setLevellerEnabled(_levellerEnabled);
+    if (_levellerEnabled) {
+      widget.player.setLevellerParams(
+        targetLufs: _levellerTargetLufs,
+        maxRiseDbSec: _levellerMaxRiseDbSec,
+        maxFallDbSec: _levellerMaxFallDbSec,
+        maxBoostDb: _levellerMaxBoostDb,
+        maxAttenuationDb: _levellerMaxAttenuationDb,
+        silenceGateLufs: _levellerSilenceGateLufs,
+      );
+    }
+  }
+
+  void _updateDynamicEq() {
+    widget.player.setDynamicEqEnabled(_dynamicEqEnabled);
+    if (_dynamicEqEnabled) {
+      for (int i = 0; i < _dynamicEqBands.length; i++) {
+        final b = _dynamicEqBands[i];
+        widget.player.setDynamicEqBand(
+          bandIndex: i,
+          filterType: b.filterType,
+          mode: b.mode,
+          freqHz: b.freqHz,
+          q: b.q,
+          baseGainDb: b.baseGainDb,
+          thresholdDb: b.thresholdDb,
+          rangeDb: b.rangeDb,
+          ratio: b.ratio,
+          attackMs: b.attackMs,
+          releaseMs: b.releaseMs,
+          enabled: b.enabled,
+        );
+      }
+    }
+  }
+
+  void _updateTapeDrift() {
+    widget.player.setTapeDriftEnabled(_tapeDriftEnabled);
+    if (_tapeDriftEnabled) {
+      widget.player.setTapeDriftPreset(_tapeDriftPreset);
+      if (_tapeDriftPreset == TapeDriftPreset.custom) {
+        widget.player.setTapeDriftParams(
+          wowRateHz: _tapeDriftWowRate,
+          wowDepthMs: _tapeDriftWowDepth,
+          flutterRateHz: _tapeDriftFlutterRate,
+          flutterDepthMs: _tapeDriftFlutterDepth,
+          driftDepthMs: _tapeDriftDriftDepth,
+          stereoPhaseDeg: _tapeDriftStereoPhase,
+          hfDampingHz: _tapeDriftHfDamping,
+        );
+      }
+    }
+  }
+
   Future<void> _pickImpulseResponse() async {
     try {
       final result = await FilePicker.pickFiles(
@@ -1986,6 +2453,37 @@ class _EqScreenState extends State<EqScreen>
       'limiterCeilingDb': _masterLimiterCeilingDb,
       'limiterOutputGainDb': _masterLimiterOutputGainDb,
       'limiterReleaseMs': _masterLimiterReleaseMs,
+      'dynamicLoudnessEnabled': _dynamicLoudnessEnabled,
+      'dynamicLoudnessRefDb': _dynamicLoudnessRefDb,
+      'dynamicLoudnessMaxBassDb': _dynamicLoudnessMaxBassDb,
+      'dynamicLoudnessMaxTrebleDb': _dynamicLoudnessMaxTrebleDb,
+      'dynamicLoudnessBassCutoff': _dynamicLoudnessBassCutoff,
+      'dynamicLoudnessTrebleCutoff': _dynamicLoudnessTrebleCutoff,
+      'noiseGateEnabled': _noiseGateEnabled,
+      'noiseGateOpenThreshDb': _noiseGateOpenThreshDb,
+      'noiseGateCloseThreshDb': _noiseGateCloseThreshDb,
+      'noiseGateHoldMs': _noiseGateHoldMs,
+      'noiseGateAttackMs': _noiseGateAttackMs,
+      'noiseGateReleaseMs': _noiseGateReleaseMs,
+      'noiseGateHpfHz': _noiseGateHpfHz,
+      'levellerEnabled': _levellerEnabled,
+      'levellerTargetLufs': _levellerTargetLufs,
+      'levellerMaxRiseDbSec': _levellerMaxRiseDbSec,
+      'levellerMaxFallDbSec': _levellerMaxFallDbSec,
+      'levellerMaxBoostDb': _levellerMaxBoostDb,
+      'levellerMaxAttenuationDb': _levellerMaxAttenuationDb,
+      'levellerSilenceGateLufs': _levellerSilenceGateLufs,
+      'dynamicEqEnabled': _dynamicEqEnabled,
+      'dynamicEqBands': _dynamicEqBands.map((b) => b.toJson()).toList(),
+      'tapeDriftEnabled': _tapeDriftEnabled,
+      'tapeDriftPreset': _tapeDriftPreset.value,
+      'tapeDriftWowRate': _tapeDriftWowRate,
+      'tapeDriftWowDepth': _tapeDriftWowDepth,
+      'tapeDriftFlutterRate': _tapeDriftFlutterRate,
+      'tapeDriftFlutterDepth': _tapeDriftFlutterDepth,
+      'tapeDriftDriftDepth': _tapeDriftDriftDepth,
+      'tapeDriftStereoPhase': _tapeDriftStereoPhase,
+      'tapeDriftHfDamping': _tapeDriftHfDamping,
     });
     AppStateService.instance.saveParametricEq(
       enabled: _parametricEqEnabled,
@@ -2278,6 +2776,48 @@ class _EqScreenState extends State<EqScreen>
       _masterLimiterOutputGainDb = 0.0;
       _masterLimiterReleaseMs = 60.0;
       widget.player.setMasterLimiter(enabled: false);
+
+      _dynamicLoudnessEnabled = false;
+      _dynamicLoudnessRefDb = 0.0;
+      _dynamicLoudnessMaxBassDb = 9.0;
+      _dynamicLoudnessMaxTrebleDb = 4.5;
+      _dynamicLoudnessBassCutoff = 90.0;
+      _dynamicLoudnessTrebleCutoff = 9000.0;
+      widget.player.setDynamicLoudnessEnabled(false);
+
+      _noiseGateEnabled = false;
+      _noiseGateOpenThreshDb = -42.0;
+      _noiseGateCloseThreshDb = -48.0;
+      _noiseGateHoldMs = 80.0;
+      _noiseGateAttackMs = 1.0;
+      _noiseGateReleaseMs = 120.0;
+      _noiseGateHpfHz = 80.0;
+      _noiseGateGainReductionDb = 0.0;
+      widget.player.setNoiseGateEnabled(false);
+
+      _levellerEnabled = false;
+      _levellerTargetLufs = -16.0;
+      _levellerMaxRiseDbSec = 0.75;
+      _levellerMaxFallDbSec = 1.5;
+      _levellerMaxBoostDb = 9.0;
+      _levellerMaxAttenuationDb = 12.0;
+      _levellerSilenceGateLufs = -45.0;
+      _levellerCurrentGainDb = 0.0;
+      widget.player.setLevellerEnabled(false);
+
+      _dynamicEqEnabled = false;
+      widget.player.setDynamicEqEnabled(false);
+
+      _tapeDriftEnabled = false;
+      _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
+      _tapeDriftWowRate = 0.8;
+      _tapeDriftWowDepth = 0.35;
+      _tapeDriftFlutterRate = 12.0;
+      _tapeDriftFlutterDepth = 0.08;
+      _tapeDriftDriftDepth = 0.10;
+      _tapeDriftStereoPhase = 45.0;
+      _tapeDriftHfDamping = 18000.0;
+      widget.player.setTapeDriftEnabled(false);
 
       _lookaheadLimiterEnabled = true;
       _lookaheadLimiterCeilingDBTP = -1.0;
@@ -2797,7 +3337,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 3,
+                  itemCount: 5,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -2817,6 +3357,22 @@ class _EqScreenState extends State<EqScreen>
                         );
                         break;
                       case 2:
+                        _openDetailScreen(
+                          'Broadcast Leveller',
+                          Icons.stacked_bar_chart_rounded,
+                          (_) => _buildLevellerSection(),
+                          shape: Shapes.squircle,
+                        );
+                        break;
+                      case 3:
+                        _openDetailScreen(
+                          'Dynamic Loudness',
+                          Icons.auto_awesome,
+                          (_) => _buildDynamicLoudnessSection(),
+                          shape: Shapes.burst,
+                        );
+                        break;
+                      case 4:
                         _openDetailScreen(
                           'ReplayGain Metadata',
                           Icons.equalizer_rounded,
@@ -2864,6 +3420,50 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
+                    if (index == 2) {
+                      return _buildEffectTileCard(
+                        icon: Icons.stacked_bar_chart_rounded,
+                        shape: Shapes.squircle,
+                        title: 'Broadcast Leveller',
+                        subtitle: _levellerEnabled
+                            ? 'Slow-Window AGC · ${_levellerTargetLufs.toInt()} LUFS (Rise: ${_levellerMaxRiseDbSec.toStringAsFixed(2)} dB/s)'
+                            : 'Disabled',
+                        isEnabled: _levellerEnabled,
+                        onToggle: (v) {
+                          setState(() => _levellerEnabled = v);
+                          _updateLeveller();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Broadcast Leveller',
+                          Icons.stacked_bar_chart_rounded,
+                          (_) => _buildLevellerSection(),
+                          shape: Shapes.squircle,
+                        ),
+                      );
+                    }
+                    if (index == 3) {
+                      return _buildEffectTileCard(
+                        icon: Icons.auto_awesome,
+                        shape: Shapes.burst,
+                        title: 'Dynamic Loudness',
+                        subtitle: _dynamicLoudnessEnabled
+                            ? 'ISO 226 Contour · Bass +${_dynamicLoudnessMaxBassDb.toStringAsFixed(1)} dB / Treble +${_dynamicLoudnessMaxTrebleDb.toStringAsFixed(1)} dB'
+                            : 'Disabled',
+                        isEnabled: _dynamicLoudnessEnabled,
+                        onToggle: (v) {
+                          setState(() => _dynamicLoudnessEnabled = v);
+                          _updateDynamicLoudness();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Dynamic Loudness',
+                          Icons.auto_awesome,
+                          (_) => _buildDynamicLoudnessSection(),
+                          shape: Shapes.burst,
+                        ),
+                      );
+                    }
                     return _buildEffectTileCard(
                       icon: Icons.equalizer_rounded,
                       shape: Shapes.c4SidedCookie,
@@ -2901,7 +3501,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 4,
+                  itemCount: 5,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -2934,6 +3534,14 @@ class _EqScreenState extends State<EqScreen>
                           Icons.show_chart_rounded,
                           (_) => _buildParametricEqSection(),
                           shape: Shapes.gem,
+                        );
+                        break;
+                      case 4:
+                        _openDetailScreen(
+                          'Dynamic EQ',
+                          Icons.multitrack_audio_rounded,
+                          (_) => _buildDynamicEqSection(),
+                          shape: Shapes.burst,
                         );
                         break;
                     }
@@ -3036,24 +3644,46 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
+                    if (index == 3) {
+                      return _buildEffectTileCard(
+                        icon: Icons.show_chart_rounded,
+                        shape: Shapes.gem,
+                        title: 'Parametric EQ',
+                        subtitle: _parametricEqEnabled
+                            ? '${_parametricBands.length} Bands ($_parametricPreset)'
+                            : 'Disabled',
+                        isEnabled: _parametricEqEnabled,
+                        onToggle: (v) {
+                          setState(() => _parametricEqEnabled = v);
+                          widget.player.setMultibandFxEnabled(v);
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Parametric EQ',
+                          Icons.show_chart_rounded,
+                          (_) => _buildParametricEqSection(),
+                          shape: Shapes.gem,
+                        ),
+                      );
+                    }
                     return _buildEffectTileCard(
-                      icon: Icons.show_chart_rounded,
-                      shape: Shapes.gem,
-                      title: 'Parametric EQ',
-                      subtitle: _parametricEqEnabled
-                          ? '${_parametricBands.length} Bands ($_parametricPreset)'
+                      icon: Icons.multitrack_audio_rounded,
+                      shape: Shapes.burst,
+                      title: 'Dynamic EQ',
+                      subtitle: _dynamicEqEnabled
+                          ? '4-Band Dynamic · ${_dynamicEqBands.where((b) => b.enabled).length} Active Bands'
                           : 'Disabled',
-                      isEnabled: _parametricEqEnabled,
+                      isEnabled: _dynamicEqEnabled,
                       onToggle: (v) {
-                        setState(() => _parametricEqEnabled = v);
-                        widget.player.setMultibandFxEnabled(v);
+                        setState(() => _dynamicEqEnabled = v);
+                        _updateDynamicEq();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Parametric EQ',
-                        Icons.show_chart_rounded,
-                        (_) => _buildParametricEqSection(),
-                        shape: Shapes.gem,
+                        'Dynamic EQ',
+                        Icons.multitrack_audio_rounded,
+                        (_) => _buildDynamicEqSection(),
+                        shape: Shapes.burst,
                       ),
                     );
                   },
@@ -3153,7 +3783,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 5,
+                  itemCount: 6,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -3194,6 +3824,14 @@ class _EqScreenState extends State<EqScreen>
                           Icons.cleaning_services_rounded,
                           (_) => _buildDownwardExpanderSection(),
                           shape: Shapes.flower,
+                        );
+                        break;
+                      case 5:
+                        _openDetailScreen(
+                          'Noise Gate',
+                          Icons.door_sliding_rounded,
+                          (_) => _buildNoiseGateSection(),
+                          shape: Shapes.diamond,
                         );
                         break;
                     }
@@ -3287,24 +3925,46 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
+                    if (index == 4) {
+                      return _buildEffectTileCard(
+                        icon: Icons.cleaning_services_rounded,
+                        shape: Shapes.flower,
+                        title: 'Expander',
+                        subtitle: _expanderEnabled
+                            ? '${_getExpanderPresetName(_expanderPreset)} (${_expanderThresholdDb.toInt()} dB / ${_expanderRatio.toStringAsFixed(1)}:1)'
+                            : 'Disabled',
+                        isEnabled: _expanderEnabled,
+                        onToggle: (v) {
+                          setState(() => _expanderEnabled = v);
+                          _updateDownwardExpander();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Expander',
+                          Icons.cleaning_services_rounded,
+                          (_) => _buildDownwardExpanderSection(),
+                          shape: Shapes.flower,
+                        ),
+                      );
+                    }
                     return _buildEffectTileCard(
-                      icon: Icons.cleaning_services_rounded,
-                      shape: Shapes.flower,
-                      title: 'Expander',
-                      subtitle: _expanderEnabled
-                          ? '${_getExpanderPresetName(_expanderPreset)} (${_expanderThresholdDb.toInt()} dB / ${_expanderRatio.toStringAsFixed(1)}:1)'
+                      icon: Icons.door_sliding_rounded,
+                      shape: Shapes.diamond,
+                      title: 'Studio Noise Gate',
+                      subtitle: _noiseGateEnabled
+                          ? 'Hysteresis (${_noiseGateOpenThreshDb.toInt()} / ${_noiseGateCloseThreshDb.toInt()} dB) · Hold ${_noiseGateHoldMs.toInt()}ms'
                           : 'Disabled',
-                      isEnabled: _expanderEnabled,
+                      isEnabled: _noiseGateEnabled,
                       onToggle: (v) {
-                        setState(() => _expanderEnabled = v);
-                        _updateDownwardExpander();
+                        setState(() => _noiseGateEnabled = v);
+                        _updateNoiseGate();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Expander',
-                        Icons.cleaning_services_rounded,
-                        (_) => _buildDownwardExpanderSection(),
-                        shape: Shapes.flower,
+                        'Noise Gate',
+                        Icons.door_sliding_rounded,
+                        (_) => _buildNoiseGateSection(),
+                        shape: Shapes.diamond,
                       ),
                     );
                   },
@@ -3322,7 +3982,7 @@ class _EqScreenState extends State<EqScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: M3ECardList(
-                  itemCount: 4,
+                  itemCount: 5,
                   onTap: (index) {
                     switch (index) {
                       case 0:
@@ -3355,6 +4015,14 @@ class _EqScreenState extends State<EqScreen>
                           Icons.album_rounded,
                           (_) => _buildAnalogWarmthSection(),
                           shape: Shapes.sunny,
+                        );
+                        break;
+                      case 4:
+                        _openDetailScreen(
+                          'Vintage Tape Drift',
+                          Icons.album_outlined,
+                          (_) => _buildTapeDriftSection(),
+                          shape: Shapes.c4SidedCookie,
                         );
                         break;
                     }
@@ -3452,24 +4120,46 @@ class _EqScreenState extends State<EqScreen>
                         ),
                       );
                     }
+                    if (index == 3) {
+                      return _buildEffectTileCard(
+                        icon: Icons.album_rounded,
+                        shape: Shapes.sunny,
+                        title: 'Analog Warmth',
+                        subtitle: _analogWarmthEnabled
+                            ? '${_getAnalogWarmthProfileName(_analogWarmthProfile)} (${(_analogWarmthDrive * 100).toInt()}%)'
+                            : 'Disabled',
+                        isEnabled: _analogWarmthEnabled,
+                        onToggle: (v) {
+                          setState(() => _analogWarmthEnabled = v);
+                          _updateAnalogWarmth();
+                          _saveEqState();
+                        },
+                        onTapDetail: () => _openDetailScreen(
+                          'Analog Warmth',
+                          Icons.album_rounded,
+                          (_) => _buildAnalogWarmthSection(),
+                          shape: Shapes.sunny,
+                        ),
+                      );
+                    }
                     return _buildEffectTileCard(
-                      icon: Icons.album_rounded,
-                      shape: Shapes.sunny,
-                      title: 'Analog Warmth',
-                      subtitle: _analogWarmthEnabled
-                          ? '${_getAnalogWarmthProfileName(_analogWarmthProfile)} (${(_analogWarmthDrive * 100).toInt()}%)'
+                      icon: Icons.album_outlined,
+                      shape: Shapes.c4SidedCookie,
+                      title: 'Vintage Tape Drift',
+                      subtitle: _tapeDriftEnabled
+                          ? '${_getTapeDriftPresetName(_tapeDriftPreset)} · Wow ${_tapeDriftWowRate.toStringAsFixed(1)}Hz / Flutter ${_tapeDriftFlutterRate.toInt()}Hz'
                           : 'Disabled',
-                      isEnabled: _analogWarmthEnabled,
+                      isEnabled: _tapeDriftEnabled,
                       onToggle: (v) {
-                        setState(() => _analogWarmthEnabled = v);
-                        _updateAnalogWarmth();
+                        setState(() => _tapeDriftEnabled = v);
+                        _updateTapeDrift();
                         _saveEqState();
                       },
                       onTapDetail: () => _openDetailScreen(
-                        'Analog Warmth',
-                        Icons.album_rounded,
-                        (_) => _buildAnalogWarmthSection(),
-                        shape: Shapes.sunny,
+                        'Vintage Tape Drift',
+                        Icons.album_outlined,
+                        (_) => _buildTapeDriftSection(),
+                        shape: Shapes.c4SidedCookie,
                       ),
                     );
                   },
@@ -5113,6 +5803,280 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  void _importAutoEqProfile(String profileText, {String? profileName}) {
+    widget.player.loadAutoEqProfileString(profileText, applyPreamp: true);
+
+    final lines = profileText.split('\n');
+    final newBands = <EqBandConfig>[];
+    double? parsedPreamp;
+
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+
+      final preampMatch = RegExp(
+        r'Preamp:\s*([+-]?\d+(?:\.\d+)?)\s*dB',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (preampMatch != null) {
+        parsedPreamp = double.tryParse(preampMatch.group(1)!);
+        continue;
+      }
+
+      final filterMatch = RegExp(
+        r'Filter\s+\d+:\s*(ON|OFF)\s+([A-Z0-9]+)\s+Fc\s+([0-9.]+)\s*Hz\s+Gain\s+([+-]?[0-9.]+)\s*dB\s+Q\s+([0-9.]+)',
+        caseSensitive: false,
+      ).firstMatch(line);
+
+      if (filterMatch != null) {
+        final enabled = filterMatch.group(1)!.toUpperCase() == 'ON';
+        if (!enabled) continue;
+        final typeStr = filterMatch.group(2)!.toUpperCase();
+        final freq = double.tryParse(filterMatch.group(3)!) ?? 1000.0;
+        final gain = double.tryParse(filterMatch.group(4)!) ?? 0.0;
+        final q = double.tryParse(filterMatch.group(5)!) ?? 1.0;
+
+        EqFilterType fType = EqFilterType.peak;
+        if (typeStr == 'LSC' || typeStr == 'LOWSHELF') {
+          fType = EqFilterType.lowShelf;
+        } else if (typeStr == 'HSC' || typeStr == 'HIGHSHELF') {
+          fType = EqFilterType.highShelf;
+        } else if (typeStr == 'LP' || typeStr == 'LOWPASS') {
+          fType = EqFilterType.lowPass;
+        } else if (typeStr == 'HP' || typeStr == 'HIGHPASS') {
+          fType = EqFilterType.highPass;
+        } else if (typeStr == 'BP' || typeStr == 'BANDPASS') {
+          fType = EqFilterType.bandPass;
+        } else if (typeStr == 'NO' || typeStr == 'NOTCH') {
+          fType = EqFilterType.notch;
+        }
+
+        newBands.add(EqBandConfig(
+          type: fType,
+          frequencyHz: freq,
+          gainDb: gain,
+          q: q,
+        ));
+      }
+    }
+
+    setState(() {
+      if (newBands.isNotEmpty) {
+        _parametricBands.clear();
+        _parametricBands.addAll(newBands);
+        _parametricEqEnabled = true;
+        final name = (profileName != null && profileName.trim().isNotEmpty)
+            ? profileName.trim()
+            : 'AutoEQ (${newBands.length} Bands)';
+        _parametricPreset = name;
+        _userParametricProfiles[name] = List.from(newBands);
+        _saveUserParametricProfilesToPrefs();
+      }
+      if (parsedPreamp != null) {
+        _preampDb = parsedPreamp;
+        final linearGain = math.pow(10, _preampDb / 20).toDouble();
+        widget.player.setGain(linearGain);
+      }
+    });
+    _applyParametricBands();
+    _saveEqState();
+  }
+
+  void _showImportAutoEqDialog() {
+    final textController = TextEditingController();
+    final nameController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: surfaceDarkColor,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.auto_fix_high_rounded, color: Colors.white, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Import AutoEQ Profile',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Import headphone equalization profiles in AutoEQ / EqualizerAPO parametric format.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 12.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: primaryColor,
+                      side:
+                          BorderSide(color: primaryColor.withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.file_open_rounded, size: 18),
+                    label: const Text('Pick File (.txt / .csv)'),
+                    onPressed: () async {
+                      try {
+                        final result = await FilePicker.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['txt', 'csv'],
+                        );
+                        if (result != null && result.files.single.path != null) {
+                          final file = File(result.files.single.path!);
+                          final content = await file.readAsString();
+                          final defaultName = result.files.single.name
+                              .replaceAll(RegExp(r'\.(txt|csv)$', caseSensitive: false), '');
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                          _importAutoEqProfile(content, profileName: defaultName);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('AutoEQ Profile "$defaultName" imported!'),
+                                duration: const Duration(seconds: 2),
+                                backgroundColor: surfaceDarkColor,
+                              ),
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to load file: $e'),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Expanded(child: Divider(color: Colors.white12)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Text(
+                        'OR PASTE TEXT',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const Expanded(child: Divider(color: Colors.white12)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Profile Name (e.g. HD 600 Oratory1990)',
+                    hintStyle:
+                        TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                    filled: true,
+                    fillColor: surfaceDarkerColor,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: textController,
+                  maxLines: 6,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11.5,
+                    fontFamily: 'monospace',
+                  ),
+                  decoration: InputDecoration(
+                    hintText:
+                        'Preamp: -6.0 dB\nFilter 1: ON PK Fc 28 Hz Gain 7.1 dB Q 2.10\nFilter 2: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70...',
+                    hintStyle:
+                        TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                    filled: true,
+                    fillColor: surfaceDarkerColor,
+                    contentPadding: const EdgeInsets.all(10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              ),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: primaryColor),
+              onPressed: () {
+                final text = textController.text.trim();
+                if (text.isNotEmpty) {
+                  final name = nameController.text.trim();
+                  Navigator.of(dialogContext).pop();
+                  _importAutoEqProfile(text,
+                      profileName: name.isNotEmpty ? name : null);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('AutoEQ Profile imported successfully!'),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: surfaceDarkColor,
+                    ),
+                  );
+                }
+              },
+              child: const Text(
+                'Import',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
   void _applyParametricPreset(String presetName) {
     List<EqBandConfig>? sourceBands = _builtInParametricPresets[presetName];
     sourceBands ??= _userParametricProfiles[presetName];
@@ -5264,6 +6228,15 @@ class _EqScreenState extends State<EqScreen>
                   size: 18, color: primaryColor),
               variant: M3EIconButtonVariant.standard,
               onPressed: _showSaveProfileDialog,
+            ),
+            const SizedBox(width: 4),
+            // Import AutoEQ Profile Button
+            M3EIconButton(
+              tooltip: 'Import AutoEQ Profile',
+              icon: Icon(Icons.file_download_outlined,
+                  size: 18, color: primaryColor),
+              variant: M3EIconButtonVariant.standard,
+              onPressed: _showImportAutoEqDialog,
             ),
             // Delete Custom Profile Button (if active preset is a user profile)
             /* if (_userParametricProfiles.containsKey(_parametricPreset)) ...[
@@ -5761,6 +6734,57 @@ class _EqScreenState extends State<EqScreen>
       AnalogWarmthProfile.magneticTape => 'Magnetic Tape',
       AnalogWarmthProfile.vintagePreamp => 'Console Preamp',
     };
+  }
+
+  String _getTapeDriftPresetName(TapeDriftPreset preset) {
+    return switch (preset) {
+      TapeDriftPreset.subtleHiFi => 'Subtle Hi-Fi',
+      TapeDriftPreset.vintageReelToReel => 'Vintage Reel-to-Reel',
+      TapeDriftPreset.warpedVinyl => 'Warped Vinyl',
+      TapeDriftPreset.cassetteLoFi => 'Cassette Lo-Fi',
+      TapeDriftPreset.custom => 'Custom',
+    };
+  }
+
+  void _applyTapeDriftPreset(TapeDriftPreset preset) {
+    setState(() {
+      _tapeDriftPreset = preset;
+      if (preset == TapeDriftPreset.subtleHiFi) {
+        _tapeDriftWowRate = 0.8;
+        _tapeDriftWowDepth = 0.35;
+        _tapeDriftFlutterRate = 12.0;
+        _tapeDriftFlutterDepth = 0.08;
+        _tapeDriftDriftDepth = 0.10;
+        _tapeDriftStereoPhase = 45.0;
+        _tapeDriftHfDamping = 18000.0;
+      } else if (preset == TapeDriftPreset.vintageReelToReel) {
+        _tapeDriftWowRate = 1.2;
+        _tapeDriftWowDepth = 0.65;
+        _tapeDriftFlutterRate = 16.0;
+        _tapeDriftFlutterDepth = 0.18;
+        _tapeDriftDriftDepth = 0.25;
+        _tapeDriftStereoPhase = 60.0;
+        _tapeDriftHfDamping = 14000.0;
+      } else if (preset == TapeDriftPreset.warpedVinyl) {
+        _tapeDriftWowRate = 0.55;
+        _tapeDriftWowDepth = 1.10;
+        _tapeDriftFlutterRate = 8.0;
+        _tapeDriftFlutterDepth = 0.12;
+        _tapeDriftDriftDepth = 0.35;
+        _tapeDriftStereoPhase = 90.0;
+        _tapeDriftHfDamping = 12000.0;
+      } else if (preset == TapeDriftPreset.cassetteLoFi) {
+        _tapeDriftWowRate = 1.8;
+        _tapeDriftWowDepth = 1.40;
+        _tapeDriftFlutterRate = 22.0;
+        _tapeDriftFlutterDepth = 0.35;
+        _tapeDriftDriftDepth = 0.50;
+        _tapeDriftStereoPhase = 120.0;
+        _tapeDriftHfDamping = 8500.0;
+      }
+    });
+    if (_tapeDriftEnabled) _updateTapeDrift();
+    _saveEqState();
   }
 
   Widget _buildHarmonicBassSection() {
@@ -8858,6 +9882,1314 @@ class _EqScreenState extends State<EqScreen>
             ),
           ),
         ),*/
+      ],
+    );
+  }
+
+  Widget _buildDynamicLoudnessSection() {
+    final primaryColor = context.primaryColor;
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.auto_awesome, color: primaryColor, size: 20),
+      ),
+      title: 'Dynamic Loudness',
+      subtitle: 'ISO 226 equal-loudness contour (Fletcher-Munson)',
+      isEnabled: _dynamicLoudnessEnabled,
+      onToggle: (v) {
+        setState(() => _dynamicLoudnessEnabled = v);
+        _updateDynamicLoudness();
+        _saveEqState();
+      },
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: primaryColor.withValues(
+                  alpha: _dynamicLoudnessEnabled ? 0.35 : 0.1),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded,
+                  size: 18,
+                  color: _dynamicLoudnessEnabled
+                      ? primaryColor
+                      : Colors.white38),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'ISO 226:2003 equal-loudness contour automatically adapts bass & treble boost relative to listening volume. Quiet volumes receive full physiological compensation; at reference level, response smoothly flattens.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 11.5,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Quick Preset Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              for (final p in [
+                ('Gentle (+6dB / +3dB)', 0.0, 6.0, 3.0),
+                ('Standard ISO 226 (+9dB / +4.5dB)', 0.0, 9.0, 4.5),
+                ('Night Low-Volume (+12dB / +6dB)', -3.0, 12.0, 6.0),
+                ('Audiophile Subtle (+3.5dB / +2dB)', 0.0, 3.5, 2.0),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: M3EChip(
+                    label: p.$1,
+                    type: M3EChipType.filter,
+                    selected: (_dynamicLoudnessMaxBassDb - p.$3).abs() < 0.1 &&
+                        (_dynamicLoudnessMaxTrebleDb - p.$4).abs() < 0.1,
+                    onPressed: () {
+                      setState(() {
+                        _dynamicLoudnessRefDb = p.$2;
+                        _dynamicLoudnessMaxBassDb = p.$3;
+                        _dynamicLoudnessMaxTrebleDb = p.$4;
+                      });
+                      if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                      _saveEqState();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 1: Ref Level, Max Bass Boost, Max Treble Boost
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'REF LEVEL',
+              value: _dynamicLoudnessRefDb,
+              min: -30.0,
+              max: 0.0,
+              flatValue: 0.0,
+              activeColor:
+                  _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _dynamicLoudnessRefDb = v);
+                if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX BASS',
+              value: _dynamicLoudnessMaxBassDb,
+              min: 0.0,
+              max: 18.0,
+              flatValue: 9.0,
+              activeColor:
+                  _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _dynamicLoudnessMaxBassDb = v);
+                if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX TREBLE',
+              value: _dynamicLoudnessMaxTrebleDb,
+              min: 0.0,
+              max: 12.0,
+              flatValue: 4.5,
+              activeColor:
+                  _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _dynamicLoudnessMaxTrebleDb = v);
+                if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Bass Corner Frequency, Treble Corner Frequency
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'BASS CORNER',
+              value: _dynamicLoudnessBassCutoff,
+              min: 40.0,
+              max: 200.0,
+              flatValue: 90.0,
+              activeColor:
+                  _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() => _dynamicLoudnessBassCutoff = v);
+                if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'TREBLE CORNER',
+              value: _dynamicLoudnessTrebleCutoff,
+              min: 4000.0,
+              max: 14000.0,
+              flatValue: 9000.0,
+              activeColor:
+                  _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${(v / 1000).toStringAsFixed(1)} kHz',
+              onChanged: (v) {
+                setState(() => _dynamicLoudnessTrebleCutoff = v);
+                if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildLevellerSection() {
+    final primaryColor = context.primaryColor;
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.stacked_bar_chart_rounded,
+            color: primaryColor, size: 20),
+      ),
+      title: 'Broadcast Leveller',
+      subtitle: 'Slow-window automatic gain control (dual-speed AGC)',
+      isEnabled: _levellerEnabled,
+      onToggle: (v) {
+        setState(() => _levellerEnabled = v);
+        _updateLeveller();
+        _saveEqState();
+      },
+      children: [
+        // Live Real-Time Leveller Offset Meter
+        ValueListenableBuilder<double>(
+          valueListenable: _levellerGainNotifier,
+          builder: (context, currentGain, _) {
+            final isBoosting = currentGain > 0.05;
+            final isAttenuating = currentGain < -0.05;
+            final gainColor = isBoosting
+                ? primaryColor
+                : (isAttenuating ? const Color(0xFFFF9100) : Colors.white54);
+            final clampedRatio = (currentGain / 18.0).clamp(-1.0, 1.0);
+
+            return Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: primaryColor.withValues(
+                      alpha: _levellerEnabled ? 0.35 : 0.1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _levellerEnabled &&
+                                      (isBoosting || isAttenuating)
+                                  ? gainColor
+                                  : Colors.white24,
+                              boxShadow: _levellerEnabled &&
+                                      (isBoosting || isAttenuating)
+                                  ? [
+                                      BoxShadow(
+                                        color: gainColor.withValues(alpha: 0.6),
+                                        blurRadius: 6,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'LEVELLER GAIN OFFSET',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _levellerEnabled
+                            ? '${currentGain >= 0 ? '+' : ''}${currentGain.toStringAsFixed(1)} dB'
+                            : 'OFF',
+                        style: TextStyle(
+                          color: _levellerEnabled ? gainColor : Colors.white38,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Bipolar Offset Meter Bar (-18dB to +18dB with 0dB center)
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      Container(width: 2, height: 12, color: Colors.white30),
+                      if (_levellerEnabled && clampedRatio.abs() > 0.01)
+                        Align(
+                          alignment: clampedRatio > 0
+                              ? Alignment.centerLeft
+                              : Alignment.centerRight,
+                          child: FractionallySizedBox(
+                            widthFactor:
+                                (clampedRatio.abs() * 0.5).clamp(0.0, 0.5),
+                            child: Container(
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: gainColor,
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: gainColor.withValues(alpha: 0.5),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('-18 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                      Text('0 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                      Text('+18 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+
+        // Quick Preset Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              for (final p in [
+                ('Broadcast EBU (-23 LUFS)', -23.0, 0.5, 1.0, 9.0, 12.0),
+                ('Streaming / Podcast (-16 LUFS)', -16.0, 0.75, 1.5, 9.0, 12.0),
+                ('Club / Pop (-14 LUFS)', -14.0, 1.0, 2.0, 6.0, 14.0),
+                ('Gentle Hi-Fi (-18 LUFS)', -18.0, 0.35, 0.8, 6.0, 8.0),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: M3EChip(
+                    label: p.$1,
+                    type: M3EChipType.filter,
+                    selected: (_levellerTargetLufs - p.$2).abs() < 0.1 &&
+                        (_levellerMaxRiseDbSec - p.$3).abs() < 0.05,
+                    onPressed: () {
+                      setState(() {
+                        _levellerTargetLufs = p.$2;
+                        _levellerMaxRiseDbSec = p.$3;
+                        _levellerMaxFallDbSec = p.$4;
+                        _levellerMaxBoostDb = p.$5;
+                        _levellerMaxAttenuationDb = p.$6;
+                      });
+                      if (_levellerEnabled) _updateLeveller();
+                      _saveEqState();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 1: Target LUFS, Max Boost, Max Attenuation
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'TARGET',
+              value: _levellerTargetLufs,
+              min: -30.0,
+              max: -10.0,
+              flatValue: -16.0,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+              onChanged: (v) {
+                setState(() => _levellerTargetLufs = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX BOOST',
+              value: _levellerMaxBoostDb,
+              min: 0.0,
+              max: 18.0,
+              flatValue: 9.0,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _levellerMaxBoostDb = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX ATTEN',
+              value: _levellerMaxAttenuationDb,
+              min: 0.0,
+              max: 24.0,
+              flatValue: 12.0,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '-${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => _levellerMaxAttenuationDb = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Rise Speed, Fall Speed, Silence Gate Threshold
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'RISE SPEED',
+              value: _levellerMaxRiseDbSec,
+              min: 0.1,
+              max: 3.0,
+              flatValue: 0.75,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} dB/s',
+              onChanged: (v) {
+                setState(() => _levellerMaxRiseDbSec = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'FALL SPEED',
+              value: _levellerMaxFallDbSec,
+              min: 0.2,
+              max: 6.0,
+              flatValue: 1.5,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} dB/s',
+              onChanged: (v) {
+                setState(() => _levellerMaxFallDbSec = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SILENCE GATE',
+              value: _levellerSilenceGateLufs,
+              min: -70.0,
+              max: -30.0,
+              flatValue: -45.0,
+              activeColor: _levellerEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} LUFS',
+              onChanged: (v) {
+                setState(() => _levellerSilenceGateLufs = v);
+                if (_levellerEnabled) _updateLeveller();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildNoiseGateSection() {
+    final primaryColor = context.primaryColor;
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.door_sliding_rounded,
+            color: primaryColor, size: 20),
+      ),
+      title: 'Studio Noise Gate',
+      subtitle: 'Hysteresis & hold-time downward noise suppressor',
+      isEnabled: _noiseGateEnabled,
+      onToggle: (v) {
+        setState(() => _noiseGateEnabled = v);
+        _updateNoiseGate();
+        _saveEqState();
+      },
+      children: [
+        // Live Real-Time Noise Gate Meter
+        ValueListenableBuilder<double>(
+          valueListenable: _noiseGateGrNotifier,
+          builder: (context, currentGr, _) {
+            final grDb = currentGr.abs();
+            final isOpen = grDb < 0.2;
+            final isClosed = grDb > 10.0;
+            final gateColor = isOpen
+                ? primaryColor
+                : (isClosed
+                    ? const Color(0xFFFF5252)
+                    : const Color(0xFFFFB300));
+            final grFraction = (grDb / 48.0).clamp(0.0, 1.0);
+
+            return Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: primaryColor.withValues(
+                      alpha: _noiseGateEnabled ? 0.35 : 0.1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  _noiseGateEnabled ? gateColor : Colors.white24,
+                              boxShadow: _noiseGateEnabled
+                                  ? [
+                                      BoxShadow(
+                                        color: gateColor.withValues(alpha: 0.6),
+                                        blurRadius: 6,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _noiseGateEnabled
+                                ? (isOpen
+                                    ? 'GATE OPEN'
+                                    : (isClosed
+                                        ? 'GATE CLOSED'
+                                        : 'GATE HOLD'))
+                                : 'GATE DISABLED',
+                            style: TextStyle(
+                              color: _noiseGateEnabled
+                                  ? gateColor
+                                  : Colors.white70,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _noiseGateEnabled
+                            ? (grDb > 0.05
+                                ? '-${grDb.toStringAsFixed(1)} dB'
+                                : '0.0 dB')
+                            : 'OFF',
+                        style: TextStyle(
+                          color: _noiseGateEnabled ? gateColor : Colors.white38,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Meter Bar
+                  Stack(
+                    children: [
+                      Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      FractionallySizedBox(
+                        widthFactor: _noiseGateEnabled ? grFraction : 0.0,
+                        child: Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFFB300), Color(0xFFFF5252)],
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFF5252)
+                                    .withValues(alpha: 0.5),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('0 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                      Text('-12 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                      Text('-24 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                      Text('-48 dB',
+                          style:
+                              TextStyle(color: Colors.white30, fontSize: 8.5)),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+
+        // Quick Preset Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              for (final p in [
+                ('Vocal / Podcast', -38.0, -44.0, 100.0, 1.0, 120.0, 100.0),
+                ('Vinyl & Tape Clean', -48.0, -54.0, 60.0, 2.0, 150.0, 60.0),
+                ('Fast Percussion', -32.0, -38.0, 30.0, 0.5, 60.0, 40.0),
+                ('Gentle Room', -55.0, -62.0, 150.0, 3.0, 250.0, 80.0),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: M3EChip(
+                    label: p.$1,
+                    type: M3EChipType.filter,
+                    selected: (_noiseGateOpenThreshDb - p.$2).abs() < 0.5 &&
+                        (_noiseGateCloseThreshDb - p.$3).abs() < 0.5,
+                    onPressed: () {
+                      setState(() {
+                        _noiseGateOpenThreshDb = p.$2;
+                        _noiseGateCloseThreshDb = p.$3;
+                        _noiseGateHoldMs = p.$4;
+                        _noiseGateAttackMs = p.$5;
+                        _noiseGateReleaseMs = p.$6;
+                        _noiseGateHpfHz = p.$7;
+                      });
+                      if (_noiseGateEnabled) _updateNoiseGate();
+                      _saveEqState();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 1: Open Threshold, Close Threshold, Hold Time
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'OPEN THRESH',
+              value: _noiseGateOpenThreshDb,
+              min: -70.0,
+              max: -20.0,
+              flatValue: -42.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _noiseGateOpenThreshDb = v;
+                  if (_noiseGateCloseThreshDb > v) {
+                    _noiseGateCloseThreshDb = v - 6.0;
+                  }
+                });
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'CLOSE THRESH',
+              value: _noiseGateCloseThreshDb,
+              min: -80.0,
+              max: -25.0,
+              flatValue: -48.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _noiseGateCloseThreshDb = v;
+                  if (_noiseGateOpenThreshDb < v) {
+                    _noiseGateOpenThreshDb = v + 6.0;
+                  }
+                });
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'HOLD TIME',
+              value: _noiseGateHoldMs,
+              min: 0.0,
+              max: 500.0,
+              flatValue: 80.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() => _noiseGateHoldMs = v);
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Attack, Release, Sidechain HPF
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'ATTACK',
+              value: _noiseGateAttackMs,
+              min: 0.1,
+              max: 50.0,
+              flatValue: 1.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+              onChanged: (v) {
+                setState(() => _noiseGateAttackMs = v);
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: _noiseGateReleaseMs,
+              min: 10.0,
+              max: 1000.0,
+              flatValue: 120.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() => _noiseGateReleaseMs = v);
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SIDECHAIN HPF',
+              value: _noiseGateHpfHz,
+              min: 20.0,
+              max: 400.0,
+              flatValue: 80.0,
+              activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() => _noiseGateHpfHz = v);
+                if (_noiseGateEnabled) _updateNoiseGate();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildDynamicEqSection() {
+    final primaryColor = context.primaryColor;
+    final curBand = _dynamicEqBands[_selectedDynamicEqBand];
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.multitrack_audio_rounded,
+            color: primaryColor, size: 20),
+      ),
+      title: 'Dynamic Equalizer',
+      subtitle: '4-Band dynamic parametric biquad equalizer',
+      isEnabled: _dynamicEqEnabled,
+      onToggle: (v) {
+        setState(() => _dynamicEqEnabled = v);
+        _updateDynamicEq();
+        _saveEqState();
+      },
+      children: [
+        // Band Selector Tabs
+        Row(
+          children: [
+            for (int i = 0; i < _dynamicEqBands.length; i++)
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: i == 0 ? 0 : 3,
+                    right: i == _dynamicEqBands.length - 1 ? 0 : 3,
+                  ),
+                  child: InkWell(
+                    onTap: () => setState(() => _selectedDynamicEqBand = i),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _selectedDynamicEqBand == i
+                            ? primaryColor.withValues(alpha: 0.25)
+                            : surfaceDarkerColor,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _selectedDynamicEqBand == i
+                              ? primaryColor
+                              : (_dynamicEqBands[i].enabled
+                                  ? Colors.white24
+                                  : Colors.white10),
+                          width: _selectedDynamicEqBand == i ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Band ${i + 1}',
+                            style: TextStyle(
+                              color: _selectedDynamicEqBand == i
+                                  ? primaryColor
+                                  : (_dynamicEqBands[i].enabled
+                                      ? Colors.white
+                                      : Colors.white38),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _dynamicEqBands[i].freqHz < 1000
+                                ? '${_dynamicEqBands[i].freqHz.toInt()}Hz'
+                                : '${(_dynamicEqBands[i].freqHz / 1000).toStringAsFixed(1)}k',
+                            style: TextStyle(
+                              color: _selectedDynamicEqBand == i
+                                  ? Colors.white
+                                  : Colors.white54,
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // Band Header: Active Switch, Filter Type & Mode
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Band ${_selectedDynamicEqBand + 1} Active',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  M3ESwitch(
+                    selectedIcon: Icon(Icons.check, color: primaryColor),
+                    value: curBand.enabled,
+                    onChanged: (v) {
+                      setState(() => curBand.enabled = v);
+                      if (_dynamicEqEnabled) _updateDynamicEq();
+                      _saveEqState();
+                    },
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white10, height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Filter Type',
+                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  Row(
+                    children: [
+                      for (final ft in [
+                        (DynamicEqFilterType.peak, 'Peak'),
+                        (DynamicEqFilterType.lowShelf, 'Low Shelf'),
+                        (DynamicEqFilterType.highShelf, 'High Shelf'),
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4.0),
+                          child: ChoiceChip(
+                            label: Text(ft.$2,
+                                style: const TextStyle(fontSize: 11)),
+                            selected: curBand.filterType == ft.$1,
+                            selectedColor: primaryColor.withValues(alpha: 0.3),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => curBand.filterType = ft.$1);
+                                if (_dynamicEqEnabled) _updateDynamicEq();
+                                _saveEqState();
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Dynamic Mode',
+                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  Row(
+                    children: [
+                      for (final dm in [
+                        (DynamicEqMode.compress, 'Compress'),
+                        (DynamicEqMode.expand, 'Expand'),
+                        (DynamicEqMode.staticMode, 'Static'),
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4.0),
+                          child: ChoiceChip(
+                            label: Text(dm.$2,
+                                style: const TextStyle(fontSize: 11)),
+                            selected: curBand.mode == dm.$1,
+                            selectedColor: primaryColor.withValues(alpha: 0.3),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => curBand.mode = dm.$1);
+                                if (_dynamicEqEnabled) _updateDynamicEq();
+                                _saveEqState();
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 1: Frequency, Q Factor, Base Gain
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'FREQUENCY',
+              value: curBand.freqHz,
+              min: 20.0,
+              max: 20000.0,
+              flatValue: 1000.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => v < 1000
+                  ? '${v.toInt()} Hz'
+                  : '${(v / 1000).toStringAsFixed(1)} kHz',
+              onChanged: (v) {
+                setState(() => curBand.freqHz = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'Q FACTOR',
+              value: curBand.q,
+              min: 0.1,
+              max: 10.0,
+              flatValue: 1.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => v.toStringAsFixed(2),
+              onChanged: (v) {
+                setState(() => curBand.q = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'BASE GAIN',
+              value: curBand.baseGainDb,
+              min: -15.0,
+              max: 15.0,
+              flatValue: 0.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) =>
+                  '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => curBand.baseGainDb = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Threshold, Max Range, Ratio
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'THRESHOLD',
+              value: curBand.thresholdDb,
+              min: -48.0,
+              max: 0.0,
+              flatValue: -24.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => curBand.thresholdDb = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX RANGE',
+              value: curBand.rangeDb,
+              min: 0.0,
+              max: 18.0,
+              flatValue: 6.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() => curBand.rangeDb = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RATIO',
+              value: curBand.ratio,
+              min: 1.0,
+              max: 10.0,
+              flatValue: 3.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
+              onChanged: (v) {
+                setState(() => curBand.ratio = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 3: Attack, Release
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'ATTACK',
+              value: curBand.attackMs,
+              min: 0.5,
+              max: 100.0,
+              flatValue: 2.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+              onChanged: (v) {
+                setState(() => curBand.attackMs = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'RELEASE',
+              value: curBand.releaseMs,
+              min: 10.0,
+              max: 500.0,
+              flatValue: 60.0,
+              activeColor: _dynamicEqEnabled && curBand.enabled
+                  ? primaryColor
+                  : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()} ms',
+              onChanged: (v) {
+                setState(() => curBand.releaseMs = v);
+                if (_dynamicEqEnabled) _updateDynamicEq();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildTapeDriftSection() {
+    final primaryColor = context.primaryColor;
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.album_outlined, color: primaryColor, size: 20),
+      ),
+      title: 'Vintage Tape Drift',
+      subtitle: 'Wow, flutter, random motor drift & HF damping',
+      isEnabled: _tapeDriftEnabled,
+      onToggle: (v) {
+        setState(() => _tapeDriftEnabled = v);
+        _updateTapeDrift();
+        _saveEqState();
+      },
+      children: [
+        // Presets Selector
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: TapeDriftPreset.values.map((preset) {
+              final isSelected = _tapeDriftPreset == preset;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6.0),
+                child: M3EChip(
+                  label: _getTapeDriftPresetName(preset),
+                  type: M3EChipType.filter,
+                  selected: isSelected,
+                  onPressed: () => _applyTapeDriftPreset(preset),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 1: Wow Rate, Wow Depth, Flutter Rate
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'WOW RATE',
+              value: _tapeDriftWowRate,
+              min: 0.1,
+              max: 4.0,
+              flatValue: 0.8,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftWowRate = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'WOW DEPTH',
+              value: _tapeDriftWowDepth,
+              min: 0.0,
+              max: 2.0,
+              flatValue: 0.35,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftWowDepth = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'FLUTTER RATE',
+              value: _tapeDriftFlutterRate,
+              min: 4.0,
+              max: 30.0,
+              flatValue: 12.0,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftFlutterRate = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 2: Flutter Depth, Drift Depth, Stereo Phase
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'FLUTTER DEPTH',
+              value: _tapeDriftFlutterDepth,
+              min: 0.0,
+              max: 0.5,
+              flatValue: 0.08,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftFlutterDepth = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'DRIFT DEPTH',
+              value: _tapeDriftDriftDepth,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.10,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftDriftDepth = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'STEREO PHASE',
+              value: _tapeDriftStereoPhase,
+              min: 0.0,
+              max: 180.0,
+              flatValue: 45.0,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${v.toInt()}°',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftStereoPhase = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs Row 3: HF Damping
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'HF DAMPING',
+              value: _tapeDriftHfDamping,
+              min: 2000.0,
+              max: 20000.0,
+              flatValue: 18000.0,
+              activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
+              valueFormatter: (v) => '${(v / 1000).toStringAsFixed(1)} kHz',
+              onChanged: (v) {
+                setState(() {
+                  _tapeDriftHfDamping = v;
+                  _tapeDriftPreset = TapeDriftPreset.custom;
+                });
+                if (_tapeDriftEnabled) _updateTapeDrift();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }

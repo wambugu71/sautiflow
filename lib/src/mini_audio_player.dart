@@ -517,6 +517,26 @@ class MiniAudioPlayer {
   /// Clears all mixed multiband FX bands and disables the chain.
   void clearMultibandFx() => _engine.clearMultibandFx();
 
+  /// Loads and activates an AutoEQ / EqualizerAPO parametric profile from string.
+  int loadAutoEqProfileString(
+    String profileText, {
+    void Function(double preampDb)? onPreampExtracted,
+  }) =>
+      _engine.loadAutoEqProfileString(
+        profileText,
+        onPreampExtracted: onPreampExtracted,
+      );
+
+  /// Loads and activates an AutoEQ / EqualizerAPO parametric profile from a file path.
+  int loadAutoEqProfileFile(
+    String filePath, {
+    void Function(double preampDb)? onPreampExtracted,
+  }) =>
+      _engine.loadAutoEqProfileFile(
+        filePath,
+        onPreampExtracted: onPreampExtracted,
+      );
+
   void setReverb({
     required double mix,
     required double feedback,

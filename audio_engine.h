@@ -486,6 +486,13 @@ extern "C"
         const int *enabled_flags);
     AE_API void ae_clear_multiband_fx(AudioEngineHandle *engine);
 
+    // AutoEQ Parametric Equalizer Profile Importers
+    // Parses standard EqualizerAPO / AutoEQ text format and directly configures the multiband FX chain.
+    // out_preamp_db: if non-null, receives the recommended Preamp gain (e.g. -6.5 dB) from the profile.
+    // Returns number of bands imported, or -1 on parse failure.
+    AE_API int ae_load_autoeq_profile_string(AudioEngineHandle *engine, const char *profile_text, float *out_preamp_db);
+    AE_API int ae_load_autoeq_profile_file(AudioEngineHandle *engine, const char *file_path, float *out_preamp_db);
+
     // Realtime analyzer frames (post-FX, mono mixdown).
     // frame_size: number of mono samples per analyzer snapshot.
     typedef enum AE_FFT_WINDOW_TYPE
@@ -663,6 +670,42 @@ extern "C"
     AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int  ae_dsp_get_subsonic_filter_enabled(AudioEngineHandle *engine);
 
+    // Dynamic Loudness (ISO 226 Equal-Loudness Contour Compensation)
+    AE_API void ae_dsp_set_dynamic_loudness_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_dynamic_loudness_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_dynamic_loudness_params(AudioEngineHandle *engine, float ref_level_db, float max_bass_boost_db, float max_treble_boost_db, float bass_freq_hz, float treble_freq_hz);
+    AE_API void ae_dsp_get_dynamic_loudness_params(AudioEngineHandle *engine, float *out_ref_level_db, float *out_max_bass_boost_db, float *out_max_treble_boost_db, float *out_bass_freq_hz, float *out_treble_freq_hz);
+    AE_API void ae_dsp_get_dynamic_loudness_current_boost(AudioEngineHandle *engine, float *out_bass_boost_db, float *out_treble_boost_db);
+
+    // Studio Noise Gate (with Dual-Threshold Hysteresis & Hold Time)
+    AE_API void ae_dsp_set_noise_gate_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_noise_gate_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_noise_gate_params(AudioEngineHandle *engine, float open_thresh_db, float close_thresh_db, float hold_ms, float attack_ms, float release_ms, float sidechain_hpf_hz);
+    AE_API void ae_dsp_get_noise_gate_params(AudioEngineHandle *engine, float *out_open_thresh, float *out_close_thresh, float *out_hold_ms, float *out_attack_ms, float *out_release_ms, float *out_sidechain_hpf);
+    AE_API float ae_dsp_get_noise_gate_gain_reduction_db(AudioEngineHandle *engine);
+
+    // Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
+    AE_API void ae_dsp_set_leveller_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_leveller_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_leveller_params(AudioEngineHandle *engine, float target_lufs, float max_rise_db_sec, float max_fall_db_sec, float max_boost_db, float max_attenuation_db, float silence_gate_lufs);
+    AE_API void ae_dsp_get_leveller_params(AudioEngineHandle *engine, float *out_target_lufs, float *out_max_rise, float *out_max_fall, float *out_max_boost, float *out_max_attenuation, float *out_silence_gate);
+    AE_API float ae_dsp_get_leveller_current_gain_db(AudioEngineHandle *engine);
+
+    // 4-Band Dynamic Equalizer (DynamicEqDSP)
+    AE_API void  ae_dsp_set_dynamic_eq_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int   ae_dsp_get_dynamic_eq_enabled(AudioEngineHandle *engine);
+    AE_API void  ae_dsp_set_dynamic_eq_band(AudioEngineHandle *engine, int band_index, int filter_type, int mode, float freq_hz, float q, float base_gain_db, float threshold_db, float range_db, float ratio, float attack_ms, float release_ms, int enabled);
+    AE_API void  ae_dsp_get_dynamic_eq_band(AudioEngineHandle *engine, int band_index, int *out_filter_type, int *out_mode, float *out_freq_hz, float *out_q, float *out_base_gain_db, float *out_threshold_db, float *out_range_db, float *out_ratio, float *out_attack_ms, float *out_release_ms, int *out_enabled);
+    AE_API float ae_dsp_get_dynamic_eq_band_gain_offset_db(AudioEngineHandle *engine, int band_index);
+
+    // Vintage Tape Wow & Flutter / Mechanical Pitch Drift (TapeDriftDSP)
+    AE_API void  ae_dsp_set_tape_drift_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int   ae_dsp_get_tape_drift_enabled(AudioEngineHandle *engine);
+    AE_API void  ae_dsp_set_tape_drift_params(AudioEngineHandle *engine, float wow_rate_hz, float wow_depth_ms, float flutter_rate_hz, float flutter_depth_ms, float drift_depth_ms, float stereo_phase_deg, float hf_damping_hz);
+    AE_API void  ae_dsp_get_tape_drift_params(AudioEngineHandle *engine, float *out_wow_rate_hz, float *out_wow_depth_ms, float *out_flutter_rate_hz, float *out_flutter_depth_ms, float *out_drift_depth_ms, float *out_stereo_phase_deg, float *out_hf_damping_hz);
+    AE_API void  ae_dsp_set_tape_drift_preset(AudioEngineHandle *engine, int preset);
+    AE_API int   ae_dsp_get_tape_drift_preset(AudioEngineHandle *engine);
+
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
 
@@ -677,9 +720,9 @@ extern "C"
     typedef enum AESurroundMode
     {
         AE_SURROUND_OFF = 0,
-        AE_SURROUND_MATRIX = 1,      // Cinema Matrix 5.1 (Pro Logic II cleanroom)
-        AE_SURROUND_BINAURAL = 2,    // Binaural HRTF Virtualizer (from Dolby analysis_dlby2)
-        AE_SURROUND_STAGE = 3,       // 3D Acoustic Stage (from AM3D Zirene re_workspace)
+        AE_SURROUND_MATRIX = 1,      // Cinema Matrix 5.1
+        AE_SURROUND_BINAURAL = 2,    // Binaural HRTF Virtualizer
+        AE_SURROUND_STAGE = 3,       // 3D Acoustic Stage
         AE_SURROUND_MATRIX_5_1_HRTF = 4 // Backward-compatibility alias for Matrix
     } AESurroundMode;
 

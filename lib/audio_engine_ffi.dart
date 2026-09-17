@@ -1750,6 +1750,16 @@ typedef _RegisterAndroidJvmDart = void Function(ffi.Pointer<ffi.Void>);
 typedef _ClearMultibandFxNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _ClearMultibandFxDart = void Function(ffi.Pointer<ffi.Void>);
 
+typedef _LoadAutoEqProfileStringNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>);
+typedef _LoadAutoEqProfileStringDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>);
+
+typedef _LoadAutoEqProfileFileNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>);
+typedef _LoadAutoEqProfileFileDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>);
+
 typedef _InitPushStreamNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _InitPushStreamDart = void Function(ffi.Pointer<ffi.Void>);
 
@@ -2619,6 +2629,14 @@ class AudioEngineFFI {
         _lib.lookupFunction<_ClearMultibandFxNative, _ClearMultibandFxDart>(
       'ae_clear_multiband_fx',
     );
+    _loadAutoEqProfileString = _lib.lookupFunction<
+        _LoadAutoEqProfileStringNative, _LoadAutoEqProfileStringDart>(
+      'ae_load_autoeq_profile_string',
+    );
+    _loadAutoEqProfileFile = _lib.lookupFunction<
+        _LoadAutoEqProfileFileNative, _LoadAutoEqProfileFileDart>(
+      'ae_load_autoeq_profile_file',
+    );
 
     _initPushStream =
         _lib.lookupFunction<_InitPushStreamNative, _InitPushStreamDart>(
@@ -2968,6 +2986,8 @@ class AudioEngineFFI {
   late final _SetMultibandFxEnabledDart _setMultibandFxEnabled;
   late final _SetMultibandFxBandsDart _setMultibandFxBands;
   late final _ClearMultibandFxDart _clearMultibandFx;
+  late final _LoadAutoEqProfileStringDart _loadAutoEqProfileString;
+  late final _LoadAutoEqProfileFileDart _loadAutoEqProfileFile;
 
   late final _InitPushStreamDart _initPushStream;
   late final _PushStreamChunkDart _pushStreamChunk;
@@ -4761,6 +4781,44 @@ class AudioEngineFFI {
   void clearMultibandFx() {
     if (_engine == ffi.nullptr) return;
     _clearMultibandFx(_engine);
+  }
+
+  /// Loads and activates an AutoEQ / EqualizerAPO parametric profile from string.
+  /// Returns the number of applied filter bands, or -1 on error.
+  /// If [onPreampExtracted] is supplied, it is invoked with the recommended preamp gain in dB.
+  int loadAutoEqProfileString(String profileText, {void Function(double preampDb)? onPreampExtracted}) {
+    if (_engine == ffi.nullptr) return -1;
+    final textPtr = _toNativeChar(profileText);
+    final preampPtr = _malloc(ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      final count = _loadAutoEqProfileString(_engine, textPtr, preampPtr);
+      if (count > 0 && onPreampExtracted != null) {
+        onPreampExtracted(preampPtr.value);
+      }
+      return count;
+    } finally {
+      _freePtr(textPtr.cast<ffi.Void>());
+      _freePtr(preampPtr.cast<ffi.Void>());
+    }
+  }
+
+  /// Loads and activates an AutoEQ / EqualizerAPO parametric profile from a file path.
+  /// Returns the number of applied filter bands, or -1 on error.
+  /// If [onPreampExtracted] is supplied, it is invoked with the recommended preamp gain in dB.
+  int loadAutoEqProfileFile(String filePath, {void Function(double preampDb)? onPreampExtracted}) {
+    if (_engine == ffi.nullptr) return -1;
+    final pathPtr = _toNativeChar(filePath);
+    final preampPtr = _malloc(ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      final count = _loadAutoEqProfileFile(_engine, pathPtr, preampPtr);
+      if (count > 0 && onPreampExtracted != null) {
+        onPreampExtracted(preampPtr.value);
+      }
+      return count;
+    } finally {
+      _freePtr(pathPtr.cast<ffi.Void>());
+      _freePtr(preampPtr.cast<ffi.Void>());
+    }
   }
 
   void setMultibandFxBands(List<EqBandConfig> bands) {

@@ -158,6 +158,38 @@ enum SurroundMode {
   static const SurroundMode viperHeadphone = SurroundMode.binauralVirtualizer;
 }
 
+/// Dynamic Equalizer filter types.
+enum DynamicEqFilterType {
+  peak(0),
+  lowShelf(1),
+  highShelf(2);
+
+  final int value;
+  const DynamicEqFilterType(this.value);
+}
+
+/// Dynamic Equalizer operating modes.
+enum DynamicEqMode {
+  staticMode(0),
+  compress(1),
+  expand(2);
+
+  final int value;
+  const DynamicEqMode(this.value);
+}
+
+/// Vintage Tape Wow, Flutter & Drift presets.
+enum TapeDriftPreset {
+  subtleHiFi(0),
+  vintageReelToReel(1),
+  warpedVinyl(2),
+  cassetteLoFi(3),
+  custom(4);
+
+  final int value;
+  const TapeDriftPreset(this.value);
+}
+
 // Native FFI Typedefs
 typedef _DspSetEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -378,6 +410,188 @@ typedef _DspSetSurroundParamsExDart = void Function(
     double,
     double);
 
+typedef _DspSetDynamicLoudnessParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetDynamicLoudnessParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double);
+
+typedef _DspGetDynamicLoudnessParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetDynamicLoudnessParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspGetDynamicLoudnessCurrentBoostNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetDynamicLoudnessCurrentBoostDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspSetNoiseGateParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetNoiseGateParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double, double);
+
+typedef _DspGetNoiseGateParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetNoiseGateParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspSetLevellerParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetLevellerParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double, double);
+
+typedef _DspGetLevellerParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetLevellerParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspSetDynamicEqBandNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Int32);
+typedef _DspSetDynamicEqBandDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    int,
+    int,
+    int,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    int);
+
+typedef _DspGetDynamicEqBandNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>);
+typedef _DspGetDynamicEqBandDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    int,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>);
+
+typedef _DspGetDynamicEqBandGainOffsetDbNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspGetDynamicEqBandGainOffsetDbDart = double Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _DspSetTapeDriftParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _DspSetTapeDriftParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double);
+
+typedef _DspGetTapeDriftParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetTapeDriftParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspSetTapeDriftPresetNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _DspSetTapeDriftPresetDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _DspGetTapeDriftPresetNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _DspGetTapeDriftPresetDart = int Function(ffi.Pointer<ffi.Void>);
+
 /// Clean-room high-fidelity DSP suite for SautiFlow.
 class SautiDsp {
   final ffi.DynamicLibrary _lib;
@@ -438,6 +652,36 @@ class SautiDsp {
   late final _DspSetSurroundParamsExDart _setSurroundParamsEx;
   late final _DspSetEnabledDart _setSubsonicFilterEnabled;
   late final _DspHasConvolverIrDart _getSubsonicFilterEnabled;
+  late final _DspSetEnabledDart _setDynamicLoudnessEnabled;
+  late final _DspHasConvolverIrDart _getDynamicLoudnessEnabled;
+  late final _DspSetDynamicLoudnessParamsDart _setDynamicLoudnessParams;
+  late final _DspGetDynamicLoudnessParamsDart _getDynamicLoudnessParams;
+  late final _DspGetDynamicLoudnessCurrentBoostDart _getDynamicLoudnessCurrentBoost;
+
+  late final _DspSetEnabledDart _setNoiseGateEnabled;
+  late final _DspHasConvolverIrDart _getNoiseGateEnabled;
+  late final _DspSetNoiseGateParamsDart _setNoiseGateParams;
+  late final _DspGetNoiseGateParamsDart _getNoiseGateParams;
+  late final _DspGetDialogEnhancerGainReductionDbDart _getNoiseGateGainReductionDb;
+
+  late final _DspSetEnabledDart _setLevellerEnabled;
+  late final _DspHasConvolverIrDart _getLevellerEnabled;
+  late final _DspSetLevellerParamsDart _setLevellerParams;
+  late final _DspGetLevellerParamsDart _getLevellerParams;
+  late final _DspGetDialogEnhancerGainReductionDbDart _getLevellerCurrentGainDb;
+
+  late final _DspSetEnabledDart _setDynamicEqEnabled;
+  late final _DspHasConvolverIrDart _getDynamicEqEnabled;
+  late final _DspSetDynamicEqBandDart _setDynamicEqBand;
+  late final _DspGetDynamicEqBandDart _getDynamicEqBand;
+  late final _DspGetDynamicEqBandGainOffsetDbDart _getDynamicEqBandGainOffsetDb;
+
+  late final _DspSetEnabledDart _setTapeDriftEnabled;
+  late final _DspHasConvolverIrDart _getTapeDriftEnabled;
+  late final _DspSetTapeDriftParamsDart _setTapeDriftParams;
+  late final _DspGetTapeDriftParamsDart _getTapeDriftParams;
+  late final _DspSetTapeDriftPresetDart _setTapeDriftPreset;
+  late final _DspGetTapeDriftPresetDart _getTapeDriftPreset;
 
   SautiDsp(this._lib, this._enginePtr) {
     _initFunctions();
@@ -583,6 +827,83 @@ class SautiDsp {
             'ae_dsp_set_subsonic_filter_enabled');
     _getSubsonicFilterEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
         _DspHasConvolverIrDart>('ae_dsp_get_subsonic_filter_enabled');
+    _setDynamicLoudnessEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_dynamic_loudness_enabled');
+    _getDynamicLoudnessEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_dynamic_loudness_enabled');
+    _setDynamicLoudnessParams = _lib.lookupFunction<
+        _DspSetDynamicLoudnessParamsNative,
+        _DspSetDynamicLoudnessParamsDart>('ae_dsp_set_dynamic_loudness_params');
+    _getDynamicLoudnessParams = _lib.lookupFunction<
+        _DspGetDynamicLoudnessParamsNative,
+        _DspGetDynamicLoudnessParamsDart>('ae_dsp_get_dynamic_loudness_params');
+    _getDynamicLoudnessCurrentBoost = _lib.lookupFunction<
+        _DspGetDynamicLoudnessCurrentBoostNative,
+        _DspGetDynamicLoudnessCurrentBoostDart>('ae_dsp_get_dynamic_loudness_current_boost');
+
+    _setNoiseGateEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_noise_gate_enabled');
+    _getNoiseGateEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_noise_gate_enabled');
+    _setNoiseGateParams = _lib.lookupFunction<
+        _DspSetNoiseGateParamsNative,
+        _DspSetNoiseGateParamsDart>('ae_dsp_set_noise_gate_params');
+    _getNoiseGateParams = _lib.lookupFunction<
+        _DspGetNoiseGateParamsNative,
+        _DspGetNoiseGateParamsDart>('ae_dsp_get_noise_gate_params');
+    _getNoiseGateGainReductionDb = _lib.lookupFunction<
+        _DspGetDialogEnhancerGainReductionDbNative,
+        _DspGetDialogEnhancerGainReductionDbDart>('ae_dsp_get_noise_gate_gain_reduction_db');
+
+    _setLevellerEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_leveller_enabled');
+    _getLevellerEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_leveller_enabled');
+    _setLevellerParams = _lib.lookupFunction<
+        _DspSetLevellerParamsNative,
+        _DspSetLevellerParamsDart>('ae_dsp_set_leveller_params');
+    _getLevellerParams = _lib.lookupFunction<
+        _DspGetLevellerParamsNative,
+        _DspGetLevellerParamsDart>('ae_dsp_get_leveller_params');
+    _getLevellerCurrentGainDb = _lib.lookupFunction<
+        _DspGetDialogEnhancerGainReductionDbNative,
+        _DspGetDialogEnhancerGainReductionDbDart>('ae_dsp_get_leveller_current_gain_db');
+
+    _setDynamicEqEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_dynamic_eq_enabled');
+    _getDynamicEqEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_dynamic_eq_enabled');
+    _setDynamicEqBand = _lib.lookupFunction<
+        _DspSetDynamicEqBandNative,
+        _DspSetDynamicEqBandDart>('ae_dsp_set_dynamic_eq_band');
+    _getDynamicEqBand = _lib.lookupFunction<
+        _DspGetDynamicEqBandNative,
+        _DspGetDynamicEqBandDart>('ae_dsp_get_dynamic_eq_band');
+    _getDynamicEqBandGainOffsetDb = _lib.lookupFunction<
+        _DspGetDynamicEqBandGainOffsetDbNative,
+        _DspGetDynamicEqBandGainOffsetDbDart>('ae_dsp_get_dynamic_eq_band_gain_offset_db');
+
+    _setTapeDriftEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_tape_drift_enabled');
+    _getTapeDriftEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_tape_drift_enabled');
+    _setTapeDriftParams = _lib.lookupFunction<
+        _DspSetTapeDriftParamsNative,
+        _DspSetTapeDriftParamsDart>('ae_dsp_set_tape_drift_params');
+    _getTapeDriftParams = _lib.lookupFunction<
+        _DspGetTapeDriftParamsNative,
+        _DspGetTapeDriftParamsDart>('ae_dsp_get_tape_drift_params');
+    _setTapeDriftPreset = _lib.lookupFunction<
+        _DspSetTapeDriftPresetNative,
+        _DspSetTapeDriftPresetDart>('ae_dsp_set_tape_drift_preset');
+    _getTapeDriftPreset = _lib.lookupFunction<
+        _DspGetTapeDriftPresetNative,
+        _DspGetTapeDriftPresetDart>('ae_dsp_get_tape_drift_preset');
   }
 
   /// Reset all internal DSP buffers and history states.
@@ -1033,5 +1354,453 @@ class SautiDsp {
   bool isSubsonicFilterEnabled() {
     if (_enginePtr == ffi.nullptr) return false;
     return _getSubsonicFilterEnabled(_enginePtr) != 0;
+  }
+
+  /// Dynamic Loudness (ISO 226:2003 Equal-Loudness Contour Compensation).
+  void setDynamicLoudnessEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicLoudnessEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isDynamicLoudnessEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getDynamicLoudnessEnabled(_enginePtr) != 0;
+  }
+
+  void setDynamicLoudnessParams({
+    double refLevelDb = 0.0,
+    double maxBassBoostDb = 9.0,
+    double maxTrebleBoostDb = 4.5,
+    double bassFreqHz = 90.0,
+    double trebleFreqHz = 9000.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicLoudnessParams(
+      _enginePtr,
+      refLevelDb,
+      maxBassBoostDb,
+      maxTrebleBoostDb,
+      bassFreqHz,
+      trebleFreqHz,
+    );
+  }
+
+  ({double refLevelDb, double maxBassBoostDb, double maxTrebleBoostDb, double bassFreqHz, double trebleFreqHz}) getDynamicLoudnessParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (refLevelDb: 0.0, maxBassBoostDb: 9.0, maxTrebleBoostDb: 4.5, bassFreqHz: 90.0, trebleFreqHz: 9000.0);
+    }
+    final pRef = calloc<ffi.Float>();
+    final pBass = calloc<ffi.Float>();
+    final pTreble = calloc<ffi.Float>();
+    final pBassF = calloc<ffi.Float>();
+    final pTrebleF = calloc<ffi.Float>();
+    try {
+      _getDynamicLoudnessParams(_enginePtr, pRef, pBass, pTreble, pBassF, pTrebleF);
+      return (
+        refLevelDb: pRef.value,
+        maxBassBoostDb: pBass.value,
+        maxTrebleBoostDb: pTreble.value,
+        bassFreqHz: pBassF.value,
+        trebleFreqHz: pTrebleF.value,
+      );
+    } finally {
+      calloc.free(pRef);
+      calloc.free(pBass);
+      calloc.free(pTreble);
+      calloc.free(pBassF);
+      calloc.free(pTrebleF);
+    }
+  }
+
+  ({double bassBoostDb, double trebleBoostDb}) getDynamicLoudnessCurrentBoost() {
+    if (_enginePtr == ffi.nullptr) {
+      return (bassBoostDb: 0.0, trebleBoostDb: 0.0);
+    }
+    final pBass = calloc<ffi.Float>();
+    final pTreble = calloc<ffi.Float>();
+    try {
+      _getDynamicLoudnessCurrentBoost(_enginePtr, pBass, pTreble);
+      return (
+        bassBoostDb: pBass.value,
+        trebleBoostDb: pTreble.value,
+      );
+    } finally {
+      calloc.free(pBass);
+      calloc.free(pTreble);
+    }
+  }
+
+  /// Studio Noise Gate with Dual-Threshold Hysteresis & Hold Time.
+  void setNoiseGateEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setNoiseGateEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isNoiseGateEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getNoiseGateEnabled(_enginePtr) != 0;
+  }
+
+  void setNoiseGateParams({
+    double openThreshDb = -42.0,
+    double closeThreshDb = -48.0,
+    double holdMs = 80.0,
+    double attackMs = 1.0,
+    double releaseMs = 120.0,
+    double sidechainHpfHz = 80.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setNoiseGateParams(
+      _enginePtr,
+      openThreshDb,
+      closeThreshDb,
+      holdMs,
+      attackMs,
+      releaseMs,
+      sidechainHpfHz,
+    );
+  }
+
+  ({double openThreshDb, double closeThreshDb, double holdMs, double attackMs, double releaseMs, double sidechainHpfHz}) getNoiseGateParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (openThreshDb: -42.0, closeThreshDb: -48.0, holdMs: 80.0, attackMs: 1.0, releaseMs: 120.0, sidechainHpfHz: 80.0);
+    }
+    final pOpen = calloc<ffi.Float>();
+    final pClose = calloc<ffi.Float>();
+    final pHold = calloc<ffi.Float>();
+    final pAttack = calloc<ffi.Float>();
+    final pRelease = calloc<ffi.Float>();
+    final pHpf = calloc<ffi.Float>();
+    try {
+      _getNoiseGateParams(_enginePtr, pOpen, pClose, pHold, pAttack, pRelease, pHpf);
+      return (
+        openThreshDb: pOpen.value,
+        closeThreshDb: pClose.value,
+        holdMs: pHold.value,
+        attackMs: pAttack.value,
+        releaseMs: pRelease.value,
+        sidechainHpfHz: pHpf.value,
+      );
+    } finally {
+      calloc.free(pOpen);
+      calloc.free(pClose);
+      calloc.free(pHold);
+      calloc.free(pAttack);
+      calloc.free(pRelease);
+      calloc.free(pHpf);
+    }
+  }
+
+  double getNoiseGateGainReductionDb() {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getNoiseGateGainReductionDb(_enginePtr);
+  }
+
+  /// Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC).
+  void setLevellerEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setLevellerEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isLevellerEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getLevellerEnabled(_enginePtr) != 0;
+  }
+
+  void setLevellerParams({
+    double targetLufs = -16.0,
+    double maxRiseDbSec = 0.75,
+    double maxFallDbSec = 1.5,
+    double maxBoostDb = 9.0,
+    double maxAttenuationDb = 12.0,
+    double silenceGateLufs = -45.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setLevellerParams(
+      _enginePtr,
+      targetLufs,
+      maxRiseDbSec,
+      maxFallDbSec,
+      maxBoostDb,
+      maxAttenuationDb,
+      silenceGateLufs,
+    );
+  }
+
+  ({double targetLufs, double maxRiseDbSec, double maxFallDbSec, double maxBoostDb, double maxAttenuationDb, double silenceGateLufs}) getLevellerParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (targetLufs: -16.0, maxRiseDbSec: 0.75, maxFallDbSec: 1.5, maxBoostDb: 9.0, maxAttenuationDb: 12.0, silenceGateLufs: -45.0);
+    }
+    final pTarget = calloc<ffi.Float>();
+    final pRise = calloc<ffi.Float>();
+    final pFall = calloc<ffi.Float>();
+    final pBoost = calloc<ffi.Float>();
+    final pAtten = calloc<ffi.Float>();
+    final pGate = calloc<ffi.Float>();
+    try {
+      _getLevellerParams(_enginePtr, pTarget, pRise, pFall, pBoost, pAtten, pGate);
+      return (
+        targetLufs: pTarget.value,
+        maxRiseDbSec: pRise.value,
+        maxFallDbSec: pFall.value,
+        maxBoostDb: pBoost.value,
+        maxAttenuationDb: pAtten.value,
+        silenceGateLufs: pGate.value,
+      );
+    } finally {
+      calloc.free(pTarget);
+      calloc.free(pRise);
+      calloc.free(pFall);
+      calloc.free(pBoost);
+      calloc.free(pAtten);
+      calloc.free(pGate);
+    }
+  }
+
+  double getLevellerCurrentGainDb() {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getLevellerCurrentGainDb(_enginePtr);
+  }
+
+  /// 4-Band Dynamic Equalizer (DynamicEqDSP).
+  void setDynamicEqEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicEqEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isDynamicEqEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getDynamicEqEnabled(_enginePtr) != 0;
+  }
+
+  void setDynamicEqBand({
+    required int bandIndex,
+    required DynamicEqFilterType filterType,
+    required DynamicEqMode mode,
+    required double freqHz,
+    double q = 1.0,
+    double baseGainDb = 0.0,
+    double thresholdDb = -24.0,
+    double rangeDb = 6.0,
+    double ratio = 3.0,
+    double attackMs = 2.0,
+    double releaseMs = 60.0,
+    bool enabled = true,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setDynamicEqBand(
+      _enginePtr,
+      bandIndex,
+      filterType.value,
+      mode.value,
+      freqHz,
+      q,
+      baseGainDb,
+      thresholdDb,
+      rangeDb,
+      ratio,
+      attackMs,
+      releaseMs,
+      enabled ? 1 : 0,
+    );
+  }
+
+  ({
+    DynamicEqFilterType filterType,
+    DynamicEqMode mode,
+    double freqHz,
+    double q,
+    double baseGainDb,
+    double thresholdDb,
+    double rangeDb,
+    double ratio,
+    double attackMs,
+    double releaseMs,
+    bool enabled,
+  }) getDynamicEqBand(int bandIndex) {
+    if (_enginePtr == ffi.nullptr) {
+      return (
+        filterType: DynamicEqFilterType.peak,
+        mode: DynamicEqMode.compress,
+        freqHz: 1000.0,
+        q: 1.0,
+        baseGainDb: 0.0,
+        thresholdDb: -24.0,
+        rangeDb: 6.0,
+        ratio: 3.0,
+        attackMs: 2.0,
+        releaseMs: 60.0,
+        enabled: false,
+      );
+    }
+    final pType = calloc<ffi.Int32>();
+    final pMode = calloc<ffi.Int32>();
+    final pFreq = calloc<ffi.Float>();
+    final pQ = calloc<ffi.Float>();
+    final pBaseGain = calloc<ffi.Float>();
+    final pThresh = calloc<ffi.Float>();
+    final pRange = calloc<ffi.Float>();
+    final pRatio = calloc<ffi.Float>();
+    final pAttack = calloc<ffi.Float>();
+    final pRelease = calloc<ffi.Float>();
+    final pEnabled = calloc<ffi.Int32>();
+    try {
+      _getDynamicEqBand(
+        _enginePtr,
+        bandIndex,
+        pType,
+        pMode,
+        pFreq,
+        pQ,
+        pBaseGain,
+        pThresh,
+        pRange,
+        pRatio,
+        pAttack,
+        pRelease,
+        pEnabled,
+      );
+      final fType = (pType.value >= 0 && pType.value < DynamicEqFilterType.values.length)
+          ? DynamicEqFilterType.values[pType.value]
+          : DynamicEqFilterType.peak;
+      final mMode = (pMode.value >= 0 && pMode.value < DynamicEqMode.values.length)
+          ? DynamicEqMode.values[pMode.value]
+          : DynamicEqMode.compress;
+      return (
+        filterType: fType,
+        mode: mMode,
+        freqHz: pFreq.value,
+        q: pQ.value,
+        baseGainDb: pBaseGain.value,
+        thresholdDb: pThresh.value,
+        rangeDb: pRange.value,
+        ratio: pRatio.value,
+        attackMs: pAttack.value,
+        releaseMs: pRelease.value,
+        enabled: pEnabled.value != 0,
+      );
+    } finally {
+      calloc.free(pType);
+      calloc.free(pMode);
+      calloc.free(pFreq);
+      calloc.free(pQ);
+      calloc.free(pBaseGain);
+      calloc.free(pThresh);
+      calloc.free(pRange);
+      calloc.free(pRatio);
+      calloc.free(pAttack);
+      calloc.free(pRelease);
+      calloc.free(pEnabled);
+    }
+  }
+
+  double getDynamicEqBandGainOffsetDb(int bandIndex) {
+    if (_enginePtr == ffi.nullptr) return 0.0;
+    return _getDynamicEqBandGainOffsetDb(_enginePtr, bandIndex);
+  }
+
+  /// Vintage Tape Wow & Flutter / Mechanical Pitch Drift (TapeDriftDSP).
+  void setTapeDriftEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setTapeDriftEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isTapeDriftEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getTapeDriftEnabled(_enginePtr) != 0;
+  }
+
+  void setTapeDriftParams({
+    double wowRateHz = 0.8,
+    double wowDepthMs = 0.35,
+    double flutterRateHz = 12.0,
+    double flutterDepthMs = 0.08,
+    double driftDepthMs = 0.10,
+    double stereoPhaseDeg = 45.0,
+    double hfDampingHz = 18000.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setTapeDriftParams(
+      _enginePtr,
+      wowRateHz,
+      wowDepthMs,
+      flutterRateHz,
+      flutterDepthMs,
+      driftDepthMs,
+      stereoPhaseDeg,
+      hfDampingHz,
+    );
+  }
+
+  ({
+    double wowRateHz,
+    double wowDepthMs,
+    double flutterRateHz,
+    double flutterDepthMs,
+    double driftDepthMs,
+    double stereoPhaseDeg,
+    double hfDampingHz,
+  }) getTapeDriftParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (
+        wowRateHz: 0.8,
+        wowDepthMs: 0.35,
+        flutterRateHz: 12.0,
+        flutterDepthMs: 0.08,
+        driftDepthMs: 0.10,
+        stereoPhaseDeg: 45.0,
+        hfDampingHz: 18000.0,
+      );
+    }
+    final pWowRate = calloc<ffi.Float>();
+    final pWowDepth = calloc<ffi.Float>();
+    final pFlutterRate = calloc<ffi.Float>();
+    final pFlutterDepth = calloc<ffi.Float>();
+    final pDrift = calloc<ffi.Float>();
+    final pPhase = calloc<ffi.Float>();
+    final pDamping = calloc<ffi.Float>();
+    try {
+      _getTapeDriftParams(
+        _enginePtr,
+        pWowRate,
+        pWowDepth,
+        pFlutterRate,
+        pFlutterDepth,
+        pDrift,
+        pPhase,
+        pDamping,
+      );
+      return (
+        wowRateHz: pWowRate.value,
+        wowDepthMs: pWowDepth.value,
+        flutterRateHz: pFlutterRate.value,
+        flutterDepthMs: pFlutterDepth.value,
+        driftDepthMs: pDrift.value,
+        stereoPhaseDeg: pPhase.value,
+        hfDampingHz: pDamping.value,
+      );
+    } finally {
+      calloc.free(pWowRate);
+      calloc.free(pWowDepth);
+      calloc.free(pFlutterRate);
+      calloc.free(pFlutterDepth);
+      calloc.free(pDrift);
+      calloc.free(pPhase);
+      calloc.free(pDamping);
+    }
+  }
+
+  void setTapeDriftPreset(TapeDriftPreset preset) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setTapeDriftPreset(_enginePtr, preset.value);
+  }
+
+  TapeDriftPreset getTapeDriftPreset() {
+    if (_enginePtr == ffi.nullptr) return TapeDriftPreset.subtleHiFi;
+    final val = _getTapeDriftPreset(_enginePtr);
+    if (val >= 0 && val < TapeDriftPreset.values.length) {
+      return TapeDriftPreset.values[val];
+    }
+    return TapeDriftPreset.custom;
   }
 }

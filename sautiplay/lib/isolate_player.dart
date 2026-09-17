@@ -1024,6 +1024,187 @@ class IsolateAudioPlayer {
         'releaseMs': releaseMs,
       });
 
+  // --- Dynamic Loudness (ISO 226 Equal-Loudness Contour) ---
+  void setDynamicLoudnessEnabled(bool enabled) =>
+      _send({'cmd': 'setDynamicLoudnessEnabled', 'enabled': enabled});
+
+  void setDynamicLoudnessParams({
+    double refLevelDb = 0.0,
+    double maxBassBoostDb = 9.0,
+    double maxTrebleBoostDb = 4.5,
+    double bassFreqHz = 90.0,
+    double trebleFreqHz = 9000.0,
+  }) =>
+      _send({
+        'cmd': 'setDynamicLoudnessParams',
+        'refLevelDb': refLevelDb,
+        'maxBassBoostDb': maxBassBoostDb,
+        'maxTrebleBoostDb': maxTrebleBoostDb,
+        'bassFreqHz': bassFreqHz,
+        'trebleFreqHz': trebleFreqHz,
+      });
+
+  Future<({double bassBoostDb, double trebleBoostDb})>
+      getDynamicLoudnessCurrentBoost() async {
+    final response = await _request('getDynamicLoudnessCurrentBoost');
+    if (response is Map) {
+      return (
+        bassBoostDb: (response['bassBoostDb'] as num?)?.toDouble() ?? 0.0,
+        trebleBoostDb: (response['trebleBoostDb'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+    return (bassBoostDb: 0.0, trebleBoostDb: 0.0);
+  }
+
+  // --- AutoEQ Headphone Profile Importer ---
+  Future<({int bandCount, double preampDb})> loadAutoEqProfileFile(
+      String filePath) async {
+    final response = await _request('loadAutoEqProfileFile', {'path': filePath},
+        const Duration(seconds: 3));
+    if (response is Map) {
+      return (
+        bandCount: (response['bandCount'] as num?)?.toInt() ?? -1,
+        preampDb: (response['preampDb'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+    return (bandCount: -1, preampDb: 0.0);
+  }
+
+  Future<({int bandCount, double preampDb})> loadAutoEqProfileString(
+      String profileText) async {
+    final response = await _request(
+        'loadAutoEqProfileString', {'text': profileText},
+        const Duration(seconds: 3));
+    if (response is Map) {
+      return (
+        bandCount: (response['bandCount'] as num?)?.toInt() ?? -1,
+        preampDb: (response['preampDb'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+    return (bandCount: -1, preampDb: 0.0);
+  }
+
+  // --- Studio Noise Gate ---
+  void setNoiseGateEnabled(bool enabled) =>
+      _send({'cmd': 'setNoiseGateEnabled', 'enabled': enabled});
+
+  void setNoiseGateParams({
+    double openThreshDb = -42.0,
+    double closeThreshDb = -48.0,
+    double holdMs = 80.0,
+    double attackMs = 1.0,
+    double releaseMs = 120.0,
+    double sidechainHpfHz = 80.0,
+  }) =>
+      _send({
+        'cmd': 'setNoiseGateParams',
+        'openThreshDb': openThreshDb,
+        'closeThreshDb': closeThreshDb,
+        'holdMs': holdMs,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'sidechainHpfHz': sidechainHpfHz,
+      });
+
+  Future<double> getNoiseGateGainReductionDb() async {
+    final response = await _request('getNoiseGateGainReductionDb');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
+  // --- Broadcast Leveller (Slow-Window AGC) ---
+  void setLevellerEnabled(bool enabled) =>
+      _send({'cmd': 'setLevellerEnabled', 'enabled': enabled});
+
+  void setLevellerParams({
+    double targetLufs = -16.0,
+    double maxRiseDbSec = 0.75,
+    double maxFallDbSec = 1.5,
+    double maxBoostDb = 9.0,
+    double maxAttenuationDb = 12.0,
+    double silenceGateLufs = -45.0,
+  }) =>
+      _send({
+        'cmd': 'setLevellerParams',
+        'targetLufs': targetLufs,
+        'maxRiseDbSec': maxRiseDbSec,
+        'maxFallDbSec': maxFallDbSec,
+        'maxBoostDb': maxBoostDb,
+        'maxAttenuationDb': maxAttenuationDb,
+        'silenceGateLufs': silenceGateLufs,
+      });
+
+  Future<double> getLevellerCurrentGainDb() async {
+    final response = await _request('getLevellerCurrentGainDb');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
+  // --- 4-Band Dynamic Parametric EQ (DynamicEqDSP) ---
+  void setDynamicEqEnabled(bool enabled) =>
+      _send({'cmd': 'setDynamicEqEnabled', 'enabled': enabled});
+
+  void setDynamicEqBand({
+    required int bandIndex,
+    DynamicEqFilterType filterType = DynamicEqFilterType.peak,
+    DynamicEqMode mode = DynamicEqMode.compress,
+    required double freqHz,
+    double q = 1.0,
+    double baseGainDb = 0.0,
+    double thresholdDb = -24.0,
+    double rangeDb = 6.0,
+    double ratio = 3.0,
+    double attackMs = 2.0,
+    double releaseMs = 60.0,
+    bool enabled = true,
+  }) =>
+      _send({
+        'cmd': 'setDynamicEqBand',
+        'bandIndex': bandIndex,
+        'filterType': filterType.value,
+        'mode': mode.value,
+        'freqHz': freqHz,
+        'q': q,
+        'baseGainDb': baseGainDb,
+        'thresholdDb': thresholdDb,
+        'rangeDb': rangeDb,
+        'ratio': ratio,
+        'attackMs': attackMs,
+        'releaseMs': releaseMs,
+        'enabled': enabled,
+      });
+
+  Future<double> getDynamicEqBandGainOffsetDb(int bandIndex) async {
+    final response =
+        await _request('getDynamicEqBandGainOffsetDb', {'bandIndex': bandIndex});
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
+  // --- Vintage Tape Wow, Flutter & Drift (TapeDriftDSP) ---
+  void setTapeDriftEnabled(bool enabled) =>
+      _send({'cmd': 'setTapeDriftEnabled', 'enabled': enabled});
+
+  void setTapeDriftParams({
+    double wowRateHz = 0.8,
+    double wowDepthMs = 0.35,
+    double flutterRateHz = 12.0,
+    double flutterDepthMs = 0.08,
+    double driftDepthMs = 0.10,
+    double stereoPhaseDeg = 45.0,
+    double hfDampingHz = 18000.0,
+  }) =>
+      _send({
+        'cmd': 'setTapeDriftParams',
+        'wowRateHz': wowRateHz,
+        'wowDepthMs': wowDepthMs,
+        'flutterRateHz': flutterRateHz,
+        'flutterDepthMs': flutterDepthMs,
+        'driftDepthMs': driftDepthMs,
+        'stereoPhaseDeg': stereoPhaseDeg,
+        'hfDampingHz': hfDampingHz,
+      });
+
+  void setTapeDriftPreset(TapeDriftPreset preset) =>
+      _send({'cmd': 'setTapeDriftPreset', 'preset': preset.value});
+
   void setSpeakerProtectionParams({
     required bool enabled,
     required double subsonicCutoffHz,
@@ -2448,6 +2629,166 @@ void _isolateEntry(_IsolateInitData initData) {
             outputGainDb: (message['outputGainDb'] as num?)?.toDouble() ?? 0.0,
             releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 60.0,
           );
+          break;
+        case 'setDynamicLoudnessEnabled':
+          player.dsp.setDynamicLoudnessEnabled(message['enabled'] == true);
+          break;
+        case 'setDynamicLoudnessParams':
+          player.dsp.setDynamicLoudnessParams(
+            refLevelDb: (message['refLevelDb'] as num?)?.toDouble() ?? 0.0,
+            maxBassBoostDb:
+                (message['maxBassBoostDb'] as num?)?.toDouble() ?? 9.0,
+            maxTrebleBoostDb:
+                (message['maxTrebleBoostDb'] as num?)?.toDouble() ?? 4.5,
+            bassFreqHz: (message['bassFreqHz'] as num?)?.toDouble() ?? 90.0,
+            trebleFreqHz:
+                (message['trebleFreqHz'] as num?)?.toDouble() ?? 9000.0,
+          );
+          break;
+        case 'getDynamicLoudnessCurrentBoost':
+          try {
+            final boost = player.dsp.getDynamicLoudnessCurrentBoost();
+            sendResponse(message, {
+              'bassBoostDb': boost.bassBoostDb,
+              'trebleBoostDb': boost.trebleBoostDb,
+            });
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'loadAutoEqProfileFile':
+          try {
+            double preamp = 0.0;
+            final count = player.loadAutoEqProfileFile(
+              message['path'] as String,
+              onPreampExtracted: (p) => preamp = p,
+            );
+            sendResponse(message, {'bandCount': count, 'preampDb': preamp});
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'loadAutoEqProfileString':
+          try {
+            double preamp = 0.0;
+            final count = player.loadAutoEqProfileString(
+              message['text'] as String,
+              onPreampExtracted: (p) => preamp = p,
+            );
+            sendResponse(message, {'bandCount': count, 'preampDb': preamp});
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setNoiseGateEnabled':
+          player.dsp.setNoiseGateEnabled(message['enabled'] == true);
+          break;
+        case 'setNoiseGateParams':
+          player.dsp.setNoiseGateParams(
+            openThreshDb:
+                (message['openThreshDb'] as num?)?.toDouble() ?? -42.0,
+            closeThreshDb:
+                (message['closeThreshDb'] as num?)?.toDouble() ?? -48.0,
+            holdMs: (message['holdMs'] as num?)?.toDouble() ?? 80.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 1.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 120.0,
+            sidechainHpfHz:
+                (message['sidechainHpfHz'] as num?)?.toDouble() ?? 80.0,
+          );
+          break;
+        case 'getNoiseGateGainReductionDb':
+          try {
+            sendResponse(message, player.dsp.getNoiseGateGainReductionDb());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setLevellerEnabled':
+          player.dsp.setLevellerEnabled(message['enabled'] == true);
+          break;
+        case 'setLevellerParams':
+          player.dsp.setLevellerParams(
+            targetLufs: (message['targetLufs'] as num?)?.toDouble() ?? -16.0,
+            maxRiseDbSec:
+                (message['maxRiseDbSec'] as num?)?.toDouble() ?? 0.75,
+            maxFallDbSec: (message['maxFallDbSec'] as num?)?.toDouble() ?? 1.5,
+            maxBoostDb: (message['maxBoostDb'] as num?)?.toDouble() ?? 9.0,
+            maxAttenuationDb:
+                (message['maxAttenuationDb'] as num?)?.toDouble() ?? 12.0,
+            silenceGateLufs:
+                (message['silenceGateLufs'] as num?)?.toDouble() ?? -45.0,
+          );
+          break;
+        case 'getLevellerCurrentGainDb':
+          try {
+            sendResponse(message, player.dsp.getLevellerCurrentGainDb());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setDynamicEqEnabled':
+          player.dsp.setDynamicEqEnabled(message['enabled'] == true);
+          break;
+        case 'setDynamicEqBand':
+          final rawType = (message['filterType'] as num?)?.toInt() ?? 0;
+          final fType =
+              (rawType >= 0 && rawType < DynamicEqFilterType.values.length)
+                  ? DynamicEqFilterType.values[rawType]
+                  : DynamicEqFilterType.peak;
+          final rawMode = (message['mode'] as num?)?.toInt() ?? 0;
+          final fMode =
+              (rawMode >= 0 && rawMode < DynamicEqMode.values.length)
+                  ? DynamicEqMode.values[rawMode]
+                  : DynamicEqMode.compress;
+          player.dsp.setDynamicEqBand(
+            bandIndex: (message['bandIndex'] as num?)?.toInt() ?? 0,
+            filterType: fType,
+            mode: fMode,
+            freqHz: (message['freqHz'] as num?)?.toDouble() ?? 1000.0,
+            q: (message['q'] as num?)?.toDouble() ?? 1.0,
+            baseGainDb: (message['baseGainDb'] as num?)?.toDouble() ?? 0.0,
+            thresholdDb: (message['thresholdDb'] as num?)?.toDouble() ?? -24.0,
+            rangeDb: (message['rangeDb'] as num?)?.toDouble() ?? 6.0,
+            ratio: (message['ratio'] as num?)?.toDouble() ?? 3.0,
+            attackMs: (message['attackMs'] as num?)?.toDouble() ?? 2.0,
+            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 60.0,
+            enabled: message['enabled'] == true,
+          );
+          break;
+        case 'getDynamicEqBandGainOffsetDb':
+          try {
+            final bandIdx = (message['bandIndex'] as num?)?.toInt() ?? 0;
+            sendResponse(
+                message, player.dsp.getDynamicEqBandGainOffsetDb(bandIdx));
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setTapeDriftEnabled':
+          player.dsp.setTapeDriftEnabled(message['enabled'] == true);
+          break;
+        case 'setTapeDriftParams':
+          player.dsp.setTapeDriftParams(
+            wowRateHz: (message['wowRateHz'] as num?)?.toDouble() ?? 0.8,
+            wowDepthMs: (message['wowDepthMs'] as num?)?.toDouble() ?? 0.35,
+            flutterRateHz:
+                (message['flutterRateHz'] as num?)?.toDouble() ?? 12.0,
+            flutterDepthMs:
+                (message['flutterDepthMs'] as num?)?.toDouble() ?? 0.08,
+            driftDepthMs: (message['driftDepthMs'] as num?)?.toDouble() ?? 0.10,
+            stereoPhaseDeg:
+                (message['stereoPhaseDeg'] as num?)?.toDouble() ?? 45.0,
+            hfDampingHz:
+                (message['hfDampingHz'] as num?)?.toDouble() ?? 18000.0,
+          );
+          break;
+        case 'setTapeDriftPreset':
+          final rawPreset = (message['preset'] as num?)?.toInt() ?? 0;
+          final preset =
+              (rawPreset >= 0 && rawPreset < TapeDriftPreset.values.length)
+                  ? TapeDriftPreset.values[rawPreset]
+                  : TapeDriftPreset.subtleHiFi;
+          player.dsp.setTapeDriftPreset(preset);
           break;
         case 'getHardwareInfo':
           try {

@@ -49,6 +49,12 @@
 #include "dsp/subsonic_filter.h"
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/stereo_imager_dsp.h"
+#include "dsp/dynamic_loudness_dsp.h"
+#include "dsp/autoeq_parser.h"
+#include "dsp/broadcast_leveller_dsp.h"
+#include "dsp/noise_gate_dsp.h"
+#include "dsp/dynamic_eq_dsp.h"
+#include "dsp/tape_drift_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -3683,6 +3689,11 @@ struct AudioEngineHandle
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
     sauti::dsp::SubsonicFilter subsonicFilter;
+    sauti::dsp::DynamicLoudnessDSP dynamicLoudnessDsp;
+    sauti::dsp::BroadcastLevellerDSP levellerDsp;
+    sauti::dsp::NoiseGateDSP noiseGateDsp;
+    sauti::dsp::DynamicEqDSP dynamicEqDsp;
+    sauti::dsp::TapeDriftDSP tapeDriftDsp;
     std::mutex dspMutex;
 
     std::atomic<bool> analyzerEnabled{false};
@@ -4217,6 +4228,11 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->masterLimiterDsp.setSampleRate(srF);
     e->surroundDsp.setSampleRate(srF);
     e->subsonicFilter.setSampleRate(srF);
+    e->dynamicLoudnessDsp.setSampleRate(srF);
+    e->levellerDsp.setSampleRate(srF);
+    e->noiseGateDsp.setSampleRate(srF);
+    e->dynamicEqDsp.setSampleRate(srF);
+    e->tapeDriftDsp.setSampleRate(srF);
 }
 
 static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
@@ -4328,6 +4344,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->masterLimiterDsp.setSampleRate(srF);
         e->surroundDsp.setSampleRate(srF);
         e->subsonicFilter.setSampleRate(srF);
+        e->dynamicLoudnessDsp.setSampleRate(srF);
+        e->levellerDsp.setSampleRate(srF);
+        e->noiseGateDsp.setSampleRate(srF);
+        e->dynamicEqDsp.setSampleRate(srF);
+        e->tapeDriftDsp.setSampleRate(srF);
     }
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
@@ -6323,12 +6344,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     {
                         for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
                     }
+                    e->noiseGateDsp.process(processBuffer, produced, e->channels);
                     e->downwardExpanderDsp.process(processBuffer, produced);
                     e->harmonicBassDsp.process(processBuffer, produced);
                     e->dynamicSystemDsp.process(processBuffer, produced);
                     e->analogWarmthDsp.process(processBuffer, produced);
+                    e->tapeDriftDsp.process(processBuffer, produced, e->channels);
                     e->dialogEnhancerDsp.process(processBuffer, produced);
                     e->clarityDsp.process(processBuffer, produced);
+                    e->dynamicEqDsp.process(processBuffer, produced, e->channels);
                     e->deEsserDsp.process(processBuffer, produced);
                     if (e->channels == 2)
                     {
@@ -6372,7 +6396,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 processBuffer[i] = static_cast<float>(buf64[i]);
         }
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
-            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
+            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
+            e->levellerDsp.isEnabled())
         {
             e->loudnessMeter.process(processBuffer, produced, e->channels);
         }
@@ -6382,6 +6407,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
 
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
+
+        // Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
+        if (!bypassAppDsp && e->levellerDsp.isEnabled())
+        {
+            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+            if (dspLock.owns_lock())
+            {
+                const float shortTermLufs = e->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
+                if (use64)
+                {
+                    e->levellerDsp.process(buf64, produced, e->channels, shortTermLufs);
+                }
+                else
+                {
+                    e->levellerDsp.process(processBuffer, produced, e->channels, shortTermLufs);
+                }
+            }
+        }
 
         // =====================================================================
         // Stage 3: Master Volume Stage (User Master Gain Fader)
@@ -6414,6 +6457,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         for (size_t i = 0; i < totalSamples; ++i)
                             processBuffer[i] *= e->paramUserGain.next();
                     }
+                }
+            }
+        }
+
+        // Dynamic Loudness (ISO 226 Equal-Loudness Contour Compensation)
+        if (!bypassAppDsp && e->dynamicLoudnessDsp.isEnabled())
+        {
+            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+            if (dspLock.owns_lock())
+            {
+                const float currentVolume = e->paramUserGain.getTarget();
+                if (use64)
+                {
+                    e->dynamicLoudnessDsp.process(buf64, produced, e->channels, static_cast<double>(currentVolume));
+                }
+                else
+                {
+                    e->dynamicLoudnessDsp.process(processBuffer, produced, e->channels, currentVolume);
                 }
             }
         }
@@ -10453,6 +10514,76 @@ extern "C"
         engine->multibandFxEnabled = false;
     }
 
+    AE_API int ae_load_autoeq_profile_string(AudioEngineHandle *engine, const char *profile_text, float *out_preamp_db)
+    {
+        if (!engine || profile_text == nullptr)
+            return -1;
+
+        sauti::dsp::AutoEqProfile profile = sauti::dsp::AutoEqParser::parseString(profile_text);
+        if (!profile.isValid || profile.bands.empty())
+            return -1;
+
+        if (out_preamp_db)
+        {
+            *out_preamp_db = profile.preampDb;
+        }
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->multibandFxBands.clear();
+        engine->multibandFxBands.reserve(profile.bands.size());
+
+        for (const auto &b : profile.bands)
+        {
+            AudioEngineHandle::FxBand band{};
+            band.type = b.type;
+            band.enabled = b.enabled;
+            band.frequencyHz = b.frequencyHz;
+            band.gainDb = b.gainDb;
+            band.q = b.q;
+            band.slope = b.slope;
+            engine->multibandFxBands.push_back(band);
+        }
+
+        engine->multibandFxEnabled = true;
+        engine->update_multiband_fx_filters();
+        return static_cast<int>(profile.bands.size());
+    }
+
+    AE_API int ae_load_autoeq_profile_file(AudioEngineHandle *engine, const char *file_path, float *out_preamp_db)
+    {
+        if (!engine || file_path == nullptr)
+            return -1;
+
+        sauti::dsp::AutoEqProfile profile = sauti::dsp::AutoEqParser::parseFile(file_path);
+        if (!profile.isValid || profile.bands.empty())
+            return -1;
+
+        if (out_preamp_db)
+        {
+            *out_preamp_db = profile.preampDb;
+        }
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->multibandFxBands.clear();
+        engine->multibandFxBands.reserve(profile.bands.size());
+
+        for (const auto &b : profile.bands)
+        {
+            AudioEngineHandle::FxBand band{};
+            band.type = b.type;
+            band.enabled = b.enabled;
+            band.frequencyHz = b.frequencyHz;
+            band.gainDb = b.gainDb;
+            band.q = b.q;
+            band.slope = b.slope;
+            engine->multibandFxBands.push_back(band);
+        }
+
+        engine->multibandFxEnabled = true;
+        engine->update_multiband_fx_filters();
+        return static_cast<int>(profile.bands.size());
+    }
+
     AE_API void ae_set_analyzer_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine)
@@ -11582,6 +11713,11 @@ extern "C"
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();
         engine->subsonicFilter.reset();
+        engine->dynamicLoudnessDsp.reset();
+        engine->noiseGateDsp.reset();
+        engine->levellerDsp.reset();
+        engine->dynamicEqDsp.reset();
+        engine->tapeDriftDsp.reset();
     }
 
     AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled)
@@ -11595,6 +11731,288 @@ extern "C"
     {
         if (!engine) return 0;
         return engine->subsonicFilter.isEnabled() ? 1 : 0;
+    }
+
+    // Dynamic Loudness (ISO 226 Equal-Loudness Contour Compensation)
+    AE_API void ae_dsp_set_dynamic_loudness_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicLoudnessDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_dynamic_loudness_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->dynamicLoudnessDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_dynamic_loudness_params(AudioEngineHandle *engine,
+                                                   float ref_level_db,
+                                                   float max_bass_boost_db,
+                                                   float max_treble_boost_db,
+                                                   float bass_freq_hz,
+                                                   float treble_freq_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicLoudnessDsp.setParams(ref_level_db, max_bass_boost_db, max_treble_boost_db, bass_freq_hz, treble_freq_hz);
+    }
+
+    AE_API void ae_dsp_get_dynamic_loudness_params(AudioEngineHandle *engine,
+                                                   float *out_ref_level_db,
+                                                   float *out_max_bass_boost_db,
+                                                   float *out_max_treble_boost_db,
+                                                   float *out_bass_freq_hz,
+                                                   float *out_treble_freq_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicLoudnessDsp.getParams(out_ref_level_db, out_max_bass_boost_db, out_max_treble_boost_db, out_bass_freq_hz, out_treble_freq_hz);
+    }
+
+    AE_API void ae_dsp_get_dynamic_loudness_current_boost(AudioEngineHandle *engine, float *out_bass_boost_db, float *out_treble_boost_db)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicLoudnessDsp.getCurrentBoost(out_bass_boost_db, out_treble_boost_db);
+    }
+
+    // Studio Noise Gate (with Dual-Threshold Hysteresis & Hold Time)
+    AE_API void ae_dsp_set_noise_gate_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->noiseGateDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_noise_gate_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->noiseGateDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_noise_gate_params(AudioEngineHandle *engine,
+                                             float open_thresh_db,
+                                             float close_thresh_db,
+                                             float hold_ms,
+                                             float attack_ms,
+                                             float release_ms,
+                                             float sidechain_hpf_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->noiseGateDsp.setParams(open_thresh_db, close_thresh_db, hold_ms, attack_ms, release_ms, sidechain_hpf_hz);
+    }
+
+    AE_API void ae_dsp_get_noise_gate_params(AudioEngineHandle *engine,
+                                             float *out_open_thresh,
+                                             float *out_close_thresh,
+                                             float *out_hold_ms,
+                                             float *out_attack_ms,
+                                             float *out_release_ms,
+                                             float *out_sidechain_hpf)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->noiseGateDsp.getParams(out_open_thresh, out_close_thresh, out_hold_ms, out_attack_ms, out_release_ms, out_sidechain_hpf);
+    }
+
+    AE_API float ae_dsp_get_noise_gate_gain_reduction_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->noiseGateDsp.getGainReductionDb();
+    }
+
+    // Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
+    AE_API void ae_dsp_set_leveller_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->levellerDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_leveller_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->levellerDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_leveller_params(AudioEngineHandle *engine,
+                                           float target_lufs,
+                                           float max_rise_db_sec,
+                                           float max_fall_db_sec,
+                                           float max_boost_db,
+                                           float max_attenuation_db,
+                                           float silence_gate_lufs)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->levellerDsp.setParams(target_lufs, max_rise_db_sec, max_fall_db_sec, max_boost_db, max_attenuation_db, silence_gate_lufs);
+    }
+
+    AE_API void ae_dsp_get_leveller_params(AudioEngineHandle *engine,
+                                           float *out_target_lufs,
+                                           float *out_max_rise,
+                                           float *out_max_fall,
+                                           float *out_max_boost,
+                                           float *out_max_attenuation,
+                                           float *out_silence_gate)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->levellerDsp.getParams(out_target_lufs, out_max_rise, out_max_fall, out_max_boost, out_max_attenuation, out_silence_gate);
+    }
+
+    AE_API float ae_dsp_get_leveller_current_gain_db(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0.0f;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->levellerDsp.getCurrentGainDb();
+    }
+
+    // 4-Band Dynamic Equalizer (DynamicEqDSP)
+    AE_API void ae_dsp_set_dynamic_eq_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->dynamicEqDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_dynamic_eq_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->dynamicEqDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_dynamic_eq_band(AudioEngineHandle *engine,
+                                           int band_index,
+                                           int filter_type,
+                                           int mode,
+                                           float freq_hz,
+                                           float q,
+                                           float base_gain_db,
+                                           float threshold_db,
+                                           float range_db,
+                                           float ratio,
+                                           float attack_ms,
+                                           float release_ms,
+                                           int enabled)
+    {
+        if (!engine || band_index < 0 || (size_t)band_index >= sauti::dsp::DynamicEqDSP::kMaxBands) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        sauti::dsp::DynamicEqBandConfig cfg;
+        cfg.enabled = (enabled != 0);
+        cfg.type = static_cast<sauti::dsp::DynamicEqFilterType>(std::clamp(filter_type, 0, 2));
+        cfg.mode = static_cast<sauti::dsp::DynamicEqMode>(std::clamp(mode, 0, 2));
+        cfg.freq_hz = freq_hz;
+        cfg.q = q;
+        cfg.base_gain_db = base_gain_db;
+        cfg.threshold_db = threshold_db;
+        cfg.range_db = range_db;
+        cfg.ratio = ratio;
+        cfg.attack_ms = attack_ms;
+        cfg.release_ms = release_ms;
+        engine->dynamicEqDsp.setBandConfig((size_t)band_index, cfg);
+    }
+
+    AE_API void ae_dsp_get_dynamic_eq_band(AudioEngineHandle *engine,
+                                           int band_index,
+                                           int *out_filter_type,
+                                           int *out_mode,
+                                           float *out_freq_hz,
+                                           float *out_q,
+                                           float *out_base_gain_db,
+                                           float *out_threshold_db,
+                                           float *out_range_db,
+                                           float *out_ratio,
+                                           float *out_attack_ms,
+                                           float *out_release_ms,
+                                           int *out_enabled)
+    {
+        if (!engine || band_index < 0 || (size_t)band_index >= sauti::dsp::DynamicEqDSP::kMaxBands) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        auto cfg = engine->dynamicEqDsp.getBandConfig((size_t)band_index);
+        if (out_filter_type) *out_filter_type = static_cast<int>(cfg.type);
+        if (out_mode) *out_mode = static_cast<int>(cfg.mode);
+        if (out_freq_hz) *out_freq_hz = cfg.freq_hz;
+        if (out_q) *out_q = cfg.q;
+        if (out_base_gain_db) *out_base_gain_db = cfg.base_gain_db;
+        if (out_threshold_db) *out_threshold_db = cfg.threshold_db;
+        if (out_range_db) *out_range_db = cfg.range_db;
+        if (out_ratio) *out_ratio = cfg.ratio;
+        if (out_attack_ms) *out_attack_ms = cfg.attack_ms;
+        if (out_release_ms) *out_release_ms = cfg.release_ms;
+        if (out_enabled) *out_enabled = cfg.enabled ? 1 : 0;
+    }
+
+    AE_API float ae_dsp_get_dynamic_eq_band_gain_offset_db(AudioEngineHandle *engine, int band_index)
+    {
+        if (!engine || band_index < 0 || (size_t)band_index >= sauti::dsp::DynamicEqDSP::kMaxBands) return 0.0f;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->dynamicEqDsp.getBandGainOffsetDb((size_t)band_index);
+    }
+
+    // Vintage Tape Wow & Flutter / Mechanical Pitch Drift (TapeDriftDSP)
+    AE_API void ae_dsp_set_tape_drift_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->tapeDriftDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_tape_drift_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->tapeDriftDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_tape_drift_params(AudioEngineHandle *engine,
+                                             float wow_rate_hz,
+                                             float wow_depth_ms,
+                                             float flutter_rate_hz,
+                                             float flutter_depth_ms,
+                                             float drift_depth_ms,
+                                             float stereo_phase_deg,
+                                             float hf_damping_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->tapeDriftDsp.setParams(wow_rate_hz, wow_depth_ms, flutter_rate_hz, flutter_depth_ms, drift_depth_ms, stereo_phase_deg, hf_damping_hz);
+    }
+
+    AE_API void ae_dsp_get_tape_drift_params(AudioEngineHandle *engine,
+                                             float *out_wow_rate_hz,
+                                             float *out_wow_depth_ms,
+                                             float *out_flutter_rate_hz,
+                                             float *out_flutter_depth_ms,
+                                             float *out_drift_depth_ms,
+                                             float *out_stereo_phase_deg,
+                                             float *out_hf_damping_hz)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->tapeDriftDsp.getParams(out_wow_rate_hz, out_wow_depth_ms, out_flutter_rate_hz, out_flutter_depth_ms, out_drift_depth_ms, out_stereo_phase_deg, out_hf_damping_hz);
+    }
+
+    AE_API void ae_dsp_set_tape_drift_preset(AudioEngineHandle *engine, int preset)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->tapeDriftDsp.setPreset(static_cast<sauti::dsp::TapeDriftPreset>(std::clamp(preset, 0, 4)));
+    }
+
+    AE_API int ae_dsp_get_tape_drift_preset(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return static_cast<int>(engine->tapeDriftDsp.getPreset());
     }
 
     // Spatial Surround Suite
