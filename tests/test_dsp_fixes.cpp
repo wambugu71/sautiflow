@@ -193,6 +193,19 @@ static void test_crossfeed_algorithm_switch()
         diffEnergy += d * d;
     }
     CHECK(diffEnergy > 1.0, "BS2B output differs from Meier after direct switch");
+
+    // Switching to OpenStage must also take effect immediately.
+    node.reset();
+    node.setAlgorithm(CrossfeedAlgorithm::OpenStage);
+    std::vector<float> outOpenStage = in;
+    node.process(outOpenStage.data(), frames, 2);
+    diffEnergy = 0.0;
+    for (size_t i = 0; i < in.size(); ++i)
+    {
+        const double d = (double)outBs2b[i] - (double)outOpenStage[i];
+        diffEnergy += d * d;
+    }
+    CHECK(diffEnergy > 1.0, "OpenStage output differs from BS2B after direct switch");
 }
 
 // -----------------------------------------------------------------------------

@@ -67,10 +67,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   endif()
 endif()
 
-# Suppress harmless warnings from third-party FAAD2 C code
-set_source_files_properties(${FAAD2_SOURCES} PROPERTIES
-  COMPILE_FLAGS "-Wno-everything"
-)
 
 find_library(log-lib log)
 
@@ -192,7 +188,7 @@ else()
     target_link_libraries(audio_engine PRIVATE ${avformat-lib} ${avcodec-lib} ${avutil-lib} ${swresample-lib})
     message(STATUS "MiniAudioDart Android: FFmpeg native streaming decoder enabled for ${ANDROID_ABI} (system libs).")
   else()
-    message(STATUS "MiniAudioDart Android: FFmpeg prebuilts (including libswresample) not fully resolved for ${ANDROID_ABI}; built with native decoders (minimp4/faad2/miniaudio).")
+    message(STATUS "MiniAudioDart Android: FFmpeg prebuilts (including libswresample) not fully resolved for ${ANDROID_ABI}; built with native decoders (miniaudio).")
   endif()
 endif()
 

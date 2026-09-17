@@ -202,6 +202,84 @@ void test_race_properties()
               << maxMag << " without blowup)\n";
 }
 
+void test_openstage_properties()
+{
+    std::cout << "\nRunning OpenStage Specific DSP Tests:\n";
+    const double sr = 48000.0;
+
+    // 1. Direct OpenStageDSP standalone test
+    sauti::dsp::OpenStageDSP dsp;
+    dsp.setSampleRate(sr);
+    dsp.setAngle(60.0f);
+    dsp.setGainDb(-1.0f);
+    dsp.setMix(1.0f);
+    dsp.setEnabled(true);
+    dsp.reset();
+
+    constexpr uint32_t numFrames = 1024;
+    std::vector<float> buffer(numFrames * 2, 0.0f);
+
+    // Hard-left impulse: Left=1.0, Right=0.0 at frame 0
+    buffer[0] = 1.0f;
+    buffer[1] = 0.0f;
+    dsp.process(buffer.data(), numFrames, 2);
+
+    // Check that direct sound appears on Left and crossfeed appears on Right
+    float peakL = 0.0f, peakR = 0.0f;
+    uint32_t peakIdxR = 0;
+    for (uint32_t i = 0; i < numFrames; ++i)
+    {
+        float l = buffer[i * 2];
+        float r = buffer[i * 2 + 1];
+        assert(!std::isnan(l) && !std::isinf(l));
+        assert(!std::isnan(r) && !std::isinf(r));
+        if (std::abs(l) > peakL) peakL = std::abs(l);
+        if (std::abs(r) > peakR) { peakR = std::abs(r); peakIdxR = i; }
+    }
+    assert(peakL > 0.5f);
+    assert(peakR > 0.05f);
+    std::cout << "  [PASS] OpenStage impulse response: Direct Peak=" << peakL 
+              << ", Cross Peak=" << peakR << " at frame " << peakIdxR << "\n";
+
+    // 2. Mono symmetry test across angle range (0°, 30°, 60°, 90°)
+    for (float angle : {0.0f, 30.0f, 60.0f, 90.0f})
+    {
+        dsp.reset();
+        dsp.setAngle(angle);
+        std::vector<float> monoBuf(numFrames * 2, 0.5f);
+        dsp.process(monoBuf.data(), numFrames, 2);
+        for (uint32_t i = 50; i < numFrames; ++i)
+        {
+            float l = monoBuf[i * 2];
+            float r = monoBuf[i * 2 + 1];
+            assert(std::abs(l - r) < 1.0e-5f);
+        }
+    }
+    std::cout << "  [PASS] OpenStage mono symmetry verified for angles 0°, 30°, 60°, 90°\n";
+
+    // 3. CrossfeedNode integration test for OpenStage
+    CrossfeedNode node;
+    node.setSampleRate(sr);
+    node.setAlgorithm(CrossfeedAlgorithm::OpenStage);
+    node.setAngle(60.0f);
+    node.setGainDb(-1.0f);
+    node.setMix(1.0f);
+    node.reset();
+
+    std::vector<float> nodeBuf(numFrames * 2, 0.0f);
+    nodeBuf[0] = 1.0f;
+    node.process(nodeBuf.data(), numFrames, 2);
+
+    float nodePeakR = 0.0f;
+    for (uint32_t i = 0; i < numFrames; ++i)
+    {
+        float r = nodeBuf[i * 2 + 1];
+        if (std::abs(r) > nodePeakR) nodePeakR = std::abs(r);
+    }
+    assert(nodePeakR > 0.05f);
+    std::cout << "  [PASS] CrossfeedNode::OpenStage routing verified (cross peak=" << nodePeakR << ")\n";
+}
+
 int main()
 {
     std::cout << "========================================================\n";
@@ -213,6 +291,7 @@ int main()
     test_algorithm_at_rates(CrossfeedAlgorithm::Meier, "Meier");
     test_algorithm_at_rates(CrossfeedAlgorithm::Natural, "Natural");
     test_algorithm_at_rates(CrossfeedAlgorithm::RACE, "RACE");
+    test_algorithm_at_rates(CrossfeedAlgorithm::OpenStage, "OpenStage");
 
     std::cout << "\nRunning Delay & Sample Rate Invariance Tests:\n";
     test_delay_accuracy();
@@ -221,6 +300,7 @@ int main()
     test_sample_rate_transitions();
 
     test_race_properties();
+    test_openstage_properties();
 
     std::cout << "\nRunning PDC Latency Reporting Tests:\n";
     CrossfeedNode pdcNode;
@@ -229,6 +309,7 @@ int main()
     pdcNode.setMix(0.5f);
     pdcNode.setDelayMs(0.5f);
     pdcNode.setSampleRate(48000.0);
+    pdcNode.reset();
     double expectedPdc = 0.5 * 0.001 * 48000.0;
     assert(std::abs(pdcNode.getLatencySamples() - expectedPdc) < 1e-4);
     pdcNode.setAlgorithm(CrossfeedAlgorithm::Off);

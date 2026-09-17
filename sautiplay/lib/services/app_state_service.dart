@@ -336,6 +336,9 @@ class AppStateService {
   static const _kRaceAlpha = 'sp_race_alpha';
   static const _kRaceLpfHz = 'sp_race_lpf_hz';
 
+  static const _kOpenStageAngle = 'sp_openstage_angle';
+  static const _kOpenStageGainDb = 'sp_openstage_gain_db';
+
   static const _kCrossfeedAlgo = 'sp_crossfeed_algo';
   static const _kCrossfeedMix = 'sp_crossfeed_mix';
   static const _kCrossfeedDelay = 'sp_crossfeed_delay_ms';
@@ -400,6 +403,23 @@ class AppStateService {
       delayMs: prefs.getDouble(_kRaceDelayMs) ?? 0.166,
       alpha: prefs.getDouble(_kRaceAlpha) ?? 0.55,
       lpfHz: prefs.getDouble(_kRaceLpfHz) ?? 2500.0,
+    );
+  }
+
+  Future<void> saveOpenStageParams({
+    required double angle,
+    required double gainDb,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kOpenStageAngle, angle);
+    await prefs.setDouble(_kOpenStageGainDb, gainDb);
+  }
+
+  Future<({double angle, double gainDb})> loadOpenStageParams() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (
+      angle: prefs.getDouble(_kOpenStageAngle) ?? 60.0,
+      gainDb: prefs.getDouble(_kOpenStageGainDb) ?? -1.0,
     );
   }
 

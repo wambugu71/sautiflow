@@ -1026,6 +1026,10 @@ class _AudioEngineDiagnosticPanelState
         return 'Jan Meier';
       case 'natural':
         return 'Natural Crossfeed';
+      case 'race':
+        return 'Ambiophonics RACE';
+      case 'openstage':
+        return 'OpenStage Acoustic';
       default:
         return algo.toUpperCase();
     }

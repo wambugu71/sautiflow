@@ -17,8 +17,6 @@ $includes = @(
     "-I.",
     "-Itests",
     "-Ithird_party",
-    "-Ithird_party/faad2/include",
-    "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
@@ -78,7 +76,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "test_simd_dsp FAILED"; $failed = $true }
 # Test 2: engine API tests (needs full engine + third-party objects)
 # ---------------------------------------------------------------------------
 Write-Host "== Building test_engine_api.exe =="
-$cppFiles = @("audio_engine.cpp", "mp4_aac_decoder.cpp", "ffmpeg_stream_decoder.cpp")
+$cppFiles = @("audio_engine.cpp", "ffmpeg_stream_decoder.cpp")
 foreach ($f in $cppFiles) {
     g++ -std=c++20 -O2 -c $f -o "$objDir/$([System.IO.Path]::GetFileNameWithoutExtension($f)).o" @includes @defines
     if ($LASTEXITCODE -ne 0) { throw "g++ failed on $f" }
@@ -99,7 +97,6 @@ if (-not $dllObjs) {
 
 $linkObjs = @(
     "$objDir/audio_engine.o",
-    "$objDir/mp4_aac_decoder.o",
     "$objDir/ffmpeg_stream_decoder.o",
     "$objDir/test_engine_api.o"
 ) + $dllObjs

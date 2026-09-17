@@ -615,6 +615,17 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setOpenStageParams({
+    double angleDegrees = 60.0,
+    double gainDb = -1.0,
+  }) {
+    _send({
+      'cmd': 'setOpenStageParams',
+      'angleDegrees': angleDegrees,
+      'gainDb': gainDb,
+    });
+  }
+
   void setDynamicBass(
       {required bool enabled, required int preset, required double gain}) {
     _send({
@@ -1576,6 +1587,13 @@ void _isolateEntry(_IsolateInitData initData) {
             delayMs: (message['delayMs'] as num?)?.toDouble() ?? 0.166,
             alpha: (message['alpha'] as num?)?.toDouble() ?? 0.55,
             lpfHz: (message['lpfHz'] as num?)?.toDouble() ?? 2500.0,
+          );
+          break;
+        case 'setOpenStageParams':
+          player.setOpenStageParams(
+            angleDegrees:
+                (message['angleDegrees'] as num?)?.toDouble() ?? 60.0,
+            gainDb: (message['gainDb'] as num?)?.toDouble() ?? -1.0,
           );
           break;
         case 'setDynamicBass':

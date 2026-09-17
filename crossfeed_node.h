@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include "dsp/open_stage_dsp.h"
 
 enum class CrossfeedAlgorithm
 {
@@ -12,7 +13,8 @@ enum class CrossfeedAlgorithm
     BS2B = 2,
     Meier = 3,
     Natural = 4,
-    RACE = 5
+    RACE = 5,
+    OpenStage = 6
 };
 
 class CrossfeedNode
@@ -49,12 +51,14 @@ public:
             return;
 
         sampleRate = rate;
+        openStage.setSampleRate(rate);
         updateCoefficients();
     }
 
     void setMix(float m)
     {
         targetMix = std::max(0.0f, std::min(m, 1.0f));
+        openStage.setMix(targetMix);
     }
 
     void setDelayMs(float dMs)
@@ -70,6 +74,26 @@ public:
     void setOutputCompensation(bool enabled)
     {
         outputCompensationEnabled = enabled;
+    }
+
+    void setAngle(float degrees)
+    {
+        openStage.setAngle(degrees);
+    }
+
+    float getAngle() const
+    {
+        return openStage.getAngle();
+    }
+
+    void setGainDb(float gainDb)
+    {
+        openStage.setGainDb(gainDb);
+    }
+
+    float getGainDb() const
+    {
+        return openStage.getGainDb();
     }
 
     void setRaceParams(float delayMs, float alpha, float lpfHz)
@@ -102,6 +126,7 @@ public:
         currentDelayMs = targetDelayMs;
         currentCutoffHz = targetCutoffHz;
         currentAlgorithm = targetAlgorithm;
+        openStage.reset();
 
         updateCoefficients();
     }
@@ -122,6 +147,7 @@ private:
 
         raceLpfOutL = raceLpfOutR = 0.0f;
         raceBassState = 0.0f;
+        openStage.reset();
     }
 
 public:
@@ -404,6 +430,13 @@ public:
                 break;
             }
 
+            case CrossfeedAlgorithm::OpenStage:
+            {
+                openStage.setMix(currentMix);
+                openStage.processSample(inL, inR, outL, outR);
+                break;
+            }
+
             default:
                 outL = inL;
                 outR = inR;
@@ -514,4 +547,7 @@ private:
     float svf_a1 = 0.0f;
     float svf_a2 = 0.0f;
     float svf_a3 = 0.0f;
+
+    // OpenStage DSP engine
+    sauti::dsp::OpenStageDSP openStage;
 };

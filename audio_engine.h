@@ -226,7 +226,8 @@ extern "C"
         AE_CROSSFEED_BS2B = 2,
         AE_CROSSFEED_MEIER = 3,
         AE_CROSSFEED_NATURAL = 4,
-        AE_CROSSFEED_RACE = 5
+        AE_CROSSFEED_RACE = 5,
+        AE_CROSSFEED_OPENSTAGE = 6
     } AECrossfeedAlgorithm;
 
     AE_API void ae_set_crossfeed_enabled(AudioEngineHandle *engine, int enabled);
@@ -235,6 +236,8 @@ extern "C"
     AE_API void ae_set_crossfeed_params(AudioEngineHandle *engine, float mix, float delay_ms, float cutoff_hz, int output_compensation);
     AE_API void ae_get_crossfeed_params(AudioEngineHandle *engine, int *out_algorithm, float *out_mix, float *out_delay_ms, float *out_cutoff_hz, int *out_output_compensation);
     AE_API void ae_set_race_params(AudioEngineHandle *engine, float delay_ms, float alpha, float lpf_hz);
+    AE_API void ae_set_openstage_params(AudioEngineHandle *engine, float angle_degrees, float gain_db);
+    AE_API void ae_get_openstage_params(AudioEngineHandle *engine, float *out_angle_degrees, float *out_gain_db);
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_dynamic_bass_params(AudioEngineHandle *engine, int preset, float gain);
 

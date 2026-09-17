@@ -34,7 +34,6 @@
 #include <samplerate.h>
 #include <soxr.h>
 #include "CDSPResampler.h"
-#include "mp4_aac_decoder.h"
 #include "ffmpeg_stream_decoder.h"
 #include "dsp/clarity_dsp.h"
 #include "dsp/dialog_enhancer_dsp.h"
@@ -4520,34 +4519,18 @@ static bool load_decoder_for_path(
     }
 
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
-    static ma_decoding_backend_vtable *pNetworkDecoders[] = {
-        &g_ma_decoding_backend_vtable_ffmpeg,
-        &g_ma_decoding_backend_vtable_mp4_aac
-    };
-    static ma_decoding_backend_vtable *pLocalDecoders[] = {
-        &g_ma_decoding_backend_vtable_mp4_aac,
+    static ma_decoding_backend_vtable *pDecoders[] = {
         &g_ma_decoding_backend_vtable_ffmpeg
     };
 
     sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{ (int)targetRate, (int)outCh };
     cfg.pCustomBackendUserData = &ffmpegInitCfg;
-    if (isNetwork)
-    {
-        cfg.ppCustomBackendVTables = pNetworkDecoders;
-        cfg.customBackendCount = 2;
-    }
-    else
-    {
-        cfg.ppCustomBackendVTables = pLocalDecoders;
-        cfg.customBackendCount = 2;
-    }
-#else
-    static ma_decoding_backend_vtable *pCustomDecoders[] = {
-        &g_ma_decoding_backend_vtable_mp4_aac
-    };
-    cfg.pCustomBackendUserData = nullptr;
-    cfg.ppCustomBackendVTables = pCustomDecoders;
+    cfg.ppCustomBackendVTables = pDecoders;
     cfg.customBackendCount = 1;
+#else
+    cfg.pCustomBackendUserData = nullptr;
+    cfg.ppCustomBackendVTables = nullptr;
+    cfg.customBackendCount = 0;
 #endif
     // Build a 200-point seek table for local files so seeking on 1-hour+ mixtapes is instant (<1ms).
     // Keep 0 for network URLs to prevent socket scanning overhead over HTTP.
@@ -9182,6 +9165,13 @@ extern "C"
             engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
             engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
         }
+        else if (preset == 5)
+        {
+            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::OpenStage);
+            engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+            engine->crossfeedNode.setAngle(60.0f);
+            engine->crossfeedNode.setGainDb(-1.0f);
+        }
         else
         {
             CrossfeedAlgorithm algo = CrossfeedAlgorithm::BS2B;
@@ -9251,6 +9241,28 @@ extern "C"
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->crossfeedNode.setRaceParams(delay_ms, alpha, lpf_hz);
         engine->crossfeed.updateRaceParams(engine->sampleRate, delay_ms, alpha, lpf_hz);
+    }
+
+    AE_API void ae_set_openstage_params(AudioEngineHandle *engine, float angle_degrees, float gain_db)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->crossfeedNode.setAngle(angle_degrees);
+        engine->crossfeedNode.setGainDb(gain_db);
+    }
+
+    AE_API void ae_get_openstage_params(AudioEngineHandle *engine, float *out_angle_degrees, float *out_gain_db)
+    {
+        if (!engine)
+        {
+            if (out_angle_degrees) *out_angle_degrees = 60.0f;
+            if (out_gain_db) *out_gain_db = -1.0f;
+            return;
+        }
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        if (out_angle_degrees) *out_angle_degrees = engine->crossfeedNode.getAngle();
+        if (out_gain_db) *out_gain_db = engine->crossfeedNode.getGainDb();
     }
 
     AE_API void ae_set_dynamic_bass_enabled(AudioEngineHandle *engine, int enabled)

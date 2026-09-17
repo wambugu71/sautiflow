@@ -111,7 +111,7 @@ enum FftWindowType {
 }
 
 /// Mirrors CrossfeedAlgorithm in crossfeed_node.h — must stay in sync.
-enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural, race }
+enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural, race, openStage }
 
 /// Immutable value-class returned by [MiniaudioPlayer.getCrossfeedParams].
 class CrossfeedParams {
@@ -1363,6 +1363,16 @@ typedef _SetRaceParamsNative = ffi.Void Function(
 typedef _SetRaceParamsDart = void Function(
     ffi.Pointer<ffi.Void>, double, double, double);
 
+typedef _SetOpenStageParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _SetOpenStageParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
+
+typedef _GetOpenStageParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+typedef _GetOpenStageParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
 // ─── CrossfeedNode new API ────────────────────────────────────────────────────
 // ae_set_crossfeed_algorithm(AudioEngineHandle*, int)
 typedef _SetCrossfeedAlgorithmNative = ffi.Void Function(
@@ -2269,6 +2279,12 @@ class AudioEngineFFI {
     _getCrossfeedParams =
         _lib.lookupFunction<_GetCrossfeedParamsNative, _GetCrossfeedParamsDart>(
             'ae_get_crossfeed_params');
+    _setOpenStageParams =
+        _lib.lookupFunction<_SetOpenStageParamsNative, _SetOpenStageParamsDart>(
+            'ae_set_openstage_params');
+    _getOpenStageParams =
+        _lib.lookupFunction<_GetOpenStageParamsNative, _GetOpenStageParamsDart>(
+            'ae_get_openstage_params');
     _setDynamicBassEnabled =
         _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_dynamic_bass_enabled',
@@ -2844,6 +2860,8 @@ class AudioEngineFFI {
   late final _SetCrossfeedAlgorithmDart _setCrossfeedAlgorithm;
   late final _SetCrossfeedParamsDart _setCrossfeedParams;
   late final _GetCrossfeedParamsDart _getCrossfeedParams;
+  late final _SetOpenStageParamsDart _setOpenStageParams;
+  late final _GetOpenStageParamsDart _getOpenStageParams;
   late final _SetFxEnabledDart _setDynamicBassEnabled;
   late final _SetDynamicBassParamsDart _setDynamicBassParams;
 
@@ -3935,6 +3953,29 @@ class AudioEngineFFI {
   }) {
     if (_engine == ffi.nullptr) return;
     _setRaceParams(_engine, delayMs, alpha, lpfHz);
+  }
+
+  void setOpenStageParams({
+    double angleDegrees = 60.0,
+    double gainDb = -1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setOpenStageParams(_engine, angleDegrees, gainDb);
+  }
+
+  ({double angleDegrees, double gainDb}) getOpenStageParams() {
+    if (_engine == ffi.nullptr) {
+      return (angleDegrees: 60.0, gainDb: -1.0);
+    }
+    final anglePtr = calloc<ffi.Float>();
+    final gainPtr = calloc<ffi.Float>();
+    try {
+      _getOpenStageParams(_engine, anglePtr, gainPtr);
+      return (angleDegrees: anglePtr.value, gainDb: gainPtr.value);
+    } finally {
+      calloc.free(anglePtr);
+      calloc.free(gainPtr);
+    }
   }
 
   void setDynamicBassEnabled(bool enabled) {

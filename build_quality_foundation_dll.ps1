@@ -7,8 +7,6 @@ Remove-Item "$objDir/*" -Force -Recurse -ErrorAction SilentlyContinue
 $includes = @(
     "-I.",
     "-Ithird_party",
-    "-Ithird_party/faad2/include",
-    "-Ithird_party/faad2/libfaad",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/libsoxr/include",
     "-Ithird_party/libsoxr/src",
@@ -37,8 +35,7 @@ $defines = @(
     "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
 
-$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + `
-          (Get-ChildItem -Path "third_party/faad2/libfaad/*.c" | Select-Object -ExpandProperty FullName) + @(
+$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + @(
     (Get-Item "third_party/libsoxr/src/soxr.c").FullName,
     (Get-Item "third_party/libsoxr/src/data-io.c").FullName,
     (Get-Item "third_party/libsoxr/src/filter.c").FullName,
@@ -65,7 +62,6 @@ foreach ($f in $cFiles) {
 
 $cppFiles = @(
     "audio_engine.cpp",
-    "mp4_aac_decoder.cpp",
     "ffmpeg_stream_decoder.cpp"
 )
 

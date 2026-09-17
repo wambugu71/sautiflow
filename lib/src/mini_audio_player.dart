@@ -738,6 +738,21 @@ class MiniAudioPlayer {
     _engine.setRaceParams(delayMs: delayMs, alpha: alpha, lpfHz: lpfHz);
   }
 
+  /// Configure OpenStage spherical-head acoustic crossfeed parameters.
+  ///
+  /// [angleDegrees] - Virtual speaker stereo angle (0° - 90°, default 60° studio placement).
+  /// [gainDb] - Summing compensation output gain in dB (-12 dB to +12 dB, default -1.0 dB).
+  void setOpenStageParams({
+    double angleDegrees = 60.0,
+    double gainDb = -1.0,
+  }) {
+    _engine.setOpenStageParams(angleDegrees: angleDegrees, gainDb: gainDb);
+  }
+
+  /// Get current OpenStage acoustic parameters.
+  ({double angleDegrees, double gainDb}) getOpenStageParams() =>
+      _engine.getOpenStageParams();
+
   /// Enable or configure Dynamic Multi-Pole Resonant Bass with 19 hardware-tuned presets.
   ///
   /// [enabled] – main on/off switch.
