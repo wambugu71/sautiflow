@@ -263,3 +263,8 @@ Sautiplay and the Sautiflow engine rely on several fantastic open-source project
 If you enjoy using Sautiplay or the sautiflow engine, consider supporting the development!
 
 <a href="https://buymeacoffee.com/wambugu" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## License
+
+Sautiplay is free and open-source software licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+

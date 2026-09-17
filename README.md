@@ -207,7 +207,7 @@ For release/legal packaging, include third-party attributions from
 
 ## DSP Engine & Architecture
 
-- **Sauti DSP Engine**: Built cleanly from the ground up under the MIT license, providing high-fidelity Audio Clarity, Harmonic Bass, Dynamic Transducer Correction, Analog Warmth saturation, Partitioned FFT Impulse Response Convolution, and Master Peak Limiting.
+- **Sauti DSP Engine**: High-fidelity Audio Clarity, Harmonic Bass, Dynamic Transducer Correction, Analog Warmth saturation, Partitioned FFT Impulse Response Convolution, and Master Peak Limiting.
 
 ## Example
 
@@ -227,5 +227,11 @@ If you find this project useful, consider buying me a coffee!
 Leave a star if you find this project useful! ⭐
 
 Project inspired by `just_audio` for simplicity and familiarity of API design, but built on a custom native engine with a focus on advanced audio processing features and real-time capabilities.
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+
+For third-party software attributions and licenses (including miniaudio, FFmpeg, FAAD2, libsamplerate, r8brain, libsoxr), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 
