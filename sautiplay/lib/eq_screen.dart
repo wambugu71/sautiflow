@@ -11243,7 +11243,7 @@ class _EqScreenState extends State<EqScreen>
             color: primaryColor, size: 20),
       ),
       title: 'Dynamic Equalizer',
-      subtitle: '6-Band studio-grade dynamic parametric equalizer',
+      subtitle: '6-Band dynamic parametric equalizer',
       isEnabled: _dynamicEqEnabled,
       onToggle: (v) {
         setState(() => _dynamicEqEnabled = v);
