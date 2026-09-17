@@ -29,6 +29,29 @@ import 'widgets/race_visualizer.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
 
 import 'services/app_theme_service.dart';
+
+const _dynamicEqBandCount = 6;
+
+List<_DynamicEqBandState> _normalizeDynamicEqBands(
+    Iterable<_DynamicEqBandState> bands) {
+  final result = bands.take(_dynamicEqBandCount).toList();
+  const frequencies = [60.0, 180.0, 600.0, 2000.0, 6000.0, 12000.0];
+  while (result.length < _dynamicEqBandCount) {
+    final index = result.length;
+    result.add(_DynamicEqBandState(
+      filterType: index == 0
+          ? DynamicEqFilterType.lowShelf
+          : index == 5
+              ? DynamicEqFilterType.highShelf
+              : DynamicEqFilterType.peak,
+      mode: DynamicEqMode.compress,
+      freqHz: frequencies[index],
+      enabled: true,
+    ));
+  }
+  return result;
+}
+
 class _DynamicEqBandState {
   DynamicEqFilterType filterType;
   DynamicEqMode mode;
@@ -428,8 +451,7 @@ class EqScreen extends StatefulWidget {
         masterEnabled && (state['dynamicLoudnessEnabled'] ?? false);
     player.setDynamicLoudnessEnabled(dynamicLoudnessEnabled);
     player.setDynamicLoudnessParams(
-      refLevelDb:
-          (state['dynamicLoudnessRefDb'] as num?)?.toDouble() ?? 0.0,
+      refLevelDb: (state['dynamicLoudnessRefDb'] as num?)?.toDouble() ?? 0.0,
       maxBassBoostDb:
           (state['dynamicLoudnessMaxBassDb'] as num?)?.toDouble() ?? 9.0,
       maxTrebleBoostDb:
@@ -452,8 +474,7 @@ class EqScreen extends StatefulWidget {
       holdMs: (state['noiseGateHoldMs'] as num?)?.toDouble() ?? 80.0,
       attackMs: (state['noiseGateAttackMs'] as num?)?.toDouble() ?? 1.0,
       releaseMs: (state['noiseGateReleaseMs'] as num?)?.toDouble() ?? 120.0,
-      sidechainHpfHz:
-          (state['noiseGateHpfHz'] as num?)?.toDouble() ?? 80.0,
+      sidechainHpfHz: (state['noiseGateHpfHz'] as num?)?.toDouble() ?? 80.0,
     );
 
     // Broadcast Leveller (Slow-Window AGC)
@@ -461,14 +482,10 @@ class EqScreen extends StatefulWidget {
         masterEnabled && (state['levellerEnabled'] ?? false);
     player.setLevellerEnabled(levellerEnabled);
     player.setLevellerParams(
-      targetLufs:
-          (state['levellerTargetLufs'] as num?)?.toDouble() ?? -16.0,
-      maxRiseDbSec:
-          (state['levellerMaxRiseDbSec'] as num?)?.toDouble() ?? 0.75,
-      maxFallDbSec:
-          (state['levellerMaxFallDbSec'] as num?)?.toDouble() ?? 1.5,
-      maxBoostDb:
-          (state['levellerMaxBoostDb'] as num?)?.toDouble() ?? 9.0,
+      targetLufs: (state['levellerTargetLufs'] as num?)?.toDouble() ?? -16.0,
+      maxRiseDbSec: (state['levellerMaxRiseDbSec'] as num?)?.toDouble() ?? 0.75,
+      maxFallDbSec: (state['levellerMaxFallDbSec'] as num?)?.toDouble() ?? 1.5,
+      maxBoostDb: (state['levellerMaxBoostDb'] as num?)?.toDouble() ?? 9.0,
       maxAttenuationDb:
           (state['levellerMaxAttenuationDb'] as num?)?.toDouble() ?? 12.0,
       silenceGateLufs:
@@ -513,10 +530,10 @@ class EqScreen extends StatefulWidget {
         masterEnabled && (state['tapeDriftEnabled'] ?? false);
     player.setTapeDriftEnabled(tapeDriftEnabled);
     final tapePresetIdx = (state['tapeDriftPreset'] as num?)?.toInt() ?? 0;
-    final tapePreset = (tapePresetIdx >= 0 &&
-            tapePresetIdx < TapeDriftPreset.values.length)
-        ? TapeDriftPreset.values[tapePresetIdx]
-        : TapeDriftPreset.subtleHiFi;
+    final tapePreset =
+        (tapePresetIdx >= 0 && tapePresetIdx < TapeDriftPreset.values.length)
+            ? TapeDriftPreset.values[tapePresetIdx]
+            : TapeDriftPreset.subtleHiFi;
     player.setTapeDriftPreset(tapePreset);
     if (tapePreset == TapeDriftPreset.custom) {
       player.setTapeDriftParams(
@@ -1284,7 +1301,8 @@ class _EqScreenState extends State<EqScreen>
   // 10. 6-Band Dynamic Equalizer (DynamicEqDSP)
   bool _dynamicEqEnabled = false;
   int _selectedDynamicEqBand = 0;
-  late final List<_DynamicEqBandState> _dynamicEqBands = [
+  late final List<_DynamicEqBandState> _dynamicEqBands =
+      _normalizeDynamicEqBands([
     _DynamicEqBandState(
       filterType: DynamicEqFilterType.lowShelf,
       mode: DynamicEqMode.compress,
@@ -1357,13 +1375,14 @@ class _EqScreenState extends State<EqScreen>
       attackMs: 4.0,
       releaseMs: 80.0,
     ),
-  ];
+  ]);
 
   // Dynamic EQ State & Presets
   String _dynamicEqPreset = 'Default (Balanced)';
   final ScrollController _dynamicEqScrollController = ScrollController();
 
-  static final Map<String, List<_DynamicEqBandState>> _builtInDynamicEqPresets = {
+  static final Map<String, List<_DynamicEqBandState>> _builtInDynamicEqPresets =
+      {
     'Default (Balanced)': [
       _DynamicEqBandState(
         filterType: DynamicEqFilterType.lowShelf,
@@ -2296,30 +2315,23 @@ class _EqScreenState extends State<EqScreen>
             (dspMap['dynamicEqPreset'] as String?) ?? 'Default (Balanced)';
         final rawDynBands = dspMap['dynamicEqBands'];
         if (rawDynBands is List && rawDynBands.isNotEmpty) {
-          _dynamicEqBands.clear();
+          final loadedBands = <_DynamicEqBandState>[];
           for (var b in rawDynBands) {
-            if (_dynamicEqBands.length >= 6) break;
+            if (loadedBands.length >= _dynamicEqBandCount) break;
             if (b is Map<String, dynamic>) {
-              _dynamicEqBands.add(_DynamicEqBandState.fromJson(b));
+              loadedBands.add(_DynamicEqBandState.fromJson(b));
             } else if (b is Map) {
-              _dynamicEqBands.add(_DynamicEqBandState.fromJson(
-                  Map<String, dynamic>.from(b)));
+              loadedBands.add(
+                  _DynamicEqBandState.fromJson(Map<String, dynamic>.from(b)));
             }
           }
-          // If migrated from older 4-band save, fill remaining bands from default
-          final defaultBands =
-              _builtInDynamicEqPresets['Default (Balanced)'] ?? [];
-          while (_dynamicEqBands.length < 6 &&
-              _dynamicEqBands.length < defaultBands.length) {
-            _dynamicEqBands
-                .add(defaultBands[_dynamicEqBands.length].copyWith());
-          }
+          _dynamicEqBands.clear();
+          _dynamicEqBands.addAll(_normalizeDynamicEqBands(loadedBands));
         }
 
         // Vintage Tape Drift
         _tapeDriftEnabled = dspMap['tapeDriftEnabled'] ?? false;
-        final tapePresetVal =
-            (dspMap['tapeDriftPreset'] as num?)?.toInt() ?? 0;
+        final tapePresetVal = (dspMap['tapeDriftPreset'] as num?)?.toInt() ?? 0;
         _tapeDriftPreset = (tapePresetVal >= 0 &&
                 tapePresetVal < TapeDriftPreset.values.length)
             ? TapeDriftPreset.values[tapePresetVal]
@@ -3989,7 +4001,7 @@ class _EqScreenState extends State<EqScreen>
                       return _buildEffectTileCard(
                         icon: Icons.stacked_bar_chart_rounded,
                         shape: Shapes.square,
-                        title: 'Broadcast Leveller',
+                        title: 'Auto Gain Control',
                         subtitle: _levellerEnabled
                             ? 'Slow-Window AGC · ${_levellerTargetLufs.toInt()} LUFS (Rise: ${_levellerMaxRiseDbSec.toStringAsFixed(2)} dB/s)'
                             : 'Disabled',
@@ -4032,7 +4044,7 @@ class _EqScreenState extends State<EqScreen>
                     return _buildEffectTileCard(
                       icon: Icons.equalizer_rounded,
                       shape: Shapes.c4SidedCookie,
-                      title: 'ReplayGain Metadata',
+                      title: 'ReplayGain',
                       subtitle: _replayGainMode == ReplayGainMode.none
                           ? 'Disabled'
                           : '${_replayGainMode.name.toUpperCase()} · ${_replayGainPreamp > 0 ? '+' : ''}${_replayGainPreamp.toStringAsFixed(1)} dB',
@@ -6431,9 +6443,10 @@ class _EqScreenState extends State<EqScreen>
         _parametricBands.clear();
         _parametricBands.addAll(newBands);
         _parametricEqEnabled = true;
-        createdProfileName = (profileName != null && profileName.trim().isNotEmpty)
-            ? profileName.trim()
-            : 'AutoEQ (${newBands.length} Bands)';
+        createdProfileName =
+            (profileName != null && profileName.trim().isNotEmpty)
+                ? profileName.trim()
+                : 'AutoEQ (${newBands.length} Bands)';
         _parametricPreset = createdProfileName!;
         _userParametricProfiles[createdProfileName!] = List.from(newBands);
       }
@@ -6493,8 +6506,8 @@ class _EqScreenState extends State<EqScreen>
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
                       foregroundColor: primaryColor,
-                      side:
-                          BorderSide(color: primaryColor.withValues(alpha: 0.5)),
+                      side: BorderSide(
+                          color: primaryColor.withValues(alpha: 0.5)),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -6508,19 +6521,24 @@ class _EqScreenState extends State<EqScreen>
                           type: FileType.custom,
                           allowedExtensions: ['txt', 'csv'],
                         );
-                        if (result != null && result.files.single.path != null) {
+                        if (result != null &&
+                            result.files.single.path != null) {
                           final file = File(result.files.single.path!);
                           final content = await file.readAsString();
                           final defaultName = result.files.single.name
-                              .replaceAll(RegExp(r'\.(txt|csv)$', caseSensitive: false), '');
+                              .replaceAll(
+                                  RegExp(r'\.(txt|csv)$', caseSensitive: false),
+                                  '');
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
                           }
-                          _importAutoEqProfile(content, profileName: defaultName);
+                          _importAutoEqProfile(content,
+                              profileName: defaultName);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('AutoEQ Profile "$defaultName" imported!'),
+                                content: Text(
+                                    'AutoEQ Profile "$defaultName" imported!'),
                                 duration: const Duration(seconds: 2),
                                 backgroundColor: surfaceDarkColor,
                               ),
@@ -6568,12 +6586,12 @@ class _EqScreenState extends State<EqScreen>
                         TextStyle(color: Colors.white.withValues(alpha: 0.4)),
                     filled: true,
                     fillColor: surfaceDarkerColor,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                      borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.15)),
                     ),
                   ),
                 ),
@@ -6596,8 +6614,8 @@ class _EqScreenState extends State<EqScreen>
                     contentPadding: const EdgeInsets.all(10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                      borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.15)),
                     ),
                   ),
                 ),
@@ -6623,7 +6641,8 @@ class _EqScreenState extends State<EqScreen>
                       profileName: name.isNotEmpty ? name : null);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('AutoEQ Profile imported successfully!'),
+                      content:
+                          const Text('AutoEQ Profile imported successfully!'),
                       duration: const Duration(seconds: 2),
                       backgroundColor: surfaceDarkColor,
                     ),
@@ -6643,7 +6662,6 @@ class _EqScreenState extends State<EqScreen>
       },
     );
   }
-
 
   void _applyParametricPreset(String presetName) {
     List<EqBandConfig>? sourceBands = _builtInParametricPresets[presetName];
@@ -10484,9 +10502,8 @@ class _EqScreenState extends State<EqScreen>
             children: [
               Icon(Icons.info_outline_rounded,
                   size: 18,
-                  color: _dynamicLoudnessEnabled
-                      ? primaryColor
-                      : Colors.white38),
+                  color:
+                      _dynamicLoudnessEnabled ? primaryColor : Colors.white38),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -10661,8 +10678,7 @@ class _EqScreenState extends State<EqScreen>
             final clampedRatio = (currentGain / 18.0).clamp(-1.0, 1.0);
 
             return Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: surfaceDarkerColor,
                 borderRadius: BorderRadius.circular(12),
@@ -10929,8 +10945,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.door_sliding_rounded,
-            color: primaryColor, size: 20),
+        child: Icon(Icons.door_sliding_rounded, color: primaryColor, size: 20),
       ),
       title: 'Studio Noise Gate',
       subtitle: 'Hysteresis & hold-time downward noise suppressor',
@@ -10956,8 +10971,7 @@ class _EqScreenState extends State<EqScreen>
             final grFraction = (grDb / 48.0).clamp(0.0, 1.0);
 
             return Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: surfaceDarkerColor,
                 borderRadius: BorderRadius.circular(12),
@@ -10979,8 +10993,9 @@ class _EqScreenState extends State<EqScreen>
                             height: 8,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color:
-                                  _noiseGateEnabled ? gateColor : Colors.white24,
+                              color: _noiseGateEnabled
+                                  ? gateColor
+                                  : Colors.white24,
                               boxShadow: _noiseGateEnabled
                                   ? [
                                       BoxShadow(
@@ -10996,9 +11011,7 @@ class _EqScreenState extends State<EqScreen>
                             _noiseGateEnabled
                                 ? (isOpen
                                     ? 'GATE OPEN'
-                                    : (isClosed
-                                        ? 'GATE CLOSED'
-                                        : 'GATE HOLD'))
+                                    : (isClosed ? 'GATE CLOSED' : 'GATE HOLD'))
                                 : 'GATE DISABLED',
                             style: TextStyle(
                               color: _noiseGateEnabled
@@ -11239,8 +11252,8 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.multitrack_audio_rounded,
-            color: primaryColor, size: 20),
+        child:
+            Icon(Icons.multitrack_audio_rounded, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Equalizer',
       subtitle: '6-Band dynamic parametric equalizer',
@@ -11624,11 +11637,10 @@ class _EqScreenState extends State<EqScreen>
                               min: -48.0,
                               max: 0.0,
                               flatValue: -24.0,
-                              activeColor: _dynamicEqEnabled &&
-                                      band.enabled &&
-                                      !isStatic
-                                  ? bandColor
-                                  : Colors.white24,
+                              activeColor:
+                                  _dynamicEqEnabled && band.enabled && !isStatic
+                                      ? bandColor
+                                      : Colors.white24,
                               valueFormatter: (v) =>
                                   '${v.toStringAsFixed(0)}dB',
                               onChanged: (v) {
@@ -11647,11 +11659,10 @@ class _EqScreenState extends State<EqScreen>
                               min: 0.0,
                               max: 18.0,
                               flatValue: 6.0,
-                              activeColor: _dynamicEqEnabled &&
-                                      band.enabled &&
-                                      !isStatic
-                                  ? bandColor
-                                  : Colors.white24,
+                              activeColor:
+                                  _dynamicEqEnabled && band.enabled && !isStatic
+                                      ? bandColor
+                                      : Colors.white24,
                               valueFormatter: (v) =>
                                   '${v.toStringAsFixed(1)}dB',
                               onChanged: (v) {
@@ -11670,11 +11681,10 @@ class _EqScreenState extends State<EqScreen>
                               min: 1.0,
                               max: 10.0,
                               flatValue: 3.0,
-                              activeColor: _dynamicEqEnabled &&
-                                      band.enabled &&
-                                      !isStatic
-                                  ? bandColor
-                                  : Colors.white24,
+                              activeColor:
+                                  _dynamicEqEnabled && band.enabled && !isStatic
+                                      ? bandColor
+                                      : Colors.white24,
                               valueFormatter: (v) =>
                                   '${v.toStringAsFixed(1)}:1',
                               onChanged: (v) {
@@ -11700,11 +11710,10 @@ class _EqScreenState extends State<EqScreen>
                               min: 0.5,
                               max: 100.0,
                               flatValue: 2.0,
-                              activeColor: _dynamicEqEnabled &&
-                                      band.enabled &&
-                                      !isStatic
-                                  ? bandColor
-                                  : Colors.white24,
+                              activeColor:
+                                  _dynamicEqEnabled && band.enabled && !isStatic
+                                      ? bandColor
+                                      : Colors.white24,
                               valueFormatter: (v) =>
                                   '${v.toStringAsFixed(1)}ms',
                               onChanged: (v) {
@@ -11723,11 +11732,10 @@ class _EqScreenState extends State<EqScreen>
                               min: 10.0,
                               max: 500.0,
                               flatValue: 60.0,
-                              activeColor: _dynamicEqEnabled &&
-                                      band.enabled &&
-                                      !isStatic
-                                  ? bandColor
-                                  : Colors.white24,
+                              activeColor:
+                                  _dynamicEqEnabled && band.enabled && !isStatic
+                                      ? bandColor
+                                      : Colors.white24,
                               valueFormatter: (v) => '${v.toInt()}ms',
                               onChanged: (v) {
                                 setState(() {

@@ -36,6 +36,122 @@ static std::vector<float> generateSine(float freqHz, float sampleRate, size_t fr
 // -----------------------------------------------------------------------------
 // Test 1: DynamicEqDSP - Dynamic Frequency Compression & Expansion
 // -----------------------------------------------------------------------------
+static bool sameBandConfig(const sauti::dsp::DynamicEqBandConfig &a, const sauti::dsp::DynamicEqBandConfig &b)
+{
+    return a.enabled == b.enabled && a.type == b.type && a.mode == b.mode &&
+           a.freq_hz == b.freq_hz && a.q == b.q && a.base_gain_db == b.base_gain_db &&
+           a.threshold_db == b.threshold_db && a.range_db == b.range_db &&
+           a.ratio == b.ratio && a.attack_ms == b.attack_ms && a.release_ms == b.release_ms;
+}
+
+template <typename Sample>
+static void test_dynamic_eq_added_bands(const char *precision)
+{
+    for (size_t bandIndex = 4; bandIndex <= 5; ++bandIndex) {
+        std::printf("\n--- DynamicEqDSP band %zu (%s) ---\n", bandIndex, precision);
+        sauti::dsp::DynamicEqDSP deq;
+        deq.setSampleRate(48000.0f);
+        deq.setEnabled(true);
+        for (size_t b = 0; b < sauti::dsp::DynamicEqDSP::kMaxBands; ++b) {
+            deq.setBandEnabled(b, false);
+        }
+
+        sauti::dsp::DynamicEqBandConfig cfg;
+        cfg.enabled = true;
+        cfg.type = sauti::dsp::DynamicEqFilterType::Peak;
+        cfg.mode = sauti::dsp::DynamicEqMode::Static;
+        cfg.freq_hz = bandIndex == 4 ? 6000.0f : 12000.0f;
+        cfg.q = 2.0f;
+        cfg.base_gain_db = 6.0f;
+        cfg.threshold_db = -30.0f;
+        cfg.range_db = 6.0f;
+        cfg.ratio = 4.0f;
+        cfg.attack_ms = 1.0f;
+        cfg.release_ms = 40.0f;
+        deq.setBandConfig(bandIndex, cfg);
+        CHECK(sameBandConfig(deq.getBandConfig(bandIndex), cfg), "Added band config roundtrips every field");
+        CHECK(deq.isBandEnabled(bandIndex), "Added band is enabled");
+        bool othersDisabled = true;
+        for (size_t b = 0; b < sauti::dsp::DynamicEqDSP::kMaxBands; ++b) {
+            if (b != bandIndex && deq.isBandEnabled(b)) othersDisabled = false;
+        }
+        CHECK(othersDisabled, "All other bands remain disabled");
+
+        const size_t frames = 8192;
+        const auto sine = generateSine(cfg.freq_hz, 48000.0f, frames, 0.20f);
+        const std::vector<Sample> original(sine.begin(), sine.end());
+        auto buffer = original;
+        deq.process(buffer.data(), frames, 2);
+        bool finite = true;
+        double inputEnergy = 0.0;
+        double outputEnergy = 0.0;
+        for (size_t i = 0; i < buffer.size(); ++i) {
+            if (!std::isfinite(buffer[i])) finite = false;
+            if (i >= frames) {
+                inputEnergy += static_cast<double>(original[i]) * original[i];
+                outputEnergy += static_cast<double>(buffer[i]) * buffer[i];
+            }
+        }
+        CHECK(finite, "Added band static processing produces finite samples");
+        double gain = std::sqrt(outputEnergy / inputEnergy);
+        CHECK(gain > 1.90 && gain < 2.10, "Added band alone applies static +6 dB boost");
+        CHECK(deq.getBandGainOffsetDb(bandIndex) == 0.0f, "Static added band reports zero dynamic offset");
+
+        cfg.mode = sauti::dsp::DynamicEqMode::Compress;
+        cfg.base_gain_db = 0.0f;
+        deq.setBandConfig(bandIndex, cfg);
+        deq.reset();
+        CHECK(sameBandConfig(deq.getBandConfig(bandIndex), cfg), "Added band compression config roundtrips");
+        buffer = original;
+        deq.process(buffer.data(), frames, 2);
+        finite = true;
+        outputEnergy = 0.0;
+        for (size_t i = 0; i < buffer.size(); ++i) {
+            if (!std::isfinite(buffer[i])) finite = false;
+            if (i >= frames) outputEnergy += static_cast<double>(buffer[i]) * buffer[i];
+        }
+        CHECK(finite, "Added band compression produces finite samples");
+        gain = std::sqrt(outputEnergy / inputEnergy);
+        CHECK(gain > 0.47 && gain < 0.55, "Added band alone attenuates audio by approximately 6 dB");
+        const float offset = deq.getBandGainOffsetDb(bandIndex);
+        CHECK(offset < -5.5f && offset >= -6.01f, "Added band telemetry reports dynamic gain reduction");
+        bool othersSilent = true;
+        for (size_t b = 0; b < sauti::dsp::DynamicEqDSP::kMaxBands; ++b) {
+            if (b != bandIndex && deq.getBandGainOffsetDb(b) != 0.0f) othersSilent = false;
+        }
+        CHECK(othersSilent, "Disabled bands report zero dynamic offset");
+
+        auto control = deq;
+        auto invalidCfg = cfg;
+        invalidCfg.mode = sauti::dsp::DynamicEqMode::Expand;
+        invalidCfg.base_gain_db = 12.0f;
+        deq.setBandConfig(6, invalidCfg);
+        deq.setBandEnabled(6, true);
+        CHECK(!deq.isBandEnabled(6), "Invalid index 6 cannot be enabled");
+        CHECK(sameBandConfig(deq.getBandConfig(6), sauti::dsp::DynamicEqBandConfig{}), "Invalid index 6 returns default config");
+        CHECK(deq.getBandGainOffsetDb(6) == 0.0f, "Invalid index 6 returns zero telemetry");
+        deq.setBandEnabled(6, false);
+        bool configsUnchanged = true;
+        for (size_t b = 0; b < sauti::dsp::DynamicEqDSP::kMaxBands; ++b) {
+            if (!sameBandConfig(deq.getBandConfig(b), control.getBandConfig(b))) configsUnchanged = false;
+        }
+        CHECK(configsUnchanged, "Invalid index 6 leaves all valid configs unchanged");
+        buffer = original;
+        auto expected = original;
+        deq.process(buffer.data(), frames, 2);
+        control.process(expected.data(), frames, 2);
+        CHECK(buffer == expected, "Invalid index 6 leaves processing state unchanged");
+        CHECK(deq.getBandGainOffsetDb(bandIndex) == control.getBandGainOffsetDb(bandIndex), "Invalid index 6 leaves active telemetry unchanged");
+
+        deq.setBandEnabled(bandIndex, false);
+        CHECK(!deq.isBandEnabled(bandIndex), "Added band can be disabled");
+        CHECK(deq.getBandGainOffsetDb(bandIndex) == 0.0f, "Disabling added band clears telemetry");
+        buffer = original;
+        deq.process(buffer.data(), frames, 2);
+        CHECK(buffer == original, "Disabling the only active band restores bit-exact bypass");
+    }
+}
+
 static void test_dynamic_eq()
 {
     std::printf("\n--- Test: DynamicEqDSP ---\n");
@@ -243,7 +359,10 @@ int main()
     std::printf("Running Tier 3 DSP Test Suite (Dynamic EQ & Tape Drift)\n");
     std::printf("=====================================================\n");
 
+    CHECK(sauti::dsp::DynamicEqDSP::kMaxBands == 6, "Dynamic EQ supports exactly six bands");
     test_dynamic_eq();
+    test_dynamic_eq_added_bands<float>("float");
+    test_dynamic_eq_added_bands<double>("double");
     test_tape_drift();
 
     std::printf("\n=====================================================\n");
