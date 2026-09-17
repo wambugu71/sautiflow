@@ -4000,7 +4000,7 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Broadcast Leveller',
+                          'Auto Gain Control',
                           Icons.stacked_bar_chart_rounded,
                           (_) => _buildLevellerSection(),
                           shape: Shapes.square,
