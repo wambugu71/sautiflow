@@ -280,8 +280,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final double spectrumHeight = widget.analyzerEnabled
         ? 160.0
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
-    const double autoEqSelectorHeight = 44.0;
-    const double controlBarHeight = 44.0;
+    const double controlBarHeight = 88.0;
     const double titleBarHeight = 50.0;
     const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
@@ -290,7 +289,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
         controlBarHeight +
         analyzerChartHeight +
         spectrumHeight +
-        autoEqSelectorHeight +
         dragHandleHeight;
     final double collapsedHeight =
         topPadding + titleBarHeight + controlBarHeight + dragHandleHeight;
@@ -394,172 +392,192 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12.0, vertical: 2.0),
-                          child: Row(
-                            children: [
-                              // Visualizer Selector Pill Menu
-                              Expanded(
-                                child: M3EMenu(
-                                  anchorBuilder: (context, open) => InkWell(
-                                    onTap: open,
-                                    borderRadius: BorderRadius.circular(18),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(14),
-                                        color: cardColor,
-                                        border: Border.all(
-                                          color: primaryColor.withValues(
-                                              alpha: 0.25),
+                          child: Column(children: [
+                            Row(
+                              children: [
+                                // Visualizer Selector Pill Menu
+                                Expanded(
+                                  child: M3EMenu(
+                                    anchorBuilder: (context, open) => InkWell(
+                                      onTap: open,
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          color: cardColor,
+                                          border: Border.all(
+                                            color: primaryColor.withValues(
+                                                alpha: 0.25),
+                                          ),
                                         ),
-                                      ),
-                                      height: 34,
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10),
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.auto_awesome_mosaic,
-                                                color: primaryColor, size: 14),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                activeVisualizerLabel,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
+                                        height: 34,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.auto_awesome_mosaic,
+                                                  color: primaryColor,
+                                                  size: 14),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  activeVisualizerLabel,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                            const Icon(Icons.arrow_drop_down,
-                                                color: Colors.white70,
-                                                size: 16),
-                                          ],
+                                              const Icon(Icons.arrow_drop_down,
+                                                  color: Colors.white70,
+                                                  size: 16),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
+                                    children: [
+                                      M3EMenuGroup.entries(
+                                        label: 'Standard Visualizers',
+                                        entries: [
+                                          M3EMenuEntry(
+                                            label: 'Stereo Vectorscope',
+                                            leading: const Icon(
+                                                Icons.radar_rounded,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType =
+                                                    'vectorscope';
+                                              });
+                                            },
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Wave Area',
+                                            leading: const Icon(
+                                                Icons.show_chart_rounded,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType = 'area';
+                                              });
+                                            },
+                                          ),
+                                          M3EMenuEntry(
+                                            label: 'Matrix Spectrum',
+                                            leading: const Icon(
+                                                Icons.grain_rounded,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType = 'bar';
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                      M3EMenuGroup.entries(
+                                        label: _currentAnalyzerType == 'area'
+                                            ? 'Wave Themes'
+                                            : 'Matrix Themes',
+                                        entries: (_currentAnalyzerType == 'area'
+                                                ? FluidAreaTheme.values.map(
+                                                    (theme) => M3EMenuEntry(
+                                                      label: theme.displayName,
+                                                      leading: Icon(
+                                                        theme.icon,
+                                                        size: 18,
+                                                        color:
+                                                            _currentSpectrumStyle ==
+                                                                    theme.name
+                                                                ? primaryColor
+                                                                : null,
+                                                      ),
+                                                      onPressed: () {
+                                                        setState(() {
+                                                          _currentSpectrumStyle =
+                                                              theme.name;
+                                                        });
+                                                      },
+                                                    ),
+                                                  )
+                                                : PhysicsDotsTheme.values.map(
+                                                    (theme) => M3EMenuEntry(
+                                                      label: theme.displayName,
+                                                      leading: Icon(
+                                                        theme.icon,
+                                                        size: 18,
+                                                        color:
+                                                            _currentSpectrumStyle ==
+                                                                    theme.name
+                                                                ? primaryColor
+                                                                : null,
+                                                      ),
+                                                      onPressed: () {
+                                                        setState(() {
+                                                          _currentSpectrumStyle =
+                                                              theme.name;
+                                                        });
+                                                      },
+                                                    ),
+                                                  ))
+                                            .toList(),
+                                      ),
+                                      M3EMenuGroup.entries(
+                                        label: 'GLSL Shaders',
+                                        entries: GlslShaderStyle.values
+                                            .map(
+                                              (s) => M3EMenuEntry(
+                                                label: s.displayName,
+                                                leading: const Icon(
+                                                    Icons.auto_awesome,
+                                                    size: 18),
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _currentAnalyzerType =
+                                                        s.name;
+                                                  });
+                                                },
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    ],
                                   ),
-                                  children: [
-                                    M3EMenuGroup.entries(
-                                      label: 'Standard Visualizers',
-                                      entries: [
-                                        M3EMenuEntry(
-                                          label: 'Stereo Vectorscope',
-                                          leading: const Icon(
-                                              Icons.radar_rounded,
-                                              size: 18),
-                                          onPressed: () {
-                                            setState(() {
-                                              _currentAnalyzerType =
-                                                  'vectorscope';
-                                            });
-                                          },
-                                        ),
-                                        M3EMenuEntry(
-                                          label: 'Wave Area',
-                                          leading: const Icon(
-                                              Icons.show_chart_rounded,
-                                              size: 18),
-                                          onPressed: () {
-                                            setState(() {
-                                              _currentAnalyzerType = 'area';
-                                            });
-                                          },
-                                        ),
-                                        M3EMenuEntry(
-                                          label: 'Matrix Spectrum',
-                                          leading: const Icon(
-                                              Icons.grain_rounded,
-                                              size: 18),
-                                          onPressed: () {
-                                            setState(() {
-                                              _currentAnalyzerType = 'bar';
-                                            });
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                    M3EMenuGroup.entries(
-                                      label: _currentAnalyzerType == 'area'
-                                          ? 'Wave Themes'
-                                          : 'Matrix Themes',
-                                      entries: (_currentAnalyzerType == 'area'
-                                              ? FluidAreaTheme.values.map(
-                                                  (theme) => M3EMenuEntry(
-                                                    label: theme.displayName,
-                                                    leading: Icon(
-                                                      theme.icon,
-                                                      size: 18,
-                                                      color:
-                                                          _currentSpectrumStyle ==
-                                                                  theme.name
-                                                              ? primaryColor
-                                                              : null,
-                                                    ),
-                                                    onPressed: () {
-                                                      setState(() {
-                                                        _currentSpectrumStyle =
-                                                            theme.name;
-                                                      });
-                                                    },
-                                                  ),
-                                                )
-                                              : PhysicsDotsTheme.values.map(
-                                                  (theme) => M3EMenuEntry(
-                                                    label: theme.displayName,
-                                                    leading: Icon(
-                                                      theme.icon,
-                                                      size: 18,
-                                                      color:
-                                                          _currentSpectrumStyle ==
-                                                                  theme.name
-                                                              ? primaryColor
-                                                              : null,
-                                                    ),
-                                                    onPressed: () {
-                                                      setState(() {
-                                                        _currentSpectrumStyle =
-                                                            theme.name;
-                                                      });
-                                                    },
-                                                  ),
-                                                ))
-                                          .toList(),
-                                    ),
-                                    M3EMenuGroup.entries(
-                                      label: 'GLSL Shaders',
-                                      entries: GlslShaderStyle.values
-                                          .map(
-                                            (s) => M3EMenuEntry(
-                                              label: s.displayName,
-                                              leading: const Icon(
-                                                  Icons.auto_awesome,
-                                                  size: 18),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _currentAnalyzerType = s.name;
-                                                });
-                                              },
-                                            ),
-                                          )
-                                          .toList(),
-                                    ),
-                                  ],
                                 ),
-                              ),
 
-                              const SizedBox(width: 8),
+                                const SizedBox(width: 8),
 
-                              // Audio Profile Selector
-                              AudioProfileSelector(
-                                player: widget.player,
-                                isCompact: true,
-                                onProfileChanged: () {
-                                  setState(() {});
-                                },
-                              ),
-                            ],
-                          ),
+                                // Audio Profile Selector
+                                AudioProfileSelector(
+                                  player: widget.player,
+                                  isCompact: true,
+                                  onProfileChanged: () {
+                                    setState(() {});
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: AutoEqSelectorWidget(
+                                    player: widget.player,
+                                    isCompact: true,
+                                    onProfileApplied: () {
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ]),
                         ),
                       ),
 
@@ -603,19 +621,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           isPlaying: _isPlaying,
                                         ),
                                       ),
-
-                                    // AutoEQ Profile Selector (Just below EQ visualizer & profile selector row)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 16.0, vertical: 4.0),
-                                      child: AutoEqSelectorWidget(
-                                        player: widget.player,
-                                        isCompact: true,
-                                        onProfileApplied: () {
-                                          setState(() {});
-                                        },
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),

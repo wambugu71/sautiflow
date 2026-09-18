@@ -20,7 +20,8 @@ import 'widgets/de_esser_graph.dart';
 import 'widgets/crossfeed_graph.dart';
 import 'widgets/dynamic_bass_graph.dart';
 import 'widgets/dynamic_system_graph.dart';
-import 'widgets/autoeq_selector_widget.dart';
+import 'services/autoeq_service.dart';
+import 'models/autoeq_profile.dart';
 import 'widgets/graphic_eq_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/dynamic_eq_graph.dart';
@@ -1884,6 +1885,7 @@ class _EqScreenState extends State<EqScreen>
   bool _playbackPitchCorrection = true;
   bool _isPlaying = false;
   StreamSubscription<PlayerStatus>? _statusSub;
+  StreamSubscription<AutoEqProfileModel?>? _autoEqSub;
 
   StateSetter? _subScreenSetState;
 
@@ -1911,6 +1913,10 @@ class _EqScreenState extends State<EqScreen>
           _isPlaying = status.isPlaying;
         });
       }
+    });
+
+    _autoEqSub = AutoEqService.instance.onActiveProfileChanged.listen((_) {
+      _syncAutoEqStateFromEngine();
     });
 
     _compressorMeterTimer =
@@ -1998,6 +2004,7 @@ class _EqScreenState extends State<EqScreen>
     _levellerGainNotifier.dispose();
     _compressorMeterTimer?.cancel();
     _statusSub?.cancel();
+    _autoEqSub?.cancel();
     _eqSettingsSub?.cancel();
     _hrirDropdownController.dispose();
     _dynamicEqScrollController.dispose();
@@ -3811,16 +3818,6 @@ class _EqScreenState extends State<EqScreen>
               ),
 
             // AutoEQ Headphone Compensation Selector Bar
-            SliverToBoxAdapter(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: AutoEqSelectorWidget(
-                  player: widget.player,
-                  onProfileApplied: () => _syncAutoEqStateFromEngine(),
-                ),
-              ),
-            ),
 
             // Section 1: Limiters & Output Protection
             SliverToBoxAdapter(
@@ -5235,13 +5232,6 @@ class _EqScreenState extends State<EqScreen>
               ],
             ],
           ),
-        ),
-        const SizedBox(height: 10),
-
-        // AutoEQ Headphone Profile Selector
-        AutoEqSelectorWidget(
-          player: widget.player,
-          onProfileApplied: () => _syncAutoEqStateFromEngine(),
         ),
       ],
     );
@@ -6977,13 +6967,6 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
           ],
-        ),
-        const SizedBox(height: 10),
-
-        // AutoEQ Headphone Profile Selector
-        AutoEqSelectorWidget(
-          player: widget.player,
-          onProfileApplied: () => _syncAutoEqStateFromEngine(),
         ),
         const SizedBox(height: 12),
         if (_parametricBands.isEmpty)
@@ -10736,9 +10719,8 @@ class _EqScreenState extends State<EqScreen>
             final gainColor = isBoosting
                 ? primaryColor
                 : (isAttenuating ? const Color(0xFFFF9100) : Colors.white54);
-            final clampedRatio = _isPlaying
-                ? (currentGain / 18.0).clamp(-1.0, 1.0)
-                : 0.0;
+            final clampedRatio =
+                _isPlaying ? (currentGain / 18.0).clamp(-1.0, 1.0) : 0.0;
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -10830,7 +10812,9 @@ class _EqScreenState extends State<EqScreen>
                         // Center 0 dB calibration tick
                         Container(width: 2, height: 12, color: Colors.white38),
                         // Dynamic Bipolar Deflection Bar
-                        if (_levellerEnabled && _isPlaying && clampedRatio.abs() > 0.005)
+                        if (_levellerEnabled &&
+                            _isPlaying &&
+                            clampedRatio.abs() > 0.005)
                           Positioned.fill(
                             child: Row(
                               children: [
@@ -10840,17 +10824,21 @@ class _EqScreenState extends State<EqScreen>
                                     alignment: Alignment.centerRight,
                                     child: clampedRatio < 0
                                         ? FractionallySizedBox(
-                                            widthFactor: clampedRatio.abs().clamp(0.0, 1.0),
+                                            widthFactor: clampedRatio
+                                                .abs()
+                                                .clamp(0.0, 1.0),
                                             child: Container(
                                               height: 8,
                                               decoration: BoxDecoration(
                                                 color: gainColor,
-                                                borderRadius: const BorderRadius.horizontal(
+                                                borderRadius: const BorderRadius
+                                                    .horizontal(
                                                   left: Radius.circular(4),
                                                 ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: gainColor.withValues(alpha: 0.5),
+                                                    color: gainColor.withValues(
+                                                        alpha: 0.5),
                                                     blurRadius: 4,
                                                   ),
                                                 ],
@@ -10867,17 +10855,20 @@ class _EqScreenState extends State<EqScreen>
                                     alignment: Alignment.centerLeft,
                                     child: clampedRatio > 0
                                         ? FractionallySizedBox(
-                                            widthFactor: clampedRatio.clamp(0.0, 1.0),
+                                            widthFactor:
+                                                clampedRatio.clamp(0.0, 1.0),
                                             child: Container(
                                               height: 8,
                                               decoration: BoxDecoration(
                                                 color: gainColor,
-                                                borderRadius: const BorderRadius.horizontal(
+                                                borderRadius: const BorderRadius
+                                                    .horizontal(
                                                   right: Radius.circular(4),
                                                 ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: gainColor.withValues(alpha: 0.5),
+                                                    color: gainColor.withValues(
+                                                        alpha: 0.5),
                                                     blurRadius: 4,
                                                   ),
                                                 ],
