@@ -883,6 +883,10 @@ bool FFmpegLocalFileSource::open(const std::string& filePath) {
         return false;
     }
 
+    if (m_codecCtx->ch_layout.nb_channels > 0 && m_codecCtx->ch_layout.order == AV_CHANNEL_ORDER_UNSPEC) {
+        av_channel_layout_default(&m_codecCtx->ch_layout, m_codecCtx->ch_layout.nb_channels);
+    }
+
     AVChannelLayout outLayout;
     av_channel_layout_default(&outLayout, m_channels);
 
@@ -1406,8 +1410,11 @@ static std::string wstring_to_utf8_path(const wchar_t* wstr) {
     if (!wstr || wstr[0] == L'\0') return {};
     int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
     if (len <= 0) return {};
-    std::string utf8(len - 1, '\0');
+    std::string utf8(len, '\0');
     WideCharToMultiByte(CP_UTF8, 0, wstr, -1, &utf8[0], len, nullptr, nullptr);
+    if (!utf8.empty() && utf8.back() == '\0') {
+        utf8.pop_back();
+    }
     return utf8;
 }
 #endif
@@ -1433,7 +1440,10 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
     }
 
     bool isNetwork = sautiflow::FFmpegStreamSource::is_network_url(pFilePath);
-    if (!isNetwork && is_miniaudio_native_local_file(pFilePath)) {
+    const auto* initCfg = static_cast<const sautiflow::FFmpegDecoderInitConfig*>(pUserData);
+    bool forceFallback = (initCfg != nullptr) && initCfg->forceFallback;
+
+    if (!isNetwork && !forceFallback && is_miniaudio_native_local_file(pFilePath)) {
         // Return MA_NO_BACKEND so miniaudio uses its built-in dr_flac, dr_mp3, dr_wav, stb_vorbis decoders directly.
         return MA_NO_BACKEND;
     }

@@ -74,6 +74,7 @@ using StreamTelemetryCallback = std::function<void(const StreamTelemetry&)>;
 struct FFmpegDecoderInitConfig {
     int targetSampleRate{48000};
     int targetChannels{2};
+    bool forceFallback{false};
 };
 
 class FFmpegStreamSource {

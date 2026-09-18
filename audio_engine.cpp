@@ -4569,6 +4569,30 @@ static bool load_decoder_for_path(
 #else
     ma_result r = ma_decoder_init_file(path.c_str(), &cfg, tmp);
 #endif
+
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+    if (!isNetwork && r != MA_SUCCESS)
+    {
+        engine_log("decoder_init: Native miniaudio decode failed (ma_result=%d) for local file '%s'. Retrying with FFmpeg fallback decoder...",
+                   (int)r, path.c_str());
+        delete tmp;
+        tmp = new ma_decoder{};
+
+        ffmpegInitCfg.forceFallback = true;
+        cfg.pCustomBackendUserData = &ffmpegInitCfg;
+
+#if defined(_WIN32) || defined(_WIN64)
+        r = ma_decoder_init_file_w(wpath.c_str(), &cfg, tmp);
+#else
+        r = ma_decoder_init_file(path.c_str(), &cfg, tmp);
+#endif
+        if (r == MA_SUCCESS)
+        {
+            engine_log("decoder_init: FFmpeg fallback succeeded for local song: %s", path.c_str());
+        }
+    }
+#endif
+
     if (r != MA_SUCCESS)
     {
         set_last_error(e, std::string("Failed to decode source: ") + path);
