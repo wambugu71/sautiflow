@@ -76,6 +76,7 @@ flutter:
     - assets/CHANGELOG.md
     - assets/hrirs/
     - assets/faq.json
+    - assets/autoeq/
   shaders:
     - shaders/audio_cyber_tunnel.frag
     - shaders/audio_plasma_sphere.frag

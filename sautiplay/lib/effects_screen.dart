@@ -12,6 +12,7 @@ import 'services/fft_processor.dart';
 import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/physics_dots_visualizer.dart';
+import 'widgets/autoeq_selector_widget.dart';
 import 'widgets/profile_selector.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
 
@@ -279,6 +280,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final double spectrumHeight = widget.analyzerEnabled
         ? 160.0
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
+    const double autoEqSelectorHeight = 44.0;
     const double controlBarHeight = 44.0;
     const double titleBarHeight = 50.0;
     const double dragHandleHeight = 10.0;
@@ -288,6 +290,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
         controlBarHeight +
         analyzerChartHeight +
         spectrumHeight +
+        autoEqSelectorHeight +
         dragHandleHeight;
     final double collapsedHeight =
         topPadding + titleBarHeight + controlBarHeight + dragHandleHeight;
@@ -600,6 +603,19 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           isPlaying: _isPlaying,
                                         ),
                                       ),
+
+                                    // AutoEQ Profile Selector (Just below EQ visualizer & profile selector row)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16.0, vertical: 4.0),
+                                      child: AutoEqSelectorWidget(
+                                        player: widget.player,
+                                        isCompact: true,
+                                        onProfileApplied: () {
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),

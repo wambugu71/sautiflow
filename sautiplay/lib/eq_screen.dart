@@ -20,6 +20,7 @@ import 'widgets/de_esser_graph.dart';
 import 'widgets/crossfeed_graph.dart';
 import 'widgets/dynamic_bass_graph.dart';
 import 'widgets/dynamic_system_graph.dart';
+import 'widgets/autoeq_selector_widget.dart';
 import 'widgets/graphic_eq_graph.dart';
 import 'widgets/parametric_eq_graph.dart';
 import 'widgets/dynamic_eq_graph.dart';
@@ -2463,6 +2464,46 @@ class _EqScreenState extends State<EqScreen>
     }
   }
 
+  Future<void> _syncAutoEqStateFromEngine() async {
+    final eqBands = await AppStateService.instance.loadEqBands();
+    final pEq = await AppStateService.instance.loadParametricEq();
+    final prefs = await SharedPreferences.getInstance();
+    final pPreset = prefs.getString('sp_active_parametric_preset') ?? 'Custom';
+
+    if (mounted) {
+      setState(() {
+        _masterEqEnabled = eqBands.enabled;
+        _activePreset = eqBands.preset;
+        _preampDb = eqBands.preampDb;
+        _setupFrequencies(eqBands.bandCount);
+        if (eqBands.gains.length == _eqGains.length) {
+          for (int i = 0; i < _eqGains.length; i++) {
+            _eqGains[i] = eqBands.gains[i];
+          }
+        }
+
+        _parametricEqEnabled = pEq.enabled;
+        _parametricPreset = pPreset;
+        _parametricBands.clear();
+        for (final m in pEq.bands) {
+          final tIdx = (m['type'] as num?)?.toInt() ?? 0;
+          final rawType = (tIdx >= 0 && tIdx < EqBandType.values.length)
+              ? EqBandType.values[tIdx]
+              : EqBandType.peak;
+          _parametricBands.add(EqBandConfig(
+            type: (rawType == EqBandType.bell) ? EqBandType.peak : rawType,
+            frequencyHz: (m['frequency'] as num?)?.toDouble() ?? 1000.0,
+            gainDb: (m['gainDb'] as num?)?.toDouble() ?? 0.0,
+            q: (m['q'] as num?)?.toDouble() ?? 1.2,
+            slope: (m['slope'] as num?)?.toDouble() ?? 1.0,
+            enabled: m['enabled'] as bool? ?? true,
+          ));
+        }
+      });
+      _subScreenSetState?.call(() {});
+    }
+  }
+
   void _updateClarity() {
     widget.player.setClarity(
       enabled: _clarityEnabled,
@@ -3768,6 +3809,18 @@ class _EqScreenState extends State<EqScreen>
                   ),
                 ),
               ),
+
+            // AutoEQ Headphone Compensation Selector Bar
+            SliverToBoxAdapter(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: AutoEqSelectorWidget(
+                  player: widget.player,
+                  onProfileApplied: () => _syncAutoEqStateFromEngine(),
+                ),
+              ),
+            ),
 
             // Section 1: Limiters & Output Protection
             SliverToBoxAdapter(
@@ -5182,6 +5235,13 @@ class _EqScreenState extends State<EqScreen>
               ],
             ],
           ),
+        ),
+        const SizedBox(height: 10),
+
+        // AutoEQ Headphone Profile Selector
+        AutoEqSelectorWidget(
+          player: widget.player,
+          onProfileApplied: () => _syncAutoEqStateFromEngine(),
         ),
       ],
     );
@@ -6917,6 +6977,13 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+
+        // AutoEQ Headphone Profile Selector
+        AutoEqSelectorWidget(
+          player: widget.player,
+          onProfileApplied: () => _syncAutoEqStateFromEngine(),
         ),
         const SizedBox(height: 12),
         if (_parametricBands.isEmpty)

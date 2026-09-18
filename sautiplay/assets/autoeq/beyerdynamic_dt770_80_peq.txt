@@ -1,0 +1,10 @@
+# AutoEQ export for Beyerdynamic DT 770 Pro 80 Ohm (Oratory1990 Harman Over-Ear 2019)
+Preamp: -5.4 dB
+
+Filter 1: ON PK Fc 35 Hz Gain -1.5 dB Q 1.20
+Filter 2: ON PK Fc 115 Hz Gain -3.2 dB Q 0.90
+Filter 3: ON PK Fc 700 Hz Gain 2.0 dB Q 1.50
+Filter 4: ON PK Fc 3400 Hz Gain 3.0 dB Q 1.40
+Filter 5: ON PK Fc 5900 Hz Gain -5.8 dB Q 4.00
+Filter 6: ON PK Fc 8800 Hz Gain -3.5 dB Q 3.00
+Filter 7: ON HSC Fc 10000 Hz Gain -2.0 dB Q 0.71

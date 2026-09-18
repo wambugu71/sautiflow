@@ -1,0 +1,10 @@
+# AutoEQ export for Sennheiser HD 600 (Oratory1990 Harman Over-Ear 2019)
+Preamp: -6.5 dB
+
+Filter 1: ON PK Fc 31 Hz Gain -4.2 dB Q 1.41
+Filter 2: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.71
+Filter 3: ON PK Fc 1100 Hz Gain -1.8 dB Q 2.00
+Filter 4: ON PK Fc 2400 Hz Gain -3.1 dB Q 2.00
+Filter 5: ON PK Fc 3500 Hz Gain -2.0 dB Q 4.00
+Filter 6: ON PK Fc 5600 Hz Gain -1.5 dB Q 3.00
+Filter 7: ON HSC Fc 10000 Hz Gain -2.0 dB Q 0.71

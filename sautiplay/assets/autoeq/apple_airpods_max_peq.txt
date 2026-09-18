@@ -1,0 +1,9 @@
+# AutoEQ export for Apple AirPods Max (Oratory1990 Harman Over-Ear 2019)
+Preamp: -4.5 dB
+
+Filter 1: ON PK Fc 42 Hz Gain -2.0 dB Q 1.20
+Filter 2: ON PK Fc 220 Hz Gain -1.5 dB Q 1.00
+Filter 3: ON PK Fc 1800 Hz Gain 2.2 dB Q 1.80
+Filter 4: ON PK Fc 4200 Hz Gain -3.0 dB Q 2.50
+Filter 5: ON PK Fc 7800 Hz Gain -4.2 dB Q 3.50
+Filter 6: ON HSC Fc 10000 Hz Gain 2.0 dB Q 0.71

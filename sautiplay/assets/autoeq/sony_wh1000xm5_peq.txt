@@ -1,0 +1,9 @@
+# AutoEQ export for Sony WH-1000XM5 (Rtings Harman Over-Ear 2019)
+Preamp: -5.9 dB
+
+Filter 1: ON PK Fc 32 Hz Gain -1.8 dB Q 1.20
+Filter 2: ON PK Fc 175 Hz Gain -4.2 dB Q 0.85
+Filter 3: ON PK Fc 800 Hz Gain 2.5 dB Q 1.60
+Filter 4: ON PK Fc 2400 Hz Gain 4.0 dB Q 1.50
+Filter 5: ON PK Fc 6400 Hz Gain -4.5 dB Q 3.00
+Filter 6: ON HSC Fc 9500 Hz Gain 1.8 dB Q 0.71

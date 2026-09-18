@@ -1,0 +1,9 @@
+# AutoEQ export for Sennheiser HD 800 S (Oratory1990 Harman Over-Ear 2019)
+Preamp: -7.5 dB
+
+Filter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.71
+Filter 2: ON PK Fc 25 Hz Gain 2.0 dB Q 1.20
+Filter 3: ON PK Fc 1300 Hz Gain -1.8 dB Q 1.80
+Filter 4: ON PK Fc 5700 Hz Gain -4.5 dB Q 3.50
+Filter 5: ON PK Fc 8500 Hz Gain -2.0 dB Q 3.00
+Filter 6: ON HSC Fc 11000 Hz Gain -2.0 dB Q 0.71

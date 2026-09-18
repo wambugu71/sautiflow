@@ -1,0 +1,10 @@
+# AutoEQ export for Sony WH-1000XM4 (Oratory1990 Harman Over-Ear 2019)
+Preamp: -6.1 dB
+
+Filter 1: ON PK Fc 28 Hz Gain -1.5 dB Q 1.41
+Filter 2: ON PK Fc 160 Hz Gain -4.8 dB Q 0.70
+Filter 3: ON PK Fc 650 Hz Gain 3.2 dB Q 1.50
+Filter 4: ON PK Fc 1100 Hz Gain -2.5 dB Q 2.00
+Filter 5: ON PK Fc 2600 Hz Gain 4.5 dB Q 1.40
+Filter 6: ON PK Fc 6100 Hz Gain -4.0 dB Q 3.00
+Filter 7: ON HSC Fc 9000 Hz Gain 1.5 dB Q 0.71

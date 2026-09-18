@@ -1,0 +1,10 @@
+# AutoEQ export for Apple AirPods Pro 2 (Crinacle Harman In-Ear 2019)
+Preamp: -3.5 dB
+
+Filter 1: ON PK Fc 32 Hz Gain -2.0 dB Q 0.80
+Filter 2: ON PK Fc 220 Hz Gain -1.8 dB Q 1.20
+Filter 3: ON PK Fc 1400 Hz Gain -1.5 dB Q 2.20
+Filter 4: ON PK Fc 3200 Hz Gain 2.2 dB Q 1.80
+Filter 5: ON PK Fc 6200 Hz Gain -3.0 dB Q 3.50
+Filter 6: ON PK Fc 8000 Hz Gain 2.5 dB Q 2.00
+Filter 7: ON HSC Fc 11000 Hz Gain -2.5 dB Q 0.71
