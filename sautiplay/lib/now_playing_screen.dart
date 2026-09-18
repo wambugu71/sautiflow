@@ -151,6 +151,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   StreamSubscription<bool>? _waveformSub;
   StreamSubscription<bool>? _sliderStyleSub;
   StreamSubscription<Shapes>? _albumArtShapeSub;
+  StreamSubscription<bool>? _useM3EShapeSub;
   StreamSubscription<bool>? _bufferingSub;
   StreamSubscription<StreamTelemetry>? _telemetrySub;
   bool _isBuffering = false;
@@ -171,6 +172,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     _albumArtShapeSub =
         AppThemeService.instance.albumArtShapeChanged.stream.listen((_) {
+      if (mounted) setState(() {});
+    });
+
+    _useM3EShapeSub =
+        AppThemeService.instance.useM3EAlbumArtShapeChanged.stream.listen((_) {
       if (mounted) setState(() {});
     });
 
@@ -368,6 +374,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _waveformSub?.cancel();
     _sliderStyleSub?.cancel();
     _albumArtShapeSub?.cancel();
+    _useM3EShapeSub?.cancel();
     _bufferingSub?.cancel();
     _telemetrySub?.cancel();
     _analyzerValuesNotifier.dispose();
@@ -887,6 +894,115 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAlbumArtContainer({
+    required bool isDesktop,
+    required Shapes albumArtShape,
+    required bool useM3EShape,
+    required Color surfaceColor,
+    required Color primaryColor,
+  }) {
+    final hasArt = widget.albumArt != null && widget.albumArt!.isNotEmpty;
+    final borderRadius = BorderRadius.circular(isDesktop ? 32.0 : 24.0);
+
+    if (!useM3EShape) {
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          color: surfaceColor,
+          boxShadow: [
+            BoxShadow(
+              color: primaryColor.withValues(alpha: isDesktop ? 0.35 : 0.3),
+              blurRadius: isDesktop ? 36 : 28,
+              spreadRadius: isDesktop ? 4 : 2,
+              offset: Offset(0, isDesktop ? 8 : 6),
+            ),
+            if (isDesktop)
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: hasArt
+            ? Image.memory(
+                widget.albumArt!,
+                fit: BoxFit.cover,
+                cacheWidth: 800,
+                cacheHeight: 800,
+              )
+            : RotationTransition(
+                turns: _rotationController,
+                child: Container(
+                  color: surfaceColor,
+                  padding: EdgeInsets.all(isDesktop ? 32.0 : 24.0),
+                  child: Image.asset(
+                    'assets/icon/splash.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+      );
+    }
+
+    return M3EContainer(
+      albumArtShape,
+      clipBehavior: Clip.antiAlias,
+      color: surfaceColor,
+      boxShadow: [
+        BoxShadow(
+          color: primaryColor.withValues(alpha: isDesktop ? 0.35 : 0.3),
+          blurRadius: isDesktop ? 36 : 28,
+          spreadRadius: isDesktop ? 4 : 2,
+          offset: Offset(0, isDesktop ? 8 : 6),
+        ),
+        if (isDesktop)
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+      ],
+      child: hasArt
+          ? (isDesktop
+              ? RepaintBoundary(
+                  child: M3EContainer(
+                    albumArtShape,
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.memory(
+                      widget.albumArt!,
+                      fit: BoxFit.cover,
+                      cacheWidth: 800,
+                      cacheHeight: 800,
+                    ),
+                  ),
+                )
+              : M3EContainer(
+                  albumArtShape,
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.memory(
+                    widget.albumArt!,
+                    fit: BoxFit.cover,
+                    cacheWidth: 800,
+                    cacheHeight: 800,
+                  ),
+                ))
+          : RotationTransition(
+              turns: _rotationController,
+              child: M3EContainer(
+                albumArtShape,
+                color: surfaceColor,
+                padding: EdgeInsets.all(isDesktop ? 32.0 : 24.0),
+                child: Image.asset(
+                  'assets/icon/splash.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
     );
   }
 
@@ -1526,6 +1642,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final Color primaryColor = AppThemeService.instance.currentData.primary;
         final Color bgColor = AppThemeService.instance.currentData.bgDark;
         final Shapes albumArtShape = AppThemeService.instance.albumArtShape;
+        final bool useM3EShape = AppThemeService.instance.useM3EAlbumArtShape;
         const Color surfaceColor = Color(0xFF18232E);
         const Color textLight = Colors.white;
 
@@ -1690,73 +1807,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 // Album Art Image wrapped in RepaintBoundary
                                                 Positioned.fill(
                                                   child: RepaintBoundary(
-                                                    child: M3EContainer(
-                                                      albumArtShape,
-                                                      clipBehavior:
-                                                          Clip.antiAlias,
-                                                      color: surfaceColor,
-                                                      boxShadow: [
-                                                        BoxShadow(
-                                                          color: primaryColor
-                                                              .withValues(
-                                                                  alpha: 0.35),
-                                                          blurRadius: 36,
-                                                          spreadRadius: 4,
-                                                          offset: const Offset(
-                                                              0, 8),
-                                                        ),
-                                                        BoxShadow(
-                                                          color: Colors.black
-                                                              .withValues(
-                                                                  alpha: 0.6),
-                                                          blurRadius: 28,
-                                                          offset: const Offset(
-                                                              0, 12),
-                                                        ),
-                                                      ],
-                                                      child: (widget.albumArt !=
-                                                                  null &&
-                                                              widget.albumArt!
-                                                                  .isNotEmpty)
-                                                          ? RepaintBoundary(
-                                                              child:
-                                                                  M3EContainer(
-                                                                albumArtShape,
-                                                                clipBehavior: Clip
-                                                                    .antiAlias,
-                                                                child: Image
-                                                                    .memory(
-                                                                  widget
-                                                                      .albumArt!,
-                                                                  fit: BoxFit
-                                                                      .cover,
-                                                                  cacheWidth:
-                                                                      800,
-                                                                  cacheHeight:
-                                                                      800,
-                                                                ),
-                                                              ),
-                                                            )
-                                                          : RotationTransition(
-                                                              turns:
-                                                                  _rotationController,
-                                                              child:
-                                                                  M3EContainer(
-                                                                albumArtShape,
-                                                                color:
-                                                                    surfaceColor,
-                                                                padding:
-                                                                    const EdgeInsets
-                                                                        .all(
-                                                                        32.0),
-                                                                child:
-                                                                    Image.asset(
-                                                                  'assets/icon/splash.png',
-                                                                  fit: BoxFit
-                                                                      .contain,
-                                                                ),
-                                                              ),
-                                                            ),
+                                                    child: _buildAlbumArtContainer(
+                                                      isDesktop: true,
+                                                      albumArtShape: albumArtShape,
+                                                      useM3EShape: useM3EShape,
+                                                      surfaceColor: surfaceColor,
+                                                      primaryColor: primaryColor,
                                                     ),
                                                   ),
                                                 ),
@@ -2382,49 +2438,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         children: [
                                           Positioned.fill(
                                             child: RepaintBoundary(
-                                              child: M3EContainer(
-                                                albumArtShape,
-                                                clipBehavior: Clip.antiAlias,
-                                                color: surfaceColor,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: primaryColor
-                                                        .withValues(alpha: 0.3),
-                                                    blurRadius: 28,
-                                                    spreadRadius: 2,
-                                                    offset: const Offset(0, 6),
-                                                  ),
-                                                ],
-                                                child: (widget.albumArt !=
-                                                            null &&
-                                                        widget.albumArt!
-                                                            .isNotEmpty)
-                                                    ? M3EContainer(
-                                                        albumArtShape,
-                                                        clipBehavior:
-                                                            Clip.antiAlias,
-                                                        child: Image.memory(
-                                                          widget.albumArt!,
-                                                          fit: BoxFit.cover,
-                                                          cacheWidth: 800,
-                                                          cacheHeight: 800,
-                                                        ),
-                                                      )
-                                                    : RotationTransition(
-                                                        turns:
-                                                            _rotationController,
-                                                        child: M3EContainer(
-                                                          albumArtShape,
-                                                          color: surfaceColor,
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .all(24.0),
-                                                          child: Image.asset(
-                                                            'assets/icon/splash.png',
-                                                            fit: BoxFit.contain,
-                                                          ),
-                                                        ),
-                                                      ),
+                                              child: _buildAlbumArtContainer(
+                                                isDesktop: false,
+                                                albumArtShape: albumArtShape,
+                                                useM3EShape: useM3EShape,
+                                                surfaceColor: surfaceColor,
+                                                primaryColor: primaryColor,
                                               ),
                                             ),
                                           ),

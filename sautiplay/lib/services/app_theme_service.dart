@@ -314,6 +314,8 @@ class AppThemeService {
     ),
   ];
 
+  static const _kUseM3EAlbumArtShapeKey = 'sp_use_m3e_album_art_shape';
+
   /// Broadcast stream – emits the new [AppThemeId] whenever the theme changes.
   final StreamController<AppThemeId> themeChanged =
       StreamController<AppThemeId>.broadcast();
@@ -322,11 +324,18 @@ class AppThemeService {
   final StreamController<Shapes> albumArtShapeChanged =
       StreamController<Shapes>.broadcast();
 
+  /// Broadcast stream – emits whether M3E shape containers are enabled for album art.
+  final StreamController<bool> useM3EAlbumArtShapeChanged =
+      StreamController<bool>.broadcast();
+
   AppThemeId _current = AppThemeId.darkBlue;
   AppThemeId get current => _current;
 
   Shapes _albumArtShape = Shapes.slanted;
   Shapes get albumArtShape => _albumArtShape;
+
+  bool _useM3EAlbumArtShape = false;
+  bool get useM3EAlbumArtShape => _useM3EAlbumArtShape;
 
   AppThemeData get currentData {
     final base = themes.firstWhere((t) => t.id == _current);
@@ -359,6 +368,10 @@ class AppThemeService {
       final match = Shapes.values.where((e) => e.name == savedShape);
       if (match.isNotEmpty) _albumArtShape = match.first;
     }
+    final savedUseM3EShape = prefs.getBool(_kUseM3EAlbumArtShapeKey);
+    if (savedUseM3EShape != null) {
+      _useM3EAlbumArtShape = savedUseM3EShape;
+    }
   }
 
   Future<void> saveTheme(AppThemeId id) async {
@@ -375,6 +388,13 @@ class AppThemeService {
     albumArtShapeChanged.add(shape);
   }
 
+  Future<void> saveUseM3EAlbumArtShape(bool enabled) async {
+    _useM3EAlbumArtShape = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUseM3EAlbumArtShapeKey, enabled);
+    useM3EAlbumArtShapeChanged.add(enabled);
+  }
+
   static AppThemeData dataFor(AppThemeId id) =>
       themes.firstWhere((t) => t.id == id);
 }
@@ -383,11 +403,13 @@ class AppThemeService {
 class AppThemeProvider extends InheritedWidget {
   final AppThemeData themeData;
   final Shapes albumArtShape;
+  final bool useM3EAlbumArtShape;
 
   const AppThemeProvider({
     super.key,
     required this.themeData,
     this.albumArtShape = Shapes.slanted,
+    this.useM3EAlbumArtShape = false,
     required super.child,
   });
 
@@ -403,19 +425,28 @@ class AppThemeProvider extends InheritedWidget {
     return provider?.albumArtShape ?? AppThemeService.instance.albumArtShape;
   }
 
+  static bool ofUseM3EShape(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.useM3EAlbumArtShape ??
+        AppThemeService.instance.useM3EAlbumArtShape;
+  }
+
   @override
   bool updateShouldNotify(AppThemeProvider oldWidget) =>
       themeData.id != oldWidget.themeData.id ||
       themeData.primary != oldWidget.themeData.primary ||
       themeData.bgDark != oldWidget.themeData.bgDark ||
       themeData.cardDark != oldWidget.themeData.cardDark ||
-      albumArtShape != oldWidget.albumArtShape;
+      albumArtShape != oldWidget.albumArtShape ||
+      useM3EAlbumArtShape != oldWidget.useM3EAlbumArtShape;
 }
 
 // ─── BuildContext Extension for Reactive Theme Tokens ─────────────────────────
 extension AppThemeContextExtension on BuildContext {
   AppThemeData get appTheme => AppThemeProvider.of(this);
   Shapes get albumArtShape => AppThemeProvider.ofShape(this);
+  bool get useM3EAlbumArtShape => AppThemeProvider.ofUseM3EShape(this);
   Color get bgDark => appTheme.bgDark;
   Color get cardDark => appTheme.cardDark;
   Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);

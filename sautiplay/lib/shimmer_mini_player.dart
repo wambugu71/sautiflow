@@ -12,6 +12,7 @@ class ShimmerMiniPlayer extends StatelessWidget {
     final outlineColor = context.outlineColor;
     final isDark = context.isDark;
     final artShape = context.albumArtShape;
+    final useM3EShape = context.useM3EAlbumArtShape;
     final placeholderColor = isDark
         ? Colors.white.withValues(alpha: 0.15)
         : Colors.black.withValues(alpha: 0.12);
@@ -35,14 +36,24 @@ class ShimmerMiniPlayer extends StatelessWidget {
             // Album Art Placeholder
             Padding(
               padding: const EdgeInsets.only(left: 8, bottom: 4),
-              child: M3EContainer(
-                artShape,
-                width: 48,
-                height: 48,
-                clipBehavior: Clip.antiAlias,
-                color: placeholderColor,
-                child: const SizedBox.shrink(),
-              ),
+              child: useM3EShape
+                  ? M3EContainer(
+                      artShape,
+                      width: 48,
+                      height: 48,
+                      clipBehavior: Clip.antiAlias,
+                      color: placeholderColor,
+                      child: const SizedBox.shrink(),
+                    )
+                  : Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: placeholderColor,
+                      ),
+                      child: const SizedBox.shrink(),
+                    ),
             ),
             const SizedBox(width: 16),
             // Text Placeholders

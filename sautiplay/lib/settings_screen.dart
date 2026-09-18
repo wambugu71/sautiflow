@@ -180,6 +180,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _useWavySlider = true;
   double _previewSliderValue = 42.0;
 
+  // Album Art Shape UI Settings
+  bool _useM3EAlbumArtShape = false;
+  StreamSubscription<bool>? _useM3EShapeSub;
+
   // App version state
   String _appVersion = 'v0.6.20';
   bool _autoCheckUpdates = true;
@@ -198,6 +202,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
+    _useM3EShapeSub = AppThemeService.instance.useM3EAlbumArtShapeChanged.stream
+        .listen((enabled) {
+      if (mounted) {
+        setState(() => _useM3EAlbumArtShape = enabled);
+      }
+    });
     _loadUiSettings();
     _loadChangelog();
     _audioSettingsSub = AppStateService
@@ -257,6 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _audioSettingsSub?.cancel();
     _playerStatusSub?.cancel();
     _lastFmAuthSub?.cancel();
+    _useM3EShapeSub?.cancel();
     super.dispose();
   }
 
@@ -358,6 +370,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _loudnessCrossfadeEnabled = loudnessCf;
       _useWaveformSeekBar = waveformSaved;
       _useWavySlider = wavySaved;
+      _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
     });
 
     final loudnessNorm =
@@ -1015,13 +1028,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 20),
             // ── NOW PLAYING ALBUM ART SHAPE SECTION ─────────────────────────
             _buildSectionHeader('NOW PLAYING ALBUM ART SHAPE'),
-            const SizedBox(height: 12),
-            AlbumArtShapeSelector(
-              showLivePreview: true,
-              onShapeSelected: (newShape) {
-                setState(() {});
-                setSubState(() {});
-              },
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'M3E Shape Containers',
+                  subtitle:
+                      'Enable Material 3 Expressive shapes for Now Playing album art (default is classic square)',
+                  secondary: _buildLeadingIcon(Icons.crop_original_rounded),
+                  value: _useM3EAlbumArtShape,
+                  onChanged: (val) {
+                    setState(() => _useM3EAlbumArtShape = val);
+                    setSubState(() {});
+                    AppThemeService.instance.saveUseM3EAlbumArtShape(val);
+                  },
+                ),
+                if (_useM3EAlbumArtShape) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    child: M3EDivider(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: AlbumArtShapeSelector(
+                      showLivePreview: true,
+                      onShapeSelected: (newShape) {
+                        setState(() {});
+                        setSubState(() {});
+                      },
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 20),
             // ── SEEK BAR & SLIDER SECTION ─────────────────────────────────

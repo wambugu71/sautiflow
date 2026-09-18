@@ -80,8 +80,10 @@ class _DemoAppState extends State<DemoApp> {
   AppThemeData _themeData =
       AppThemeService.themes.first; // default until loaded
   Shapes _albumArtShape = Shapes.slanted;
+  bool _useM3EAlbumArtShape = false;
   StreamSubscription<AppThemeId>? _themeSub;
   StreamSubscription<Shapes>? _shapeSub;
+  StreamSubscription<bool>? _useM3EShapeSub;
 
   @override
   void initState() {
@@ -102,6 +104,14 @@ class _DemoAppState extends State<DemoApp> {
         });
       }
     });
+    _useM3EShapeSub = AppThemeService.instance.useM3EAlbumArtShapeChanged.stream
+        .listen((enabled) {
+      if (mounted) {
+        setState(() {
+          _useM3EAlbumArtShape = enabled;
+        });
+      }
+    });
   }
 
   Future<void> _loadTheme() async {
@@ -110,6 +120,7 @@ class _DemoAppState extends State<DemoApp> {
       setState(() {
         _themeData = AppThemeService.instance.currentData;
         _albumArtShape = AppThemeService.instance.albumArtShape;
+        _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
       });
     }
   }
@@ -118,6 +129,7 @@ class _DemoAppState extends State<DemoApp> {
   void dispose() {
     _themeSub?.cancel();
     _shapeSub?.cancel();
+    _useM3EShapeSub?.cancel();
     super.dispose();
   }
 
@@ -126,6 +138,7 @@ class _DemoAppState extends State<DemoApp> {
     return AppThemeProvider(
       themeData: _themeData,
       albumArtShape: _albumArtShape,
+      useM3EAlbumArtShape: _useM3EAlbumArtShape,
       child: M3EMaterialApp(
         title: 'SautiPlay',
         data: _themeData.toM3EThemeData(),

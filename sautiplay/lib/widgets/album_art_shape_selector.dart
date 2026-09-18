@@ -268,6 +268,7 @@ class _AlbumArtShapeSelectorState extends State<AlbumArtShapeSelector> {
       _selectedShape = shape;
     });
     AppThemeService.instance.saveAlbumArtShape(shape);
+    AppThemeService.instance.saveUseM3EAlbumArtShape(true);
     widget.onShapeSelected?.call(shape);
   }
 

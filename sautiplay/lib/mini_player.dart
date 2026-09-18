@@ -123,6 +123,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     final outlineColor = context.outlineColor;
     final isDark = context.isDark;
     final artShape = context.albumArtShape;
+    final useM3EShape = context.useM3EAlbumArtShape;
 
     return GestureDetector(
       onTap: widget.onTap,
@@ -185,28 +186,53 @@ class _MiniPlayerState extends State<MiniPlayer>
                     Padding(
                       padding: const EdgeInsets.only(
                           left: 8, right: 0, top: 0, bottom: 4),
-                      child: M3EContainer(
-                        artShape,
-                        width: 48,
-                        height: 48,
-                        clipBehavior: Clip.antiAlias,
-                        color: cardColor,
-                        child: (widget.albumArt != null &&
-                                widget.albumArt!.isNotEmpty)
-                            ? Image.memory(
-                                widget.albumArt!,
-                                fit: BoxFit.cover,
-                                cacheWidth: 120,
-                                cacheHeight: 120,
-                              )
-                            : RotationTransition(
-                                turns: _rotationController,
-                                child: Image.asset(
-                                  'assets/icon/splash.png',
-                                  fit: BoxFit.contain,
-                                ),
+                      child: useM3EShape
+                          ? M3EContainer(
+                              artShape,
+                              width: 48,
+                              height: 48,
+                              clipBehavior: Clip.antiAlias,
+                              color: cardColor,
+                              child: (widget.albumArt != null &&
+                                      widget.albumArt!.isNotEmpty)
+                                  ? Image.memory(
+                                      widget.albumArt!,
+                                      fit: BoxFit.cover,
+                                      cacheWidth: 120,
+                                      cacheHeight: 120,
+                                    )
+                                  : RotationTransition(
+                                      turns: _rotationController,
+                                      child: Image.asset(
+                                        'assets/icon/splash.png',
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                            )
+                          : Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                color: cardColor,
                               ),
-                      ),
+                              clipBehavior: Clip.antiAlias,
+                              child: (widget.albumArt != null &&
+                                      widget.albumArt!.isNotEmpty)
+                                  ? Image.memory(
+                                      widget.albumArt!,
+                                      fit: BoxFit.cover,
+                                      cacheWidth: 120,
+                                      cacheHeight: 120,
+                                    )
+                                  : RotationTransition(
+                                      turns: _rotationController,
+                                      child: Image.asset(
+                                        'assets/icon/splash.png',
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                            ),
                     ),
                     const SizedBox(width: 16),
                     // Track Info

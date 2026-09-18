@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
@@ -451,218 +450,163 @@ class _QueueScreenState extends State<QueueScreen>
                           '${track.videoId}_${actualIndex}_${widget.queue.length}');
 
                       return Padding(
+                        key: itemKey,
                         padding: const EdgeInsets.only(bottom: 3.0),
-                        child: Dismissible(
-                          key: itemKey,
-                          direction: widget.onRemoveFromQueue != null
-                              ? DismissDirection.horizontal
-                              : DismissDirection.none,
-                          dragStartBehavior: DragStartBehavior.down,
-                          dismissThresholds: const {
-                            DismissDirection.startToEnd: 0.5,
-                            DismissDirection.endToStart: 0.5,
-                          },
-                          movementDuration: const Duration(milliseconds: 200),
-                          onDismissed: (_) {
-                            if (widget.onRemoveFromQueue != null) {
-                              widget.onRemoveFromQueue!(actualIndex);
-                            }
-                          },
-                          background: Container(
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            decoration: BoxDecoration(
-                              color:
-                                  Theme.of(context).colorScheme.errorContainer,
-                              borderRadius: borderRadius,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.delete_outline_rounded,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onErrorContainer),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Remove',
-                                  style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onErrorContainer,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
+                        child: Material(
+                          color: isPlaying
+                              ? primaryColor.withValues(alpha: 0.14)
+                              : context.cardDark,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: borderRadius,
+                            side: BorderSide(
+                              color: isPlaying
+                                  ? primaryColor.withValues(alpha: 0.45)
+                                  : outlineColor.withValues(alpha: 0.12),
+                              width: isPlaying ? 1.5 : 1.0,
                             ),
                           ),
-                          secondaryBackground: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            decoration: BoxDecoration(
-                              color:
-                                  Theme.of(context).colorScheme.errorContainer,
-                              borderRadius: borderRadius,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Remove',
-                                  style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onErrorContainer,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Icon(Icons.delete_outline_rounded,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onErrorContainer),
-                              ],
-                            ),
-                          ),
-                          child: Material(
-                            color: isPlaying
-                                ? primaryColor.withValues(alpha: 0.14)
-                                : context.cardDark,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: borderRadius,
-                              side: BorderSide(
-                                color: isPlaying
-                                    ? primaryColor.withValues(alpha: 0.45)
-                                    : outlineColor.withValues(alpha: 0.12),
-                                width: isPlaying ? 1.5 : 1.0,
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () => _handleTrackTap(actualIndex),
+                            onLongPress: () => _showTrackInfo(context, track),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
                               ),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () => _handleTrackTap(actualIndex),
-                              onLongPress: () => _showTrackInfo(context, track),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 22,
-                                      child: Text(
-                                        '${actualIndex + 1}',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: isPlaying
-                                              ? primaryColor
-                                              : textDark,
-                                          fontSize: 12,
-                                          fontWeight: isPlaying
-                                              ? FontWeight.bold
-                                              : FontWeight.w600,
-                                        ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 22,
+                                    child: Text(
+                                      '${actualIndex + 1}',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: isPlaying
+                                            ? primaryColor
+                                            : textDark,
+                                        fontSize: 12,
+                                        fontWeight: isPlaying
+                                            ? FontWeight.bold
+                                            : FontWeight.w600,
                                       ),
                                     ),
-                                    const SizedBox(width: 10),
-                                    _QueueTrackArtwork(
-                                      track: track,
-                                      isPlaying: isPlaying,
-                                      albumArt: widget.albumArt,
-                                      primaryColor: primaryColor,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            track.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: isPlaying
-                                                  ? primaryColor
-                                                  : textPrimary,
-                                              fontSize: 14,
-                                              fontWeight: isPlaying
-                                                  ? FontWeight.bold
-                                                  : FontWeight.w500,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            track.artist,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: textDark,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    if (track.durationSeconds != null &&
-                                        track.durationSeconds! > 0)
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(right: 6.0),
-                                        child: Text(
-                                          _formatDuration(
-                                              track.durationSeconds),
-                                          style: TextStyle(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.35),
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    Row(
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _QueueTrackArtwork(
+                                    track: track,
+                                    isPlaying: isPlaying,
+                                    albumArt: widget.albumArt,
+                                    primaryColor: primaryColor,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.vertical_align_top_rounded,
-                                            size: 18,
+                                        Text(
+                                          track.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isPlaying
+                                                ? primaryColor
+                                                : textPrimary,
+                                            fontSize: 14,
+                                            fontWeight: isPlaying
+                                                ? FontWeight.bold
+                                                : FontWeight.w500,
                                           ),
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.all(4),
-                                          constraints: const BoxConstraints(
-                                            minWidth: 28,
-                                            minHeight: 28,
-                                          ),
-                                          color: textDark,
-                                          tooltip: 'Move to Top',
-                                          onPressed: () => widget.onReorderQueue(
-                                              actualIndex, 0),
                                         ),
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.vertical_align_bottom_rounded,
-                                            size: 18,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.all(4),
-                                          constraints: const BoxConstraints(
-                                            minWidth: 28,
-                                            minHeight: 28,
-                                          ),
-                                          color: textDark,
-                                          tooltip: 'Move to Bottom',
-                                          onPressed: () => widget.onReorderQueue(
-                                            actualIndex,
-                                            widget.queue.length,
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          track.artist,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: textDark,
+                                            fontSize: 12,
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (track.durationSeconds != null &&
+                                      track.durationSeconds! > 0)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(right: 6.0),
+                                      child: Text(
+                                        _formatDuration(
+                                            track.durationSeconds),
+                                        style: TextStyle(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.35),
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.vertical_align_top_rounded,
+                                          size: 18,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: const EdgeInsets.all(4),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 28,
+                                          minHeight: 28,
+                                        ),
+                                        color: textDark,
+                                        tooltip: 'Move to Top',
+                                        onPressed: () => widget.onReorderQueue(
+                                            actualIndex, 0),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.vertical_align_bottom_rounded,
+                                          size: 18,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        padding: const EdgeInsets.all(4),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 28,
+                                          minHeight: 28,
+                                        ),
+                                        color: textDark,
+                                        tooltip: 'Move to Bottom',
+                                        onPressed: () => widget.onReorderQueue(
+                                          actualIndex,
+                                          widget.queue.length,
+                                        ),
+                                      ),
+                                      if (widget.onRemoveFromQueue != null)
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 18,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.all(4),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 28,
+                                            minHeight: 28,
+                                          ),
+                                          color: textDark,
+                                          tooltip: 'Remove from Queue',
+                                          onPressed: () => widget
+                                              .onRemoveFromQueue!(actualIndex),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
                           ),
