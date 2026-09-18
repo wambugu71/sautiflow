@@ -32,37 +32,11 @@ class AudioProfileSelector extends StatefulWidget {
     this.isCompact = false,
   });
 
-  @override
-  State<AudioProfileSelector> createState() => _AudioProfileSelectorState();
-}
-
-class _AudioProfileSelectorState extends State<AudioProfileSelector> {
-  List<AudioProfile> _profiles = [];
-  AudioProfile? _selectedProfile;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadProfiles();
-  }
-
-  Future<void> _loadProfiles() async {
-    final profiles = await AudioProfileService.instance.getProfiles();
-    final active = await AudioProfileService.instance.getActiveProfile();
-
-    if (mounted) {
-      setState(() {
-        _profiles = profiles;
-        _selectedProfile = active;
-        _loading = false;
-      });
-    }
-  }
-
-  Future<Map<String, dynamic>> _fetchCurrentState() async {
-    if (widget.getCurrentStateCallback != null) {
-      return widget.getCurrentStateCallback!();
+  static Future<Map<String, dynamic>> fetchCurrentState({
+    Map<String, dynamic> Function()? getCurrentStateCallback,
+  }) async {
+    if (getCurrentStateCallback != null) {
+      return getCurrentStateCallback();
     }
     final eqBands = await AppStateService.instance.loadEqBands();
     final spatial = await AppStateService.instance.loadSpatialAudio();
@@ -148,7 +122,12 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
     };
   }
 
-  void _showSaveProfileDialog() {
+  static void showSaveDialog({
+    required BuildContext context,
+    required IsolateAudioPlayer player,
+    VoidCallback? onProfileSaved,
+    Map<String, dynamic> Function()? getCurrentStateCallback,
+  }) {
     final nameController = TextEditingController();
     final descController = TextEditingController();
     String category = 'Custom';
@@ -157,7 +136,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
 
     showDialog(
       context: context,
-      builder: (context) => Material(
+      builder: (dialogCtx) => Material(
         color: Colors.transparent,
         child: StatefulBuilder(
           builder: (context, setDialogState) {
@@ -306,7 +285,7 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
               ),
               actions: [
                 M3EButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('Cancel'),
                 ),
                 M3EButton(
@@ -314,10 +293,11 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
                     final name = nameController.text.trim();
                     if (name.isEmpty) return;
 
-                    final navigator = Navigator.of(context);
+                    final navigator = Navigator.of(dialogCtx);
                     final messenger = ScaffoldMessenger.of(context);
 
-                    final currentState = await _fetchCurrentState();
+                    final currentState = await fetchCurrentState(
+                        getCurrentStateCallback: getCurrentStateCallback);
                     final eqState = includeEqAndDsp
                         ? (currentState['eqState'] as Map<String, dynamic>? ?? {})
                         : <String, dynamic>{};
@@ -349,15 +329,10 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
 
                     await AudioProfileService.instance.saveProfile(newProfile);
                     navigator.pop();
-                    await _loadProfiles();
-                    if (mounted) {
-                      setState(() {
-                        _selectedProfile = newProfile;
-                      });
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('Profile "$name" saved!')),
-                      );
-                    }
+                    onProfileSaved?.call();
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Profile "$name" saved!')),
+                    );
                   },
                   child: const Text('Save Profile'),
                 ),
@@ -366,6 +341,46 @@ class _AudioProfileSelectorState extends State<AudioProfileSelector> {
           },
         ),
       ),
+    );
+  }
+
+  @override
+  State<AudioProfileSelector> createState() => _AudioProfileSelectorState();
+}
+
+class _AudioProfileSelectorState extends State<AudioProfileSelector> {
+  List<AudioProfile> _profiles = [];
+  AudioProfile? _selectedProfile;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  Future<void> _loadProfiles() async {
+    final profiles = await AudioProfileService.instance.getProfiles();
+    final active = await AudioProfileService.instance.getActiveProfile();
+
+    if (mounted) {
+      setState(() {
+        _profiles = profiles;
+        _selectedProfile = active;
+        _loading = false;
+      });
+    }
+  }
+
+  void _showSaveProfileDialog() {
+    AudioProfileSelector.showSaveDialog(
+      context: context,
+      player: widget.player,
+      onProfileSaved: () async {
+        await _loadProfiles();
+        widget.onProfileChanged();
+      },
+      getCurrentStateCallback: widget.getCurrentStateCallback,
     );
   }
 

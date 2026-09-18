@@ -57,7 +57,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
     super.dispose();
   }
 
-  AutoEqProfileModel? get _activeProfile => AutoEqService.instance.activeProfile;
+  AutoEqProfileModel? get _activeProfile =>
+      AutoEqService.instance.activeProfile;
 
   List<M3EDropdownItem<String>> _buildDropdownItems() {
     final items = <M3EDropdownItem<String>>[];
@@ -65,7 +66,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
     // None / Flat Option
     items.add(const M3EDropdownItem<String>(
       value: '__none__',
-      label: 'None (Off / Flat)',
+      label: 'None',
     ));
 
     final builtIns = AutoEqService.instance.builtInProfiles;
@@ -78,10 +79,11 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
       items.add(const M3EDropdownItem<String>(
         disabled: true,
         value: '__header_peq__',
-        label: '— POPULAR HEADPHONES (PARAMETRIC EQ) —',
+        label: '— HEADPHONES (PARAMETRIC EQ) —',
       ));
       for (final p in peqs) {
-        final preampStr = p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
+        final preampStr =
+            p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
         items.add(M3EDropdownItem<String>(
           value: p.id,
           label: '[PEQ] ${p.modelName}$preampStr',
@@ -94,10 +96,11 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
       items.add(const M3EDropdownItem<String>(
         disabled: true,
         value: '__header_geq__',
-        label: '— POPULAR HEADPHONES (GRAPHIC EQ) —',
+        label: '— HEADPHONES (GRAPHIC EQ) —',
       ));
       for (final p in geqs) {
-        final preampStr = p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
+        final preampStr =
+            p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
         items.add(M3EDropdownItem<String>(
           value: p.id,
           label: '[GEQ] ${p.modelName}$preampStr',
@@ -110,11 +113,12 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
       items.add(const M3EDropdownItem<String>(
         disabled: true,
         value: '__header_custom__',
-        label: '— IMPORTED / CUSTOM PROFILES —',
+        label: '— IMPORTED PROFILES —',
       ));
       for (final p in customs) {
         final badge = p.isParametric ? '[PEQ]' : '[GEQ]';
-        final preampStr = p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
+        final preampStr =
+            p.preampDb != 0.0 ? ' (${p.preampDb.toStringAsFixed(1)} dB)' : '';
         items.add(M3EDropdownItem<String>(
           value: p.id,
           label: '$badge ${p.name}$preampStr',
@@ -134,7 +138,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('AutoEQ disabled (Bypassed)'),
+            content: Text('AutoEQ disabled'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -143,7 +147,9 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
       return;
     }
 
-    final profile = AutoEqService.instance.allProfiles.cast<AutoEqProfileModel?>().firstWhere(
+    final profile = AutoEqService.instance.allProfiles
+        .cast<AutoEqProfileModel?>()
+        .firstWhere(
           (p) => p?.id == selectedId,
           orElse: () => null,
         );
@@ -164,8 +170,12 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
             content: Row(
               children: [
                 Icon(
-                  profile.isParametric ? Icons.show_chart_rounded : Icons.equalizer_rounded,
-                  color: profile.isParametric ? Colors.cyanAccent : Colors.tealAccent,
+                  profile.isParametric
+                      ? Icons.show_chart_rounded
+                      : Icons.equalizer_rounded,
+                  color: profile.isParametric
+                      ? Colors.cyanAccent
+                      : Colors.tealAccent,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
@@ -211,10 +221,12 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
 
             return AlertDialog(
               backgroundColor: context.cardDark,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  Icon(Icons.auto_fix_high_rounded, color: context.primaryColor, size: 22),
+                  Icon(Icons.auto_fix_high_rounded,
+                      color: context.primaryColor, size: 22),
                   const SizedBox(width: 8),
                   const Text(
                     'Import AutoEQ Profile',
@@ -234,7 +246,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Import headphone equalization profiles in AutoEQ format. Parametric EQ (.txt / EqualizerAPO) and Graphic EQ (.txt / .csv / GraphicEQ) are automatically detected and routed to the correct audio engine module.',
+                        'Import in AutoEQ format.',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.7),
                           fontSize: 12.5,
@@ -250,7 +262,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                           style: OutlinedButton.styleFrom(
                             foregroundColor: context.primaryColor,
                             side: BorderSide(
-                              color: context.primaryColor.withValues(alpha: 0.5),
+                              color:
+                                  context.primaryColor.withValues(alpha: 0.5),
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
@@ -258,17 +271,19 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           icon: const Icon(Icons.file_open_rounded, size: 18),
-                          label: const Text('Pick File (.txt / .csv)'),
+                          label: const Text('Pick (.txt / .csv)'),
                           onPressed: () async {
                             try {
                               final result = await FilePicker.pickFiles(
                                 type: FileType.custom,
                                 allowedExtensions: ['txt', 'csv'],
                               );
-                              if (result != null && result.files.single.path != null) {
+                              if (result != null &&
+                                  result.files.single.path != null) {
                                 final file = File(result.files.single.path!);
                                 final content = await file.readAsString();
-                                final defaultName = result.files.single.name.replaceAll(
+                                final defaultName =
+                                    result.files.single.name.replaceAll(
                                   RegExp(r'\.(txt|csv)$', caseSensitive: false),
                                   '',
                                 );
@@ -281,7 +296,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                             } catch (e) {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Failed to read file: $e')),
+                                  SnackBar(
+                                      content: Text('Failed to read file: $e')),
                                 );
                               }
                             }
@@ -294,7 +310,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         children: [
                           const Expanded(child: Divider(color: Colors.white12)),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 8.0),
                             child: Text(
                               'OR PASTE TEXT',
                               style: TextStyle(
@@ -312,16 +329,20 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
 
                       TextField(
                         controller: nameController,
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 13),
                         decoration: InputDecoration(
                           hintText: 'Profile Name (e.g. Moondrop Aria Harman)',
-                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                          hintStyle: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.4)),
                           filled: true,
                           fillColor: context.cardDark.withValues(alpha: 0.6),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                            borderSide: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.15)),
                           ),
                         ),
                       ),
@@ -339,13 +360,15 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         decoration: InputDecoration(
                           hintText:
                               'Preamp: -6.0 dB\nFilter 1: ON PK Fc 28 Hz Gain 7.1 dB Q 2.10\nFilter 2: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70...\nOR GraphicEQ: 20 0; 25 -0.5; 31.5 1.2...',
-                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                          hintStyle: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.3)),
                           filled: true,
                           fillColor: context.cardDark.withValues(alpha: 0.6),
                           contentPadding: const EdgeInsets.all(10),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                            borderSide: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.15)),
                           ),
                         ),
                       ),
@@ -354,7 +377,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                       // Format Auto-Detection Preview
                       if (previewResult != null)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
                             color: previewResult!.isParametric
                                 ? Colors.cyan.withValues(alpha: 0.12)
@@ -404,11 +428,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                   onPressed: () => Navigator.of(dialogCtx).pop(),
                   child: Text(
                     'Cancel',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                    style:
+                        TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                   ),
                 ),
                 FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: context.primaryColor),
+                  style: FilledButton.styleFrom(
+                      backgroundColor: context.primaryColor),
                   onPressed: () async {
                     final text = textController.text.trim();
                     if (text.isEmpty) return;
@@ -421,7 +447,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                     final cardDarkColor = context.cardDark;
                     Navigator.of(dialogCtx).pop();
 
-                    final newProfile = await AutoEqService.instance.importFromString(
+                    final newProfile =
+                        await AutoEqService.instance.importFromString(
                       content: text,
                       name: name,
                     );
@@ -432,10 +459,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
 
                     if (mounted) {
                       setState(() {});
-                      final typeLabel = newProfile.isParametric ? 'Parametric EQ' : 'Graphic EQ';
+                      final typeLabel = newProfile.isParametric
+                          ? 'Parametric EQ'
+                          : 'Graphic EQ';
                       messenger.showSnackBar(
                         SnackBar(
-                          content: Text('Imported & Applied AutoEQ: "$name" ($typeLabel)'),
+                          content: Text(
+                              'Imported & Applied AutoEQ: "$name" ($typeLabel)'),
                           duration: const Duration(seconds: 3),
                           backgroundColor: cardDarkColor,
                         ),
@@ -445,7 +475,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                   },
                   child: const Text(
                     'Import & Apply',
-                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        color: Colors.black, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -465,14 +496,19 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
             final customs = AutoEqService.instance.customProfiles;
             return AlertDialog(
               backgroundColor: context.cardDark,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [
-                  Icon(Icons.folder_shared_rounded, color: Colors.white, size: 20),
+                  Icon(Icons.folder_shared_rounded,
+                      color: Colors.white, size: 20),
                   SizedBox(width: 8),
                   Text(
                     'Custom AutoEQ Profiles',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -485,31 +521,40 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                           child: Text(
                             'No custom profiles imported yet.\nUse the Import button to add downloaded AutoEQ curves.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white60, fontSize: 12),
+                            style:
+                                TextStyle(color: Colors.white60, fontSize: 12),
                           ),
                         ),
                       )
                     : ListView.separated(
                         shrinkWrap: true,
                         itemCount: customs.length,
-                        separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 1),
+                        separatorBuilder: (_, __) =>
+                            const Divider(color: Colors.white12, height: 1),
                         itemBuilder: (context, idx) {
                           final item = customs[idx];
                           final isActive = _activeProfile?.id == item.id;
                           return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 2),
                             leading: Icon(
                               item.isParametric
                                   ? Icons.show_chart_rounded
                                   : Icons.equalizer_rounded,
-                              color: item.isParametric ? Colors.cyanAccent : Colors.tealAccent,
+                              color: item.isParametric
+                                  ? Colors.cyanAccent
+                                  : Colors.tealAccent,
                               size: 20,
                             ),
                             title: Text(
                               item.name,
                               style: TextStyle(
-                                color: isActive ? context.primaryColor : Colors.white,
-                                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                                color: isActive
+                                    ? context.primaryColor
+                                    : Colors.white,
+                                fontWeight: isActive
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                                 fontSize: 13,
                               ),
                             ),
@@ -527,14 +572,16 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                                   AppStatusBadge(
                                     text: 'ACTIVE',
                                     color: context.primaryColor,
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
                                   ),
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline_rounded,
                                       color: Colors.redAccent, size: 18),
                                   tooltip: 'Delete Profile',
                                   onPressed: () async {
-                                    await AutoEqService.instance.deleteCustomProfile(item.id);
+                                    await AutoEqService.instance
+                                        .deleteCustomProfile(item.id);
                                     setDialogState(() {});
                                     if (mounted) setState(() {});
                                   },
@@ -558,9 +605,163 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogCtx).pop(),
-                  child: const Text('Close', style: TextStyle(color: Colors.white70)),
+                  child: const Text('Close',
+                      style: TextStyle(color: Colors.white70)),
                 ),
               ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showProfilePickerModal() {
+    final items = _buildDropdownItems();
+    final activeId = _activeProfile?.id ?? '__none__';
+    final searchCtrl = TextEditingController();
+    List<M3EDropdownItem<String>> filteredItems = List.from(items);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: BoxDecoration(
+                color: context.cardDark,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_fix_high_rounded,
+                            color: Color(0xFF38BDF8), size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Select AutoEQ Profile',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        if (_activeProfile != null)
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(sheetCtx);
+                              _handleSelection('__none__');
+                            },
+                            child: const Text('Bypass / Off',
+                                style: TextStyle(
+                                    color: Colors.redAccent, fontSize: 13)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: TextField(
+                      controller: searchCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Search headphones (HD 600, Sony, AirPods)...',
+                        hintStyle: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.35),
+                            fontSize: 13),
+                        prefixIcon: const Icon(Icons.search,
+                            color: Colors.white54, size: 18),
+                        filled: true,
+                        fillColor: Colors.black26,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none),
+                      ),
+                      onChanged: (query) {
+                        setSheetState(() {
+                          if (query.trim().isEmpty) {
+                            filteredItems = List.from(items);
+                          } else {
+                            final q = query.toLowerCase();
+                            filteredItems = items.where((i) {
+                              if (i.disabled) return false;
+                              return i.label.toLowerCase().contains(q);
+                            }).toList();
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filteredItems.length,
+                      itemBuilder: (context, idx) {
+                        final item = filteredItems[idx];
+                        if (item.disabled) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            child: Text(
+                              item.label,
+                              style: TextStyle(
+                                color: context.primaryColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          );
+                        }
+                        final isSelected = item.value == activeId;
+                        return ListTile(
+                          dense: true,
+                          title: Text(
+                            item.label,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? const Color(0xFF38BDF8)
+                                  : Colors.white,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: 13,
+                            ),
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_rounded,
+                                  color: Color(0xFF38BDF8), size: 18)
+                              : null,
+                          onTap: () {
+                            Navigator.pop(sheetCtx);
+                            _handleSelection(item.value);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             );
           },
         );
@@ -573,141 +774,109 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
     if (_loading) {
       return const SizedBox(
         height: 36,
-        child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+        child: Center(
+            child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
 
-    final activeId = _activeProfile?.id ?? '__none__';
-    final items = _buildDropdownItems();
-
-    // Map selection items so selected flag is set
-    final mappedItems = items.map((item) {
-      final isSelected = !item.disabled && item.value == activeId;
-      return item.selected == isSelected ? item : item.copyWith(selected: isSelected);
-    }).toList();
+    final activeLabel = _activeProfile != null
+        ? _activeProfile!.name
+        : 'Harman Target 2019';
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: widget.isCompact ? 8.0 : 12.0, vertical: 4.0),
       decoration: BoxDecoration(
-        color: context.cardDark.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _activeProfile != null
-              ? context.primaryColor.withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.08),
-        ),
+        color: const Color(0xFF0E1724),
+        borderRadius: BorderRadius.circular(14),
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: Row(
         children: [
-          // AutoEQ Icon with Tooltip
-          Tooltip(
-            message: 'AutoEQ: Harman-targeted compensation profiles for popular headphones',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.auto_fix_high_rounded,
-                  color: _activeProfile != null ? context.primaryColor : Colors.white60,
-                  size: widget.isCompact ? 16 : 18,
+          const Text(
+            'AutoEq',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: _showProfilePickerModal,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF070C14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                if (!widget.isCompact) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    'AutoEQ',
-                    style: TextStyle(
-                      color: _activeProfile != null ? context.primaryColor : Colors.white70,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.2,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        activeLabel,
+                        style: const TextStyle(
+                          color: Color(0xFF38BDF8),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
-              ],
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.unfold_more_rounded,
+                      color: Color(0xFF38BDF8),
+                      size: 16,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 8),
-
-          // M3E Dropdown Selector
-          Expanded(
-            child: RepaintBoundary(
-              child: M3EDropdownMenu<String>(
-                singleSelect: true,
-                searchEnabled: true,
-                showChipAnimation: false,
-                items: mappedItems,
-                fieldStyle: M3EDropdownFieldStyle(
-                  hintText: 'Select AutoEQ Profile...',
-                  backgroundColor: context.cardDark,
-                  foregroundColor: Colors.white,
-                  border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-                  focusedBorder: BorderSide(color: context.primaryColor),
-                  borderRadius: BorderRadius.circular(10),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  showArrow: true,
-                  selectedTextStyle: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                dropdownStyle: M3EDropdownPanelStyle(
-                  backgroundColor: context.cardDark,
-                  containerRadius: 14,
-                  maxHeight: 320,
-                ),
-                searchStyle: const M3EDropdownSearchStyle(
-                  hintText: 'Search headphones (e.g. HD 600, Sony, AirPods)...',
-                ),
-                onSelectionChanged: (selected) {
-                  if (selected.isNotEmpty) {
-                    _handleSelection(selected.first.value);
-                  }
-                },
+          // Cloud Upload / Import Button
+          InkWell(
+            onTap: _showImportDialog,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF162232),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.cloud_upload_outlined,
+                color: Color(0xFF38BDF8),
+                size: 18,
               ),
             ),
           ),
           const SizedBox(width: 6),
-
-          // Active Profile Type Badge (PEQ vs GEQ) & Preamp Pill
-          if (_activeProfile != null) ...[
-            Tooltip(
-              message: _activeProfile!.isParametric
-                  ? 'Routed to Parametric Equalizer'
-                  : 'Routed to Graphic Equalizer',
-              child: AppStatusBadge(
-                text: _activeProfile!.type.shortBadge,
-                color: _activeProfile!.isParametric ? Colors.cyanAccent : Colors.tealAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          // Folder / Manage Custom Button
+          InkWell(
+            onTap: _showManageCustomProfilesDialog,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFF162232),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.folder_open_outlined,
+                color: Color(0xFFBAE6FD),
+                size: 18,
               ),
             ),
-            const SizedBox(width: 4),
-          ],
-
-          // Import Button
-          M3EIconButton(
-            tooltip: 'Import AutoEQ Profile (.txt / .csv)',
-            icon: Icon(Icons.file_upload_outlined, size: 18, color: context.primaryColor),
-            variant: M3EIconButtonVariant.standard,
-            onPressed: _showImportDialog,
           ),
-
-          // Manage Custom Profiles Button (if any custom profiles exist)
-          if (AutoEqService.instance.customProfiles.isNotEmpty)
-            M3EIconButton(
-              tooltip: 'Manage Custom AutoEQ Profiles',
-              icon: const Icon(Icons.folder_open_rounded, size: 18, color: Colors.white70),
-              variant: M3EIconButtonVariant.standard,
-              onPressed: _showManageCustomProfilesDialog,
-            ),
-
-          // Reset / Bypass Button (when a profile is active)
-          if (_activeProfile != null)
-            M3EIconButton(
-              tooltip: 'Clear AutoEQ (Bypass)',
-              icon: const Icon(Icons.close_rounded, size: 16, color: Colors.white60),
-              variant: M3EIconButtonVariant.standard,
-              onPressed: () => _handleSelection('__none__'),
-            ),
         ],
       ),
     );

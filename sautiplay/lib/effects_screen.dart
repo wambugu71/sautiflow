@@ -6,8 +6,10 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'models/audio_profile.dart';
 import 'services/app_theme_service.dart';
 import 'services/audio_hardware_inspector.dart';
+import 'services/audio_profile_service.dart';
 import 'services/fft_processor.dart';
 import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/glsl_audio_visualizer.dart';
@@ -52,7 +54,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
   StreamSubscription? _analyzerSub;
   StreamSubscription<PlayerStatus>? _statusSub;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
+  StreamSubscription<AudioProfile?>? _profileSub;
   AudioHardwareSpecs? _hardwareSpecs;
+  List<AudioProfile> _audioProfiles = [];
+  AudioProfile? _selectedAudioProfile;
   bool _isPlaying = false;
   FftProcessor? _fftProcessor;
   late String _currentAnalyzerType;
@@ -108,6 +113,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
       }
     });
 
+    _loadAudioProfiles();
+    _profileSub = AudioProfileService.instance.activeProfileStream.listen((p) {
+      if (mounted) setState(() => _selectedAudioProfile = p);
+    });
+
     _setupAnalyzer(widget.isActive && widget.analyzerEnabled);
     _statusSub = widget.player.statusStream.listen((status) {
       if (mounted && _isPlaying != status.isPlaying) {
@@ -116,6 +126,94 @@ class _EffectsScreenState extends State<EffectsScreen> {
         });
       }
     });
+  }
+
+  Future<void> _loadAudioProfiles() async {
+    final profiles = await AudioProfileService.instance.getProfiles();
+    final active = await AudioProfileService.instance.getActiveProfile();
+    if (mounted) {
+      setState(() {
+        _audioProfiles = profiles;
+        _selectedAudioProfile = active;
+      });
+    }
+  }
+
+  String get _visualizerLabel {
+    if (_currentAnalyzerType == 'vectorscope' ||
+        _currentAnalyzerType == 'Stereo Vectorscope') {
+      return 'Vectorscope';
+    } else if (_currentAnalyzerType == 'area') {
+      return 'Wave Area';
+    } else if (_currentAnalyzerType == 'bar') {
+      return 'Dot Matrix';
+    }
+    final glslMatch = GlslShaderStyle.values.firstWhere(
+      (s) =>
+          s.name == _currentAnalyzerType ||
+          s.displayName == _currentAnalyzerType,
+      orElse: () => GlslShaderStyle.cyberTunnel,
+    );
+    return glslMatch.displayName;
+  }
+
+  void _showProfileMenu(BuildContext btnContext) async {
+    final renderBox = btnContext.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final position = RelativeRect.fromLTRB(
+      offset.dx,
+      offset.dy + size.height + 6,
+      offset.dx + size.width,
+      offset.dy + size.height + 6,
+    );
+
+    final selected = await showMenu<AudioProfile>(
+      context: context,
+      position: position,
+      color: const Color(0xFF101924),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF1E2D40)),
+      ),
+      items: _audioProfiles.map((p) {
+        final isSelected = p.id == _selectedAudioProfile?.id;
+        return PopupMenuItem<AudioProfile>(
+          value: p,
+          height: 38,
+          child: Row(
+            children: [
+              Icon(
+                Icons.bar_chart_rounded,
+                size: 16,
+                color: isSelected ? const Color(0xFF38BDF8) : Colors.white54,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  p.name,
+                  style: TextStyle(
+                    color: isSelected ? const Color(0xFF38BDF8) : Colors.white,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(Icons.check_rounded,
+                    size: 16, color: Color(0xFF38BDF8)),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+
+    if (selected != null) {
+      setState(() => _selectedAudioProfile = selected);
+      await AudioProfileService.instance.applyProfile(widget.player, selected);
+    }
   }
 
   @override
@@ -147,6 +245,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
     _analyzerSub?.cancel();
     _statusSub?.cancel();
     _hardwareSub?.cancel();
+    _profileSub?.cancel();
     super.dispose();
   }
 
@@ -269,7 +368,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
   Widget build(BuildContext context) {
     final primaryColor = context.primaryColor;
     final bgColor = context.bgDark;
-    final cardColor = context.cardDark;
     final headerColor = bgColor;
 
     // Calculate the dynamic expanded height based on what's visible
@@ -280,7 +378,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final double spectrumHeight = widget.analyzerEnabled
         ? 160.0
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
-    const double controlBarHeight = 88.0;
+    const double controlBarHeight = 98.0;
     const double titleBarHeight = 50.0;
     const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
@@ -292,25 +390,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
         dragHandleHeight;
     final double collapsedHeight =
         topPadding + titleBarHeight + controlBarHeight + dragHandleHeight;
-
-    // Helper to get active visualizer display label
-    String activeVisualizerLabel =
-        'Dot Matrix (${PhysicsDotsTheme.fromString(_currentSpectrumStyle).displayName})';
-    if (_currentAnalyzerType == 'vectorscope' ||
-        _currentAnalyzerType == 'Stereo Vectorscope') {
-      activeVisualizerLabel = 'Stereo Vectorscope (Goniometer)';
-    } else if (_currentAnalyzerType == 'area') {
-      activeVisualizerLabel =
-          'Fluid Wave (${FluidAreaTheme.fromString(_currentSpectrumStyle).displayName})';
-    } else if (_currentAnalyzerType != 'bar') {
-      final glslMatch = GlslShaderStyle.values.firstWhere(
-        (s) =>
-            s.name == _currentAnalyzerType ||
-            s.displayName == _currentAnalyzerType,
-        orElse: () => GlslShaderStyle.cyberTunnel,
-      );
-      activeVisualizerLabel = glslMatch.displayName;
-    }
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -386,58 +465,56 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         ),
                       ),
 
-                      // Secondary Pinned Control Bar (Mobile-Optimized for Selectors)
+                      // Control Bar (Matching screenshot UI)
                       SizedBox(
                         height: controlBarHeight,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12.0, vertical: 2.0),
-                          child: Column(children: [
-                            Row(
-                              children: [
-                                // Visualizer Selector Pill Menu
-                                Expanded(
-                                  child: M3EMenu(
+                          child: Column(
+                            children: [
+                              // Row 1: Visualizer pill + Profile pill + Spacer + Save + Tune
+                              Row(
+                                children: [
+
+                                  // Visualizer Selector Pill Menu
+                                  M3EMenu(
                                     anchorBuilder: (context, open) => InkWell(
                                       onTap: open,
-                                      borderRadius: BorderRadius.circular(18),
+                                      borderRadius: BorderRadius.circular(10),
                                       child: Container(
                                         decoration: BoxDecoration(
                                           borderRadius:
-                                              BorderRadius.circular(14),
-                                          color: cardColor,
-                                          border: Border.all(
-                                            color: primaryColor.withValues(
-                                                alpha: 0.25),
-                                          ),
+                                              BorderRadius.circular(10),
+                                          color: const Color(0xFF101924),
                                         ),
-                                        height: 34,
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.auto_awesome_mosaic,
-                                                  color: primaryColor,
-                                                  size: 14),
-                                              const SizedBox(width: 6),
-                                              Expanded(
-                                                child: Text(
-                                                  activeVisualizerLabel,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
+                                        height: 36,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.grid_view_rounded,
+                                              color: Color(0xFF38BDF8),
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _visualizerLabel,
+                                              style: const TextStyle(
+                                                color: Color(0xFF38BDF8),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
                                               ),
-                                              const Icon(Icons.arrow_drop_down,
-                                                  color: Colors.white70,
-                                                  size: 16),
-                                            ],
-                                          ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Icon(
+                                              Icons.keyboard_arrow_down_rounded,
+                                              color: Color(0xFF38BDF8),
+                                              size: 18,
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ),
@@ -549,35 +626,139 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       ),
                                     ],
                                   ),
-                                ),
 
-                                const SizedBox(width: 8),
+                                  const SizedBox(width: 8),
 
-                                // Audio Profile Selector
-                                AudioProfileSelector(
-                                  player: widget.player,
-                                  isCompact: true,
-                                  onProfileChanged: () {
-                                    setState(() {});
-                                  },
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: AutoEqSelectorWidget(
-                                    player: widget.player,
-                                    isCompact: true,
-                                    onProfileApplied: () {
-                                      setState(() {});
+                                  // Audio Profile Selector Pill
+                                  Builder(
+                                    builder: (btnCtx) {
+                                      return InkWell(
+                                        onTap: () => _showProfileMenu(btnCtx),
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            color: const Color(0xFF101924),
+                                          ),
+                                          height: 36,
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.bar_chart_rounded,
+                                                color: Color(0xFF38BDF8),
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        maxWidth: 85),
+                                                child: Text(
+                                                  _selectedAudioProfile?.name ??
+                                                      'Flat',
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Icon(
+                                                Icons.keyboard_arrow_down_rounded,
+                                                color: Colors.white70,
+                                                size: 18,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
                                     },
                                   ),
-                                ),
-                              ],
-                            ),
-                          ]),
+
+                                  const Spacer(),
+
+                                  // Save Audio Profile Button
+                                  InkWell(
+                                    onTap: () {
+                                      AudioProfileSelector.showSaveDialog(
+                                        context: context,
+                                        player: widget.player,
+                                        onProfileSaved: _loadAudioProfiles,
+                                      );
+                                    },
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF162232),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.save_outlined,
+                                        color: Colors.white70,
+                                        size: 17,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+
+                                  // Manage Audio Profiles (Tune) Button
+                                  InkWell(
+                                    onTap: () {
+                                      showDialog(
+                                        context: context,
+                                        builder: (dialogCtx) =>
+                                            AudioProfileManagerDialog(
+                                          player: widget.player,
+                                          onProfilesUpdated:
+                                              _loadAudioProfiles,
+                                        ),
+                                      );
+                                    },
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF162232),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.tune_rounded,
+                                        color: Colors.white70,
+                                        size: 17,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              // Row 2: AutoEQ Selector Widget
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: AutoEqSelectorWidget(
+                                      player: widget.player,
+                                      isCompact: true,
+                                      onProfileApplied: () {
+                                        setState(() {});
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
 
