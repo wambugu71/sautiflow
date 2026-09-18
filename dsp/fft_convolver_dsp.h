@@ -6,6 +6,7 @@
 #include <vector>
 #include <complex>
 #include <mutex>
+#include <atomic>
 #include <cstring>
 #include "simd_math.h"
 
@@ -13,7 +14,7 @@ namespace sauti::dsp {
 
 // =============================================================================
 // FFTConvolverDSP: Clean, High-Performance Partitioned Overlap-Add Convolver
-// with Click-Free Wet/Dry Smoothing and Anti-Pop Crossfading
+// with Zero-Latency Seamless Dry/Wet Crossfading and Automatic Gain Normalization
 // =============================================================================
 class FFTConvolverDSP {
 public:
@@ -30,19 +31,26 @@ public:
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
-        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms level smoothing
+        crossfade_step_ = 1.0f / (0.020f * sample_rate_);                   // 20ms de-zippered crossfade rate
     }
 
     void setEnabled(bool enabled) {
-        if (enabled_ != enabled) {
-            if (enabled) {
-                anti_pop_ = 0.0f;
+        if (enabled) {
+            if (!enabled_.load(std::memory_order_relaxed)) {
+                std::lock_guard<std::mutex> lock(ir_mutex_);
+                resetInternalBuffers();
+                fade_progress_ = 0.0f;
+                current_wet_level_ = target_wet_level_;
+                current_dry_level_ = target_dry_level_;
             }
-            enabled_ = enabled;
+            enabled_.store(true, std::memory_order_release);
+        } else {
+            enabled_.store(false, std::memory_order_release);
         }
     }
 
-    bool isEnabled() const { return enabled_; }
+    bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
 
     void setWetLevel(float wet) {
         target_wet_level_ = std::clamp(wet, 0.0f, 1.0f);
@@ -63,29 +71,41 @@ public:
             return false;
         }
 
-        std::lock_guard<std::mutex> lock(ir_mutex_);
-
         // Calculate number of 512-sample segments
         uint32_t num_segments = (frame_count + BLOCK_SIZE - 1) / BLOCK_SIZE;
         if (num_segments > MAX_SEGMENTS) {
             num_segments = MAX_SEGMENTS;
         }
 
-        segments_count_ = num_segments;
-        ir_channels_ = channels;
+        // 1. Calculate Peak & RMS Energy to prevent digital clipping
+        float max_peak = 0.0f;
+        float energy_sum = 0.0f;
+        for (uint32_t i = 0; i < frame_count; i++) {
+            float l = (channels == 1) ? ir_samples[i] : ir_samples[i * 2];
+            float r = (channels == 1) ? ir_samples[i] : ir_samples[i * 2 + 1];
+            max_peak = std::max(max_peak, std::max(std::abs(l), std::abs(r)));
+            energy_sum += (l * l + r * r) * 0.5f;
+        }
 
-        // Allocate frequency-domain partitions
-        ir_partitions_l_.resize(segments_count_ * FFT_SIZE);
+        float norm_scale = 1.0f;
+        if (max_peak > 1.0f) {
+            norm_scale = std::min(norm_scale, 1.0f / max_peak);
+        }
+        if (energy_sum > 16.0f) {
+            norm_scale = std::min(norm_scale, std::sqrt(16.0f / energy_sum));
+        }
+
+        // 2. Pre-allocate and compute FFT partitions in local staging vectors OUTSIDE the lock
+        std::vector<std::complex<float>> new_partitions_l(num_segments * FFT_SIZE);
+        std::vector<std::complex<float>> new_partitions_r;
         if (channels == 2) {
-            ir_partitions_r_.resize(segments_count_ * FFT_SIZE);
-        } else {
-            ir_partitions_r_.clear();
+            new_partitions_r.resize(num_segments * FFT_SIZE);
         }
 
         std::vector<float> time_block(FFT_SIZE, 0.0f);
         std::vector<std::complex<float>> freq_block(FFT_SIZE);
 
-        for (uint32_t seg = 0; seg < segments_count_; seg++) {
+        for (uint32_t seg = 0; seg < num_segments; seg++) {
             uint32_t offset = seg * BLOCK_SIZE;
 
             // --- Left Channel (or Mono) ---
@@ -93,12 +113,13 @@ public:
             for (size_t i = 0; i < BLOCK_SIZE; i++) {
                 uint32_t frame_idx = offset + i;
                 if (frame_idx < frame_count) {
-                    time_block[i] = (channels == 1) ? ir_samples[frame_idx] : ir_samples[frame_idx * 2];
+                    float s = (channels == 1) ? ir_samples[frame_idx] : ir_samples[frame_idx * 2];
+                    time_block[i] = s * norm_scale;
                 }
             }
             forwardFFT(time_block.data(), freq_block.data());
             for (size_t k = 0; k < FFT_SIZE; k++) {
-                ir_partitions_l_[seg * FFT_SIZE + k] = freq_block[k];
+                new_partitions_l[seg * FFT_SIZE + k] = freq_block[k];
             }
 
             // --- Right Channel (if stereo) ---
@@ -107,24 +128,33 @@ public:
                 for (size_t i = 0; i < BLOCK_SIZE; i++) {
                     uint32_t frame_idx = offset + i;
                     if (frame_idx < frame_count) {
-                        time_block[i] = ir_samples[frame_idx * 2 + 1];
+                        float s = ir_samples[frame_idx * 2 + 1];
+                        time_block[i] = s * norm_scale;
                     }
                 }
                 forwardFFT(time_block.data(), freq_block.data());
                 for (size_t k = 0; k < FFT_SIZE; k++) {
-                    ir_partitions_r_[seg * FFT_SIZE + k] = freq_block[k];
+                    new_partitions_r[seg * FFT_SIZE + k] = freq_block[k];
                 }
             }
         }
 
-        // Prepare FDL (Frequency Delay Line) ring buffers
-        fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
-        fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
-        fdl_head_ = 0;
+        // 3. Briefly swap into place under ir_mutex_ (microseconds)
+        {
+            std::lock_guard<std::mutex> lock(ir_mutex_);
+            segments_count_ = num_segments;
+            ir_channels_ = channels;
+            ir_partitions_l_ = std::move(new_partitions_l);
+            ir_partitions_r_ = std::move(new_partitions_r);
 
-        resetInternalBuffers();
-        has_ir_ = true;
-        anti_pop_ = 0.0f; // Smooth fade-in on newly loaded IR
+            fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+            fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+            fdl_head_ = 0;
+
+            resetInternalBuffers();
+            has_ir_ = true;
+            fade_progress_ = 0.0f;
+        }
         return true;
     }
 
@@ -137,7 +167,7 @@ public:
         fdl_l_.clear();
         fdl_r_.clear();
         resetInternalBuffers();
-        anti_pop_ = 0.0f;
+        fade_progress_ = 0.0f;
     }
 
     bool hasImpulseResponse() const { return has_ir_; }
@@ -148,12 +178,14 @@ public:
         resetInternalBuffers();
         current_wet_level_ = target_wet_level_;
         current_dry_level_ = target_dry_level_;
-        anti_pop_ = 0.0f;
+        fade_progress_ = 0.0f;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
-        if (!enabled_ || !has_ir_ || frame_count == 0 || !interleaved_samples) return;
+        const bool is_enabled = enabled_.load(std::memory_order_relaxed);
+        if (!is_enabled && fade_progress_ <= 0.0f) return;
+        if (!has_ir_ || frame_count == 0 || !interleaved_samples) return;
 
         // Try lock without blocking the real-time audio thread
         std::unique_lock<std::mutex> lock(ir_mutex_, std::try_to_lock);
@@ -180,14 +212,24 @@ public:
                 float wet_l = out_buf_l_[in_pos_ + i];
                 float wet_r = out_buf_r_[in_pos_ + i];
 
-                // Anti-pop smooth crossfade on activation / IR load
-                float eff_wet = current_wet_level_ * anti_pop_;
-                if (anti_pop_ < 1.0f) {
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                // Anti-pop smooth crossfade on activation / disablement
+                if (is_enabled) {
+                    if (fade_progress_ < 1.0f) {
+                        fade_progress_ = std::min(1.0f, fade_progress_ + crossfade_step_);
+                    }
+                } else {
+                    if (fade_progress_ > 0.0f) {
+                        fade_progress_ = std::max(0.0f, fade_progress_ - crossfade_step_);
+                    }
                 }
 
-                interleaved_samples[in_idx]     = (dry_in_l * current_dry_level_) + (wet_l * eff_wet);
-                interleaved_samples[in_idx + 1] = (dry_in_r * current_dry_level_) + (wet_r * eff_wet);
+                // Seamless blend: 100% dry when fade == 0, full convolver mix when fade == 1
+                const float fade = fade_progress_;
+                const float eff_dry = (1.0f - fade) + (current_dry_level_ * fade);
+                const float eff_wet = current_wet_level_ * fade;
+
+                interleaved_samples[in_idx]     = (dry_in_l * eff_dry) + (wet_l * eff_wet);
+                interleaved_samples[in_idx + 1] = (dry_in_r * eff_dry) + (wet_r * eff_wet);
             }
 
             in_pos_ += frames_to_copy;
@@ -204,21 +246,23 @@ public:
 private:
     static constexpr size_t MAX_SEGMENTS = 128; // Up to ~1.36 seconds of impulse response at 48kHz
 
-    bool enabled_ = false;
-    bool has_ir_ = false;
-    float sample_rate_ = 48000.0f;
-    float sample_period_ = 1.0f / 48000.0f;
-    float target_wet_level_ = 1.0f;
-    float current_wet_level_ = 1.0f;
-    float target_dry_level_ = 0.0f;
-    float current_dry_level_ = 0.0f;
+    std::atomic<bool> enabled_{false};
+    bool has_ir_{false};
+    float fade_progress_{0.0f};
+    float crossfade_step_{0.001f};
 
-    float smoothing_coeff_ = 0.002f;
-    float anti_pop_ = 0.0f;
+    float sample_rate_{48000.0f};
+    float sample_period_{1.0f / 48000.0f};
+    float target_wet_level_{1.0f};
+    float current_wet_level_{1.0f};
+    float target_dry_level_{0.0f};
+    float current_dry_level_{0.0f};
+
+    float smoothing_coeff_{0.002f};
 
     mutable std::mutex ir_mutex_;
-    uint32_t segments_count_ = 0;
-    uint32_t ir_channels_ = 1;
+    uint32_t segments_count_{0};
+    uint32_t ir_channels_{1};
 
     // Partitioned Frequency Domain Impulse Response
     std::vector<std::complex<float>> ir_partitions_l_;
@@ -227,14 +271,14 @@ private:
     // Frequency Delay Lines
     std::vector<std::complex<float>> fdl_l_;
     std::vector<std::complex<float>> fdl_r_;
-    size_t fdl_head_ = 0;
+    size_t fdl_head_{0};
 
     // Time-domain overlap buffers
     float in_buf_l_[BLOCK_SIZE]{};
     float in_buf_r_[BLOCK_SIZE]{};
     float out_buf_l_[FFT_SIZE]{};
     float out_buf_r_[FFT_SIZE]{};
-    size_t in_pos_ = 0;
+    size_t in_pos_{0};
 
     // Scratch buffers for zero-allocation realtime FFT
     float scratch_time_l_[FFT_SIZE]{};
@@ -293,9 +337,7 @@ private:
 
         // 2. Store input spectrum in current FDL slot
         std::memcpy(&fdl_l_[fdl_head_ * FFT_SIZE], scratch_freq_l_, FFT_SIZE * sizeof(std::complex<float>));
-        if (ir_channels_ == 2) {
-            std::memcpy(&fdl_r_[fdl_head_ * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<float>));
-        }
+        std::memcpy(&fdl_r_[fdl_head_ * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<float>));
 
         // 3. Frequency-domain complex multiply-accumulate across all IR partitions
         std::fill(accum_l_, accum_l_ + FFT_SIZE, std::complex<float>(0.0f, 0.0f));
@@ -304,34 +346,30 @@ private:
         for (uint32_t seg = 0; seg < segments_count_; seg++) {
             size_t fdl_slot = (fdl_head_ + segments_count_ - seg) % segments_count_;
             const float* in_ptr_l = reinterpret_cast<const float*>(&fdl_l_[fdl_slot * FFT_SIZE]);
+            const float* in_ptr_r = reinterpret_cast<const float*>(&fdl_r_[fdl_slot * FFT_SIZE]);
             const float* ir_ptr_l = reinterpret_cast<const float*>(&ir_partitions_l_[seg * FFT_SIZE]);
+            const float* ir_ptr_r = (ir_channels_ == 2)
+                ? reinterpret_cast<const float*>(&ir_partitions_r_[seg * FFT_SIZE])
+                : ir_ptr_l; // reuse mono IR partition for right channel
+
             float* acc_ptr_l = reinterpret_cast<float*>(accum_l_);
+            float* acc_ptr_r = reinterpret_cast<float*>(accum_r_);
 
             for (size_t k = 0; k < FFT_SIZE * 2; k += 4) {
-                const SimdFloat4 a = SimdFloat4::load_u(&in_ptr_l[k]);
-                const SimdFloat4 b = SimdFloat4::load_u(&ir_ptr_l[k]);
-                const SimdFloat4 acc = SimdFloat4::load_u(&acc_ptr_l[k]);
-                SimdFloat4 res = SimdFloat4::complex_mul_accumulate_2(a, b, acc);
-                res.store_u(&acc_ptr_l[k]);
+                // Left Channel MAC
+                const SimdFloat4 a_l = SimdFloat4::load_u(&in_ptr_l[k]);
+                const SimdFloat4 b_l = SimdFloat4::load_u(&ir_ptr_l[k]);
+                const SimdFloat4 acc_l = SimdFloat4::load_u(&acc_ptr_l[k]);
+                SimdFloat4 res_l = SimdFloat4::complex_mul_accumulate_2(a_l, b_l, acc_l);
+                res_l.store_u(&acc_ptr_l[k]);
+
+                // Right Channel MAC
+                const SimdFloat4 a_r = SimdFloat4::load_u(&in_ptr_r[k]);
+                const SimdFloat4 b_r = SimdFloat4::load_u(&ir_ptr_r[k]);
+                const SimdFloat4 acc_r = SimdFloat4::load_u(&acc_ptr_r[k]);
+                SimdFloat4 res_r = SimdFloat4::complex_mul_accumulate_2(a_r, b_r, acc_r);
+                res_r.store_u(&acc_ptr_r[k]);
             }
-
-            if (ir_channels_ == 2) {
-                const float* in_ptr_r = reinterpret_cast<const float*>(&fdl_r_[fdl_slot * FFT_SIZE]);
-                const float* ir_ptr_r = reinterpret_cast<const float*>(&ir_partitions_r_[seg * FFT_SIZE]);
-                float* acc_ptr_r = reinterpret_cast<float*>(accum_r_);
-
-                for (size_t k = 0; k < FFT_SIZE * 2; k += 4) {
-                    const SimdFloat4 a = SimdFloat4::load_u(&in_ptr_r[k]);
-                    const SimdFloat4 b = SimdFloat4::load_u(&ir_ptr_r[k]);
-                    const SimdFloat4 acc = SimdFloat4::load_u(&acc_ptr_r[k]);
-                    SimdFloat4 res = SimdFloat4::complex_mul_accumulate_2(a, b, acc);
-                    res.store_u(&acc_ptr_r[k]);
-                }
-            }
-        }
-
-        if (ir_channels_ == 1) {
-            std::memcpy(accum_r_, accum_l_, FFT_SIZE * sizeof(std::complex<float>));
         }
 
         // Advance FDL head

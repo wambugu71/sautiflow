@@ -1210,6 +1210,7 @@ class _EqScreenState extends State<EqScreen>
   bool _convolverEnabled = false;
   String? _convolverIrPath;
   String? _convolverIrFileName;
+  String? _lastLoadedConvolverPath;
   double _convolverWet = 1.0;
   double _convolverDry = 0.0;
 
@@ -2732,7 +2733,9 @@ class _EqScreenState extends State<EqScreen>
     widget.player.setConvolverMix(wet: _convolverWet, dry: _convolverDry);
     if (_convolverEnabled &&
         _convolverIrPath != null &&
-        _convolverIrPath!.isNotEmpty) {
+        _convolverIrPath!.isNotEmpty &&
+        _lastLoadedConvolverPath != _convolverIrPath) {
+      _lastLoadedConvolverPath = _convolverIrPath;
       widget.player.loadConvolverIr(_convolverIrPath!);
     }
   }
@@ -3384,6 +3387,7 @@ class _EqScreenState extends State<EqScreen>
       _convolverEnabled = false;
       _convolverIrPath = null;
       _convolverIrFileName = null;
+      _lastLoadedConvolverPath = null;
       _convolverWet = 1.0;
       _convolverDry = 0.0;
       _hrirDropdownController.clearAll();
@@ -8698,6 +8702,7 @@ class _EqScreenState extends State<EqScreen>
                   setState(() {
                     _convolverIrPath = null;
                     _convolverIrFileName = null;
+                    _lastLoadedConvolverPath = null;
                     _convolverEnabled = false;
                   });
                   widget.player.clearConvolverIr();
@@ -8756,6 +8761,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() {
                       _convolverIrPath = null;
                       _convolverIrFileName = null;
+                      _lastLoadedConvolverPath = null;
                       _convolverEnabled = false;
                     });
                     widget.player.clearConvolverIr();

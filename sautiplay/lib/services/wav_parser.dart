@@ -75,12 +75,7 @@ class WavParser {
             if (byteOffset + 2 > bytes.length) break;
             int sample = data.getInt16(byteOffset, Endian.little);
             double val = sample / 32768.0;
-            if (numChannels == 1) {
-              floatList[i * 2] = val;     // L
-              floatList[i * 2 + 1] = val; // R
-            } else if (c < 2) {
-              floatList[i * 2 + c] = val;
-            }
+            _routeSample(floatList, i, c, numChannels, val);
           }
         }
       } else if (bitsPerSample == 24) {
@@ -93,12 +88,7 @@ class WavParser {
               sample |= 0xFF000000;
             }
             double val = sample.toSigned(32) / 8388608.0;
-            if (numChannels == 1) {
-              floatList[i * 2] = val;
-              floatList[i * 2 + 1] = val;
-            } else if (c < 2) {
-              floatList[i * 2 + c] = val;
-            }
+            _routeSample(floatList, i, c, numChannels, val);
           }
         }
       } else if (bitsPerSample == 32) {
@@ -108,12 +98,7 @@ class WavParser {
             if (byteOffset + 4 > bytes.length) break;
             int sample = data.getInt32(byteOffset, Endian.little);
             double val = sample / 2147483648.0;
-            if (numChannels == 1) {
-              floatList[i * 2] = val;
-              floatList[i * 2 + 1] = val;
-            } else if (c < 2) {
-              floatList[i * 2 + c] = val;
-            }
+            _routeSample(floatList, i, c, numChannels, val);
           }
         }
       } else {
@@ -126,12 +111,7 @@ class WavParser {
             int byteOffset = dataOffset + (i * numChannels + c) * 4;
             if (byteOffset + 4 > bytes.length) break;
             double val = data.getFloat32(byteOffset, Endian.little);
-            if (numChannels == 1) {
-              floatList[i * 2] = val;
-              floatList[i * 2 + 1] = val;
-            } else if (c < 2) {
-              floatList[i * 2 + c] = val;
-            }
+            _routeSample(floatList, i, c, numChannels, val);
           }
         }
       } else {
@@ -142,5 +122,31 @@ class WavParser {
     }
 
     return floatList;
+  }
+
+  static void _routeSample(
+    Float32List floatList,
+    int frameIndex,
+    int channel,
+    int numChannels,
+    double val,
+  ) {
+    if (numChannels == 1) {
+      floatList[frameIndex * 2] = val;
+      floatList[frameIndex * 2 + 1] = val;
+    } else if (numChannels >= 14) {
+      if (channel == 0) {
+        floatList[frameIndex * 2] = val;
+      } else if (channel == 7) {
+        floatList[frameIndex * 2 + 1] = val;
+      }
+    } else if (numChannels == 7) {
+      if (channel == 0) {
+        floatList[frameIndex * 2] = val;
+        floatList[frameIndex * 2 + 1] = val;
+      }
+    } else if (channel < 2) {
+      floatList[frameIndex * 2 + channel] = val;
+    }
   }
 }

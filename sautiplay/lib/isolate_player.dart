@@ -986,7 +986,11 @@ class IsolateAudioPlayer {
         'haasDelayMs': haasDelayMs,
       });
 
+  String? _loadedConvolverIrPath;
+
   void loadConvolverIr(String path) {
+    if (_loadedConvolverIrPath == path) return;
+    _loadedConvolverIrPath = path;
     if (path.startsWith('assets/')) {
       _loadConvolverIrAsset(path);
       return;
@@ -1005,7 +1009,10 @@ class IsolateAudioPlayer {
     }
   }
 
-  void clearConvolverIr() => _send({'cmd': 'clearConvolverIr'});
+  void clearConvolverIr() {
+    _loadedConvolverIrPath = null;
+    _send({'cmd': 'clearConvolverIr'});
+  }
 
   void setConvolverMix({double wet = 1.0, double dry = 0.0}) =>
       _send({'cmd': 'setConvolverMix', 'wet': wet, 'dry': dry});
