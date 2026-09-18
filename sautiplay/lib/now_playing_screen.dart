@@ -168,6 +168,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fetchLyrics();
     _fetchAudioProperties();
     _loadPlaybackSpeed();
+
+    // Synchronous Frame 0 Waveform Initialization
+    _useWaveformSeekBar =
+        AppStateService.instance.useWaveformSeekBarNotifier.value;
+    _useWavySlider = AppStateService.instance.useWavySliderNotifier.value;
+    if (_useWaveformSeekBar) {
+      final trackPath = _getCurrentTrackPath();
+      if (trackPath.isNotEmpty) {
+        _currentWaveformPeaks = WaveformExtractorService.instance.getImmediate(
+          trackPath,
+          numBars: WaveformExtractorService.kDefaultWaveformBars,
+        );
+        _updateCurrentTrackWaveform();
+      }
+    }
     _loadWaveformSetting();
 
     _albumArtShapeSub =
@@ -214,34 +229,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     widget.statusNotifier.addListener(_onStatusChanged);
   }
 
-  Future<void> _loadWaveformSetting() async {
-    final enabled = await AppStateService.instance.loadUseWaveformSeekBar();
-    final wavy = await AppStateService.instance.loadUseWavySlider();
-    if (mounted) {
-      setState(() {
-        _useWaveformSeekBar = enabled;
-        _useWavySlider = wavy;
-      });
-      if (enabled) _updateCurrentTrackWaveform();
-    }
-    _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream
-        .listen((enabled) {
-      if (mounted) {
-        setState(() => _useWaveformSeekBar = enabled);
-        if (enabled && _currentWaveformPeaks == null) {
-          _updateCurrentTrackWaveform();
-        }
-      }
-    });
-    _sliderStyleSub =
-        AppStateService.instance.useWavySliderChanged.stream.listen((wavy) {
-      if (mounted) {
-        setState(() => _useWavySlider = wavy);
-      }
-    });
-  }
-
-  Future<void> _updateCurrentTrackWaveform() async {
+  String _getCurrentTrackPath() {
     final status = widget.statusNotifier.value;
     String trackPath = '';
     if (widget.queue.isNotEmpty &&
@@ -253,14 +241,84 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (trackPath.isEmpty) {
       trackPath = widget.videoId ?? widget.getTitle(status.currentIndex);
     }
+    return trackPath;
+  }
+
+  void _prefetchUpcomingWaveforms() {
+    if (!_useWaveformSeekBar || widget.queue.isEmpty) return;
+    final status = widget.statusNotifier.value;
+    final idx = status.currentIndex;
+    final toPrefetch = <String>[];
+    for (final offset in [1, 2, -1]) {
+      final targetIdx = idx + offset;
+      if (targetIdx >= 0 && targetIdx < widget.queue.length) {
+        final track = widget.queue[targetIdx];
+        final p = track.videoId.isNotEmpty ? track.videoId : track.title;
+        if (p.isNotEmpty) toPrefetch.add(p);
+      }
+    }
+    if (toPrefetch.isNotEmpty) {
+      WaveformExtractorService.instance.prefetch(
+        toPrefetch,
+        numBars: WaveformExtractorService.kDefaultWaveformBars,
+      );
+    }
+  }
+
+  Future<void> _loadWaveformSetting() async {
+    final enabled = await AppStateService.instance.loadUseWaveformSeekBar();
+    final wavy = await AppStateService.instance.loadUseWavySlider();
+    if (mounted && (_useWaveformSeekBar != enabled || _useWavySlider != wavy)) {
+      setState(() {
+        _useWaveformSeekBar = enabled;
+        _useWavySlider = wavy;
+      });
+      if (enabled && _currentWaveformPeaks == null) {
+        _updateCurrentTrackWaveform();
+      }
+    }
+    _waveformSub?.cancel();
+    _waveformSub = AppStateService.instance.useWaveformSeekBarChanged.stream
+        .listen((enabled) {
+      if (mounted) {
+        setState(() => _useWaveformSeekBar = enabled);
+        if (enabled && _currentWaveformPeaks == null) {
+          _updateCurrentTrackWaveform();
+        }
+      }
+    });
+    _sliderStyleSub?.cancel();
+    _sliderStyleSub =
+        AppStateService.instance.useWavySliderChanged.stream.listen((wavy) {
+      if (mounted) {
+        setState(() => _useWavySlider = wavy);
+      }
+    });
+  }
+
+  Future<void> _updateCurrentTrackWaveform() async {
+    final trackPath = _getCurrentTrackPath();
     if (trackPath.isEmpty) return;
 
-    final peaks = await WaveformExtractorService.instance
-        .getWaveform(trackPath, numBars: 300);
+    final cached = WaveformExtractorService.instance.getCached(
+      trackPath,
+      numBars: WaveformExtractorService.kDefaultWaveformBars,
+    );
+    if (cached != null) {
+      _currentWaveformPeaks = cached;
+      _prefetchUpcomingWaveforms();
+      return;
+    }
+
+    final peaks = await WaveformExtractorService.instance.getWaveform(
+      trackPath,
+      numBars: WaveformExtractorService.kDefaultWaveformBars,
+    );
     if (mounted) {
       setState(() {
         _currentWaveformPeaks = peaks;
       });
+      _prefetchUpcomingWaveforms();
     }
   }
 
@@ -314,13 +372,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _customLyricsFileName = null;
       _lyricsRaw = null;
       _isLoadingLyrics = true;
+
+      // Immediately resolve next song's waveform peaks synchronously
+      if (_useWaveformSeekBar) {
+        final newTrackPath = _getCurrentTrackPath();
+        if (newTrackPath.isNotEmpty) {
+          _currentWaveformPeaks =
+              WaveformExtractorService.instance.getImmediate(
+            newTrackPath,
+            numBars: WaveformExtractorService.kDefaultWaveformBars,
+          );
+          _updateCurrentTrackWaveform();
+        }
+      }
+
       if (mounted) setState(() {});
 
       _fetchLyrics();
       _fetchAudioProperties();
 
       if (_useWaveformSeekBar) {
-        _updateCurrentTrackWaveform();
+        _prefetchUpcomingWaveforms();
       }
     }
 
@@ -360,7 +432,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _fetchAudioProperties();
       _fetchLyrics();
       if (_useWaveformSeekBar) {
-        _updateCurrentTrackWaveform();
+        final newTrackPath = _getCurrentTrackPath();
+        if (newTrackPath.isNotEmpty) {
+          _currentWaveformPeaks =
+              WaveformExtractorService.instance.getImmediate(
+            newTrackPath,
+            numBars: WaveformExtractorService.kDefaultWaveformBars,
+          );
+          _updateCurrentTrackWaveform();
+        }
+        _prefetchUpcomingWaveforms();
       }
     }
   }
@@ -3386,36 +3467,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (_useWaveformSeekBar &&
         _currentWaveformPeaks != null &&
         _currentWaveformPeaks!.isNotEmpty) {
-      return WaveformSeekBarWidget(
-        peaks: _currentWaveformPeaks!,
-        displayPosMs: displayPosMs,
-        maxMs: maxMs,
-        abRepeatState: _abRepeatState,
-        abPointAMs: _abPointAMs,
-        abPointBMs: _abPointBMs,
-        height: isMobile ? 48.0 : 56.0,
-        activeColor: primaryColor,
-        onDragStateChanged: (dragging) {
-          setState(() {
-            _isDragging = dragging;
-          });
-        },
-        onDragUpdate: (v) {
-          setState(() {
-            _dragPositionMs = v;
-          });
-        },
-        onSeekEnd: (v) {
-          _seekTimeoutTimer?.cancel();
-          setState(() {
-            _isDragging = false;
-            _pendingSeekMs = v;
-          });
-          widget.player.seekTo(Duration(milliseconds: v.toInt()));
-          _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
-            if (mounted) setState(() => _pendingSeekMs = null);
-          });
-        },
+      return RepaintBoundary(
+        child: WaveformSeekBarWidget(
+          peaks: _currentWaveformPeaks!,
+          displayPosMs: displayPosMs,
+          maxMs: maxMs,
+          abRepeatState: _abRepeatState,
+          abPointAMs: _abPointAMs,
+          abPointBMs: _abPointBMs,
+          height: isMobile ? 48.0 : 56.0,
+          activeColor: primaryColor,
+          onDragStateChanged: (dragging) {
+            setState(() {
+              _isDragging = dragging;
+            });
+          },
+          onDragUpdate: (v) {
+            setState(() {
+              _dragPositionMs = v;
+            });
+          },
+          onSeekEnd: (v) {
+            _seekTimeoutTimer?.cancel();
+            setState(() {
+              _isDragging = false;
+              _pendingSeekMs = v;
+            });
+            widget.player.seekTo(Duration(milliseconds: v.toInt()));
+            _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+              if (mounted) setState(() => _pendingSeekMs = null);
+            });
+          },
+        ),
       );
     }
 

@@ -17,6 +17,7 @@ enum ReplayGainMode {
 class AppStateService {
   AppStateService._() {
     loadUseWavySlider();
+    loadUseWaveformSeekBar();
   }
   static final AppStateService instance = AppStateService._();
 
@@ -35,6 +36,9 @@ class AppStateService {
   // Stream to notify listeners of Waveform Seek Bar setting changes
   final StreamController<bool> useWaveformSeekBarChanged =
       StreamController<bool>.broadcast();
+
+  // ValueNotifier to synchronously notify listeners of Waveform Seek Bar setting changes
+  final ValueNotifier<bool> useWaveformSeekBarNotifier = ValueNotifier<bool>(false);
 
   // ValueNotifier to synchronously notify listeners of Wavy / Linear Seek Bar slider setting changes
   final ValueNotifier<bool> useWavySliderNotifier = ValueNotifier<bool>(true);
@@ -924,12 +928,15 @@ class AppStateService {
   Future<void> saveUseWaveformSeekBar(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUseWaveformSeekBar, enabled);
+    useWaveformSeekBarNotifier.value = enabled;
     useWaveformSeekBarChanged.add(enabled);
   }
 
   Future<bool> loadUseWaveformSeekBar() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_kUseWaveformSeekBar) ?? false;
+    final val = prefs.getBool(_kUseWaveformSeekBar) ?? false;
+    useWaveformSeekBarNotifier.value = val;
+    return val;
   }
 
   Future<void> saveUseWavySlider(bool enabled) async {
