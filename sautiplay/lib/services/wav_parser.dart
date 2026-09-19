@@ -1,32 +1,60 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+/// Encapsulates parsed WAV audio samples along with format metadata.
+class WavData {
+  final Float32List samples;
+  final int sampleRate;
+  final int channels;
+  final int bitsPerSample;
+
+  const WavData({
+    required this.samples,
+    required this.sampleRate,
+    required this.channels,
+    required this.bitsPerSample,
+  });
+}
+
 class WavParser {
+  /// Parses a WAV or IRS file at [path] and returns interleaved stereo Float32List samples.
   static Float32List parse(String path) {
-    final bytes = File(path).readAsBytesSync();
-    return parseBytes(bytes);
+    return parseWithInfo(path).samples;
   }
 
+  /// Parses raw byte data of a WAV or IRS file and returns interleaved stereo Float32List samples.
   static Float32List parseBytes(Uint8List bytes) {
+    return parseBytesWithInfo(bytes).samples;
+  }
+
+  /// Parses a WAV or IRS file at [path] and returns [WavData] with format metadata.
+  static WavData parseWithInfo(String path) {
+    final bytes = File(path).readAsBytesSync();
+    return parseBytesWithInfo(bytes);
+  }
+
+  /// Parses raw byte data of a WAV or IRS file and returns [WavData] with format metadata.
+  static WavData parseBytesWithInfo(Uint8List bytes) {
     final data = ByteData.view(bytes.buffer, bytes.offsetInBytes);
 
     if (bytes.length < 44) {
-      throw Exception('Invalid WAV file: too small');
+      throw Exception('Invalid WAV file: too small (${bytes.length} bytes)');
     }
 
     // Check RIFF header
     final riff = String.fromCharCodes(bytes.sublist(0, 4));
     if (riff != 'RIFF') {
-      throw Exception('Not a RIFF file');
+      throw Exception('Not a RIFF file (found "$riff")');
     }
 
     final wave = String.fromCharCodes(bytes.sublist(8, 12));
     if (wave != 'WAVE') {
-      throw Exception('Not a WAVE file');
+      throw Exception('Not a WAVE file (found "$wave")');
     }
 
     int offset = 12;
     int numChannels = 1;
+    int sampleRate = 48000;
     int bitsPerSample = 16;
     int audioFormat = 1;
     
@@ -41,9 +69,7 @@ class WavParser {
       if (chunkId == 'fmt ') {
         audioFormat = data.getUint16(offset + 8, Endian.little);
         numChannels = data.getUint16(offset + 10, Endian.little);
-        // sampleRate = data.getUint32(offset + 12, Endian.little);
-        // byteRate = data.getUint32(offset + 16, Endian.little);
-        // blockAlign = data.getUint16(offset + 20, Endian.little);
+        sampleRate = data.getUint32(offset + 12, Endian.little);
         bitsPerSample = data.getUint16(offset + 22, Endian.little);
         if (audioFormat == 65534 && chunkSize >= 40) {
           // WAVE_FORMAT_EXTENSIBLE: real format code lives in SubFormat GUID
@@ -52,19 +78,26 @@ class WavParser {
       } else if (chunkId == 'data') {
         dataOffset = offset + 8;
         dataSize = chunkSize;
-        break; // found data, we can stop parsing chunks
+        break; // found data chunk, stop parsing headers
       }
-      offset += 8 + chunkSize;
+
+      // Word-aligned chunk advancement per RIFF specification:
+      // chunks are padded with a null byte if chunkSize is odd.
+      offset += 8 + ((chunkSize + 1) & ~1);
     }
 
     if (dataOffset == -1) {
-      throw Exception('Data chunk not found');
+      throw Exception('Data chunk not found in WAV file');
     }
 
-    int numSamples = dataSize ~/ (bitsPerSample ~/ 8);
+    int bytesPerSample = bitsPerSample ~/ 8;
+    if (bytesPerSample <= 0) {
+      throw Exception('Invalid bitsPerSample: $bitsPerSample');
+    }
+    int numSamples = dataSize ~/ bytesPerSample;
     int frameCount = numSamples ~/ numChannels;
     
-    // Always output stereo (2 channels)
+    // Always output stereo (2 channels interleaved)
     final floatList = Float32List(frameCount * 2);
 
     if (audioFormat == 1) { // PCM
@@ -121,7 +154,12 @@ class WavParser {
       throw Exception('Unsupported audio format: $audioFormat');
     }
 
-    return floatList;
+    return WavData(
+      samples: floatList,
+      sampleRate: sampleRate,
+      channels: numChannels,
+      bitsPerSample: bitsPerSample,
+    );
   }
 
   static void _routeSample(

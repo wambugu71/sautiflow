@@ -1217,6 +1217,7 @@ class _EqScreenState extends State<EqScreen>
   /// Built-in HRIR (head-related impulse response) presets bundled as assets.
   static const List<({String label, String asset})> _builtinHrirs = [
     (label: 'Dolby Atmos', asset: 'assets/hrirs/atmos.wav'),
+    (label: 'Dolby Digital Plus', asset: 'assets/hrirs/dolby_digital_plus.irs'),
     (label: 'DH+', asset: 'assets/hrirs/dh+.wav'),
     (label: 'DH++', asset: 'assets/hrirs/dh++.wav'),
     (label: 'DS3D', asset: 'assets/hrirs/ds3d.wav'),
@@ -2731,6 +2732,12 @@ class _EqScreenState extends State<EqScreen>
   void _updateConvolver() {
     widget.player.setConvolverEnabled(_convolverEnabled);
     widget.player.setConvolverMix(wet: _convolverWet, dry: _convolverDry);
+    if (_convolverEnabled) {
+      if (!_masterLimiterEnabled) {
+        _masterLimiterEnabled = true;
+        _updateMasterLimiter();
+      }
+    }
     if (_convolverEnabled &&
         _convolverIrPath != null &&
         _convolverIrPath!.isNotEmpty &&
