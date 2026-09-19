@@ -14,14 +14,12 @@ namespace sauti::dsp {
 
 // =============================================================================
 // FFTConvolverDSP: Clean, High-Performance Partitioned Overlap-Add Convolver
-// with Zero-Latency Seamless Dry/Wet Crossfading, Double-Buffered Ping-Pong
-// IR Swapping, and Spectral Peak-Frequency Normalization (Anti-Crackling/Anti-Pop)
+// with Zero-Latency Seamless Dry/Wet Crossfading and Automatic Gain Normalization
 // =============================================================================
 class FFTConvolverDSP {
 public:
     static constexpr size_t BLOCK_SIZE = 512;
     static constexpr size_t FFT_SIZE = BLOCK_SIZE * 2; // 1024-point FFT for 512-sample blocks
-    static constexpr size_t MAX_SEGMENTS = 128;        // Up to ~1.36 seconds of impulse response at 48kHz
 
     FFTConvolverDSP() {
         setSampleRate(48000.0f);
@@ -33,11 +31,14 @@ public:
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
-        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.020f * sample_rate_)); // 20ms level smoothing
-        crossfade_step_ = 1.0f / (0.020f * sample_rate_);                   // 20ms seamless crossfade rate
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms level smoothing
+        crossfade_step_ = 1.0f / (0.020f * sample_rate_);                   // 20ms de-zippered crossfade rate
     }
 
     void setEnabled(bool enabled) {
+        // Do NOT wipe convolution state on enable: the 20ms anti-pop fade-in
+        // already prevents clicks, and preserving warm buffers keeps the effect
+        // sounding continuously applied across toggle/load cycles.
         enabled_.store(enabled, std::memory_order_release);
     }
 
@@ -62,25 +63,31 @@ public:
             return false;
         }
 
-        // 1. Time-Domain Peak Normalization (protects digital full scale without crushing spectrum)
-        float max_time_peak = 0.0f;
-        for (uint32_t i = 0; i < frame_count; i++) {
-            float l = (channels == 1) ? ir_samples[i] : ir_samples[i * 2];
-            float r = (channels == 1) ? ir_samples[i] : ir_samples[i * 2 + 1];
-            max_time_peak = std::max(max_time_peak, std::max(std::abs(l), std::abs(r)));
-        }
-
-        float norm_scale = 1.0f;
-        if (max_time_peak > 1.0f) {
-            norm_scale = 1.0f / max_time_peak;
-        }
-
+        // Calculate number of 512-sample segments
         uint32_t num_segments = (frame_count + BLOCK_SIZE - 1) / BLOCK_SIZE;
         if (num_segments > MAX_SEGMENTS) {
             num_segments = MAX_SEGMENTS;
         }
 
-        // 3. Pre-allocate and compute FFT partitions in local staging vectors OUTSIDE the lock
+        // 1. Time-domain peak normalization: only ever attenuates IRs that would
+        // exceed digital full scale. (An energy-based clamp was tried and removed:
+        // it silently turned hot/long custom IRs down by many dB, making the
+        // convolver sound like it was barely applied.) Any residual overload on
+        // bass-heavy content through high-gain HRIRs is handled downstream by the
+        // app's look-ahead limiter / loudness / master chain, not here.
+        float max_peak = 0.0f;
+        for (uint32_t i = 0; i < frame_count; i++) {
+            float l = (channels == 1) ? ir_samples[i] : ir_samples[i * 2];
+            float r = (channels == 1) ? ir_samples[i] : ir_samples[i * 2 + 1];
+            max_peak = std::max(max_peak, std::max(std::abs(l), std::abs(r)));
+        }
+
+        float norm_scale = 1.0f;
+        if (max_peak > 1.0f) {
+            norm_scale = 1.0f / max_peak;
+        }
+
+        // 2. Pre-allocate and compute FFT partitions in local staging vectors OUTSIDE the lock
         std::vector<std::complex<float>> new_partitions_l(num_segments * FFT_SIZE);
         std::vector<std::complex<float>> new_partitions_r;
         if (channels == 2) {
@@ -124,33 +131,41 @@ public:
             }
         }
 
-        // 4. Double-Buffered Setup: Place into standby slot and initiate ping-pong crossfade
+        // 3. Swap into place under ir_mutex_ (microseconds).
+        //
+        // Two distinct cases:
+        //  - COLD load (no IR yet): hard-reset buffers and restart the 20ms
+        //    anti-pop fade from silence. Clean start, no stale state.
+        //  - HOT swap (IR already active): do NOT wipe FDLs / output buffers and
+        //    do NOT reset fade_progress_. Wiping state here is what made the
+        //    effect "disappear": it dumped the wet tail and forced the convolver
+        //    to rebuild from silence. Instead we keep the output continuously
+        //    wet and start a short dip-and-return micro-fade (handled in
+        //    process()) that masks the one-block partition transition and
+        //    prevents the crackle a bare swap would cause.
+        const bool is_hot_swap = has_ir_ && (segments_count_ > 0);
         {
             std::lock_guard<std::mutex> lock(ir_mutex_);
-            int target_slot = 1 - active_slot_;
-            Slot& target = slots_[target_slot];
+            segments_count_ = num_segments;
+            ir_channels_ = channels;
+            ir_partitions_l_ = std::move(new_partitions_l);
+            ir_partitions_r_ = std::move(new_partitions_r);
 
-            target.segments_count = num_segments;
-            target.ir_channels = channels;
-            target.partitions_l = std::move(new_partitions_l);
-            target.partitions_r = std::move(new_partitions_r);
-            target.fdl_l.assign(num_segments * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
-            target.fdl_r.assign(num_segments * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
-            target.fdl_head = 0;
-            std::memset(target.out_buf_l, 0, sizeof(target.out_buf_l));
-            std::memset(target.out_buf_r, 0, sizeof(target.out_buf_r));
-            target.has_output = false;
-            target.active = true;
-
-            if (slots_[active_slot_].active && has_ir_) {
-                // Smooth equal-power crossfade from active to standby
-                crossfading_ = true;
-                crossfade_progress_ = 0.0f;
-                pending_slot_ = target_slot;
+            if (is_hot_swap) {
+                // Keep history: only resize FDLs if the segment count changed,
+                // and preserve as much prior spectrum as possible.
+                if (fdl_l_.size() != segments_count_ * FFT_SIZE) {
+                    fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+                    fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+                    fdl_head_ = 0;
+                }
+                swap_fade_active_ = true;
+                swap_fade_hold_samples_ = static_cast<uint32_t>(0.005f * sample_rate_); // ~5ms at depth
             } else {
-                // Initial load: activate target slot directly
-                active_slot_ = target_slot;
-                crossfading_ = false;
+                fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+                fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<float>(0.0f, 0.0f));
+                fdl_head_ = 0;
+                resetInternalBuffers();
                 fade_progress_ = 0.0f;
             }
             has_ir_ = true;
@@ -161,32 +176,24 @@ public:
     void clearImpulseResponse() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
         has_ir_ = false;
-        slots_[0].reset();
-        slots_[1].reset();
-        crossfading_ = false;
+        segments_count_ = 0;
+        ir_partitions_l_.clear();
+        ir_partitions_r_.clear();
+        fdl_l_.clear();
+        fdl_r_.clear();
+        resetInternalBuffers();
         fade_progress_ = 0.0f;
     }
 
     bool hasImpulseResponse() const { return has_ir_; }
-
-    size_t getKernelLength() const {
-        std::lock_guard<std::mutex> lock(ir_mutex_);
-        return slots_[active_slot_].segments_count * BLOCK_SIZE;
-    }
+    size_t getKernelLength() const { return segments_count_ * BLOCK_SIZE; }
 
     void reset() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
-        std::memset(in_buf_l_, 0, sizeof(in_buf_l_));
-        std::memset(in_buf_r_, 0, sizeof(in_buf_r_));
-        in_pos_ = 0;
-        slots_[0].reset();
-        slots_[1].reset();
-        active_slot_ = 0;
-        pending_slot_ = 1;
-        crossfading_ = false;
-        fade_progress_ = 0.0f;
+        resetInternalBuffers();
         current_wet_level_ = target_wet_level_;
         current_dry_level_ = target_dry_level_;
+        fade_progress_ = 0.0f;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -195,16 +202,14 @@ public:
         if (!is_enabled && fade_progress_ <= 0.0f) return;
         if (!has_ir_ || frame_count == 0 || !interleaved_samples) return;
 
-        // Non-blocking try_lock on realtime audio thread
+        // Try lock without blocking the real-time audio thread
         std::unique_lock<std::mutex> lock(ir_mutex_, std::try_to_lock);
-        if (!lock.owns_lock() || !has_ir_) return;
+        if (!lock.owns_lock() || !has_ir_ || segments_count_ == 0) return;
 
         uint32_t processed_frames = 0;
 
         while (processed_frames < frame_count) {
             uint32_t frames_to_copy = std::min(static_cast<uint32_t>(BLOCK_SIZE - in_pos_), frame_count - processed_frames);
-
-            Slot& active = slots_[active_slot_];
 
             for (uint32_t i = 0; i < frames_to_copy; i++) {
                 uint32_t in_idx = (processed_frames + i) * 2;
@@ -218,34 +223,9 @@ public:
                 current_wet_level_ += smoothing_coeff_ * (target_wet_level_ - current_wet_level_);
                 current_dry_level_ += smoothing_coeff_ * (target_dry_level_ - current_dry_level_);
 
-                float wet_l = 0.0f;
-                float wet_r = 0.0f;
-
-                if (crossfading_) {
-                    Slot& pending = slots_[pending_slot_];
-                    float alpha = crossfade_progress_;
-                    float wet_a_l = active.out_buf_l[in_pos_ + i];
-                    float wet_a_r = active.out_buf_r[in_pos_ + i];
-                    float wet_b_l = pending.out_buf_l[in_pos_ + i];
-                    float wet_b_r = pending.out_buf_r[in_pos_ + i];
-
-                    wet_l = (1.0f - alpha) * wet_a_l + alpha * wet_b_l;
-                    wet_r = (1.0f - alpha) * wet_a_r + alpha * wet_b_r;
-
-                    crossfade_progress_ = std::min(1.0f, crossfade_progress_ + crossfade_step_);
-                    if (crossfade_progress_ >= 1.0f) {
-                        crossfading_ = false;
-                        active.active = false;
-                        active_slot_ = pending_slot_;
-                    }
-                } else {
-                    wet_l = active.out_buf_l[in_pos_ + i];
-                    wet_r = active.out_buf_r[in_pos_ + i];
-                }
-
-                // Smooth analog soft-saturation guard against digital overs (anti-crackle)
-                wet_l = softClip(wet_l);
-                wet_r = softClip(wet_r);
+                // Output combined dry + overlap-added wet sample
+                float wet_l = out_buf_l_[in_pos_ + i];
+                float wet_r = out_buf_r_[in_pos_ + i];
 
                 // Anti-pop smooth crossfade on activation / disablement
                 if (is_enabled) {
@@ -258,10 +238,36 @@ public:
                     }
                 }
 
+                // IR hot-swap micro-fade: dip toward a reduced level, hold briefly
+                // while the new partitions take over, then return. Masks the
+                // one-block transition so swaps are click-free without ever
+                // dropping the wet signal to silence.
+                float swap_gain = 1.0f;
+                if (swap_fade_active_) {
+                    constexpr float SWAP_DIP = 0.35f; // dip to 35% wet during transition
+                    if (swap_fade_hold_samples_ > 0) {
+                        // Descending into the dip (fast, ~2x crossfade rate)
+                        if (swap_gain_depth_ < 1.0f) {
+                            swap_gain_depth_ = std::min(1.0f, swap_gain_depth_ + 2.0f * crossfade_step_);
+                        } else {
+                            swap_fade_hold_samples_--;
+                        }
+                        swap_gain = 1.0f - (1.0f - SWAP_DIP) * swap_gain_depth_;
+                    } else {
+                        // Returning to full wet
+                        if (swap_gain_depth_ > 0.0f) {
+                            swap_gain_depth_ = std::max(0.0f, swap_gain_depth_ - 2.0f * crossfade_step_);
+                        } else {
+                            swap_fade_active_ = false;
+                        }
+                        swap_gain = 1.0f - (1.0f - SWAP_DIP) * swap_gain_depth_;
+                    }
+                }
+
                 // Seamless blend: 100% dry when fade == 0, full convolver mix when fade == 1
                 const float fade = fade_progress_;
                 const float eff_dry = (1.0f - fade) + (current_dry_level_ * fade);
-                const float eff_wet = current_wet_level_ * fade;
+                const float eff_wet = current_wet_level_ * fade * swap_gain;
 
                 interleaved_samples[in_idx]     = (dry_in_l * eff_dry) + (wet_l * eff_wet);
                 interleaved_samples[in_idx + 1] = (dry_in_r * eff_dry) + (wet_r * eff_wet);
@@ -279,37 +285,17 @@ public:
     }
 
 private:
-    struct Slot {
-        uint32_t segments_count{0};
-        uint32_t ir_channels{1};
-        std::vector<std::complex<float>> partitions_l;
-        std::vector<std::complex<float>> partitions_r;
-        std::vector<std::complex<float>> fdl_l;
-        std::vector<std::complex<float>> fdl_r;
-        size_t fdl_head{0};
-        float out_buf_l[FFT_SIZE]{};
-        float out_buf_r[FFT_SIZE]{};
-        bool active{false};
-        bool has_output{false};
-
-        void reset() {
-            segments_count = 0;
-            active = false;
-            has_output = false;
-            fdl_head = 0;
-            partitions_l.clear();
-            partitions_r.clear();
-            fdl_l.clear();
-            fdl_r.clear();
-            std::memset(out_buf_l, 0, sizeof(out_buf_l));
-            std::memset(out_buf_r, 0, sizeof(out_buf_r));
-        }
-    };
+    static constexpr size_t MAX_SEGMENTS = 128; // Up to ~1.36 seconds of impulse response at 48kHz
 
     std::atomic<bool> enabled_{false};
     bool has_ir_{false};
     float fade_progress_{0.0f};
     float crossfade_step_{0.001f};
+
+    // Hot-swap micro-fade state (dip-and-return on IR replacement)
+    bool swap_fade_active_{false};
+    float swap_gain_depth_{0.0f};
+    uint32_t swap_fade_hold_samples_{0};
 
     float sample_rate_{48000.0f};
     float sample_period_{1.0f / 48000.0f};
@@ -317,18 +303,27 @@ private:
     float current_wet_level_{1.0f};
     float target_dry_level_{0.0f};
     float current_dry_level_{0.0f};
+
     float smoothing_coeff_{0.002f};
 
     mutable std::mutex ir_mutex_;
-    Slot slots_[2];
-    int active_slot_{0};
-    int pending_slot_{1};
-    bool crossfading_{false};
-    float crossfade_progress_{0.0f};
+    uint32_t segments_count_{0};
+    uint32_t ir_channels_{1};
 
-    // Time-domain input gathering buffer
+    // Partitioned Frequency Domain Impulse Response
+    std::vector<std::complex<float>> ir_partitions_l_;
+    std::vector<std::complex<float>> ir_partitions_r_;
+
+    // Frequency Delay Lines
+    std::vector<std::complex<float>> fdl_l_;
+    std::vector<std::complex<float>> fdl_r_;
+    size_t fdl_head_{0};
+
+    // Time-domain overlap buffers
     float in_buf_l_[BLOCK_SIZE]{};
     float in_buf_r_[BLOCK_SIZE]{};
+    float out_buf_l_[FFT_SIZE]{};
+    float out_buf_r_[FFT_SIZE]{};
     size_t in_pos_{0};
 
     // Scratch buffers for zero-allocation realtime FFT
@@ -363,13 +358,18 @@ private:
         }
     }
 
-    static inline float softClip(float x) noexcept {
-        if (x > 0.95f) {
-            return 0.95f + 0.045f * std::tanh((x - 0.95f) / 0.045f);
-        } else if (x < -0.95f) {
-            return -0.95f + 0.045f * std::tanh((x + 0.95f) / 0.045f);
-        }
-        return x;
+    void resetInternalBuffers() {
+        std::memset(in_buf_l_, 0, sizeof(in_buf_l_));
+        std::memset(in_buf_r_, 0, sizeof(in_buf_r_));
+        std::memset(out_buf_l_, 0, sizeof(out_buf_l_));
+        std::memset(out_buf_r_, 0, sizeof(out_buf_r_));
+        in_pos_ = 0;
+        if (!fdl_l_.empty()) std::fill(fdl_l_.begin(), fdl_l_.end(), std::complex<float>(0.0f, 0.0f));
+        if (!fdl_r_.empty()) std::fill(fdl_r_.begin(), fdl_r_.end(), std::complex<float>(0.0f, 0.0f));
+        fdl_head_ = 0;
+        swap_fade_active_ = false;
+        swap_gain_depth_ = 0.0f;
+        swap_fade_hold_samples_ = 0;
     }
 
     void processBlock() {
@@ -384,34 +384,22 @@ private:
         forwardFFT(scratch_time_l_, scratch_freq_l_);
         forwardFFT(scratch_time_r_, scratch_freq_r_);
 
-        // 2. Process active slot
-        processSlot(slots_[active_slot_]);
+        // 2. Store input spectrum in current FDL slot
+        std::memcpy(&fdl_l_[fdl_head_ * FFT_SIZE], scratch_freq_l_, FFT_SIZE * sizeof(std::complex<float>));
+        std::memcpy(&fdl_r_[fdl_head_ * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<float>));
 
-        // 3. If in crossfade, also process pending slot
-        if (crossfading_) {
-            processSlot(slots_[pending_slot_]);
-        }
-    }
-
-    void processSlot(Slot& slot) {
-        if (!slot.active || slot.segments_count == 0) return;
-
-        // Store input spectrum in current FDL slot
-        std::memcpy(&slot.fdl_l[slot.fdl_head * FFT_SIZE], scratch_freq_l_, FFT_SIZE * sizeof(std::complex<float>));
-        std::memcpy(&slot.fdl_r[slot.fdl_head * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<float>));
-
-        // Frequency-domain complex multiply-accumulate across all IR partitions
+        // 3. Frequency-domain complex multiply-accumulate across all IR partitions
         std::fill(accum_l_, accum_l_ + FFT_SIZE, std::complex<float>(0.0f, 0.0f));
         std::fill(accum_r_, accum_r_ + FFT_SIZE, std::complex<float>(0.0f, 0.0f));
 
-        for (uint32_t seg = 0; seg < slot.segments_count; seg++) {
-            size_t slot_idx = (slot.fdl_head + slot.segments_count - seg) % slot.segments_count;
-            const float* in_ptr_l = reinterpret_cast<const float*>(&slot.fdl_l[slot_idx * FFT_SIZE]);
-            const float* in_ptr_r = reinterpret_cast<const float*>(&slot.fdl_r[slot_idx * FFT_SIZE]);
-            const float* ir_ptr_l = reinterpret_cast<const float*>(&slot.partitions_l[seg * FFT_SIZE]);
-            const float* ir_ptr_r = (slot.ir_channels == 2)
-                ? reinterpret_cast<const float*>(&slot.partitions_r[seg * FFT_SIZE])
-                : ir_ptr_l;
+        for (uint32_t seg = 0; seg < segments_count_; seg++) {
+            size_t fdl_slot = (fdl_head_ + segments_count_ - seg) % segments_count_;
+            const float* in_ptr_l = reinterpret_cast<const float*>(&fdl_l_[fdl_slot * FFT_SIZE]);
+            const float* in_ptr_r = reinterpret_cast<const float*>(&fdl_r_[fdl_slot * FFT_SIZE]);
+            const float* ir_ptr_l = reinterpret_cast<const float*>(&ir_partitions_l_[seg * FFT_SIZE]);
+            const float* ir_ptr_r = (ir_channels_ == 2)
+                ? reinterpret_cast<const float*>(&ir_partitions_r_[seg * FFT_SIZE])
+                : ir_ptr_l; // reuse mono IR partition for right channel
 
             float* acc_ptr_l = reinterpret_cast<float*>(accum_l_);
             float* acc_ptr_r = reinterpret_cast<float*>(accum_r_);
@@ -434,29 +422,30 @@ private:
         }
 
         // Advance FDL head
-        slot.fdl_head = (slot.fdl_head + 1) % slot.segments_count;
+        fdl_head_ = (fdl_head_ + 1) % segments_count_;
 
-        // Inverse FFT on accumulated frequency spectrum
+        // 4. Inverse FFT on accumulated frequency spectrum
         inverseFFT(accum_l_, scratch_time_l_);
         inverseFFT(accum_r_, scratch_time_r_);
 
-        // Overlap-Add into output buffer
-        std::memcpy(slot.out_buf_l, slot.out_buf_l + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
-        std::memset(slot.out_buf_l + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
+        // 5. Overlap-Add into output buffer
+        // Shift old second half (tail) to first half
+        std::memcpy(out_buf_l_, out_buf_l_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
+        std::memset(out_buf_l_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
 
-        std::memcpy(slot.out_buf_r, slot.out_buf_r + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
-        std::memset(slot.out_buf_r + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
+        std::memcpy(out_buf_r_, out_buf_r_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(float));
+        std::memset(out_buf_r_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(float));
 
+        // Add current IFFT output block using SIMD
         for (size_t i = 0; i < FFT_SIZE; i += 4) {
-            SimdFloat4 out_l = SimdFloat4::load_u(&slot.out_buf_l[i]);
+            SimdFloat4 out_l = SimdFloat4::load_u(&out_buf_l_[i]);
             SimdFloat4 scr_l = SimdFloat4::load_u(&scratch_time_l_[i]);
-            (out_l + scr_l).store_u(&slot.out_buf_l[i]);
+            (out_l + scr_l).store_u(&out_buf_l_[i]);
 
-            SimdFloat4 out_r = SimdFloat4::load_u(&slot.out_buf_r[i]);
+            SimdFloat4 out_r = SimdFloat4::load_u(&out_buf_r_[i]);
             SimdFloat4 scr_r = SimdFloat4::load_u(&scratch_time_r_[i]);
-            (out_r + scr_r).store_u(&slot.out_buf_r[i]);
+            (out_r + scr_r).store_u(&out_buf_r_[i]);
         }
-        slot.has_output = true;
     }
 
     // Radix-2 Cooley-Tukey In-Place Decimation-in-Time Forward FFT
