@@ -515,6 +515,28 @@ extern "C"
     AE_API int ae_poll_analyzer_frame(AudioEngineHandle *engine, float *out_samples, int max_samples);
     AE_API uint64_t ae_get_analyzer_dropped_frames(AudioEngineHandle *engine);
 
+    // -----------------------------------------------
+    // Stereo Analyzer Tap (post-FX, L/R pairs + stats)
+    // -----------------------------------------------
+    // Polls the latest stereo analyzer frame as interleaved L/R sample pairs:
+    // out_interleaved[0]=L0, [1]=R0, [2]=L1, [3]=R1, ...
+    // frame size matches ae_get_analyzer_frame_size() (frames, not samples).
+    // Returns number of FRAMES copied (0 if no stereo frame is available).
+    AE_API int ae_poll_analyzer_frame_stereo(AudioEngineHandle *engine, float *out_interleaved, int max_frames);
+
+    // Cheap per-window stereo statistics (no FFT needed).
+    typedef struct AEStereoStats
+    {
+        float correlation; // Inter-channel phase correlation, -1 (anti-phase) .. +1 (mono). <0 = mono-incompatible.
+        float balance_db;  // 20*log10(RMS_L / RMS_R). 0 = centered, negative = louder left.
+        float mid_rms_db;  // RMS of M=(L+R)/2 in dBFS.
+        float side_rms_db; // RMS of S=(L-R)/2 in dBFS.
+        float width;       // RMS_S / RMS_M ratio. ~0 = mono, higher = wider.
+    } AEStereoStats;
+
+    // Returns 1 if stats were written, 0 if unavailable (e.g. analyzer off / mono source).
+    AE_API int ae_get_stereo_stats(AudioEngineHandle *engine, AEStereoStats *out_stats);
+
     // ==========================================
     // Standalone Filters & Resampler (miniaudio direct bindings)
     // ==========================================

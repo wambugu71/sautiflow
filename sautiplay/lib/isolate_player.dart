@@ -18,6 +18,7 @@ class IsolateAudioPlayer {
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
   final _analyzerController = StreamController<Float32List>.broadcast();
+  final _analyzerStereoController = StreamController<Float32List>.broadcast();
   final _telemetryController = StreamController<StreamTelemetry>.broadcast();
   final _bufferingController = StreamController<bool>.broadcast();
 
@@ -31,6 +32,22 @@ class IsolateAudioPlayer {
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
+
+  /// Latest post-FX **stereo** analyzer frames (interleaved L/R pairs) ferried
+  /// from the player isolate. Empty frames are simply not emitted.
+  Stream<Float32List> get analyzerStereoStream =>
+      _analyzerStereoController.stream;
+
+  /// Cheap per-window stereo statistics polled from the engine, or `null`
+  /// when unavailable (analyzer off / mono source / not yet initialized).
+  Future<({double correlation, double width})?> getStereoStats() async {
+    final response = await _request('getStereoStats');
+    if (response is! Map) return null;
+    final corr = (response['correlation'] as num?)?.toDouble();
+    final width = (response['width'] as num?)?.toDouble();
+    if (corr == null || width == null) return null;
+    return (correlation: corr, width: width);
+  }
   Stream<StreamTelemetry> get streamTelemetryStream =>
       _telemetryController.stream;
   Stream<bool> get bufferingStream => _bufferingController.stream;
@@ -139,6 +156,11 @@ class IsolateAudioPlayer {
           final buffering = message['isBuffering'] == true;
           _isBuffering = buffering;
           _bufferingController.add(buffering);
+        } else if (message['type'] == 'analyzerStereo') {
+          final data = message['data'];
+          if (data is Float32List) {
+            _analyzerStereoController.add(data);
+          }
         } else if (message['type'] == 'clippedCount') {
           _clippedSamplesCount = (message['count'] as int?) ?? 0;
         }
@@ -203,6 +225,7 @@ class IsolateAudioPlayer {
     _statusController.close();
     _logController.close();
     _analyzerController.close();
+    _analyzerStereoController.close();
     _telemetryController.close();
     _bufferingController.close();
     _receivePort.close();
@@ -1474,6 +1497,10 @@ void _isolateEntry(_IsolateInitData initData) {
     initData.sendPort.send(samples);
   });
 
+  player.analyzerStereoStream.listen((samples) {
+    initData.sendPort.send({'type': 'analyzerStereo', 'data': samples});
+  });
+
   List<AudioSource> isolateSources = [];
   final Map<String, TrackNativeInfo> fileInfoCache = {};
   final Map<String, NativeAudioMetadata> metadataCache = {};
@@ -1949,6 +1976,16 @@ void _isolateEntry(_IsolateInitData initData) {
             windowType: wt,
           );
           break;
+        case 'getStereoStats':
+          {
+            final s = player.getStereoStats();
+            sendResponse(
+                message,
+                s == null
+                    ? null
+                    : {'correlation': s.correlation, 'width': s.width});
+            break;
+          }
         case 'setAnalyzerWindowType':
           final wtStr = message['windowType'] as String?;
           if (wtStr != null) {

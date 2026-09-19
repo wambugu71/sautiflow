@@ -40,6 +40,22 @@ class StereoVectorscopeGraph extends StatefulWidget {
   final Color? primaryColor;
   final Stream<Float32List>? analyzerStream;
 
+  /// When true, the scope renders **real** post-FX audio from the engine's
+  /// stereo analyzer tap instead of the simulated particle field. Requires
+  /// [stereoAnalyzerStream]; falls back to simulation while no stereo data
+  /// is available (mono source / analyzer off).
+  final bool live;
+
+  /// Stream of interleaved L/R sample pairs ([L0, R0, L1, R1, ...]) from the
+  /// engine stereo analyzer tap (player.analyzerStereoStream).
+  final Stream<Float32List>? stereoAnalyzerStream;
+
+  /// Polls cheap per-window stereo stats. Returns a record
+  /// `(correlation: ..., width: ...)` or null when unavailable. May be async
+  /// (isolate round-trip).
+  final Future<({double correlation, double width})?> Function()?
+      statsProvider;
+
   const StereoVectorscopeGraph({
     super.key,
     required this.width,
@@ -51,6 +67,9 @@ class StereoVectorscopeGraph extends StatefulWidget {
     this.height = 210.0,
     this.primaryColor,
     this.analyzerStream,
+    this.live = false,
+    this.stereoAnalyzerStream,
+    this.statsProvider,
   });
 
   @override
@@ -66,7 +85,15 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
   double _liveAudioEnergy = 0.25; // Dynamic energy derived from real-time audio
   double _peakPulse = 0.0;
 
-  static const int particleCount = 280;
+  // --- Live stereo tap data (rendered when widget.live is true) ---
+  // Normalized (side, mid) points in -1..1, newest appended at the end.
+  final List<Offset> _livePoints = <Offset>[];
+  double? _liveCorrelation;
+  Timer? _statsTimer;
+  StreamSubscription<Float32List>? _stereoSub;
+
+  static const int _maxLivePoints = 640;
+  static const int _pointsPerFrame = 120;
 
   @override
   void initState() {
@@ -78,9 +105,12 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
 
     _initParticles();
     _subscribeAnalyzer();
+    _subscribeStereo();
+    _startStatsPolling();
   }
 
   void _initParticles() {
+    const particleCount = 280;
     final rng = math.Random(42);
     _particles = List.generate(particleCount, (i) {
       // Gaussian distribution for natural audio distribution
@@ -101,6 +131,74 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
         size: 1.2 + rng.nextDouble() * 2.0,
         alpha: 0.35 + rng.nextDouble() * 0.65,
       );
+    });
+  }
+
+  void _subscribeStereo() {
+    _stereoSub?.cancel();
+    _stereoSub = null;
+    if (widget.live && widget.stereoAnalyzerStream != null) {
+      _stereoSub = widget.stereoAnalyzerStream!.listen(_onStereoFrame);
+    }
+  }
+
+  void _onStereoFrame(Float32List interleaved) {
+    if (!mounted || !widget.live) return;
+    if (interleaved.isEmpty) return;
+
+    // Compute RMS energy over the interleaved frame.
+    double sumSq = 0.0;
+    for (int i = 0; i < interleaved.length; i++) {
+      final s = interleaved[i];
+      sumSq += s * s;
+    }
+    final rms = math.sqrt(sumSq / interleaved.length);
+    final targetEnergy = (rms * 3.5).clamp(0.08, 1.35);
+    _liveAudioEnergy = _liveAudioEnergy * 0.70 + targetEnergy * 0.30;
+    if (targetEnergy > _peakPulse) {
+      _peakPulse = targetEnergy;
+    } else {
+      _peakPulse *= 0.92;
+    }
+
+    // Decimate the frame into M/S scatter points (45-degree goniometer
+    // rotation: X = side = (L-R)/2, Y = mid = (L+R)/2).
+    final frames = interleaved.length ~/ 2;
+    if (frames <= 0) return;
+    final step = math.max(1, frames ~/ _pointsPerFrame);
+    for (int f = 0; f < frames; f += step) {
+      final l = interleaved[f * 2];
+      final r = interleaved[f * 2 + 1];
+      final mid = (l + r) * 0.5;
+      final side = (l - r) * 0.5;
+      // Soft-clip normalization keeps outliers on the scope edge.
+      _livePoints.add(Offset(
+        (side * 2.2).clamp(-1.0, 1.0),
+        (mid * 2.2).clamp(-1.0, 1.0),
+      ));
+    }
+    // Age-out oldest points to keep a trailing phosphor trail.
+    while (_livePoints.length > _maxLivePoints) {
+      _livePoints.removeRange(0, _livePoints.length - _maxLivePoints);
+    }
+  }
+
+  void _startStatsPolling() {
+    _statsTimer?.cancel();
+    _statsTimer = Timer.periodic(const Duration(milliseconds: 120), (_) async {
+      if (!mounted || !widget.live) return;
+      final provider = widget.statsProvider;
+      if (provider == null) return;
+      final stats = await provider();
+      if (!mounted) return;
+      if (stats == null) {
+        // No stereo data (analyzer off / mono source) -> fall back to sim.
+        _liveCorrelation = null;
+        return;
+      }
+      // Light smoothing to avoid needle flicker between windows.
+      final prev = _liveCorrelation ?? stats.correlation;
+      _liveCorrelation = prev * 0.4 + stats.correlation * 0.6;
     });
   }
 
@@ -138,11 +236,21 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
     if (oldWidget.analyzerStream != widget.analyzerStream) {
       _subscribeAnalyzer();
     }
+    if (oldWidget.stereoAnalyzerStream != widget.stereoAnalyzerStream ||
+        oldWidget.live != widget.live) {
+      _subscribeStereo();
+      if (!widget.live) {
+        _livePoints.clear();
+        _liveCorrelation = null;
+      }
+    }
   }
 
   @override
   void dispose() {
     _analyzerSub?.cancel();
+    _stereoSub?.cancel();
+    _statsTimer?.cancel();
     _animController.dispose();
     super.dispose();
   }
@@ -224,6 +332,9 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
                     audioEnergy: _liveAudioEnergy,
                     peakPulse: _peakPulse,
                     particles: _particles,
+                    isLive: widget.live,
+                    livePoints: _livePoints,
+                    liveCorrelation: _liveCorrelation,
                   ),
                 ),
               ),
@@ -354,6 +465,9 @@ class _VectorscopePainter extends CustomPainter {
   final double audioEnergy;
   final double peakPulse;
   final List<_ScopeParticle> particles;
+  final bool isLive;
+  final List<Offset> livePoints; // normalized (side, mid) pairs
+  final double? liveCorrelation; // real measured correlation, null = simulate
 
   _VectorscopePainter({
     required this.width,
@@ -367,6 +481,9 @@ class _VectorscopePainter extends CustomPainter {
     required this.audioEnergy,
     required this.peakPulse,
     required this.particles,
+    this.isLive = false,
+    this.livePoints = const [],
+    this.liveCorrelation,
   });
 
   @override
@@ -483,6 +600,27 @@ class _VectorscopePainter extends CustomPainter {
 
     final dotPaint = Paint()..style = PaintingStyle.fill;
 
+    // ---- LIVE MODE: real M/S scatter from the engine stereo analyzer tap.
+    // Falls back to the simulated field while no stereo data is streaming.
+    if (isLive && isEnabled && livePoints.isNotEmpty) {
+      for (int i = 0; i < livePoints.length; i++) {
+        final pt = livePoints[i];
+        // Age-based phosphor fade: oldest points are dimmest.
+        final age =
+            (i / livePoints.length).clamp(0.0, 1.0); // 0 = oldest
+        final alpha = (0.10 + 0.55 * age * age).clamp(0.08, 0.70);
+
+        final px = (center.dx + pt.dx * radius)
+            .clamp(center.dx - radius + 2, center.dx + radius - 2);
+        final py = (center.dy - pt.dy * radius)
+            .clamp(center.dy - radius + 2, center.dy + radius - 2);
+
+        dotPaint.color = primaryColor.withValues(alpha: alpha);
+        canvas.drawCircle(Offset(px, py), 1.7, dotPaint);
+      }
+      return;
+    }
+
     for (final p in particles) {
       final driftAngle = p.phase + 2.0 * math.pi * time * p.speed;
       final driftX =
@@ -540,15 +678,20 @@ class _VectorscopePainter extends CustomPainter {
       Paint()..color = Colors.white.withValues(alpha: 0.07),
     );
 
-    // Calculate theoretical phase correlation based on current width & mode:
-    // Mono (w=0) => +1.00
-    // Normal (w=1) => +0.80
-    // Wide (w=2) => +0.45
-    // Extreme (w=3.5) => +0.05
-    final effectiveWidth = isEnabled ? width.clamp(0.0, 3.5) : 1.0;
-    double correlation =
-        (1.0 - (effectiveWidth * 0.28) + 0.08).clamp(-1.0, 1.0);
-    if (!isEnabled) correlation = 0.0;
+    // LIVE: use the engine-measured inter-channel correlation when
+    // available; otherwise derive a theoretical estimate from the width
+    // knob (simulation fallback).
+    final double correlation;
+    if (isLive && liveCorrelation != null) {
+      correlation = isEnabled ? liveCorrelation!.clamp(-1.0, 1.0).toDouble() : 0.0;
+    } else {
+      // Mono (w=0) => +1.00, Normal (w=1) => +0.80,
+      // Wide (w=2) => +0.45, Extreme (w=3.5) => +0.05
+      final effectiveWidth = isEnabled ? width.clamp(0.0, 3.5) : 1.0;
+      double c = (1.0 - (effectiveWidth * 0.28) + 0.08).clamp(-1.0, 1.0);
+      if (!isEnabled) c = 0.0;
+      correlation = c;
+    }
 
     // Normalized to 0.0 (-1.0) .. 1.0 (+1.0)
     final norm = ((correlation - (-1.0)) / 2.0).clamp(0.0, 1.0);
@@ -625,6 +768,9 @@ class _VectorscopePainter extends CustomPainter {
         oldDelegate.audioEnergy != audioEnergy ||
         oldDelegate.peakPulse != peakPulse ||
         oldDelegate.isEnabled != isEnabled ||
+        oldDelegate.isLive != isLive ||
+        oldDelegate.liveCorrelation != liveCorrelation ||
+        oldDelegate.livePoints.length != livePoints.length ||
         oldDelegate.primaryColor != primaryColor;
   }
 }

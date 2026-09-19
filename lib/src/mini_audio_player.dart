@@ -39,6 +39,7 @@ class MiniAudioPlayer {
   final _statusController = StreamController<PlayerStatus>.broadcast();
   final _logController = StreamController<String>.broadcast();
   final _analyzerController = StreamController<Float32List>.broadcast();
+  final _analyzerStereoController = StreamController<Float32List>.broadcast();
   final _telemetryController = StreamController<StreamTelemetry>.broadcast();
   final _bufferingController = StreamController<bool>.broadcast();
   late final MiniAudioSystemAudioController _systemAudio =
@@ -77,6 +78,11 @@ class MiniAudioPlayer {
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
+
+  /// Latest post-FX **stereo** analyzer frames (interleaved L/R pairs).
+  /// Emits alongside [analyzerStream] whenever a stereo frame is available.
+  Stream<Float32List> get analyzerStereoStream =>
+      _analyzerStereoController.stream;
   Stream<StreamTelemetry> get streamTelemetryStream => _telemetryController.stream;
   Stream<bool> get bufferingStream => _bufferingController.stream;
 
@@ -124,6 +130,7 @@ class MiniAudioPlayer {
     _statusController.close();
     _logController.close();
     _analyzerController.close();
+    _analyzerStereoController.close();
     _telemetryController.close();
     _bufferingController.close();
     _engine.dispose();
@@ -299,6 +306,20 @@ class MiniAudioPlayer {
 
   Float32List getLatestAnalyzerFrame({int? maxSamples}) =>
       _engine.pollAnalyzerFrame(maxSamples: maxSamples);
+
+  /// Latest **stereo** analyzer frame as interleaved L/R sample pairs
+  /// (`[L0, R0, L1, R1, ...]`). Empty when the analyzer is disabled or the
+  /// source is mono. Use for goniometer / vectorscope / dual-spectrum
+  /// visualizers.
+  Float32List getLatestAnalyzerFrameStereo({int? maxFrames}) =>
+      _engine.pollAnalyzerFrameStereo(maxFrames: maxFrames);
+
+  /// Cheap per-window stereo stats (phase correlation, balance, M/S levels,
+  /// width). No FFT needed. Returns `null` when unavailable.
+  ///
+  /// `correlation < 0` means the current processing (spatializer / crossfeed /
+  /// Haas width) is producing mono-incompatible output.
+  StereoStats? getStereoStats() => _engine.getStereoStats();
 
   Future<bool> enableSystemMediaControls({
     MiniAudioSystemAudioConfig config = const MiniAudioSystemAudioConfig(),
@@ -1156,6 +1177,12 @@ class MiniAudioPlayer {
       final frame = _engine.pollAnalyzerFrame();
       if (frame.isNotEmpty) {
         _analyzerController.add(frame);
+      }
+      if (!_analyzerStereoController.isClosed) {
+        final stereo = _engine.pollAnalyzerFrameStereo();
+        if (stereo.isNotEmpty) {
+          _analyzerStereoController.add(stereo);
+        }
       }
     });
   }

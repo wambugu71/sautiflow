@@ -3705,6 +3705,23 @@ struct AudioEngineHandle
     std::mutex analyzerMutex;
     std::atomic<uint64_t> analyzerDroppedFrames{0};
 
+    // Stereo analyzer tap (post-FX interleaved L/R pairs + per-window stats)
+    std::vector<float> analyzerStereoAccumulator; // interleaved L/R, 2*frameSize samples
+    std::vector<float> analyzerStereoLatest;
+    std::atomic<int> analyzerStereoValid{0}; // 1 when latest holds a complete stereo frame
+    // Per-window accumulators (audio thread only)
+    double stereoSumLR = 0.0;  // Σ(L·R)
+    double stereoSumL2 = 0.0;  // Σ(L²)
+    double stereoSumR2 = 0.0;  // Σ(R²)
+    double stereoSumM2 = 0.0;  // Σ(M²), M=(L+R)/2
+    double stereoSumS2 = 0.0;  // Σ(S²), S=(L-R)/2
+    // Published stats (written under analyzerMutex when a window completes)
+    float stereoCorrelation = 1.0f;
+    float stereoBalanceDb = 0.0f;
+    float stereoMidRmsDb = -144.0f;
+    float stereoSideRmsDb = -144.0f;
+    float stereoWidth = 0.0f;
+
     void update_eq_filters()
     {
         if (eqBandCount <= 0)
@@ -4101,19 +4118,49 @@ struct AudioEngineHandle
             return;
 
         const int ch = std::max(1, channels);
+        const bool isStereo = (ch == 2);
+        const bool stereoReady = isStereo && ((int)analyzerStereoAccumulator.size() == analyzerFrameSize * 2);
+        if (!stereoReady)
+        {
+            analyzerStereoValid.store(0, std::memory_order_relaxed);
+        }
+
         for (ma_uint32 i = 0; i < frameCount; ++i)
         {
-            float mono = 0.0f;
             const size_t base = (size_t)i * (size_t)ch;
+
+            float mono = 0.0f;
             for (int c = 0; c < ch; ++c)
             {
                 mono += frames[base + (size_t)c];
             }
             mono /= (float)ch;
 
-            if (analyzerAccumulatorCount < analyzerFrameSize)
+            const int writeIdx = analyzerAccumulatorCount;
+
+            if (writeIdx < analyzerFrameSize)
             {
-                analyzerAccumulator[(size_t)analyzerAccumulatorCount++] = mono;
+                analyzerAccumulator[(size_t)writeIdx] = mono;
+
+                if (stereoReady)
+                {
+                    const float l = frames[base];
+                    const float r = frames[base + 1];
+                    analyzerStereoAccumulator[(size_t)writeIdx * 2] = l;
+                    analyzerStereoAccumulator[(size_t)writeIdx * 2 + 1] = r;
+
+                    // Accumulate stereo statistics in double precision.
+                    const double ld = (double)l, rd = (double)r;
+                    const double m = (ld + rd) * 0.5;
+                    const double s = (ld - rd) * 0.5;
+                    stereoSumLR += ld * rd;
+                    stereoSumL2 += ld * ld;
+                    stereoSumR2 += rd * rd;
+                    stereoSumM2 += m * m;
+                    stereoSumS2 += s * s;
+                }
+
+                ++analyzerAccumulatorCount;
             }
 
             if (analyzerAccumulatorCount >= analyzerFrameSize)
@@ -4121,13 +4168,35 @@ struct AudioEngineHandle
                 if (analyzerMutex.try_lock())
                 {
                     analyzerLatest = analyzerAccumulator;
+
+                    if (stereoReady)
+                    {
+                        analyzerStereoLatest = analyzerStereoAccumulator;
+                        analyzerStereoValid.store(1, std::memory_order_release);
+
+                        const double n = (double)analyzerFrameSize;
+                        const double rmsL2 = stereoSumL2 / n;
+                        const double rmsR2 = stereoSumR2 / n;
+                        const double rmsM2 = stereoSumM2 / n;
+                        const double rmsS2 = stereoSumS2 / n;
+
+                        const double denom = std::sqrt(stereoSumL2 * stereoSumR2);
+                        stereoCorrelation = (denom > 1e-18) ? (float)std::clamp(stereoSumLR / denom, -1.0, 1.0) : 1.0f;
+                        stereoBalanceDb = (rmsR2 > 1e-24) ? (float)(10.0 * std::log10(std::max(rmsL2, 1e-24) / rmsR2)) : 60.0f;
+                        stereoMidRmsDb = (float)(10.0 * std::log10(std::max(rmsM2, 1e-24)));
+                        stereoSideRmsDb = (float)(10.0 * std::log10(std::max(rmsS2, 1e-24)));
+                        stereoWidth = (rmsM2 > 1e-24) ? (float)std::sqrt(rmsS2 / rmsM2) : 0.0f;
+                    }
+
                     analyzerMutex.unlock();
                 }
                 else
                 {
                     analyzerDroppedFrames.fetch_add(1, std::memory_order_relaxed);
                 }
+
                 analyzerAccumulatorCount = 0;
+                stereoSumLR = stereoSumL2 = stereoSumR2 = stereoSumM2 = stereoSumS2 = 0.0;
             }
         }
     }
@@ -7496,6 +7565,9 @@ extern "C"
         e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
         e->analyzerLatest.assign((size_t)e->analyzerFrameSize, 0.0f);
         e->analyzerAccumulatorCount = 0;
+        e->analyzerStereoAccumulator.assign((size_t)e->analyzerFrameSize * 2, 0.0f);
+        e->analyzerStereoLatest.assign((size_t)e->analyzerFrameSize * 2, 0.0f);
+        e->analyzerStereoValid.store(0, std::memory_order_relaxed);
 
         // Pre-allocate real-time scratch buffers to eliminate heap allocations inside data_callback
         const size_t preallocSamples = 262144; // 256K floats (~1MB)
@@ -10627,6 +10699,11 @@ extern "C"
         engine->analyzerAccumulator.assign((size_t)size, 0.0f);
         engine->analyzerLatest.assign((size_t)size, 0.0f);
         engine->analyzerAccumulatorCount = 0;
+        engine->analyzerStereoAccumulator.assign((size_t)size * 2, 0.0f);
+        engine->analyzerStereoLatest.assign((size_t)size * 2, 0.0f);
+        engine->analyzerStereoValid.store(0, std::memory_order_relaxed);
+        engine->stereoSumLR = engine->stereoSumL2 = engine->stereoSumR2 = 0.0;
+        engine->stereoSumM2 = engine->stereoSumS2 = 0.0;
     }
 
     AE_API int ae_get_analyzer_frame_size(AudioEngineHandle *engine)
@@ -10720,6 +10797,42 @@ extern "C"
         if (!engine)
             return 0;
         return engine->analyzerDroppedFrames.load(std::memory_order_relaxed);
+    }
+
+    AE_API int ae_poll_analyzer_frame_stereo(AudioEngineHandle *engine, float *out_interleaved, int max_frames)
+    {
+        if (!engine || out_interleaved == nullptr || max_frames <= 0)
+            return 0;
+        if (engine->analyzerStereoValid.load(std::memory_order_acquire) == 0)
+            return 0;
+
+        std::lock_guard<std::mutex> lk(engine->analyzerMutex);
+        if (engine->analyzerStereoLatest.empty())
+            return 0;
+
+        const int framesAvail = (int)(engine->analyzerStereoLatest.size() / 2);
+        const int n = std::min(framesAvail, max_frames);
+        std::memcpy(out_interleaved, engine->analyzerStereoLatest.data(), (size_t)n * 2 * sizeof(float));
+        return n;
+    }
+
+    AE_API int ae_get_stereo_stats(AudioEngineHandle *engine, AEStereoStats *out_stats)
+    {
+        if (!engine || out_stats == nullptr)
+            return 0;
+        if (engine->analyzerStereoValid.load(std::memory_order_acquire) == 0)
+            return 0;
+
+        std::lock_guard<std::mutex> lk(engine->analyzerMutex);
+        if (engine->analyzerStereoValid.load(std::memory_order_relaxed) == 0)
+            return 0;
+
+        out_stats->correlation = engine->stereoCorrelation;
+        out_stats->balance_db = engine->stereoBalanceDb;
+        out_stats->mid_rms_db = engine->stereoMidRmsDb;
+        out_stats->side_rms_db = engine->stereoSideRmsDb;
+        out_stats->width = engine->stereoWidth;
+        return 1;
     }
 
     AE_API void ae_init_push_stream(AudioEngineHandle *engine)

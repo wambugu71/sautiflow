@@ -900,6 +900,8 @@ class _EqScreenState extends State<EqScreen>
   // Stereo Widen / Audiophile Imager
   bool _stereoWidenEnabled = false;
   double _stereoWidenWidth = 1.5;
+  // Stereo Vectorscope display mode: real engine analyzer vs. simulated.
+  bool _vectorscopeLive = true;
   double _stereoWidenDelayMs = 0.15; // Maps to 15ms
   int _stereoWidenMode = 0; // 0 = Clean M/S, 1 = Spatial 3D, 2 = Blumlein
   double _stereoWidenMonoBelowHz = 150.0;
@@ -2017,6 +2019,9 @@ class _EqScreenState extends State<EqScreen>
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final hideBanner = prefs.getBool('hide_eq_warning') ?? false;
+    setState(() {
+      _vectorscopeLive = prefs.getBool('eq_vectorscope_live') ?? true;
+    });
 
     // Load all persisted EQ state
     final rate = await AppStateService.instance.loadPlaybackRate();
@@ -2945,6 +2950,9 @@ class _EqScreenState extends State<EqScreen>
 
   /// Saves all current EQ and Sauti DSP state to persistent storage.
   void _saveEqState() {
+    SharedPreferences.getInstance().then((p) {
+      p.setBool('eq_vectorscope_live', _vectorscopeLive);
+    });
     AppStateService.instance.saveEqBands(
       enabled: _masterEqEnabled,
       preset: _activePreset,
@@ -5831,7 +5839,57 @@ class _EqScreenState extends State<EqScreen>
             height: 205.0,
             primaryColor: primaryColor,
             analyzerStream: widget.player.analyzerStream,
+            live: _vectorscopeLive,
+            stereoAnalyzerStream: widget.player.analyzerStereoStream,
+            statsProvider: () => widget.player.getStereoStats(),
           ),
+        ),
+        const SizedBox(height: 10),
+        // Vectorscope display mode: real analyzer input vs. simulation.
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ChoiceChip(
+              label: const Text('Live',
+                  style: TextStyle(fontSize: 12)),
+              selected: _vectorscopeLive,
+              selectedColor: primaryColor.withValues(alpha: 0.3),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _vectorscopeLive = true);
+                  _saveEqState();
+                }
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Demo',
+                  style: TextStyle(fontSize: 12)),
+              selected: !_vectorscopeLive,
+              selectedColor: primaryColor.withValues(alpha: 0.3),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() => _vectorscopeLive = false);
+                  _saveEqState();
+                }
+              },
+            ),
+            const SizedBox(width: 10),
+            Text(
+              _vectorscopeLive
+                  ? 'REAL-TIME ANALYZER'
+                  : 'SIMULATED FIELD',
+              style: TextStyle(
+                fontSize: 9.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                letterSpacing: 0.6,
+                color: _vectorscopeLive
+                    ? primaryColor.withValues(alpha: 0.8)
+                    : Colors.white38,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 10),
         Row(

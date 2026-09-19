@@ -1838,6 +1838,62 @@ typedef _ConfigureAnalyzerWindowDart = void Function(
 
 typedef _GetAnalyzerWindowTypeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetAnalyzerWindowTypeDart = int Function(ffi.Pointer<ffi.Void>);
+/// Dart-facing stereo statistics returned by [AudioEngineFFI.getStereoStats].
+class StereoStats {
+  const StereoStats({
+    required this.correlation,
+    required this.balanceDb,
+    required this.midRmsDb,
+    required this.sideRmsDb,
+    required this.width,
+  });
+
+  /// Inter-channel phase correlation, −1 (anti-phase) … +1 (mono).
+  final double correlation;
+
+  /// `20·log10(RMS_L / RMS_R)`; 0 = centered.
+  final double balanceDb;
+
+  /// RMS of M=(L+R)/2 in dBFS.
+  final double midRmsDb;
+
+  /// RMS of S=(L−R)/2 in dBFS.
+  final double sideRmsDb;
+
+  /// `RMS_S / RMS_M`; ~0 = mono, higher = wider.
+  final double width;
+
+  @override
+  String toString() =>
+      'StereoStats(corr: ${correlation.toStringAsFixed(3)}, '
+      'bal: ${balanceDb.toStringAsFixed(2)} dB, width: ${width.toStringAsFixed(3)})';
+}
+
+
+
+/// Native mirror of `AEStereoStats` (audio_engine.h).
+final class AEStereoStatsNative extends ffi.Struct {
+  @ffi.Float()
+  external double correlation;
+  @ffi.Float()
+  external double balanceDb;
+  @ffi.Float()
+  external double midRmsDb;
+  @ffi.Float()
+  external double sideRmsDb;
+  @ffi.Float()
+  external double width;
+}
+
+typedef _PollAnalyzerFrameStereoNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _PollAnalyzerFrameStereoDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
+
+typedef _GetStereoStatsNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEStereoStatsNative>);
+typedef _GetStereoStatsDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEStereoStatsNative>);
 
 typedef _GenerateFftWindowNative = ffi.Void Function(
     ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Int32);
@@ -2692,6 +2748,17 @@ class AudioEngineFFI {
     }
 
     try {
+      _pollAnalyzerFrameStereo = _lib.lookupFunction<
+          _PollAnalyzerFrameStereoNative, _PollAnalyzerFrameStereoDart>(
+        'ae_poll_analyzer_frame_stereo',
+      );
+      _getStereoStats = _lib.lookupFunction<_GetStereoStatsNative,
+          _GetStereoStatsDart>('ae_get_stereo_stats');
+    } catch (_) {
+      // Graceful fallback for dynamic libraries without the stereo analyzer tap
+    }
+
+    try {
       _getLoudnessMetrics = _lib.lookupFunction<_GetLoudnessMetricsNative,
           _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
       _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative,
@@ -2891,6 +2958,9 @@ class AudioEngineFFI {
   // Reusable native buffer for spectrum analyzer polling (prevents 60 FPS malloc churn)
   ffi.Pointer<ffi.Float>? _analyzerBufferPtr;
   int _analyzerBufferCapacity = 0;
+  ffi.Pointer<ffi.Float>? _analyzerStereoBufferPtr;
+  int _analyzerStereoBufferCapacity = 0;
+  ffi.Pointer<AEStereoStatsNative>? _stereoStatsPtr;
   late final _SetFxEnabledDart _setBandpassEnabled;
   late final _SetTwoFloatsDart _setBandpassParams;
   late final _SetFxEnabledDart _setPeakEqEnabled;
@@ -3003,6 +3073,8 @@ class AudioEngineFFI {
   _GetAnalyzerWindowTypeDart? _getAnalyzerWindowType;
   _GenerateFftWindowDart? _generateFftWindow;
   _ApplyFftWindowDart? _applyFftWindow;
+  _PollAnalyzerFrameStereoDart? _pollAnalyzerFrameStereo;
+  _GetStereoStatsDart? _getStereoStats;
 
   late final _MallocDart _malloc;
   late final _FreeDart _free;
@@ -3138,6 +3210,16 @@ class AudioEngineFFI {
       _freePtr(_analyzerBufferPtr!.cast<ffi.Void>());
       _analyzerBufferPtr = null;
       _analyzerBufferCapacity = 0;
+    }
+    if (_analyzerStereoBufferPtr != null &&
+        _analyzerStereoBufferPtr != ffi.nullptr) {
+      _freePtr(_analyzerStereoBufferPtr!.cast<ffi.Void>());
+      _analyzerStereoBufferPtr = null;
+      _analyzerStereoBufferCapacity = 0;
+    }
+    if (_stereoStatsPtr != null && _stereoStatsPtr != ffi.nullptr) {
+      _freePtr(_stereoStatsPtr!.cast<ffi.Void>());
+      _stereoStatsPtr = null;
     }
     if (_pAbEnabled != null) {
       _freePtr(_pAbEnabled!.cast<ffi.Void>());
@@ -5017,6 +5099,72 @@ class AudioEngineFFI {
       return targetBuffer;
     }
     return src;
+  }
+
+  /// Polls the latest **stereo** analyzer frame as interleaved L/R sample
+  /// pairs (`[L0, R0, L1, R1, ...]`). The frame length (in frames, not
+  /// samples) matches [getAnalyzerFrameSize].
+  ///
+  /// Returns a [Float32List] of `framesCopied * 2` samples, or an empty list
+  /// if no stereo frame is available (analyzer disabled or mono source).
+  ///
+  /// Feed this to a goniometer/vectorscope, or split L/R and run your FFT
+  /// per channel for a dual spectrum overlay.
+  Float32List pollAnalyzerFrameStereo({int? maxFrames}) {
+    final poll = _pollAnalyzerFrameStereo;
+    if (_engine == ffi.nullptr || poll == null) {
+      return Float32List(0);
+    }
+
+    final frames = maxFrames ?? getAnalyzerFrameSize();
+    if (frames <= 0) return Float32List(0);
+    final samples = frames * 2;
+
+    if (_analyzerStereoBufferPtr == null ||
+        _analyzerStereoBufferCapacity < samples) {
+      if (_analyzerStereoBufferPtr != null &&
+          _analyzerStereoBufferPtr != ffi.nullptr) {
+        _freePtr(_analyzerStereoBufferPtr!.cast<ffi.Void>());
+      }
+      _analyzerStereoBufferCapacity = samples < 8192 ? 8192 : samples;
+      _analyzerStereoBufferPtr =
+          _malloc(_analyzerStereoBufferCapacity * ffi.sizeOf<ffi.Float>())
+              .cast<ffi.Float>();
+    }
+
+    final copiedFrames = poll(_engine, _analyzerStereoBufferPtr!, frames);
+    if (copiedFrames <= 0) return Float32List(0);
+    return _analyzerStereoBufferPtr!.asTypedList(copiedFrames * 2);
+  }
+
+  /// Cheap per-window stereo statistics (no FFT needed), or `null` when
+  /// unavailable (analyzer disabled, mono source, or older native library).
+  ///
+  /// - `correlation`: inter-channel phase correlation −1 (anti-phase) … +1
+  ///   (mono). Values < 0 indicate mono-incompatibility — the guardrail for
+  ///   your spatializer / crossfeed / Haas width settings.
+  /// - `balanceDb`: `20·log10(RMS_L / RMS_R)`; 0 = centered.
+  /// - `midRmsDb` / `sideRmsDb`: M=(L+R)/2 and S=(L−R)/2 energy in dBFS.
+  /// - `width`: `RMS_S / RMS_M`; ~0 = mono, higher = wider.
+  StereoStats? getStereoStats() {
+    final get = _getStereoStats;
+    if (_engine == ffi.nullptr || get == null) return null;
+
+    if (_stereoStatsPtr == null || _stereoStatsPtr == ffi.nullptr) {
+      _stereoStatsPtr = _malloc(ffi.sizeOf<AEStereoStatsNative>())
+          .cast<AEStereoStatsNative>();
+    }
+
+    final ok = get(_engine, _stereoStatsPtr!);
+    if (ok == 0) return null;
+    final s = _stereoStatsPtr!.ref;
+    return StereoStats(
+      correlation: s.correlation,
+      balanceDb: s.balanceDb,
+      midRmsDb: s.midRmsDb,
+      sideRmsDb: s.sideRmsDb,
+      width: s.width,
+    );
   }
 
   // ---------------------------------------------------------------------------
