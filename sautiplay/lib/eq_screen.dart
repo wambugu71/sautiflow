@@ -2732,12 +2732,6 @@ class _EqScreenState extends State<EqScreen>
   void _updateConvolver() {
     widget.player.setConvolverEnabled(_convolverEnabled);
     widget.player.setConvolverMix(wet: _convolverWet, dry: _convolverDry);
-    if (_convolverEnabled) {
-      if (!_masterLimiterEnabled) {
-        _masterLimiterEnabled = true;
-        _updateMasterLimiter();
-      }
-    }
     if (_convolverEnabled &&
         _convolverIrPath != null &&
         _convolverIrPath!.isNotEmpty &&

@@ -2606,7 +2606,7 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'loadConvolverIr':
           try {
             final data = WavParser.parseWithInfo(message['path']);
-            player.dsp.loadImpulseResponse(data.samples, data.channels);
+            player.dsp.loadImpulseResponse(data.samples, 2);
           } catch (e) {
             initData.sendPort.send('[log]loadConvolverIr Error: $e');
           }
@@ -2615,7 +2615,7 @@ void _isolateEntry(_IsolateInitData initData) {
           try {
             final bytes = message['bytes'] as Uint8List;
             final data = WavParser.parseBytesWithInfo(bytes);
-            player.dsp.loadImpulseResponse(data.samples, data.channels);
+            player.dsp.loadImpulseResponse(data.samples, 2);
           } catch (e) {
             initData.sendPort.send('[log]loadConvolverIrData Error: $e');
           }

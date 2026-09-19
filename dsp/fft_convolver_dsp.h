@@ -22,7 +22,6 @@ public:
     static constexpr size_t BLOCK_SIZE = 512;
     static constexpr size_t FFT_SIZE = BLOCK_SIZE * 2; // 1024-point FFT for 512-sample blocks
     static constexpr size_t MAX_SEGMENTS = 128;        // Up to ~1.36 seconds of impulse response at 48kHz
-    static constexpr size_t ANALYSIS_FFT_SIZE = 4096;  // High-resolution spectral analysis for peak gain
 
     FFTConvolverDSP() {
         setSampleRate(48000.0f);
@@ -63,29 +62,17 @@ public:
             return false;
         }
 
-        // 1. Time-Domain Peak & RMS Energy
+        // 1. Time-Domain Peak Normalization (protects digital full scale without crushing spectrum)
         float max_time_peak = 0.0f;
-        float energy_sum = 0.0f;
         for (uint32_t i = 0; i < frame_count; i++) {
             float l = (channels == 1) ? ir_samples[i] : ir_samples[i * 2];
             float r = (channels == 1) ? ir_samples[i] : ir_samples[i * 2 + 1];
             max_time_peak = std::max(max_time_peak, std::max(std::abs(l), std::abs(r)));
-            energy_sum += (l * l + r * r) * 0.5f;
         }
 
-        // 2. High-Resolution Frequency-Domain Spectral Analysis to detect resonant boosts (e.g. Dolby/AutoEQ bass boosts)
-        float max_freq_gain = analyzeMaxFrequencyGain(ir_samples, frame_count, channels);
-
-        // Determine safe normalization scale so that the filter response NEVER clips digital full scale
         float norm_scale = 1.0f;
         if (max_time_peak > 1.0f) {
-            norm_scale = std::min(norm_scale, 1.0f / max_time_peak);
-        }
-        if (max_freq_gain > 1.0f) {
-            norm_scale = std::min(norm_scale, 1.0f / max_freq_gain);
-        }
-        if (energy_sum > 16.0f) {
-            norm_scale = std::min(norm_scale, std::sqrt(16.0f / energy_sum));
+            norm_scale = 1.0f / max_time_peak;
         }
 
         uint32_t num_segments = (frame_count + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -256,6 +243,10 @@ public:
                     wet_r = active.out_buf_r[in_pos_ + i];
                 }
 
+                // Smooth analog soft-saturation guard against digital overs (anti-crackle)
+                wet_l = softClip(wet_l);
+                wet_r = softClip(wet_r);
+
                 // Anti-pop smooth crossfade on activation / disablement
                 if (is_enabled) {
                     if (fade_progress_ < 1.0f) {
@@ -372,48 +363,13 @@ private:
         }
     }
 
-    float analyzeMaxFrequencyGain(const float* ir, uint32_t frames, uint32_t channels) {
-        constexpr size_t N = ANALYSIS_FFT_SIZE;
-        constexpr float PI = 3.14159265358979323846f;
-
-        std::vector<std::complex<float>> tw(N);
-        for (size_t i = 0; i < N; i++) {
-            float angle = -2.0f * PI * static_cast<float>(i) / static_cast<float>(N);
-            tw[i] = std::complex<float>(std::cos(angle), std::sin(angle));
+    static inline float softClip(float x) noexcept {
+        if (x > 0.95f) {
+            return 0.95f + 0.045f * std::tanh((x - 0.95f) / 0.045f);
+        } else if (x < -0.95f) {
+            return -0.95f + 0.045f * std::tanh((x + 0.95f) / 0.045f);
         }
-        std::vector<size_t> brev(N);
-        for (size_t i = 0; i < N; i++) {
-            size_t rev = 0;
-            for (size_t b = 0; b < 12; b++) {
-                if ((i >> b) & 1) rev |= (1 << (11 - b));
-            }
-            brev[i] = rev;
-        }
-
-        float max_mag = 0.0f;
-        for (uint32_t ch = 0; ch < channels; ch++) {
-            std::vector<std::complex<float>> freq(N);
-            for (size_t i = 0; i < N; i++) {
-                float s = (i < frames) ? ((channels == 1) ? ir[i] : ir[i * 2 + ch]) : 0.0f;
-                freq[brev[i]] = std::complex<float>(s, 0.0f);
-            }
-            for (size_t len = 2; len <= N; len <<= 1) {
-                size_t half = len >> 1;
-                size_t step = N / len;
-                for (size_t i = 0; i < N; i += len) {
-                    for (size_t j = 0; j < half; j++) {
-                        std::complex<float> u = freq[i + j];
-                        std::complex<float> v = freq[i + j + half] * tw[j * step];
-                        freq[i + j] = u + v;
-                        freq[i + j + half] = u - v;
-                    }
-                }
-            }
-            for (size_t i = 0; i < N / 2; i++) {
-                max_mag = std::max(max_mag, std::abs(freq[i]));
-            }
-        }
-        return max_mag;
+        return x;
     }
 
     void processBlock() {
