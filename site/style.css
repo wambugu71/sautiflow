@@ -82,15 +82,33 @@ body {
   text-decoration: none;
 }
 .mono-nav a:hover { color: var(--amber); }
+.mono-nav a.nav-docs { color: var(--ink); }
+.mono-nav a.nav-docs:hover,
+.mono-nav a.nav-docs:focus-visible { color: var(--amber); }
 .ver-badge {
+  display: inline-block;
   font-size: 0.72rem;
   color: var(--bg);
   background: var(--amber);
   padding: 3px 9px;
   border-radius: 2px;
   font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: box-shadow 120ms ease, transform 120ms ease;
 }
-@media (max-width: 720px) { .mono-nav { display: none; } }
+.ver-badge:hover,
+.ver-badge:focus-visible {
+  box-shadow: 0 0 0 2px var(--amber-deep);
+  transform: translateY(-1px);
+}
+@media (max-width: 720px) {
+  .masthead-row { gap: 14px; }
+  .mono-nav { gap: 0; }
+  /* mobile: collapse the anchor list but keep the Docs entry reachable */
+  .mono-nav a { display: none; }
+  .mono-nav a.nav-docs { display: inline-block; }
+}
 
 /* ---------- hero ---------- */
 .hero {
@@ -241,6 +259,21 @@ body {
 .spec-card li:last-child { border-bottom: none; }
 .spec-card li span { color: var(--ink-faint); }
 .spec-card li b { color: var(--ink); font-weight: 500; text-align: right; }
+/* version numbers in the engine card link out to the docs site */
+.spec-card li b a,
+.spec-card li b a:visited,
+.ver-link {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--amber);
+}
+.spec-card li b a:hover,
+.spec-card li b a:focus-visible,
+.ver-link:hover,
+.ver-link:focus-visible {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
 
 /* ---------- features ---------- */
 .feat-grid {
@@ -512,7 +545,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .dots i { animation: none; }
-  .btn, .comm-card, .asset, .shot-btn { transition: none; }
+  .btn, .comm-card, .asset, .shot-btn, .ver-badge { transition: none; }
 }
 
 .release-foot {

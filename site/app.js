@@ -2,6 +2,9 @@ const REPO = "wambugu71/sautiflow";
 const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 
+// Version badge doubles as the docs entry point (see ver-badge in index.html).
+const DOCS_URL = "https://docs.sautiflow.us.ci";
+
 const PLATFORMS = [
   { test: /arm64-v8a|aarch64/i, os: "Android", sub: "arm64-v8a · modern devices", icon: "◆" },
   { test: /armeabi-v7a|armv7/i, os: "Android", sub: "armeabi-v7a · older devices", icon: "◇" },
@@ -52,12 +55,16 @@ async function loadLatestRelease() {
   const list = document.getElementById("assets");
   const badge = document.getElementById("ver-badge");
 
+  // the badge is the header's docs entry point — keep it pointed at the docs site
+  badge.href = DOCS_URL;
+
   try {
     const res = await fetch(API_URL, { headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const rel = await res.json();
 
     badge.textContent = rel.tag_name;
+    badge.title = `${rel.tag_name} — read the Sautiflow docs`;
     document.getElementById("rel-tag").textContent = `${rel.tag_name} — ${rel.name || "LATEST RELEASE"}`;
     document.getElementById("rel-date").textContent = `PUBLISHED ${formatDate(rel.published_at).toUpperCase()}`;
 
@@ -84,6 +91,7 @@ async function loadLatestRelease() {
     }
   } catch (err) {
     badge.textContent = "v0.6.28";
+    badge.title = "v0.6.28 — read the Sautiflow docs";
     list.innerHTML = `
       <div class="empty-state mono">NO PUBLIC RELEASE PUBLISHED YET.<br><br>
       The moment the first tag lands on GitHub, download links appear here automatically.<br><br>
