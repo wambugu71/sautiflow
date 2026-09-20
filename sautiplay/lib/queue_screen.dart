@@ -587,23 +587,8 @@ class _QueueScreenState extends State<QueueScreen>
                                           widget.queue.length,
                                         ),
                                       ),
-                                      if (widget.onRemoveFromQueue != null)
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.close_rounded,
-                                            size: 18,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.all(4),
-                                          constraints: const BoxConstraints(
-                                            minWidth: 28,
-                                            minHeight: 28,
-                                          ),
-                                          color: textDark,
-                                          tooltip: 'Remove from Queue',
-                                          onPressed: () => widget
-                                              .onRemoveFromQueue!(actualIndex),
-                                        ),
+                                      //if (widget.onRemoveFromQueue != null)
+                                  
                                     ],
                                   ),
                                 ],
