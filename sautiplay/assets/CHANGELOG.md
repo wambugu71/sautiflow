@@ -1,3 +1,15 @@
+## v0.6.29 — 2026-09-20
+- SIMD DSP Acceleration: 14 high-compute DSP modules vectorized across NEON, SSE/AVX, and scalar fallbacks with a new 58-test verification suite
+- Six New DSP Engines: Dynamic Loudness (ISO 226), AutoEQ profile importer, Broadcast Leveller (EBU R128), Studio Noise Gate, 6-Band Dynamic EQ, and Vintage Tape Drift
+- OpenStage Crossfeed: Cleanroom spherical-head crossfeed with animated soundstage visualizer and Speaker Angle, Gain Comp, and Mix controls
+- FFmpeg Decoder Unification: Local files fall back to FFmpeg when miniaudio fails; legacy MP4/AAC and minimp4 paths removed
+- Convolver Stability: Pop-free IR hot-swapping, no more real-time thread starvation, HeSuVi 14-channel routing fix, and soft-saturation clipping guard
+- AutoEQ Profile System: Headphone profile library, parametric profile import, and a pinned control bar on the effects screen
+- Live Stereo Analyzer: Real interleaved L/R capture with phase correlation, balance, M/S RMS, and width driving a live goniometer
+- Waveform Seek Bar: Isolate-based extraction and batched GPU rendering for smooth 60-120 Hz transitions
+- Album Art Shapes: Configurable album art shapes plus safer queue rows with swipe-to-dismiss disabled
+- GPL-3.0 Licensing: Engine and app relicensed under GPL-3.0 with expanded third-party notices
+
 ## v0.6.28 — 2026-09-16
 - Parametric EQ Filter Expansion: Added allpass, asuperpass, bandreject, asuperstop, and asupercut filters with analytical biquad coefficient derivation and real-time acoustic curves
 - Native FFmpeg Metadata Reader: Fast native extraction of audio tags, embedded album art, and ReplayGain packet side-data
