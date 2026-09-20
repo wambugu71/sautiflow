@@ -1,6 +1,6 @@
 /* ==========================================================================
    Sautiplay — Downloads & Release Ledger
-   Layered on top of ../style.css: design tokens, masthead, footer, buttons,
+   Layered on top of style.css: design tokens, masthead, footer, buttons,
    release panel and asset rows are all reused from the main manual page.
    Only ledger-specific components are defined here. Square corners, 1px rules,
    mono labels, amber accent — same voice as the rest of the site.
