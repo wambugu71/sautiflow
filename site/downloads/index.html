@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Downloads &amp; Release Ledger — Sautiplay</title>
+<meta name="description" content="Every Sautiplay and Sautiflow build published on GitHub Releases — Android APKs per ABI, Windows portable ZIP and MSIX, Linux bundle and .deb, macOS app — listed with the version, the release commit and the date it shipped.">
+<link rel="icon" href="../assets/icon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="downloads.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap masthead-row">
+    <a class="wordmark" href="../index.html#top">SAUTIPLAY<span class="reg">®</span></a>
+    <nav class="mono-nav">
+      <a class="nav-home" href="../index.html">← Manual</a>
+      <a href="#latest">Current</a>
+      <a href="#platforms">Matrix</a>
+      <a href="#ledger">Versions</a>
+      <a href="#notes">Notes</a>
+      <a class="nav-docs" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">Docs ↗</a>
+    </nav>
+    <a class="ver-badge mono" id="ver-badge" href="https://github.com/wambugu71/sautiflow/releases/latest" target="_blank" rel="noopener" title="Latest release on GitHub">v—</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero wrap">
+    <p class="mono kicker">RELEASE ARCHIVE · GITHUB RELEASES · FIRST TAG → CURRENT</p>
+    <h1>Every build,<br><em>from first to latest.</em></h1>
+    <p class="lede">Each release ever published by the build pipeline, in order — Android APKs split per
+    ABI, a portable Windows build and an MSIX package, the Linux bundle and Debian package, and the
+    macOS app. Every entry carries the version it shipped as, the commit that produced it, and the
+    files attached to that release. Downloads link straight to GitHub; nothing is mirrored here.</p>
+    <div class="hero-cta">
+      <a class="btn btn-solid" href="#latest">Current release ↓</a>
+      <a class="btn btn-line" href="#ledger">Full version ledger ↓</a>
+    </div>
+    <dl class="hero-specs mono">
+      <div><dt>VERSIONS INDEXED</dt><dd id="spec-versions">—</dd></div>
+      <div><dt>FIRST TAG</dt><dd id="spec-first">—</dd></div>
+      <div><dt>CURRENT RELEASE</dt><dd id="spec-latest">—</dd></div>
+      <div><dt>DATA SOURCE</dt><dd>GitHub Releases API · Live</dd></div>
+    </dl>
+  </section>
+
+
+  <!-- ============ 01 CURRENT RELEASE ============ -->
+  <section id="latest" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">01</span>
+      <h2>Current Release</h2>
+    </header>
+    <p class="chapter-sub">Assets as attached to the newest GitHub release. The package that matches this device is marked FOR YOU.</p>
+
+    <div class="release-panel">
+      <div class="release-head mono">
+        <span id="rel-tag">READING GITHUB RELEASES…</span>
+        <span id="rel-date"></span>
+      </div>
+
+      <p class="rel-subject" id="rel-subject">Reading the newest release…</p>
+      <p class="rel-commit mono" id="rel-commit">RELEASE COMMIT —</p>
+
+      <div id="assets" class="asset-list" aria-live="polite">
+        <div class="loading-state mono" id="rel-loading">
+          QUERYING GITHUB API<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+        </div>
+      </div>
+
+      <div class="release-foot mono" id="rel-source">SOURCE ARCHIVES AND RELEASE LINKS LOAD WITH THE PANEL.</div>
+    </div>
+
+    <p class="mono api-note" id="api-note" hidden></p>
+
+    <noscript><p class="mono noscript-note">JavaScript disabled — every build stays reachable directly:
+      <a href="https://github.com/wambugu71/sautiflow/releases" target="_blank" rel="noopener">github.com/wambugu71/sautiflow/releases</a></p></noscript>
+  </section>
+
+  <!-- ============ 02 PLATFORM MATRIX ============ -->
+  <section id="platforms" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">02</span>
+      <h2>Platform Matrix</h2>
+    </header>
+    <p class="chapter-sub">What each platform receives, and how many published versions actually carried it.</p>
+
+    <div class="matrix-wrap">
+      <table class="matrix mono">
+        <caption class="sr-only">Packages published per platform across all releases</caption>
+        <thead>
+          <tr>
+            <th scope="col">PLATFORM</th>
+            <th scope="col">TARGET</th>
+            <th scope="col">PACKAGE</th>
+            <th scope="col">WHAT YOU GET</th>
+            <th scope="col">VERSIONS</th>
+            <th scope="col">RANGE</th>
+          </tr>
+        </thead>
+        <tbody id="matrix-body">
+          <tr><td colspan="6" class="loading-state mono">MAPPING ASSETS<span class="dots"><i>.</i><i>.</i><i>.</i></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="mono table-foot">VERSIONS = RELEASES CARRYING THAT PACKAGE · RANGE = OLDEST → NEWEST BUILD OF IT.</p>
+  </section>
+
+  <!-- ============ 03 VERSION LEDGER ============ -->
+  <section id="ledger" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">03</span>
+      <h2>Version Ledger</h2>
+    </header>
+    <p class="chapter-sub">Every published release on GitHub, oldest build first, with attached packages and platform targets. Open an entry for download links and release details.</p>
+
+    <div class="ledger-bar">
+      <div class="ledger-bar-row">
+        <label class="sr-only" for="ledger-search">Filter versions</label>
+        <input id="ledger-search" class="searcher mono" type="search" placeholder="FILTER BY VERSION, COMMIT MESSAGE OR NOTE…" autocomplete="off" spellcheck="false">
+        <button class="chipbtn mono" id="order-toggle" type="button" aria-pressed="false">ORDER: OLDEST FIRST</button>
+      </div>
+      <div class="ledger-bar-row" id="platform-filter" role="group" aria-label="Filter versions by platform"></div>
+      <div class="ledger-bar-row">
+        <button class="chipbtn mono" id="expand-all" type="button">EXPAND ALL</button>
+        <button class="chipbtn mono" id="collapse-all" type="button">COLLAPSE ALL</button>
+        <span class="ledger-status mono" id="ledger-status" aria-live="polite">CONNECTING TO GITHUB RELEASES…</span>
+      </div>
+    </div>
+
+    <div id="ledger-list" class="ledger" aria-live="polite">
+      <div class="loading-state mono">BUILDING LEDGER<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
+    </div>
+  </section>
+
+
+  <!-- ============ 04 BEFORE YOU INSTALL ============ -->
+  <section id="notes" class="chapter wrap">
+    <header class="chapter-head">
+      <span class="mono ch-no">04</span>
+      <h2>Before You Install</h2>
+    </header>
+    <p class="chapter-sub">Packaging, signing and sourcing notes — the parts that surprise people.</p>
+
+    <div class="feat-grid">
+      <article class="feat">
+        <h3 class="mono">N/01 — ANDROID</h3>
+        <ul>
+          <li>Two legs ship per release: <strong>arm64-v8a</strong> for current phones and <strong>armeabi-v7a</strong> for older 32-bit hardware. Take arm64 unless you know your device is 32-bit only.</li>
+          <li>APKs are built in release mode and signed with the project keystore, so a newer build installs straight over an older one. Android will ask you to allow installs from your browser or file manager.</li>
+          <li>The earliest tags carry a single universal APK instead of split ABIs.</li>
+        </ul>
+      </article>
+
+      <article class="feat">
+        <h3 class="mono">N/02 — WINDOWS</h3>
+        <ul>
+          <li>The <strong>portable ZIP</strong> is the safest pick: unpack the folder, run the executable. No installer, no registry keys. This is the build the FOR YOU marker prefers.</li>
+          <li>The <strong>MSIX</strong> is produced with <code>--install-certificate false</code>, so it is signed by a local test certificate rather than a public authority. Windows needs developer mode — or the certificate trusted manually — before it will install.</li>
+        </ul>
+      </article>
+
+      <article class="feat">
+        <h3 class="mono">N/03 — LINUX &amp; MACOS</h3>
+        <ul>
+          <li>Linux ships as a portable bundle (<code>tar.gz</code> — extract and run) alongside a Debian package built on Ubuntu 22.04 for amd64.</li>
+          <li>macOS ships as a zipped <code>.app</code> bundle. The runner does not notarize it, so Gatekeeper will object on first launch: right-click the app and choose <em>Open</em> once.</li>
+        </ul>
+      </article>
+
+      <article class="feat">
+        <h3 class="mono">N/04 — IOS &amp; SOURCE ARCHIVES</h3>
+        <ul>
+          <li>iOS packages — an unsigned <code>.ipa</code>, or a zipped build in the earliest test tags — exist for a handful of versions only, and must be sideloaded with your own signing identity.</li>
+          <li>Every version below also links GitHub's generated source archives (<code>zip</code> and <code>tar.gz</code>) plus the exact commit it was cut from.</li>
+        </ul>
+      </article>
+
+      <article class="feat feat-wide">
+        <h3 class="mono">N/05 — HOW THIS PAGE WORKS</h3>
+        <ul>
+          <li><strong>Real-time tracking:</strong> Releases, version tags, publish dates, and downloadable application packages are fetched directly from the GitHub Releases API (<code>api.github.com/repos/wambugu71/sautiflow/releases</code>).</li>
+          <li><strong>Automatic updates:</strong> Whenever a new build is published by the GitHub Actions CI pipeline, it immediately appears on this page as the current release without any manual record-keeping or manifest generation.</li>
+          <li><strong>Direct downloads:</strong> Nothing is mirrored or re-hosted. Every download link connects directly to official release assets on <code>github.com/wambugu71/sautiflow/releases</code>.</li>
+          <li><strong>Session caching:</strong> Release data is temporarily cached in your browser's session storage for 5 minutes so you can browse, filter, and navigate without encountering GitHub API rate limits.</li>
+        </ul>
+        <p class="mono data-stamp" id="data-stamp">LIVE GITHUB API — CONNECTING…</p>
+      </article>
+    </div>
+  </section>
+
+</main>
+
+
+<footer class="footer wrap">
+  <div class="foot-row mono">
+    <span>SAUTIPLAY® — AUDIO PLAYER FOR AUDIOPHILES</span>
+    <span>ENGINE: <a href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SAUTIFLOW</a></span>
+    <span><a href="../index.html">MANUAL</a> · <a href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">DOCS</a> · <a href="https://github.com/wambugu71/sautiflow/releases" target="_blank" rel="noopener">RELEASES</a></span>
+  </div>
+  <p class="mono foot-fineprint">Build packages are produced by the public GitHub Actions pipeline and republished without modification.
+    Sizes and download counters are read from the GitHub Releases API and can lag behind by a few minutes.
+    All product names, logos, and brands are property of their respective owners.</p>
+  <p class="mono foot-fineprint">Specs subject to change between releases. This ledger was typeset with Fraunces, Newsreader &amp; JetBrains Mono.</p>
+</footer>
+
+<script src="downloads.js"></script>
+</body>
+</html>
+

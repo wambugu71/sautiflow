@@ -1,0 +1,399 @@
+/* ==========================================================================
+   Sautiplay — Downloads & Release Ledger
+   Layered on top of ../style.css: design tokens, masthead, footer, buttons,
+   release panel and asset rows are all reused from the main manual page.
+   Only ledger-specific components are defined here. Square corners, 1px rules,
+   mono labels, amber accent — same voice as the rest of the site.
+   ========================================================================== */
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* the manual link must survive the nav collapse on small screens */
+.mono-nav a.nav-home { color: var(--ink); }
+@media (max-width: 720px) {
+  .mono-nav a.nav-home { display: inline-block; }
+}
+
+/* inline code inside prose: mono, amber, slightly smaller than the serif body */
+.lede code,
+.feat code,
+.ver-notes code,
+.rel-commit code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  color: var(--amber);
+  background: var(--bg-raise);
+  padding: 1px 5px;
+}
+
+/* ---------- 01 current release ---------- */
+.rel-subject {
+  padding: 18px 24px 0;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.rel-commit {
+  padding: 11px 24px 17px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  word-break: break-word;
+}
+.rel-commit b { color: var(--ink); font-weight: 500; }
+.rel-commit a { color: var(--amber); text-decoration: none; }
+.rel-commit a:hover,
+.rel-commit a:focus-visible { text-decoration: underline; }
+
+.release-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.release-foot a { color: var(--amber); text-decoration: none; }
+.release-foot a:hover { text-decoration: underline; }
+
+.api-note {
+  margin-top: 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--rule-strong);
+  font-size: 0.66rem;
+  line-height: 1.7;
+  color: var(--ink-faint);
+}
+.api-note.warn { border-left-color: var(--amber); color: var(--ink-dim); }
+.api-note a { color: var(--amber); text-decoration: none; }
+
+/* ---------- 02 platform matrix ---------- */
+.matrix-wrap {
+  border: 1px solid var(--rule-strong);
+  overflow-x: auto;
+}
+.matrix {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+.matrix thead th {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--bg-raise);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.matrix td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-dim);
+  vertical-align: top;
+}
+.matrix tbody tr:last-child td { border-bottom: none; }
+.matrix tbody tr:hover td { background: var(--bg-raise); }
+.matrix .m-plat { color: var(--ink); font-weight: 700; white-space: nowrap; }
+.matrix .m-icon { color: var(--amber); margin-right: 7px; }
+.matrix .m-target { color: var(--ink-dim); white-space: nowrap; }
+.matrix .m-pkg { color: var(--ink); white-space: nowrap; }
+.matrix .m-note {
+  font-family: var(--serif-body);
+  font-size: 0.88rem;
+  letter-spacing: 0;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.matrix .m-count { color: var(--ink); white-space: nowrap; }
+.matrix .m-range { font-size: 0.64rem; white-space: nowrap; }
+.matrix .m-range a { color: var(--amber); text-decoration: none; }
+.matrix .m-range a:hover { text-decoration: underline; }
+.matrix .m-none { color: var(--rule-strong); }
+.table-foot {
+  margin-top: 12px;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+/* ---------- 03 ledger controls ---------- */
+.ledger-bar {
+  border: 1px solid var(--rule-strong);
+  margin-bottom: 26px;
+}
+.ledger-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.ledger-bar-row + .ledger-bar-row { border-top: 1px solid var(--rule); }
+
+.searcher {
+  flex: 1 1 280px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+.searcher::placeholder {
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.searcher:focus { outline: none; border-color: var(--amber); }
+
+.chipbtn {
+  border: 1px solid var(--rule-strong);
+  background: none;
+  color: var(--ink-dim);
+  padding: 8px 13px;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.chipbtn:hover { border-color: var(--amber); color: var(--amber); }
+.chipbtn[aria-pressed="true"] {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--bg);
+  font-weight: 700;
+}
+.chipbtn:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 2px; }
+
+.ledger-status {
+  margin-left: auto;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+/* ---------- 03 ledger entries ---------- */
+.ledger { display: grid; gap: 14px; }
+
+.ver {
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  transition: border-color 120ms ease;
+}
+.ver:hover { border-color: var(--rule-strong); }
+.ver[open] {
+  border-color: var(--rule-strong);
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.ver > summary {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 15px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+.ver > summary::-webkit-details-marker { display: none; }
+.ver > summary::marker { content: ""; }
+.ver > summary:hover { background: var(--bg-raise); }
+.ver > summary:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+
+.ver-tag {
+  flex: 0 0 auto;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--amber);
+  white-space: nowrap;
+}
+.ver-date {
+  flex: 0 0 auto;
+  font-size: 0.64rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.ver-subjwrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+.ver-subj {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+.ver-tagsubj {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.ver-flags {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.flag {
+  border: 1px solid var(--rule-strong);
+  padding: 3px 7px;
+  font-size: 0.54rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.flag-latest { background: var(--amber); border-color: var(--amber); color: var(--bg); font-weight: 700; }
+.flag-pre { border-color: var(--amber-deep); color: var(--amber); }
+.flag-less { border-style: dashed; }
+.flag-dl { border: none; padding: 3px 0; color: var(--ink-dim); }
+.ver-caret {
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+  font-size: 1rem;
+  color: var(--rule-strong);
+}
+.ver[open] .ver-caret { color: var(--amber); }
+
+
+/* ---------- ledger entry body ---------- */
+.ver-body {
+  display: grid;
+  gap: 20px;
+  padding: 20px 18px 22px;
+  border-top: 1px solid var(--rule);
+}
+.ver-commit {
+  font-size: 0.64rem;
+  line-height: 1.7;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  word-break: break-word;
+}
+.ver-commit a { color: var(--amber); text-decoration: none; }
+.ver-commit a:hover { text-decoration: underline; }
+
+.plats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(272px, 1fr));
+  gap: 20px;
+}
+.plat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.plat-name {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  white-space: nowrap;
+}
+.plat-meta { font-size: 0.58rem; letter-spacing: 0.06em; color: var(--ink-faint); }
+.plat .asset {
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  background: none;
+}
+.plat .asset + .asset { margin-top: 6px; }
+.plat .asset:hover { border-color: var(--amber); background: var(--bg-raise); }
+.plat .asset-icon { font-size: 0.92rem; color: var(--ink-faint); }
+.plat .asset.rec .asset-icon { color: var(--amber); }
+.plat .asset-os { font-size: 0.72rem; }
+.plat .asset-file { font-size: 0.62rem; }
+.plat .asset-meta { font-size: 0.62rem; }
+
+.ver-notes h4 {
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+.ver-notes ul { list-style: none; }
+.ver-notes li {
+  position: relative;
+  padding: 5px 0 5px 20px;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+.ver-notes li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: var(--rule-strong);
+}
+.ver-notes li strong { color: var(--ink); font-weight: 600; }
+.ver-notes-none {
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.ver-src {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.ver-src a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px dotted var(--rule-strong); }
+.ver-src a:hover,
+.ver-src a:focus-visible { color: var(--amber); border-bottom-color: var(--amber); }
+.ver-empty {
+  padding: 14px 16px;
+  border: 1px dashed var(--rule-strong);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+/* ---------- 04 notes ---------- */
+.data-stamp {
+  margin-top: 18px;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 780px) {
+  .ver > summary { display: block; padding-right: 46px; }
+  .ver-date { display: inline-block; margin-top: 6px; }
+  .ver-subjwrap { margin: 8px 0; }
+  .ver-subj { -webkit-line-clamp: 3; }
+  .ver-flags { flex-wrap: wrap; }
+  .ver-caret { position: absolute; top: 13px; right: 16px; }
+  .ledger-status { margin-left: 0; }
+  .plats { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chipbtn, .ver, .searcher { transition: none; }
+}
+

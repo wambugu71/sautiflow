@@ -6,15 +6,24 @@ const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const DOCS_URL = "https://docs.sautiflow.us.ci";
 
 const PLATFORMS = [
-  { test: /arm64-v8a|aarch64/i, os: "Android", sub: "arm64-v8a · modern devices", icon: "◆" },
-  { test: /armeabi-v7a|armv7/i, os: "Android", sub: "armeabi-v7a · older devices", icon: "◇" },
-  { test: /windows|\.zip$/i, os: "Windows", sub: "x64 · portable, no installer", icon: "▣" },
+  { test: (n) => /\.apk$/i.test(n) && /arm64|aarch64/i.test(n), os: "Android", sub: "arm64-v8a · modern devices", icon: "◆", key: "arm64" },
+  { test: (n) => /\.apk$/i.test(n) && /armeabi-v7a|armv7/i.test(n), os: "Android", sub: "armeabi-v7a · older devices", icon: "◇", key: "armv7" },
+  { test: (n) => /\.apk$/i.test(n), os: "Android", sub: "universal · all devices", icon: "◆", key: "android" },
+  { test: (n) => /\.msix$/i.test(n), os: "Windows", sub: "x64 · MSIX package", icon: "▣", key: "windows-msix" },
+  { test: (n) => /macos|mac-?osx|darwin/i.test(n), os: "macOS", sub: "universal · zipped app", icon: "▥", key: "macos" },
+  { test: (n) => /windows|win/i.test(n) || /^release\.zip$/i.test(n), os: "Windows", sub: "x64 · portable, no installer", icon: "▣", key: "windows" },
+  { test: (n) => /\.deb$/i.test(n), os: "Linux", sub: "amd64 · Debian / Ubuntu package", icon: "▤", key: "linux" },
+  { test: (n) => /linux|\.tar\.gz$/i.test(n), os: "Linux", sub: "x86_64 · portable bundle", icon: "▤", key: "linux" },
+  { test: (n) => /\.ipa$/i.test(n) || /(^|[_-])ios/i.test(n), os: "iOS", sub: "arm64 · sideload IPA", icon: "◈", key: "ios" },
 ];
 
 function detectPlatform() {
   const ua = navigator.userAgent;
   if (/Android/i.test(ua)) return /arm64|aarch64/i.test(ua) ? "arm64" : "armv7";
+  if (/Macintosh|Mac OS X/i.test(ua)) return "macos";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
   if (/Win/i.test(navigator.platform || ua)) return "windows";
+  if (/Linux|X11/i.test(ua)) return "linux";
   return null;
 }
 
@@ -31,7 +40,7 @@ function formatDate(iso) {
 
 function matchPlatform(name) {
   for (const p of PLATFORMS) {
-    if (p.test.test(name)) return p;
+    if (typeof p.test === "function" ? p.test(name) : p.test.test(name)) return p;
   }
   return null;
 }
@@ -76,9 +85,12 @@ async function loadLatestRelease() {
     for (const asset of assets) {
       const p = matchPlatform(asset.name);
       const isRec = !recommendedShown && p && (
-        (detected === "arm64" && p.sub.includes("arm64")) ||
-        (detected === "armv7" && p.sub.includes("armv7")) ||
-        (detected === "windows" && p.os === "Windows") ||
+        (detected === "arm64" && p.key === "arm64") ||
+        (detected === "armv7" && p.key === "armv7") ||
+        (detected === "windows" && p.key === "windows") ||
+        (detected === "linux" && p.key === "linux") ||
+        (detected === "macos" && p.key === "macos") ||
+        (detected === "ios" && p.key === "ios") ||
         detected === null
       );
       if (isRec) recommendedShown = true;

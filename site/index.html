@@ -1,474 +1,607 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sautiplay — Audio Player for Audiophiles</title>
-<meta name="description" content="Sautiplay is a cross-platform audiophile music player. Bit-perfect output, multiband DSP, GLSL visualizers, DLNA, and more. Built on the Sautiflow engine.">
-<link rel="icon" href="assets/icon.png" type="image/png">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sautiplay — Audio Player for Audiophiles</title>
+  <meta name="description"
+    content="Sautiplay is a cross-platform audiophile music player. Bit-perfect output, multiband DSP, GLSL visualizers, DLNA, and more. Built on the Sautiflow engine.">
+  <link rel="icon" href="assets/icon.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,900&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<header class="masthead">
-  <div class="wrap masthead-row">
-    <a class="wordmark" href="#top">SAUTIPLAY<span class="reg">®</span></a>
-    <nav class="mono-nav">
-      <a href="#intro">Intro</a>
-      <a href="#origin">Origin</a>
-      <a href="#features">Features</a>
-      <a href="#shots">Shots</a>
-      <a href="#download">Download</a>
-      <a href="#faq">FAQ</a>
-      <a href="#dev">Developer</a>
-      <a href="#community">Community</a>
-      <a href="#credits">Credits</a>
-      <a class="nav-docs" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">Docs ↗</a>
-    </nav>
-    <a class="ver-badge mono" id="ver-badge" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener" title="Open the Sautiflow documentation">v—</a>
-  </div>
-</header>
-
-<main id="top">
-
-  <!-- ============ HERO ============ -->
-  <section class="hero wrap">
-    <p class="mono kicker">MODEL SP-01 · HIGH-FIDELITY PLAYBACK UNIT · OWNER'S MANUAL</p>
-    <h1>Every sample,<br><em>exactly</em> as recorded.</h1>
-    <p class="lede">Sautiplay is a free, open-source music player built for anyone who cares about
-    how their music actually sounds. Direct hardware playback, top-tier resamplers, parametric EQ,
-    and responsive shader visualizers — wrapped in a clean Material 3 Expressive interface, on Android and Windows.</p>
-    <div class="hero-cta">
-      <a class="btn btn-solid" href="https://github.com/wambugu71/sautiflow/releases/latest" target="_blank" rel="noopener">Download latest ↓</a>
-      <a class="btn btn-line" href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">Source on GitHub ↗</a>
+  <header class="masthead">
+    <div class="wrap masthead-row">
+      <a class="wordmark" href="#top">SAUTIPLAY<span class="reg">®</span></a>
+      <nav class="mono-nav">
+        <a href="#intro">Intro</a>
+        <a href="#origin">Origin</a>
+        <a href="#features">Features</a>
+        <a href="#shots">Shots</a>
+        <a href="#download">Download</a>
+        <a href="downloads/">Releases</a>
+        <a href="#faq">FAQ</a>
+        <a href="#dev">Developer</a>
+        <a href="#community">Community</a>
+        <a href="#credits">Credits</a>
+        <a class="nav-docs" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">Docs ↗</a>
+      </nav>
+      <a class="ver-badge mono" id="ver-badge" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener"
+        title="Open the Sautiflow documentation">v—</a>
     </div>
-    <dl class="hero-specs mono">
-      <div><dt>SAMPLE RATES</dt><dd>8 kHz – 384 kHz</dd></div>
-      <div><dt>DSP PATH</dt><dd>64-bit float</dd></div>
-      <div><dt>OUTPUT</dt><dd>Bit-perfect / WASAPI exclusive</dd></div>
-      <div><dt>CHANNELS</dt><dd>Mono → 7.1 surround</dd></div>
-    </dl>
-  </section>
+  </header>
 
-  <!-- ============ 01 INTRO ============ -->
-  <section id="intro" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">01</span>
-      <h2>Introduction</h2>
-    </header>
-    <div class="chapter-body two-col">
-      <div>
-        <p class="dropcap">Most music players just hand your audio over to the operating system's
-        shared mixer and let it do whatever it wants — which usually means coarse resampling, forced
-        compression, and unwanted sound modifications. Sautiplay was built to avoid all of that.</p>
-        <p>At its heart is <strong>Sautiflow</strong>, a custom low-latency C++ audio engine. Instead of
-        relying on high-level system wrappers, Sautiplay talks directly to low-level hardware paths like
-        AAudio MMAP on Android and WASAPI exclusive on Windows. It embeds proven, mastering-grade
-        resamplers (<code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>) so that
-        when your songs have different sample rates, they stay clean and distortion-free.</p>
-        <p>There are no accounts, no tracking, and no ads. Just your music, your device, and clean sound.</p>
+  <main id="top">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero wrap">
+      <p class="mono kicker">MODEL SP-01 · HIGH-FIDELITY PLAYBACK UNIT · OWNER'S MANUAL</p>
+      <h1>Every sample,<br><em>exactly</em> as recorded.</h1>
+      <p class="lede">Sautiplay is a free, open-source music player built for anyone who cares about
+        how their music actually sounds. Direct hardware playback, top-tier resamplers, parametric EQ,
+        and responsive shader visualizers — wrapped in a clean Material 3 Expressive interface, on Android and Windows.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-solid" href="https://download.sautiflow.us.ci" target="_blank" rel="noopener">Download latest
+          ↓</a>
+        <a class="btn btn-line" href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">Source on
+          GitHub ↗</a>
       </div>
-      <aside class="spec-card mono">
-        <h3>// ENGINE CARD</h3>
-        <ul>
-          <li><span>ENGINE</span><b>Sautiflow <a class="ver-link" href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener" title="Read the Sautiflow docs">v0.6.29</a></b></li>
-          <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
-          <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
-          <li><span>CORE</span><b>C++ · miniaudio</b></li>
-          <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
-          <li><span>LICENSE</span><b>Open source</b></li>
-          <li><span>BUILDS</span><b>GitHub Actions (public)</b></li>
-        </ul>
-      </aside>
-    </div>
-  </section>
-
-  <!-- ============ 02 ORIGIN ============ -->
-  <section id="origin" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">02</span>
-      <h2>Why Sautiplay Was Built</h2>
-    </header>
-    <p class="chapter-sub">How a 2023 search for simple, clean Android playback turned into building a custom low-latency engine.</p>
-
-    <div class="chapter-body two-col">
-      <div>
-        <p class="dropcap">Sautiplay started back in <strong>2023</strong>. At first, the goal was simple:
-        make a basic, clean music app for Android that could deliver near bit-perfect sound without all
-        the clutter, ads, and confusing menus found in existing players.</p>
-
-        <p>The real roadblock was Android itself. Real music collections are full of random sample rates —
-        44.1&nbsp;kHz CD rips, 48&nbsp;kHz video audio, 96&nbsp;kHz and 192&nbsp;kHz files. Android's native
-        audio mixer forces all of them through a mediocre system resampler. Worse, phone makers bake in forced
-        sound "enhancements" — OEM equalizers, Dolby Atmos, and DTS:X — that color and ruin the sound.
-        Usually, the only way around that was rooting the device.</p>
-
-        <p>To fix this properly, I built a custom low-latency C++ engine from scratch: <strong>Sautiflow</strong>.
-        By requesting low-latency MMAP buffers through Android's native AAudio API, Sautiplay bypasses the
-        system mixer and skips past forced OEM sound processing on supported devices — completely root-free.
-        And because real Android devices can reject bit-perfect or direct MMAP streams, the engine is designed
-        to adapt gracefully instead of failing.</p>
-      </div>
-
-      <aside class="spec-card mono">
-        <h3>// THE ORIGINAL GOAL</h3>
-        <ul>
-          <li><span>STARTED</span><b>2023 · Personal Project</b></li>
-          <li><span>AUDIO BACKEND</span><b>AAudio (Native C++)</b></li>
-          <li><span>STREAM MODE</span><b>Low-Latency MMAP</b></li>
-          <li><span>OEM DSP</span><b>Bypassed (on supported devices)</b></li>
-          <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
-          <li><span>ROOT REQUIRED</span><b>No (Clean User-Space)</b></li>
-          <li><span>DAC RATE MATCH</span><b>Automatic per song</b></li>
-          <li><span>DEVICE FALLBACK</span><b>Clean internal floating-point</b></li>
-        </ul>
-      </aside>
-    </div>
-
-    <div class="feat-grid" style="margin-top: 36px;">
-      <article class="feat">
-        <h3 class="mono">01 — BYPASSING OEM SOUND (ON SUPPORTED DEVICES)</h3>
-        <ul>
-          <li>Requests low-latency MMAP buffers via Android's native AAudio API.</li>
-          <li>Sends audio directly to the driver path on supported devices that allow it.</li>
-          <li>Steps clean around Android's shared mixer and forced OEM junk (Dolby Atmos, DTS:X, factory EQs).</li>
-          <li>Delivers clean audio without rooting — and handles device rejections gracefully if the HAL says no.</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">02 — PROPER BUILT-IN RESAMPLERS</h3>
-        <ul>
-          <li>Songs in real collections come in all kinds of sample rates (44.1, 48, 88.2, 96, 192&nbsp;kHz).</li>
-          <li>Instead of trusting Android's sloppy system resampler, the engine packs top-grade resamplers: <code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>.</li>
-          <li>Local tracks get clean sinc math with zero audible distortion or muffled highs.</li>
-          <li>Online network streams play through FFmpeg's default resampler for fast, reliable live decoding.</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">03 — OPEN-SOURCE DSP ALGORITHMS</h3>
-        <ul>
-          <li>Instead of untested sound gimmicks, the engine relies on proven open-source DSP algorithms.</li>
-          <li>Uses RBJ Audio EQ Cookbook equations for parametric, shelving, and notch biquads.</li>
-          <li>BS2B crossfeed for fatigue-free headphone listening and partitioned FFT convolution for impulse responses.</li>
-          <li>Simulated and verified in MATLAB first to ensure mathematical accuracy before native C++ implementation.</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">04 — AUTO-RATE MATCHING &amp; REAL-WORLD ANDROID QUIRKS</h3>
-        <ul>
-          <li><strong>Song-to-DAC Rate Matching:</strong> Whenever your device or DAC supports it, Sautiplay automatically switches its sample rate to match the playing song.</li>
-          <li><strong>Handling Rejections Gracefully:</strong> Android hardware varies wildly. Some phones gladly accept bit-perfect or MMAP output, while others reject it outright.</li>
-          <li><strong>Smart Fallback:</strong> If a device rejects strict bit-perfect mode, Sautiplay stays locked into low-latency AAudio buffers and lets its own clean floating-point engine do the conversion.</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
-  <!-- ============ 03 FEATURES ============ -->
-  <section id="features" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">03</span>
-      <h2>Feature Specification</h2>
-    </header>
-    <p class="chapter-sub">Grouped by subsystem. All DSP operates in real time with live parameter updates — no playback interruption.</p>
-
-    <div class="feat-grid">
-      <article class="feat">
-        <h3 class="mono">F/01 — SIGNAL PATH</h3>
-        <ul>
-          <li>True 64-bit float DSP pipeline with zero-allocation buffer safety</li>
-          <li>Auto Bit-Perfect mode with exclusive MMAP &amp; low-latency profiles (on supported devices)</li>
-          <li>Hardware sample-rate matching; auto rate-switch for DACs</li>
-          <li>Remez equiripple polyphase oversampling (2x/4x) &amp; TPDF dither</li>
-          <li>Loudness normalization to BS.1770-4 LUFS + true-peak limiter</li>
-        </ul>
-      </article>
-      <article class="feat">
-        <h3 class="mono">F/02 — DSP SUITE</h3>
-        <ul>
-          <li>Multiband parametric equalizers with Bell, Tilt, Shelf &amp; Notch filters</li>
-          <li>Studio Dattorro diffuse tank reverb with quadrature LFO modulation</li>
-          <li>Crossfeed &amp; Ambiophonics R.A.C.E. with soundstage view</li>
-          <li>Convolver (impulse responses), DDC, delay, stereo widen &amp; dynamic bass</li>
-          <li>Polarity invert, L/R swap, per-channel gain; AutoEQ import</li>
-        </ul>
-      </article>
-      <article class="feat">
-        <h3 class="mono">F/03 — SOURCES &amp; STREAMING</h3>
-        <ul>
-          <li>YouTube Music search, streaming &amp; playlist import</li>
-          <li>DLNA cast-out plus built-in DLNA receiver (MediaRenderer)</li>
-          <li>FTP browsing, direct URL streams, disk-cached online playback</li>
-          <li>Last.fm scrobbling with persistent sign-in</li>
-        </ul>
-      </article>
-      <article class="feat">
-        <h3 class="mono">F/04 — LIBRARY &amp; UX</h3>
-        <ul>
-          <li>Gapless playback, loudness-aware crossfade, A-B repeat loop</li>
-          <li>Material 3 Expressive interface with dynamic theming</li>
-          <li>Lyrics view, M3U playlists, dedupe by file-content hash</li>
-          <li>Desktop system tray, native notifications, waveform extraction</li>
-        </ul>
-      </article>
-      <article class="feat feat-wide">
-        <h3 class="mono">F/05 — VISUALIZERS</h3>
-        <ul class="chip-list mono">
-          <li>Physics Dot Matrix</li><li>Fluid Wave Area</li><li>Cyber Tunnel</li><li>Plasma Sphere</li>
-          <li>Neon Spectrum</li><li>Warp Vortex</li><li>Solar Flare</li><li>Cyber Grid</li>
-          <li>Quantum Nebula</li><li>Electric Ring</li><li>Bars 3D</li><li>Kaleidoscope</li>
-          <li>Lattice</li><li>Biolum Waves</li><li>Starburst</li><li>Matrix Rain</li>
-          <li>Vaporwave Sun</li><li>Cyber City</li><li>Quantum Aurora</li><li>Black Hole</li>
-          <li>Cymatics</li><li>Particle Vortex</li><li>DNA Helix</li><li>Supernova</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
-  <!-- ============ 04 SCREENSHOTS ============ -->
-  <section id="shots" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">04</span>
-      <h2>Screenshots</h2>
-    </header>
-    <p class="chapter-sub">Captured from working builds — Android and Windows. Click any plate to enlarge.</p>
-
-    <div class="phone-strip">
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-01.jpg" data-caption="PLATE 01 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-01.jpg" alt="Sautiplay on Android — screenshot 1 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 01 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-02.jpg" data-caption="PLATE 02 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-02.jpg" alt="Sautiplay on Android — screenshot 2 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 02 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-03.jpg" data-caption="PLATE 03 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-03.jpg" alt="Sautiplay on Android — screenshot 3 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 03 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-04.jpg" data-caption="PLATE 04 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-04.jpg" alt="Sautiplay on Android — screenshot 4 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 04 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-05.jpg" data-caption="PLATE 05 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-05.jpg" alt="Sautiplay on Android — screenshot 5 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 05 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-06.jpg" data-caption="PLATE 06 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-06.jpg" alt="Sautiplay on Android — screenshot 6 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 06 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-07.jpg" data-caption="PLATE 07 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-07.jpg" alt="Sautiplay on Android — screenshot 7 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 07 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-08.jpg" data-caption="PLATE 08 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-08.jpg" alt="Sautiplay on Android — screenshot 8 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 08 — ANDROID</figcaption>
-      </figure>
-      <figure class="shot shot-phone">
-        <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-09.jpg" data-caption="PLATE 09 — ANDROID">
-          <img src="assets/screenshots/mobile/mobile-09.jpg" alt="Sautiplay on Android — screenshot 9 of 9" width="720" height="1600" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 09 — ANDROID</figcaption>
-      </figure>
-    </div>
-
-    <div class="desktop-grid">
-      <figure class="shot shot-desktop">
-        <button class="frame desktop-frame shot-btn" type="button" data-full="assets/screenshots/desktop/desktop-01.png" data-caption="PLATE 10 — WINDOWS">
-          <img src="assets/screenshots/desktop/desktop-01.png" alt="Sautiplay on Windows — screenshot 1 of 5" width="1266" height="713" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 10 — WINDOWS</figcaption>
-      </figure>
-      <figure class="shot shot-desktop">
-        <button class="frame desktop-frame shot-btn" type="button" data-full="assets/screenshots/desktop/desktop-02.png" data-caption="PLATE 11 — WINDOWS">
-          <img src="assets/screenshots/desktop/desktop-02.png" alt="Sautiplay on Windows — screenshot 2 of 5" width="1266" height="713" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 11 — WINDOWS</figcaption>
-      </figure>
-      <figure class="shot shot-desktop">
-        <button class="frame desktop-frame shot-btn" type="button" data-full="assets/screenshots/desktop/desktop-03.png" data-caption="PLATE 12 — WINDOWS">
-          <img src="assets/screenshots/desktop/desktop-03.png" alt="Sautiplay on Windows — screenshot 3 of 5" width="1266" height="713" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 12 — WINDOWS</figcaption>
-      </figure>
-      <figure class="shot shot-desktop">
-        <button class="frame desktop-frame shot-btn" type="button" data-full="assets/screenshots/desktop/desktop-04.png" data-caption="PLATE 13 — WINDOWS">
-          <img src="assets/screenshots/desktop/desktop-04.png" alt="Sautiplay on Windows — screenshot 4 of 5" width="1266" height="713" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 13 — WINDOWS</figcaption>
-      </figure>
-      <figure class="shot shot-desktop">
-        <button class="frame desktop-frame shot-btn" type="button" data-full="assets/screenshots/desktop/desktop-05.png" data-caption="PLATE 14 — WINDOWS">
-          <img src="assets/screenshots/desktop/desktop-05.png" alt="Sautiplay on Windows — screenshot 5 of 5" width="1266" height="713" loading="lazy" decoding="async">
-        </button>
-        <figcaption class="mono">PLATE 14 — WINDOWS</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <!-- ============ 05 DOWNLOAD ============ -->
-  <section id="download" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">05</span>
-      <h2>Downloads</h2>
-    </header>
-    <p class="chapter-sub">Links are fetched live from GitHub Releases. Recommended build is highlighted for your platform.</p>
-
-    <div class="release-panel">
-      <div class="release-head mono">
-        <span id="rel-tag">LATEST RELEASE</span>
-        <span id="rel-date"></span>
-      </div>
-
-      <div id="assets" class="asset-list" aria-live="polite">
-        <div class="loading-state mono" id="rel-loading">
-          QUERYING GITHUB API<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+      <dl class="hero-specs mono">
+        <div>
+          <dt>SAMPLE RATES</dt>
+          <dd>8 kHz – 384 kHz</dd>
         </div>
+        <div>
+          <dt>DSP PATH</dt>
+          <dd>64-bit float</dd>
+        </div>
+        <div>
+          <dt>OUTPUT</dt>
+          <dd>Bit-perfect / WASAPI exclusive</dd>
+        </div>
+        <div>
+          <dt>CHANNELS</dt>
+          <dd>Mono → 7.1 surround</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ============ 01 INTRO ============ -->
+    <section id="intro" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">01</span>
+        <h2>Introduction</h2>
+      </header>
+      <div class="chapter-body two-col">
+        <div>
+          <p class="dropcap">Most music players just hand your audio over to the operating system's
+            shared mixer and let it do whatever it wants — which usually means coarse resampling, forced
+            compression, and unwanted sound modifications. Sautiplay was built to avoid all of that.</p>
+          <p>At its heart is <strong>Sautiflow</strong>, a custom low-latency C++ audio engine. Instead of
+            relying on high-level system wrappers, Sautiplay talks directly to low-level hardware paths like
+            AAudio MMAP on Android and WASAPI exclusive on Windows. It embeds proven, mastering-grade
+            resamplers (<code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>) so that
+            when your songs have different sample rates, they stay clean and distortion-free.</p>
+          <p>There are no accounts, no tracking, and no ads. Just your music, your device, and clean sound.</p>
+        </div>
+        <aside class="spec-card mono">
+          <h3>// ENGINE CARD</h3>
+          <ul>
+            <li><span>ENGINE</span><b>Sautiflow <a class="ver-link" href="https://docs.sautiflow.us.ci" target="_blank"
+                  rel="noopener" title="Read the Sautiflow docs">v0.6.29</a></b></li>
+            <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
+            <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
+            <li><span>CORE</span><b>C++ · miniaudio</b></li>
+            <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
+            <li><span>LICENSE</span><b>Open source</b></li>
+            <li><span>BUILDS</span><b>GitHub Actions (public)</b></li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============ 02 ORIGIN ============ -->
+    <section id="origin" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">02</span>
+        <h2>Why Sautiplay Was Built</h2>
+      </header>
+      <p class="chapter-sub">How a 2023 search for simple, clean Android playback turned into building a custom
+        low-latency engine.</p>
+
+      <div class="chapter-body two-col">
+        <div>
+          <p class="dropcap">Sautiplay started back in <strong>2023</strong>. At first, the goal was simple:
+            make a basic, clean music app for Android that could deliver near bit-perfect sound without all
+            the clutter, ads, and confusing menus found in existing players.</p>
+
+          <p>The real roadblock was Android itself. Real music collections are full of random sample rates —
+            44.1&nbsp;kHz CD rips, 48&nbsp;kHz video audio, 96&nbsp;kHz and 192&nbsp;kHz files. Android's native
+            audio mixer forces all of them through a mediocre system resampler. Worse, phone makers bake in forced
+            sound "enhancements" — OEM equalizers, Dolby Atmos, and DTS:X — that color and ruin the sound.
+            Usually, the only way around that was rooting the device.</p>
+
+          <p>To fix this properly, I built a custom low-latency C++ engine from scratch: <strong>Sautiflow</strong>.
+            By requesting low-latency MMAP buffers through Android's native AAudio API, Sautiplay bypasses the
+            system mixer and skips past forced OEM sound processing on supported devices — completely root-free.
+            And because real Android devices can reject bit-perfect or direct MMAP streams, the engine is designed
+            to adapt gracefully instead of failing.</p>
+        </div>
+
+        <aside class="spec-card mono">
+          <h3>// THE ORIGINAL GOAL</h3>
+          <ul>
+            <li><span>STARTED</span><b>2023 · Personal Project</b></li>
+            <li><span>AUDIO BACKEND</span><b>AAudio (Native C++)</b></li>
+            <li><span>STREAM MODE</span><b>Low-Latency MMAP</b></li>
+            <li><span>OEM DSP</span><b>Bypassed (on supported devices)</b></li>
+            <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
+            <li><span>ROOT REQUIRED</span><b>No (Clean User-Space)</b></li>
+            <li><span>DAC RATE MATCH</span><b>Automatic per song</b></li>
+            <li><span>DEVICE FALLBACK</span><b>Clean internal floating-point</b></li>
+          </ul>
+        </aside>
       </div>
 
-      <noscript><p class="mono noscript-note">JavaScript disabled — fetch all builds directly:
-        <a href="https://github.com/wambugu71/sautiflow/releases/latest" target="_blank" rel="noopener">github.com/wambugu71/sautiflow/releases/latest</a></p></noscript>
+      <div class="feat-grid" style="margin-top: 36px;">
+        <article class="feat">
+          <h3 class="mono">01 — BYPASSING OEM SOUND (ON SUPPORTED DEVICES)</h3>
+          <ul>
+            <li>Requests low-latency MMAP buffers via Android's native AAudio API.</li>
+            <li>Sends audio directly to the driver path on supported devices that allow it.</li>
+            <li>Steps clean around Android's shared mixer and forced OEM junk (Dolby Atmos, DTS:X, factory EQs).</li>
+            <li>Delivers clean audio without rooting — and handles device rejections gracefully if the HAL says no.</li>
+          </ul>
+        </article>
 
-      <p class="mono release-foot">All builds produced by public CI from tagged source.
-        Older versions: <a href="https://github.com/wambugu71/sautiflow/releases" target="_blank" rel="noopener">releases archive ↗</a></p>
-    </div>
-  </section>
+        <article class="feat">
+          <h3 class="mono">02 — PROPER BUILT-IN RESAMPLERS</h3>
+          <ul>
+            <li>Songs in real collections come in all kinds of sample rates (44.1, 48, 88.2, 96, 192&nbsp;kHz).</li>
+            <li>Instead of trusting Android's sloppy system resampler, the engine packs top-grade resamplers:
+              <code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>.
+            </li>
+            <li>Local tracks get clean sinc math with zero audible distortion or muffled highs.</li>
+            <li>Online network streams play through FFmpeg's default resampler for fast, reliable live decoding.</li>
+          </ul>
+        </article>
 
-  <!-- ============ 06 FAQ ============ -->
-  <section id="faq" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">06</span>
-      <h2>Frequently Asked Questions</h2>
-    </header>
-    <p class="chapter-sub">Clear answers on bit-perfect playback, Android audio routing, resampling, and DSP features.</p>
+        <article class="feat">
+          <h3 class="mono">03 — OPEN-SOURCE DSP ALGORITHMS</h3>
+          <ul>
+            <li>Instead of untested sound gimmicks, the engine relies on proven open-source DSP algorithms.</li>
+            <li>Uses RBJ Audio EQ Cookbook equations for parametric, shelving, and notch biquads.</li>
+            <li>BS2B crossfeed for fatigue-free headphone listening and partitioned FFT convolution for impulse
+              responses.</li>
+            <li>Simulated and verified in MATLAB first to ensure mathematical accuracy before native C++ implementation.
+            </li>
+          </ul>
+        </article>
 
-    <div class="feat-grid">
-      <article class="feat">
-        <h3 class="mono">Q: WHY DOES MY DEVICE SAY "HARDWARE DECLINED EXCLUSIVE MODE"?</h3>
-        <p>Android devices have wildly different hardware abstraction layers (HALs). When you request Bit-Perfect Exclusive mode, Sautiplay asks the operating system for direct, unmixed hardware access (via AAudio MMAP).</p>
-        <p>Some internal phone DACs and vendor ROMs decline this exclusive lock. When that happens, Sautiplay doesn't crash or fail — it notifies you and falls back to low-latency shared mode, using its own clean internal floating-point engine for any required processing.</p>
-      </article>
+        <article class="feat">
+          <h3 class="mono">04 — AUTO-RATE MATCHING &amp; REAL-WORLD ANDROID QUIRKS</h3>
+          <ul>
+            <li><strong>Song-to-DAC Rate Matching:</strong> Whenever your device or DAC supports it, Sautiplay
+              automatically switches its sample rate to match the playing song.</li>
+            <li><strong>Handling Rejections Gracefully:</strong> Android hardware varies wildly. Some phones gladly
+              accept bit-perfect or MMAP output, while others reject it outright.</li>
+            <li><strong>Smart Fallback:</strong> If a device rejects strict bit-perfect mode, Sautiplay stays locked
+              into low-latency AAudio buffers and lets its own clean floating-point engine do the conversion.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
 
-      <article class="feat">
-        <h3 class="mono">Q: WHEN BIT-PERFECT IS ENABLED, IS IT ACTUALLY BIT-PERFECT?</h3>
-        <p>It depends on your music files, your DAC hardware capabilities, and your operating system platform:</p>
-        <p><strong>Random Song Formats vs. DAC Capabilities:</strong> Music tracks come in arbitrary sample rates (44.1, 48, 88.2, 96, 192&nbsp;kHz) and bit depths (16, 24, 32-bit float). However, physical DACs only support a discrete list of native hardware clocks and formats. If a song's sample rate or bit depth is not natively supported by your DAC hardware, mathematically exact 1:1 bit transmission without conversion is impossible — the audio stream must be resampled or format-adapted.</p>
-        <p><strong>On Android:</strong> Audio fidelity is not 100% guaranteed on every device due to restrictive OEM HALs and the system <code>AudioFlinger</code> mixer, which typically forces 48&nbsp;kHz resampling. However, when enabled in Sautiplay, it requests native AAudio MMAP Exclusive mode on supported devices, bypassing system mixing entirely and taking direct hardware control. On devices where exclusive mode is declined by the HAL, Sautiplay falls back cleanly to its transparent 64-bit float engine.</p>
-        <p><strong>On Desktop:</strong> Bit-perfect playback works exceptionally well. Using WASAPI Exclusive on Windows (or direct ALSA on Linux), Sautiplay acquires full exclusive ownership of the audio endpoint, reconfigures the DAC clock dynamically to match the track's native sample rate and bit depth, and outputs pristine, unaltered 1:1 audio with zero system mixing.</p>
-      </article>
+    <!-- ============ 03 FEATURES ============ -->
+    <section id="features" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">03</span>
+        <h2>Feature Specification</h2>
+      </header>
+      <p class="chapter-sub">Grouped by subsystem. All DSP operates in real time with live parameter updates — no
+        playback interruption.</p>
 
-      <article class="feat">
-        <h3 class="mono">Q: HOW DOES AUTO-RATE MATCHING DIFFER FROM BIT-PERFECT?</h3>
-        <p>Bit-Perfect mode attempts to lock exclusive ownership of the hardware output so no other app or system notification can mix in.</p>
-        <p><strong>Auto Sample-Rate Match</strong> detects the exact sample rate of whatever song you're playing (44.1, 48, 96, 192&nbsp;kHz) and asks the DAC to switch its internal clock to match that track. If both are on, Sautiplay manages rate-switching and exclusive access together.</p>
-      </article>
+      <div class="feat-grid">
+        <article class="feat">
+          <h3 class="mono">F/01 — SIGNAL PATH</h3>
+          <ul>
+            <li>True 64-bit float DSP pipeline with zero-allocation buffer safety</li>
+            <li>SIMD acceleration (ARM NEON &amp; x86 SSE/AVX/FMA) across 14 high-compute modules</li>
+            <li>Auto Bit-Perfect mode with exclusive MMAP &amp; low-latency profiles (on supported devices)</li>
+            <li>Hardware sample-rate matching; auto rate-switch for DACs</li>
+            <li>Remez equiripple polyphase oversampling (2x/4x) &amp; TPDF dither</li>
+            <li>Loudness normalization to BS.1770-4 LUFS + true-peak limiter</li>
+          </ul>
+        </article>
+        <article class="feat">
+          <h3 class="mono">F/02 — DSP SUITE</h3>
+          <ul>
+            <li>Parametric EQs (Bell, Tilt, Shelf, Notch) &amp; 6-band Dynamic Parametric EQ</li>
+            <li>OpenStage acoustic crossfeed (ITD/shelving model) &amp; Ambiophonics R.A.C.E.</li>
+            <li>Broadcast Leveller (EBU R128 AGC), Studio Noise Gate &amp; ISO 226 Dynamic Loudness</li>
+            <li>Studio Dattorro diffuse tank reverb with quadrature LFO modulation</li>
+            <li>Vintage Tape Drift, Convolver (impulse responses), DDC, delay &amp; dynamic bass</li>
+            <li>Polarity invert, L/R swap, per-channel gain; M3E AutoEQ import</li>
+          </ul>
+        </article>
+        <article class="feat">
+          <h3 class="mono">F/03 — SOURCES &amp; STREAMING</h3>
+          <ul>
+            <li>YouTube Music search, streaming &amp; playlist import</li>
+            <li>Unified FFmpeg streaming decoder with automatic local file fallback</li>
+            <li>DLNA cast-out plus built-in DLNA receiver (MediaRenderer)</li>
+            <li>FTP browsing, direct URL streams, disk-cached online playback</li>
+            <li>Last.fm scrobbling with persistent sign-in</li>
+          </ul>
+        </article>
+        <article class="feat">
+          <h3 class="mono">F/04 — LIBRARY &amp; UX</h3>
+          <ul>
+            <li>High-refresh waveform seek bar (60–120 Hz) with batched point rendering</li>
+            <li>Material 3 Expressive interface with dynamic theming &amp; AutoEQ manager</li>
+            <li>Gapless playback, loudness-aware crossfade, A-B repeat loop</li>
+            <li>Lyrics view, M3U playlists, dedupe by file-content hash</li>
+            <li>Desktop system tray, native notifications, background isolate extraction</li>
+          </ul>
+        </article>
+        <article class="feat feat-wide">
+          <h3 class="mono">F/05 — VISUALIZERS</h3>
+          <ul class="chip-list mono">
+            <li>Live Stereo Goniometer</li>
+            <li>Phase Correlation Bar</li>
+            <li>Physics Dot Matrix</li>
+            <li>Fluid Wave Area</li>
+            <li>Cyber Tunnel</li>
+            <li>Plasma Sphere</li>
+            <li>Neon Spectrum</li>
+            <li>Warp Vortex</li>
+            <li>Solar Flare</li>
+            <li>Cyber Grid</li>
+            <li>Quantum Nebula</li>
+            <li>Electric Ring</li>
+            <li>Bars 3D</li>
+            <li>Kaleidoscope</li>
+            <li>Lattice</li>
+            <li>Biolum Waves</li>
+            <li>Starburst</li>
+            <li>Matrix Rain</li>
+            <li>Vaporwave Sun</li>
+            <li>Cyber City</li>
+            <li>Quantum Aurora</li>
+            <li>Black Hole</li>
+            <li>Cymatics</li>
+            <li>Particle Vortex</li>
+            <li>DNA Helix</li>
+            <li>Supernova</li>
+          </ul>
+        </article>
+      </div>
+    </section>
 
-      <article class="feat">
-        <h3 class="mono">Q: HOW DOES SAUTIPLAY BYPASS OEM EQUALIZERS &amp; DOLBY ATMOS WITHOUT ROOT?</h3>
-        <p>On supported Android devices, Sautiplay requests low-latency MMAP (Memory-Mapped) streams through Android's native AAudio C API.</p>
-        <p>When supported, MMAP audio writes directly to the ALSA driver and DSP hardware, completely bypassing Android's user-space <code>AudioFlinger</code> mixer where forced OEM sound "enhancements" (Dolby Atmos, DTS:X, and factory equalizers) are normally injected. No root required.</p>
-      </article>
+    <!-- ============ 04 SCREENSHOTS ============ -->
+    <section id="shots" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">04</span>
+        <h2>Screenshots</h2>
+      </header>
+      <p class="chapter-sub">Captured from working builds — Android and Windows. Click any plate to enlarge.</p>
 
-      <article class="feat">
-        <h3 class="mono">Q: WHICH RESAMPLER SHOULD I CHOOSE (LIBSAMPLERATE, R8BRAIN, LIBSOXR)?</h3>
-        <p>All three are top-tier sinc resamplers: <strong>libsamplerate</strong> provides classic mastering-grade sinc conversion; <strong>r8brain</strong> offers ultra-clean linear/minimum phase modes with over -160&nbsp;dB stopband attenuation; and <strong>libsoxr</strong> provides exceptional fidelity with very light CPU usage.</p>
-        <p>For local files, any of the three delivers mathematically transparent rate conversion with zero audible distortion or high-frequency loss.</p>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">Q: WHY DO STREAMING TRACKS USE FFMPEG'S RESAMPLER INSTEAD?</h3>
-        <p>Online streams (like YouTube Music or direct URL radio) require real-time chunk demuxing, variable network bitrates, and live buffering.</p>
-        <p>FFmpeg's built-in <code>swresample</code> is tightly integrated into the streaming decoder pipeline to guarantee glitch-free, instantaneous live playback without buffer underruns.</p>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">Q: WHAT DOES 64-BIT FLOAT PROCESSING DO?</h3>
-        <p>Standard digital audio processing uses 32-bit float (around 144–150&nbsp;dB of dynamic range). When you enable 64-Bit Float Processing in Sautiplay, the entire DSP chain (equalizers, crossfeed, surround virtualizer, limiter, and volume) computes in double precision.</p>
-        <p>This yields over 320&nbsp;dB of internal calculation headroom, completely eliminating accumulated rounding noise or clipping during complex multi-effect chains.</p>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">Q: CAN I IMPORT AUTOEQ PROFILES OR HEADPHONE IMPULSE RESPONSES?</h3>
-        <p>Yes. Sautiplay has native support for AutoEQ (importing parametric or graphic EQ curves for thousands of headphones), Viper4Android VDC/DDC profiles, and a Convolver that can load custom stereo impulse response (.wav) files for acoustic room simulation or headphone correction.</p>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">Q: CAN I CAST TO DLNA OR USE SAUTIPLAY AS A WIRELESS RECEIVER?</h3>
-        <p>Both! Sautiplay can cast out to UPnP/DLNA network speakers and smart TVs. It also includes a built-in DLNA MediaRenderer service that turns Sautiplay into a wireless receiver, letting you stream music from other phones, tablets, or computers on your local Wi-Fi network directly into Sautiplay.</p>
-      </article>
-
-      <article class="feat feat-wide">
-        <h3 class="mono">Q: ARE THERE ADS, TRACKING, OR MANDATORY ACCOUNTS?</h3>
-        <p>None. Sautiplay is 100% open source, privacy-focused, and offline-first. There are zero ads, zero telemetry, and no mandatory account sign-ins. All audio playback, DSP calculations, and library indexing happen entirely locally on your device.</p>
-      </article>
-    </div>
-  </section>
-
-  <!-- ============ 07 DEVELOPER ============ -->
-  <section id="dev" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">07</span>
-      <h2>Developer &amp; Building Guide</h2>
-    </header>
-    <p class="chapter-sub">One unified C++ audio core across all platforms. Here is how to configure and build for your setup.</p>
-
-    <div class="chapter-body two-col">
-      <div>
-        <p class="dropcap">Sautiplay is cross-platform by design. Rather than rewriting audio
-        logic for each operating system, the entire signal path — resamplers, DSP filters,
-        crossfeed, and decoder pipelines — lives inside a shared C++ engine (<strong>Sautiflow</strong>).
-        Dart communicates directly with the native engine via high-performance FFI with zero overhead.</p>
-
-        <p>Whether you're compiling on Android with AAudio, Windows with WASAPI, Linux with ALSA/PulseAudio,
-        or Apple platforms with CoreAudio, the underlying acoustic behavior remains identical.</p>
-
-        <p>To support background audio playback, system media notifications, lockscreen transport controls,
-        and high-resolution native streaming, follow the platform configuration and setup snippets below.</p>
+      <div class="phone-strip">
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-01.jpg"
+            data-caption="PLATE 01 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-01.jpg" alt="Sautiplay on Android — screenshot 1 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 01 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-02.jpg"
+            data-caption="PLATE 02 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-02.jpg" alt="Sautiplay on Android — screenshot 2 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 02 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-03.jpg"
+            data-caption="PLATE 03 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-03.jpg" alt="Sautiplay on Android — screenshot 3 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 03 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-04.jpg"
+            data-caption="PLATE 04 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-04.jpg" alt="Sautiplay on Android — screenshot 4 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 04 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-05.jpg"
+            data-caption="PLATE 05 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-05.jpg" alt="Sautiplay on Android — screenshot 5 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 05 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-06.jpg"
+            data-caption="PLATE 06 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-06.jpg" alt="Sautiplay on Android — screenshot 6 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 06 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-07.jpg"
+            data-caption="PLATE 07 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-07.jpg" alt="Sautiplay on Android — screenshot 7 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 07 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-08.jpg"
+            data-caption="PLATE 08 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-08.jpg" alt="Sautiplay on Android — screenshot 8 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 08 — ANDROID</figcaption>
+        </figure>
+        <figure class="shot shot-phone">
+          <button class="frame phone-frame shot-btn" type="button" data-full="assets/screenshots/mobile/mobile-09.jpg"
+            data-caption="PLATE 09 — ANDROID">
+            <img src="assets/screenshots/mobile/mobile-09.jpg" alt="Sautiplay on Android — screenshot 9 of 9"
+              width="720" height="1600" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 09 — ANDROID</figcaption>
+        </figure>
       </div>
 
-      <aside class="spec-card mono">
-        <h3>// BUILD MATRIX</h3>
-        <ul>
-          <li><span>CORE ENGINE</span><b>C++17 (Sautiflow)</b></li>
-          <li><span>UI LAYER</span><b>Flutter 3.x / Dart</b></li>
-          <li><span>BINDINGS</span><b>Dart FFI (Zero-Copy)</b></li>
-          <li><span>ANDROID</span><b>NDK r25+ · CMake · AAudio</b></li>
-          <li><span>WINDOWS</span><b>MSVC 2022 · WASAPI</b></li>
-          <li><span>LINUX</span><b>GCC/Clang · ALSA · Pulse</b></li>
-          <li><span>APPLE</span><b>Xcode · CoreAudio</b></li>
-        </ul>
-      </aside>
-    </div>
+      <div class="desktop-grid">
+        <figure class="shot shot-desktop">
+          <button class="frame desktop-frame shot-btn" type="button"
+            data-full="assets/screenshots/desktop/desktop-01.png" data-caption="PLATE 10 — WINDOWS">
+            <img src="assets/screenshots/desktop/desktop-01.png" alt="Sautiplay on Windows — screenshot 1 of 5"
+              width="1266" height="713" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 10 — WINDOWS</figcaption>
+        </figure>
+        <figure class="shot shot-desktop">
+          <button class="frame desktop-frame shot-btn" type="button"
+            data-full="assets/screenshots/desktop/desktop-02.png" data-caption="PLATE 11 — WINDOWS">
+            <img src="assets/screenshots/desktop/desktop-02.png" alt="Sautiplay on Windows — screenshot 2 of 5"
+              width="1266" height="713" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 11 — WINDOWS</figcaption>
+        </figure>
+        <figure class="shot shot-desktop">
+          <button class="frame desktop-frame shot-btn" type="button"
+            data-full="assets/screenshots/desktop/desktop-03.png" data-caption="PLATE 12 — WINDOWS">
+            <img src="assets/screenshots/desktop/desktop-03.png" alt="Sautiplay on Windows — screenshot 3 of 5"
+              width="1266" height="713" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 12 — WINDOWS</figcaption>
+        </figure>
+        <figure class="shot shot-desktop">
+          <button class="frame desktop-frame shot-btn" type="button"
+            data-full="assets/screenshots/desktop/desktop-04.png" data-caption="PLATE 13 — WINDOWS">
+            <img src="assets/screenshots/desktop/desktop-04.png" alt="Sautiplay on Windows — screenshot 4 of 5"
+              width="1266" height="713" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 13 — WINDOWS</figcaption>
+        </figure>
+        <figure class="shot shot-desktop">
+          <button class="frame desktop-frame shot-btn" type="button"
+            data-full="assets/screenshots/desktop/desktop-05.png" data-caption="PLATE 14 — WINDOWS">
+            <img src="assets/screenshots/desktop/desktop-05.png" alt="Sautiplay on Windows — screenshot 5 of 5"
+              width="1266" height="713" loading="lazy" decoding="async">
+          </button>
+          <figcaption class="mono">PLATE 14 — WINDOWS</figcaption>
+        </figure>
+      </div>
+    </section>
 
-    <div class="feat-grid" style="margin-top: 36px;">
-      <article class="feat feat-wide">
-        <h3 class="mono">SETUP 01 — ANDROID MANIFEST &amp; BACKGROUND MEDIA SERVICE</h3>
-        <p>For background playback, lockscreen media controls, and notification controls, configure <code>android/app/src/main/AndroidManifest.xml</code>. Note that <code>AudioServiceActivity</code> replaces the default FlutterActivity:</p>
-        <pre class="code-block"><code>&lt;manifest xmlns:android="http://schemas.android.com/apk/res/android"&gt;
+    <!-- ============ 05 DOWNLOAD ============ -->
+    <section id="download" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">05</span>
+        <h2>Downloads</h2>
+      </header>
+      <p class="chapter-sub">Links are fetched live from GitHub Releases. Recommended build is highlighted for your
+        platform.</p>
+
+      <div class="release-panel">
+        <div class="release-head mono">
+          <span id="rel-tag">LATEST RELEASE</span>
+          <span id="rel-date"></span>
+        </div>
+
+        <div id="assets" class="asset-list" aria-live="polite">
+          <div class="loading-state mono" id="rel-loading">
+            QUERYING GITHUB API<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+          </div>
+        </div>
+
+        <noscript>
+          <p class="mono noscript-note">JavaScript disabled — fetch all builds directly:
+            <a href="https://download.sautiflow.us.ci" target="_blank"
+              rel="noopener">download.sautiflow.us.ci</a>
+          </p>
+        </noscript>
+
+        <p class="mono release-foot">All builds produced by public CI from tagged source.
+          Full history: <a href="downloads/">version ledger</a> ·
+          <a href="https://download.sautiflow.us.ci" target="_blank" rel="noopener">releases archive
+            ↗</a>
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 06 FAQ ============ -->
+    <section id="faq" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">06</span>
+        <h2>Frequently Asked Questions</h2>
+      </header>
+      <p class="chapter-sub">Clear answers on bit-perfect playback, Android audio routing, resampling, and DSP features.
+      </p>
+
+      <div class="feat-grid">
+        <article class="feat">
+          <h3 class="mono">Q: WHY DOES MY DEVICE SAY "HARDWARE DECLINED EXCLUSIVE MODE"?</h3>
+          <p>Android devices have wildly different hardware abstraction layers (HALs). When you request Bit-Perfect
+            Exclusive mode, Sautiplay asks the operating system for direct, unmixed hardware access (via AAudio MMAP).
+          </p>
+          <p>Some internal phone DACs and vendor ROMs decline this exclusive lock. When that happens, Sautiplay doesn't
+            crash or fail — it notifies you and falls back to low-latency shared mode, using its own clean internal
+            floating-point engine for any required processing.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: WHEN BIT-PERFECT IS ENABLED, IS IT ACTUALLY BIT-PERFECT?</h3>
+          <p>It depends on your music files, your DAC hardware capabilities, and your operating system platform:</p>
+          <p><strong>Random Song Formats vs. DAC Capabilities:</strong> Music tracks come in arbitrary sample rates
+            (44.1, 48, 88.2, 96, 192&nbsp;kHz) and bit depths (16, 24, 32-bit float). However, physical DACs only
+            support a discrete list of native hardware clocks and formats. If a song's sample rate or bit depth is not
+            natively supported by your DAC hardware, mathematically exact 1:1 bit transmission without conversion is
+            impossible — the audio stream must be resampled or format-adapted.</p>
+          <p><strong>On Android:</strong> Audio fidelity is not 100% guaranteed on every device due to restrictive OEM
+            HALs and the system <code>AudioFlinger</code> mixer, which typically forces 48&nbsp;kHz resampling. However,
+            when enabled in Sautiplay, it requests native AAudio MMAP Exclusive mode on supported devices, bypassing
+            system mixing entirely and taking direct hardware control. On devices where exclusive mode is declined by
+            the HAL, Sautiplay falls back cleanly to its transparent 64-bit float engine.</p>
+          <p><strong>On Desktop:</strong> Bit-perfect playback works exceptionally well. Using WASAPI Exclusive on
+            Windows (or direct ALSA on Linux), Sautiplay acquires full exclusive ownership of the audio endpoint,
+            reconfigures the DAC clock dynamically to match the track's native sample rate and bit depth, and outputs
+            pristine, unaltered 1:1 audio with zero system mixing.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: HOW DOES AUTO-RATE MATCHING DIFFER FROM BIT-PERFECT?</h3>
+          <p>Bit-Perfect mode attempts to lock exclusive ownership of the hardware output so no other app or system
+            notification can mix in.</p>
+          <p><strong>Auto Sample-Rate Match</strong> detects the exact sample rate of whatever song you're playing
+            (44.1, 48, 96, 192&nbsp;kHz) and asks the DAC to switch its internal clock to match that track. If both are
+            on, Sautiplay manages rate-switching and exclusive access together.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: HOW DOES SAUTIPLAY BYPASS OEM EQUALIZERS &amp; DOLBY ATMOS WITHOUT ROOT?</h3>
+          <p>On supported Android devices, Sautiplay requests low-latency MMAP (Memory-Mapped) streams through Android's
+            native AAudio C API.</p>
+          <p>When supported, MMAP audio writes directly to the ALSA driver and DSP hardware, completely bypassing
+            Android's user-space <code>AudioFlinger</code> mixer where forced OEM sound "enhancements" (Dolby Atmos,
+            DTS:X, and factory equalizers) are normally injected. No root required.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: WHICH RESAMPLER SHOULD I CHOOSE (LIBSAMPLERATE, R8BRAIN, LIBSOXR)?</h3>
+          <p>All three are top-tier sinc resamplers: <strong>libsamplerate</strong> provides classic mastering-grade
+            sinc conversion; <strong>r8brain</strong> offers ultra-clean linear/minimum phase modes with over
+            -160&nbsp;dB stopband attenuation; and <strong>libsoxr</strong> provides exceptional fidelity with very
+            light CPU usage.</p>
+          <p>For local files, any of the three delivers mathematically transparent rate conversion with zero audible
+            distortion or high-frequency loss.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: WHY DO STREAMING TRACKS USE FFMPEG'S RESAMPLER INSTEAD?</h3>
+          <p>Online streams (like YouTube Music or direct URL radio) require real-time chunk demuxing, variable network
+            bitrates, and live buffering.</p>
+          <p>FFmpeg's built-in <code>swresample</code> is tightly integrated into the streaming decoder pipeline to
+            guarantee glitch-free, instantaneous live playback without buffer underruns.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: WHAT DOES 64-BIT FLOAT PROCESSING DO?</h3>
+          <p>Standard digital audio processing uses 32-bit float (around 144–150&nbsp;dB of dynamic range). When you
+            enable 64-Bit Float Processing in Sautiplay, the entire DSP chain (equalizers, crossfeed, surround
+            virtualizer, limiter, and volume) computes in double precision.</p>
+          <p>This yields over 320&nbsp;dB of internal calculation headroom, completely eliminating accumulated rounding
+            noise or clipping during complex multi-effect chains.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: CAN I IMPORT AUTOEQ PROFILES OR HEADPHONE IMPULSE RESPONSES?</h3>
+          <p>Yes. Sautiplay has native support for AutoEQ (importing parametric or graphic EQ curves for thousands of
+            headphones), Viper4Android VDC/DDC profiles, and a Convolver that can load custom stereo impulse response
+            (.wav) files for acoustic room simulation or headphone correction.</p>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">Q: CAN I CAST TO DLNA OR USE SAUTIPLAY AS A WIRELESS RECEIVER?</h3>
+          <p>Both! Sautiplay can cast out to UPnP/DLNA network speakers and smart TVs. It also includes a built-in DLNA
+            MediaRenderer service that turns Sautiplay into a wireless receiver, letting you stream music from other
+            phones, tablets, or computers on your local Wi-Fi network directly into Sautiplay.</p>
+        </article>
+
+        <article class="feat feat-wide">
+          <h3 class="mono">Q: ARE THERE ADS, TRACKING, OR MANDATORY ACCOUNTS?</h3>
+          <p>None. Sautiplay is 100% open source, privacy-focused, and offline-first. There are zero ads, zero
+            telemetry, and no mandatory account sign-ins. All audio playback, DSP calculations, and library indexing
+            happen entirely locally on your device.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ 07 DEVELOPER ============ -->
+    <section id="dev" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">07</span>
+        <h2>Developer &amp; Building Guide</h2>
+      </header>
+      <p class="chapter-sub">One unified C++ audio core across all platforms. Here is how to configure and build for
+        your setup.</p>
+
+      <div class="chapter-body two-col">
+        <div>
+          <p class="dropcap">Sautiplay is cross-platform by design. Rather than rewriting audio
+            logic for each operating system, the entire signal path — resamplers, DSP filters,
+            crossfeed, and decoder pipelines — lives inside a shared C++ engine (<strong>Sautiflow</strong>).
+            Dart communicates directly with the native engine via high-performance FFI with zero overhead.</p>
+
+          <p>Whether you're compiling on Android with AAudio, Windows with WASAPI, Linux with ALSA/PulseAudio,
+            or Apple platforms with CoreAudio, the underlying acoustic behavior remains identical.</p>
+
+          <p>To support background audio playback, system media notifications, lockscreen transport controls,
+            and high-resolution native streaming, follow the platform configuration and setup snippets below.</p>
+        </div>
+
+        <aside class="spec-card mono">
+          <h3>// BUILD MATRIX</h3>
+          <ul>
+            <li><span>CORE ENGINE</span><b>C++17 (Sautiflow)</b></li>
+            <li><span>UI LAYER</span><b>Flutter 3.x / Dart</b></li>
+            <li><span>BINDINGS</span><b>Dart FFI (Zero-Copy)</b></li>
+            <li><span>ANDROID</span><b>NDK r25+ · CMake · AAudio</b></li>
+            <li><span>WINDOWS</span><b>MSVC 2022 · WASAPI</b></li>
+            <li><span>LINUX</span><b>GCC/Clang · ALSA · Pulse</b></li>
+            <li><span>APPLE</span><b>Xcode · CoreAudio</b></li>
+          </ul>
+        </aside>
+      </div>
+
+      <div class="feat-grid" style="margin-top: 36px;">
+        <article class="feat feat-wide">
+          <h3 class="mono">SETUP 01 — ANDROID MANIFEST &amp; BACKGROUND MEDIA SERVICE</h3>
+          <p>For background playback, lockscreen media controls, and notification controls, configure
+            <code>android/app/src/main/AndroidManifest.xml</code>. Note that <code>AudioServiceActivity</code> replaces
+            the default FlutterActivity:
+          </p>
+          <pre class="code-block"><code>&lt;manifest xmlns:android="http://schemas.android.com/apk/res/android"&gt;
     &lt;!-- Permissions for background audio playback &amp; Android 13+ notifications --&gt;
     &lt;uses-permission android:name="android.permission.WAKE_LOCK"/&gt;
     &lt;uses-permission android:name="android.permission.FOREGROUND_SERVICE"/&gt;
@@ -507,20 +640,23 @@
         &lt;/receiver&gt;
     &lt;/application&gt;
 &lt;/manifest&gt;</code></pre>
-      </article>
+        </article>
 
-      <article class="feat">
-        <h3 class="mono">SETUP 02 — ANDROID NATIVE STREAMING (GRADLE)</h3>
-        <p>To enable native cURL streaming for online audio and web radio in Android, configure native flags in <code>android/gradle.properties</code>:</p>
-        <pre class="code-block"><code>MINIAUDIODART_ENABLE_CURL=ON
+        <article class="feat">
+          <h3 class="mono">SETUP 02 — ANDROID NATIVE STREAMING (GRADLE)</h3>
+          <p>To enable native cURL streaming for online audio and web radio in Android, configure native flags in
+            <code>android/gradle.properties</code>:
+          </p>
+          <pre class="code-block"><code>MINIAUDIODART_ENABLE_CURL=ON
 MINIAUDIODART_CURL_INCLUDE_DIR=/path/to/curl/include
 MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
-      </article>
+        </article>
 
-      <article class="feat">
-        <h3 class="mono">SETUP 03 — DART ENGINE &amp; AUDIO SESSION INIT</h3>
-        <p>Initialize the audio session for music playback and boot the native engine in your Dart entrypoint (<code>main()</code>):</p>
-        <pre class="code-block"><code>void main() async {
+        <article class="feat">
+          <h3 class="mono">SETUP 03 — DART ENGINE &amp; AUDIO SESSION INIT</h3>
+          <p>Initialize the audio session for music playback and boot the native engine in your Dart entrypoint
+            (<code>main()</code>):</p>
+          <pre class="code-block"><code>void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 1. Configure audio session for background music
@@ -535,27 +671,30 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
 
   runApp(const MyApp());
 }</code></pre>
-      </article>
+        </article>
 
-      <article class="feat">
-        <h3 class="mono">SETUP 04 — DESKTOP (WINDOWS &amp; LINUX)</h3>
-        <p><strong>Windows:</strong> Install Visual Studio 2022 (with the <em>Desktop development with C++</em> workload) and CMake.</p>
-        <p><strong>Linux:</strong> Install build tools and audio development headers:</p>
-        <pre class="code-block"><code>sudo apt install cmake ninja-build \
+        <article class="feat">
+          <h3 class="mono">SETUP 04 — DESKTOP (WINDOWS &amp; LINUX)</h3>
+          <p><strong>Windows:</strong> Install Visual Studio 2022 (with the <em>Desktop development with C++</em>
+            workload) and CMake.</p>
+          <p><strong>Linux:</strong> Install build tools and audio development headers:</p>
+          <pre class="code-block"><code>sudo apt install cmake ninja-build \
   libasound2-dev libpulse-dev pkg-config</code></pre>
-      </article>
+        </article>
 
-      <article class="feat">
-        <h3 class="mono">SETUP 05 — APPLE (MACOS &amp; IOS)</h3>
-        <p>Requires <strong>Xcode</strong>, Command Line Tools, and <strong>CocoaPods</strong>. The C++ audio core compiles statically and binds directly to CoreAudio via FFI.</p>
-        <pre class="code-block"><code>sudo gem install cocoapods
+        <article class="feat">
+          <h3 class="mono">SETUP 05 — APPLE (MACOS &amp; IOS)</h3>
+          <p>Requires <strong>Xcode</strong>, Command Line Tools, and <strong>CocoaPods</strong>. The C++ audio core
+            compiles statically and binds directly to CoreAudio via FFI.</p>
+          <pre class="code-block"><code>sudo gem install cocoapods
 cd ios &amp;&amp; pod install # for iOS targets</code></pre>
-      </article>
+        </article>
 
-      <article class="feat feat-wide">
-        <h3 class="mono">BUILDING &amp; RUNNING WITH COMPILE-TIME STREAM URLS</h3>
-        <p>Network stream endpoints are passed securely at compile time via <code>--dart-define</code> so credentials and URLs are never hardcoded:</p>
-        <pre class="code-block"><code># Run on connected target:
+        <article class="feat feat-wide">
+          <h3 class="mono">BUILDING &amp; RUNNING WITH COMPILE-TIME STREAM URLS</h3>
+          <p>Network stream endpoints are passed securely at compile time via <code>--dart-define</code> so credentials
+            and URLs are never hardcoded:</p>
+          <pre class="code-block"><code># Run on connected target:
 flutter run --dart-define=STREAM_URL_1="https://..." --dart-define=STREAM_URL_2="https://..."
 
 # Build release targets:
@@ -563,108 +702,118 @@ flutter build apk --release --dart-define=STREAM_URL_1="..." --dart-define=STREA
 flutter build windows --release --dart-define=STREAM_URL_1="..." --dart-define=STREAM_URL_2="..."
 flutter build linux --release --dart-define=STREAM_URL_1="..." --dart-define=STREAM_URL_2="..."
 flutter build macos --release --dart-define=STREAM_URL_1="..." --dart-define=STREAM_URL_2="..."</code></pre>
-      </article>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ 08 COMMUNITY ============ -->
+    <section id="community" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">08</span>
+        <h2>Community</h2>
+      </header>
+      <div class="community-grid">
+        <a class="comm-card tg" href="https://t.me/+MilnrgkNkbFiYmY0" target="_blank" rel="noopener">
+          <span class="mono comm-tag">TELEGRAM · COMMUNITY</span>
+          <strong>Sautiplay / Sautiflow Group</strong>
+          <p>Release announcements, changelogs, support, and DSP talk. Bring your measurements.</p>
+        </a>
+        <a class="comm-card gh" href="https://github.com/wambugu71/sautiflow/issues" target="_blank" rel="noopener">
+          <span class="mono comm-tag">GITHUB · ISSUES</span>
+          <strong>Bug reports &amp; PRs</strong>
+          <p>The canonical tracker. Reproduction steps get fastest replies.</p>
+        </a>
+      </div>
+    </section>
+
+    <!-- ============ 09 CREDITS ============ -->
+    <section id="credits" class="chapter wrap">
+      <header class="chapter-head">
+        <span class="mono ch-no">09</span>
+        <h2>Credits &amp; Tools</h2>
+      </header>
+      <p class="chapter-sub">Software and engineering tools that helped build Sautiplay and the Sautiflow engine.</p>
+
+      <div class="feat-grid">
+        <article class="feat">
+          <h3 class="mono">MODELING &amp; SIMULATION</h3>
+          <ul>
+            <li><strong>MATLAB:</strong> Used for modeling and simulating DSP filters, acoustic curves, and validating
+              resampler behavior before writing the C++ code.</li>
+          </ul>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">AUDIO BACKEND</h3>
+          <ul>
+            <li><strong>miniaudio (David Reid):</strong> Lightweight multi-platform audio library powering low-level
+              device output (AAudio, WASAPI, CoreAudio, ALSA, PulseAudio).</li>
+          </ul>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">RESAMPLING LIBRARIES</h3>
+          <ul>
+            <li><strong>libsamplerate:</strong> Erik de Castro Lopo's Secret Rabbit Code sinc converter.</li>
+            <li><strong>r8brain-free-src:</strong> Aleksey Vaneev / Voxengo's high-performance resampler.</li>
+            <li><strong>libsoxr:</strong> Rob Sykes' SoX resampler library.</li>
+          </ul>
+        </article>
+
+        <article class="feat">
+          <h3 class="mono">STREAMING &amp; UI</h3>
+          <ul>
+            <li><strong>FFmpeg:</strong> Stream container demuxing, decoding, and default resampling for live streams.
+            </li>
+            <li><strong>Flutter &amp; Dart:</strong> Material 3 Expressive UI and native C++ FFI bindings.</li>
+          </ul>
+        </article>
+
+        <article class="feat feat-wide">
+          <h3 class="mono">OPEN-SOURCE DSP ALGORITHMS</h3>
+          <ul>
+            <li><strong>Audio EQ Cookbook (Robert Bristow-Johnson):</strong> Standard biquad filter equations for our
+              equalizers, shelving, notch, and pass filters.</li>
+            <li><strong>BS2B (Boris Mikhaylov):</strong> Bauer stereophonic-to-binaural crossfeed algorithm for natural,
+              fatigue-free headphone listening.</li>
+            <li><strong>Partitioned Overlap-Add FFT Convolution:</strong> Efficient frequency-domain convolution for
+              AutoEQ and custom stereo impulse response (.wav) processing.</li>
+            <li><strong>WSOLA (Waveform Similarity Overlap-Add):</strong> Pitch-stable time-domain audio scaling.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer wrap">
+    <div class="foot-row mono">
+      <span>SAUTIPLAY® — AUDIO PLAYER FOR AUDIOPHILES</span>
+      <span>ENGINE: <a href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SAUTIFLOW</a></span>
+      <span><a href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">DOCS</a> · <a
+          href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SOURCE</a> · <a
+          href="https://github.com/wambugu71/sautiflow/releases" target="_blank" rel="noopener">RELEASES</a></span>
     </div>
-  </section>
+    <p class="mono foot-fineprint">LEGAL — YouTube and YouTube Music are trademarks of Google LLC.
+      All rights reserved. Sautiplay is an independent, open-source player and is not affiliated with,
+      endorsed, or sponsored by Google LLC. Streaming and playback of third-party content remain the
+      responsibility of the user. Last.fm is a trademark of Last.fm Ltd. DLNA is a trademark of the
+      DLNA Alliance. All product names, logos, and brands are property of their respective owners.</p>
+    <p class="mono foot-fineprint">Specs subject to change between releases. This manual was typeset with Fraunces,
+      Newsreader &amp; JetBrains Mono.</p>
+  </footer>
 
-  <!-- ============ 08 COMMUNITY ============ -->
-  <section id="community" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">08</span>
-      <h2>Community</h2>
-    </header>
-    <div class="community-grid">
-      <a class="comm-card tg" href="https://t.me/+MilnrgkNkbFiYmY0" target="_blank" rel="noopener">
-        <span class="mono comm-tag">TELEGRAM · COMMUNITY</span>
-        <strong>Sautiplay / Sautiflow Group</strong>
-        <p>Release announcements, changelogs, support, and DSP talk. Bring your measurements.</p>
-      </a>
-      <a class="comm-card gh" href="https://github.com/wambugu71/sautiflow/issues" target="_blank" rel="noopener">
-        <span class="mono comm-tag">GITHUB · ISSUES</span>
-        <strong>Bug reports &amp; PRs</strong>
-        <p>The canonical tracker. Reproduction steps get fastest replies.</p>
-      </a>
+  <dialog id="lightbox" class="lightbox" aria-label="Screenshot viewer">
+    <button class="lb-close mono" type="button" aria-label="Close viewer">×</button>
+    <img id="lightbox-img" src="" alt="">
+    <p class="mono lb-caption" id="lightbox-caption"></p>
+    <div class="lb-nav-row">
+      <button class="lb-nav mono" type="button" data-dir="-1" aria-label="Previous screenshot">← PREV</button>
+      <button class="lb-nav mono" type="button" data-dir="1" aria-label="Next screenshot">NEXT →</button>
     </div>
-  </section>
+  </dialog>
 
-  <!-- ============ 09 CREDITS ============ -->
-  <section id="credits" class="chapter wrap">
-    <header class="chapter-head">
-      <span class="mono ch-no">09</span>
-      <h2>Credits &amp; Tools</h2>
-    </header>
-    <p class="chapter-sub">Software and engineering tools that helped build Sautiplay and the Sautiflow engine.</p>
-
-    <div class="feat-grid">
-      <article class="feat">
-        <h3 class="mono">MODELING &amp; SIMULATION</h3>
-        <ul>
-          <li><strong>MATLAB:</strong> Used for modeling and simulating DSP filters, acoustic curves, and validating resampler behavior before writing the C++ code.</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">AUDIO BACKEND</h3>
-        <ul>
-          <li><strong>miniaudio (David Reid):</strong> Lightweight multi-platform audio library powering low-level device output (AAudio, WASAPI, CoreAudio, ALSA, PulseAudio).</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">RESAMPLING LIBRARIES</h3>
-        <ul>
-          <li><strong>libsamplerate:</strong> Erik de Castro Lopo's Secret Rabbit Code sinc converter.</li>
-          <li><strong>r8brain-free-src:</strong> Aleksey Vaneev / Voxengo's high-performance resampler.</li>
-          <li><strong>libsoxr:</strong> Rob Sykes' SoX resampler library.</li>
-        </ul>
-      </article>
-
-      <article class="feat">
-        <h3 class="mono">STREAMING &amp; UI</h3>
-        <ul>
-          <li><strong>FFmpeg:</strong> Stream container demuxing, decoding, and default resampling for live streams.</li>
-          <li><strong>Flutter &amp; Dart:</strong> Material 3 Expressive UI and native C++ FFI bindings.</li>
-        </ul>
-      </article>
-
-      <article class="feat feat-wide">
-        <h3 class="mono">OPEN-SOURCE DSP ALGORITHMS</h3>
-        <ul>
-          <li><strong>Audio EQ Cookbook (Robert Bristow-Johnson):</strong> Standard biquad filter equations for our equalizers, shelving, notch, and pass filters.</li>
-          <li><strong>BS2B (Boris Mikhaylov):</strong> Bauer stereophonic-to-binaural crossfeed algorithm for natural, fatigue-free headphone listening.</li>
-          <li><strong>Partitioned Overlap-Add FFT Convolution:</strong> Efficient frequency-domain convolution for AutoEQ and custom stereo impulse response (.wav) processing.</li>
-          <li><strong>WSOLA (Waveform Similarity Overlap-Add):</strong> Pitch-stable time-domain audio scaling.</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
-</main>
-
-<footer class="footer wrap">
-  <div class="foot-row mono">
-    <span>SAUTIPLAY® — AUDIO PLAYER FOR AUDIOPHILES</span>
-    <span>ENGINE: <a href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SAUTIFLOW</a></span>
-    <span><a href="https://docs.sautiflow.us.ci" target="_blank" rel="noopener">DOCS</a> · <a href="https://github.com/wambugu71/sautiflow" target="_blank" rel="noopener">SOURCE</a> · <a href="https://github.com/wambugu71/sautiflow/releases" target="_blank" rel="noopener">RELEASES</a></span>
-  </div>
-  <p class="mono foot-fineprint">LEGAL — YouTube and YouTube Music are trademarks of Google LLC.
-    All rights reserved. Sautiplay is an independent, open-source player and is not affiliated with,
-    endorsed, or sponsored by Google LLC. Streaming and playback of third-party content remain the
-    responsibility of the user. Last.fm is a trademark of Last.fm Ltd. DLNA is a trademark of the
-    DLNA Alliance. All product names, logos, and brands are property of their respective owners.</p>
-  <p class="mono foot-fineprint">Specs subject to change between releases. This manual was typeset with Fraunces, Newsreader &amp; JetBrains Mono.</p>
-</footer>
-
-<dialog id="lightbox" class="lightbox" aria-label="Screenshot viewer">
-  <button class="lb-close mono" type="button" aria-label="Close viewer">×</button>
-  <img id="lightbox-img" src="" alt="">
-  <p class="mono lb-caption" id="lightbox-caption"></p>
-  <div class="lb-nav-row">
-    <button class="lb-nav mono" type="button" data-dir="-1" aria-label="Previous screenshot">← PREV</button>
-    <button class="lb-nav mono" type="button" data-dir="1" aria-label="Next screenshot">NEXT →</button>
-  </div>
-</dialog>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
+
 </html>
