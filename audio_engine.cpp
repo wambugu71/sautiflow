@@ -2031,17 +2031,18 @@ namespace
             loudnessRangeLRA.store(0.0f, std::memory_order_relaxed);
         }
 
-        void process(const float *interleaved, ma_uint32 frames, int channels)
+        void process(const float *interleaved, ma_uint32 frames, int channels, float invGain = 1.0f)
         {
             if (channels < 1) return;
             const int ch = std::min(channels, 8);
             static const double channelWeights[8] = {1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.0, 1.0};
+            const double invG = (double)invGain;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
                 for (int c = 0; c < ch; ++c)
                 {
-                    double inSample = (double)interleaved[i * (size_t)channels + c];
+                    double inSample = (double)interleaved[i * (size_t)channels + c] * invG;
                     double kFiltered = kFilters[c].process(inSample);
                     blockSumSq[c] += kFiltered * kFiltered;
                 }
@@ -2119,10 +2120,11 @@ namespace
                     }
 
                     // Integrated loudness / LRA are perceptually slow metrics.
-                    // Throttle to once per second.
+                    // Throttle to once per second, but provide fast initial convergence
+                    // on the first 10 blocks (first 1.0s) so the normalizer locks in immediately.
                     ++blocksSinceAnalysis;
                     const bool runGatedAnalysis =
-                        blocksSinceAnalysis >= 10 && accCount > 0;
+                        ((accCount > 0 && accCount <= 10) || blocksSinceAnalysis >= 10) && accCount > 0;
 
                     if (runGatedAnalysis)
                     {
@@ -3491,6 +3493,9 @@ struct AudioEngineHandle
     std::atomic<float> fadingOutReplayGain{1.0f};
     std::atomic<float> nextTrackReplayGain{1.0f};
     std::atomic<bool> nextTrackGainExplicitlySet{false};
+    std::atomic<float> currentTrackNormalizerGain{1.0f};
+    std::atomic<float> fadingOutNormalizerGain{1.0f};
+    std::atomic<float> nextTrackNormalizerGain{1.0f};
     std::atomic<ma_uint64> crossfadeFramesRemaining{0};
     std::atomic<ma_uint64> crossfadeFramesTotal{0};
     ma_decoder* fadingOutDecoder = nullptr;
@@ -4859,6 +4864,67 @@ static float compute_preview_lufs(ma_decoder *decoder)
     return (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
 }
 
+static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decoder, const std::string &path)
+{
+    if (e == nullptr) return;
+
+    float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
+    float chosenLinear = 1.0f;
+    float chosenLufs = targetLufs;
+    bool foundLoudness = false;
+
+    if (!is_network_url(path))
+    {
+        float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
+        std::string art, tit, alb;
+        bool hasTags = sautiflow::read_file_tags_ffmpeg(path.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+        if (hasTags && trackGain != 0.0f)
+        {
+            chosenLinear = std::pow(10.0f, trackGain / 20.0f);
+            chosenLufs = targetLufs - trackGain;
+            foundLoudness = true;
+            engine_log("apply_initial_track_loudness: ReplayGain tag %.2f dB (linear %.3f)", trackGain, chosenLinear);
+        }
+        else if (decoder != nullptr)
+        {
+            float previewLufs = compute_preview_lufs(decoder);
+            if (previewLufs > -70.0f)
+            {
+                float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
+                chosenLinear = std::pow(10.0f, gainDb / 20.0f);
+                chosenLufs = previewLufs;
+                foundLoudness = true;
+                engine_log("apply_initial_track_loudness: Preview LUFS %.2f -> gain %.2f dB (linear %.3f)", previewLufs, gainDb, chosenLinear);
+            }
+        }
+    }
+
+    if (!foundLoudness)
+    {
+        // For unseekable network streams or tracks where preview is unavailable:
+        // If the normalizer was already attenuating (e.g. current gain < 1.0),
+        // inherit that gain as a safe starting baseline rather than jumping to 1.0 (full blast).
+        const float prevNorm = e->paramNormalizerGain.current;
+        if (prevNorm > 0.01f && prevNorm < 1.0f)
+        {
+            chosenLinear = prevNorm;
+            chosenLufs = targetLufs - 20.0f * std::log10(prevNorm);
+        }
+    }
+
+    e->currentTrackNormalizerGain.store(chosenLinear, std::memory_order_relaxed);
+    e->currentTrackReplayGain.store(chosenLinear, std::memory_order_relaxed);
+    e->replayGainLinear.store(chosenLinear, std::memory_order_relaxed);
+    e->paramNormalizerGain.current = chosenLinear;
+    e->paramNormalizerGain.setTarget(chosenLinear);
+
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    e->loudnessMeter.reset(sr);
+    e->loudnessMeter.integratedLUFS.store(chosenLufs, std::memory_order_relaxed);
+    e->loudnessMeter.shortTermLUFS.store(chosenLufs, std::memory_order_relaxed);
+    e->loudnessMeter.momentaryLUFS.store(chosenLufs, std::memory_order_relaxed);
+}
+
 static void worker_loop(AudioEngineHandle *e)
 {
     while (true)
@@ -5022,6 +5088,7 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
                 arm_transition_fade_in(e);
+                apply_initial_track_loudness(e, newCurrent, path);
 
                 ma_uint64 startFrame = 0;
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
@@ -5048,6 +5115,7 @@ static void worker_loop(AudioEngineHandle *e)
                 e->nextLengthFrames = 0;
                 e->hasNext = false;
                 e->nextTrackReplayGain.store(1.0f, std::memory_order_relaxed);
+                e->nextTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
                 e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
             }
 
@@ -5136,10 +5204,12 @@ static void worker_loop(AudioEngineHandle *e)
                 float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
                 std::string art, tit, alb;
                 bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+                const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
                 if (hasTags && trackGain != 0.0f)
                 {
                     float linearGain = std::pow(10.0f, trackGain / 20.0f);
                     e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
+                    e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
                     engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f)", trackGain, linearGain);
                 }
                 else if (decoded != nullptr)
@@ -5148,12 +5218,10 @@ static void worker_loop(AudioEngineHandle *e)
                     float previewLufs = compute_preview_lufs(decoded);
                     if (previewLufs > -70.0f)
                     {
-                        // Target -14.0 LUFS
-                        float gainDb = -14.0f - previewLufs;
-                        // Strict clamp: [-12 dB, +3 dB]
-                        gainDb = std::clamp(gainDb, -12.0f, 3.0f);
+                        float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
                         float linearGain = std::pow(10.0f, gainDb / 20.0f);
                         e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
+                        e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
                         engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f)", previewLufs, gainDb, linearGain);
                     }
                 }
@@ -5473,6 +5541,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
                             e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
                             e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
+
+                            e->fadingOutNormalizerGain.store(e->paramNormalizerGain.current, std::memory_order_relaxed);
+                            float promotedNorm = e->nextTrackNormalizerGain.load(std::memory_order_relaxed);
+                            if (promotedNorm >= 0.999f && promotedNorm <= 1.001f && e->fadingOutNormalizerGain.load(std::memory_order_relaxed) < 0.99f)
+                            {
+                                promotedNorm = e->fadingOutNormalizerGain.load(std::memory_order_relaxed);
+                                e->nextTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
+                            }
+                            e->currentTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
 
                             e->fadingOutDecoder = e->currentDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
@@ -5804,6 +5881,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
                     e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
                     e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
+
+                    float promotedNorm = e->nextTrackNormalizerGain.load(std::memory_order_relaxed);
+                    if (promotedNorm >= 0.999f && promotedNorm <= 1.001f && e->paramNormalizerGain.current < 0.99f)
+                    {
+                        promotedNorm = e->paramNormalizerGain.current;
+                        e->nextTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
+                    }
+                    e->currentTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
+                    e->paramNormalizerGain.current = promotedNorm;
+                    e->paramNormalizerGain.setTarget(promotedNorm);
+
+                    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    e->loudnessMeter.reset(sr);
+                    const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
+                    const float seedLufs = targetLufs - 20.0f * std::log10(promotedNorm > 1e-4f ? promotedNorm : 1.0f);
+                    e->loudnessMeter.integratedLUFS.store(seedLufs, std::memory_order_relaxed);
+                    e->loudnessMeter.shortTermLUFS.store(seedLufs, std::memory_order_relaxed);
+                    e->loudnessMeter.momentaryLUFS.store(seedLufs, std::memory_order_relaxed);
                     e->currentDecoder = e->nextDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     e->currentStream = e->nextStream;
@@ -6119,8 +6214,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
 
                 const bool loudnessAware = e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
-                const float outGain = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
-                const float inGain  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
+                const bool normEnabled = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
+                const float outNorm = normEnabled ? e->fadingOutNormalizerGain.load(std::memory_order_relaxed) : 1.0f;
+                const float inNorm  = normEnabled ? e->currentTrackNormalizerGain.load(std::memory_order_relaxed) : 1.0f;
+
+                const float outGain = (loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f) * outNorm;
+                const float inGain  = (loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f) * inNorm;
 
                 // Graceful-abort ramp (user skipped mid-fade): the outgoing
                 // track follows a linear envelope from its current perceived
@@ -6130,7 +6229,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const ma_uint64 abortFramesTotal = aborting ? e->crossfadeAbortFramesTotal.load(std::memory_order_relaxed) : 0;
                 ma_uint64 abortFramesDone = aborting ? e->crossfadeAbortFramesDone.load(std::memory_order_relaxed) : 0;
 
-                crossfadeProcessedThisBlock = loudnessAware;
+                crossfadeProcessedThisBlock = loudnessAware || normEnabled;
                 const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                 constexpr float halfPi = 1.57079632679f;
                 ma_uint32 fadeFramesDone = 0;
@@ -6163,7 +6262,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     fadeFramesDone += 1;
                 }
                 // If crossfade completed mid-block, scale trailing incoming frames by inGain so level remains smooth
-                if (loudnessAware && fadeFramesDone < produced)
+                if ((loudnessAware || normEnabled) && fadeFramesDone < produced)
                 {
                     for (ma_uint32 i = fadeFramesDone; i < produced; ++i)
                     {
@@ -6257,23 +6356,31 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // =====================================================================
         if (!bypassAppDsp)
         {
-            const bool crossfadeMixing = (e->isCrossfading.load(std::memory_order_relaxed) || crossfadeProcessedThisBlock) &&
-                                         e->loudnessCrossfadeEnabled.load(std::memory_order_relaxed);
+            const bool crossfadeMixing = (e->isCrossfading.load(std::memory_order_relaxed) || crossfadeProcessedThisBlock);
             const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
 
             float normTarget = 1.0f;
-            if (!crossfadeMixing &&
-                e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
+            if (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
             {
-                normTarget = e->loudnessMeter.getNormalizerGainLinear();
+                if (crossfadeMixing)
+                {
+                    const float inNorm = e->currentTrackNormalizerGain.load(std::memory_order_relaxed);
+                    normTarget = inNorm;
+                    e->paramNormalizerGain.current = inNorm;
+                }
+                else
+                {
+                    normTarget = e->loudnessMeter.getNormalizerGainLinear();
+                }
             }
             e->paramNormalizerGain.setTarget(normTarget);
             e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
                                                 e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                 e->sampleRate);
 
-            const bool normActive = std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
-                                    std::fabs(normTarget - 1.0f) > 1e-4f;
+            const bool normActive = !crossfadeMixing &&
+                                    (std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
+                                     std::fabs(normTarget - 1.0f) > 1e-4f);
 
             if (normActive)
             {
@@ -6492,7 +6599,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
             e->levellerDsp.isEnabled())
         {
-            e->loudnessMeter.process(processBuffer, produced, e->channels);
+            const bool normOn = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
+            const float curNorm = e->paramNormalizerGain.current;
+            const float invNorm = (normOn && curNorm > 1e-4f) ? (1.0f / curNorm) : 1.0f;
+            e->loudnessMeter.process(processBuffer, produced, e->channels, invNorm);
         }
         if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
         {
@@ -8314,6 +8424,7 @@ extern "C"
             e->currentIndex = jumpIndex;
             e->hasCurrent = (newCurrent != nullptr);
             arm_transition_fade_in(e);
+            apply_initial_track_loudness(e, newCurrent, path);
 
             ma_uint64 startFrame = 0;
             if (e->pendingSeekValid.load(std::memory_order_acquire) &&
@@ -8334,6 +8445,7 @@ extern "C"
             e->nextIndex = -1;
             e->nextLengthFrames = 0;
             e->hasNext = false;
+            e->nextTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
         }
 
         if (e->pendingAutoPlay.exchange(false, std::memory_order_acq_rel) ||
