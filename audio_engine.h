@@ -53,10 +53,10 @@ extern "C"
         AE_RESAMPLE_ALGORITHM_SRC_ZERO_ORDER_HOLD = 4,
         AE_RESAMPLE_ALGORITHM_SRC_LINEAR = 5,
         AE_RESAMPLE_ALGORITHM_CUSTOM = 6,
-        AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE = 7,
-        AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE = 8,
-        AE_RESAMPLE_ALGORITHM_SOXR_HQ = 9,
-        AE_RESAMPLE_ALGORITHM_SOXR_FAST = 10,
+        AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE = 7,  /* Deprecated: remapped to r8brain linear phase */
+        AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE = 8, /* Deprecated: remapped to r8brain minimum phase */
+        AE_RESAMPLE_ALGORITHM_SOXR_HQ = 9,                /* Deprecated: remapped to r8brain linear phase */
+        AE_RESAMPLE_ALGORITHM_SOXR_FAST = 10,             /* Deprecated: remapped to r8brain linear phase */
         AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE = 11,
         AE_RESAMPLE_ALGORITHM_R8BRAIN_24_MINIMUM_PHASE = 12
     } AEResampleAlgorithm;
@@ -400,7 +400,7 @@ extern "C"
     typedef struct AEResamplingPolicyInfo
     {
         int is_bypassed;              // 1 if 1:1 input/output rate match (no SRC)
-        int mode;                     // 0=Bypass, 1=AutoDAC, 2=IntegerPolyphase, 3=SincHighQuality, 4=SoxrVHQ
+        int mode;                     // 0=Bypass, 1=AutoDAC, 2=IntegerPolyphase, 3=SincHighQuality, 4=LegacySoxr, 5=R8brain
         int input_sample_rate;
         int engine_sample_rate;
         int device_sample_rate;

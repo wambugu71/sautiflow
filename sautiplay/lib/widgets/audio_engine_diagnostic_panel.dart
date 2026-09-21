@@ -997,13 +997,11 @@ class _AudioEngineDiagnosticPanelState
       case 'srcSincFastest':
         return 'SRC Sinc Fastest';
       case 'soxrVHQLinearPhase':
-        return 'SOXR VHQ Linear Phase';
-      case 'soxrVHQMinimumPhase':
-        return 'SOXR VHQ Minimum Phase';
       case 'soxrHQ':
-        return 'SOXR HQ';
       case 'soxrFast':
-        return 'SOXR Fast';
+        return 'r8brain Linear Phase (Legacy SoX)';
+      case 'soxrVHQMinimumPhase':
+        return 'r8brain Minimum Phase (Legacy SoX)';
       case 'r8brain24LinearPhase':
         return 'r8brain Linear Phase';
       case 'r8brain24MinimumPhase':

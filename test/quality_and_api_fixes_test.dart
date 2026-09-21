@@ -109,7 +109,7 @@ void main() {
         44100,
         48000,
       );
-      // Valid resampler pointer created with SoXR HQ & Triangle dither defaults
+      // Valid resampler pointer created with r8brain 24-bit linear phase & Triangle dither defaults
       expect(resampler.isInitialized, isTrue);
       resampler.dispose();
     });

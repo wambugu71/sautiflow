@@ -911,12 +911,21 @@ class AppStateService {
         int ditherMode,
       })> loadUiSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    int savedAlgo = prefs.getInt(_kResampleAlgorithm) ?? 12;
+    // Transparently migrate legacy SoX algorithms (7..10) to r8brain equivalents
+    if (savedAlgo == 8) {
+      savedAlgo = 12; // r8brain24MinimumPhase
+      await prefs.setInt(_kResampleAlgorithm, savedAlgo);
+    } else if (savedAlgo == 7 || savedAlgo == 9 || savedAlgo == 10) {
+      savedAlgo = 11; // r8brain24LinearPhase
+      await prefs.setInt(_kResampleAlgorithm, savedAlgo);
+    }
     return (
       streamingQuality: prefs.getString(_kStreamingQuality) ?? 'High Fidelity',
       gaplessPlayback: prefs.getBool(_kGaplessPlayback) ?? true,
       normalizeVolume: prefs.getBool(_kNormalizeVolume) ?? false,
       streamOverWifi: prefs.getBool(_kStreamOverWifi) ?? true,
-      resampleAlgorithm: prefs.getInt(_kResampleAlgorithm) ?? 8,
+      resampleAlgorithm: savedAlgo,
       ditherMode: prefs.getInt(_kDitherMode) ?? 0,
     );
   }

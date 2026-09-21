@@ -9,9 +9,13 @@ enum ResampleAlgorithm {
   srcZeroOrderHold,
   srcLinear,
   custom,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrVHQLinearPhase,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24MinimumPhase instead.')
   soxrVHQMinimumPhase,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrHQ,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrFast,
   r8brain24LinearPhase,
   r8brain24MinimumPhase,

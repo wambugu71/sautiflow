@@ -32,7 +32,6 @@
 #include "crossfeed_node.h"
 #include "reverb_node.h"
 #include <samplerate.h>
-#include <soxr.h>
 #include "CDSPResampler.h"
 #include "ffmpeg_stream_decoder.h"
 #include "dsp/clarity_dsp.h"
@@ -837,227 +836,8 @@ namespace
         src_onReset
     };
 
-    struct SoxrResamplerBackend
-    {
-        soxr_t handle;
-        double ratio;
-        int channels;
-        int algorithm;
-    };
-
-    static ma_result soxr_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
-    {
-        if (!pHeapSizeInBytes)
-            return MA_INVALID_ARGS;
-        *pHeapSizeInBytes = sizeof(SoxrResamplerBackend);
-        return MA_SUCCESS;
-    }
-
-    static ma_result soxr_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
-    {
-        if (!pConfig || !pAllocation || !ppBackend)
-            return MA_INVALID_ARGS;
-        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pAllocation;
-        backend->channels = pConfig->channels;
-
-        int algo = pUserData ? static_cast<const std::atomic<int> *>(pUserData)->load(std::memory_order_relaxed) : 7;
-        backend->algorithm = algo;
-
-        unsigned long q_recipe = SOXR_HQ;
-        unsigned long q_flags = 0;
-
-        if (algo == 7) { // soxrVHQLinearPhase
-            q_recipe = SOXR_VHQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        } else if (algo == 8) { // soxrVHQMinimumPhase
-            q_recipe = SOXR_VHQ;
-            q_flags = SOXR_MINIMUM_PHASE;
-        } else if (algo == 9) { // soxrHQ
-            q_recipe = SOXR_HQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        } else if (algo == 10) { // soxrFast
-            q_recipe = SOXR_LQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        }
-
-        soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
-        soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
-        double rateIn = (pConfig->sampleRateIn > 0) ? (double)pConfig->sampleRateIn : ((pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0);
-        double rateOut = (pConfig->sampleRateOut > 0) ? (double)pConfig->sampleRateOut : 48000.0;
-        int ch = (backend->channels > 0) ? backend->channels : 2;
-        backend->channels = ch;
-        backend->ratio = (rateIn > 0) ? (rateOut / rateIn) : 1.0;
-
-        soxr_error_t err = nullptr;
-        backend->handle = soxr_create(rateIn, rateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
-        if (!backend->handle || err)
-        {
-            engine_log("soxr_onInit: soxr_create failed (err=%s) for algo=%d channels=%d rateIn=%.0f rateOut=%.0f",
-                       soxr_strerror(err), algo, backend->channels, rateIn, rateOut);
-            return MA_ERROR;
-        }
-
-        *ppBackend = (ma_resampling_backend *)backend;
-        return MA_SUCCESS;
-    }
-
-    static void soxr_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
-    {
-        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-        if (backend && backend->handle)
-        {
-            soxr_delete(backend->handle);
-            backend->handle = nullptr;
-        }
-    }
-
-    static ma_result soxr_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
-    {
-        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-        if (!backend || !backend->handle || !pFrameCountIn || !pFrameCountOut)
-            return MA_ERROR;
-
-        if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr)
-        {
-            ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
-            std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)backend->channels * sizeof(float));
-            *pFrameCountIn = toCopy;
-            *pFrameCountOut = toCopy;
-            return MA_SUCCESS;
-        }
-
-        ma_uint64 inAvail = *pFrameCountIn;
-        ma_uint64 outReq = *pFrameCountOut;
-
-        size_t idone = 0, odone = 0;
-        soxr_error_t err = soxr_process(backend->handle, pFramesIn, (size_t)*pFrameCountIn, &idone, pFramesOut, (size_t)*pFrameCountOut, &odone);
-        if (err) {
-            engine_log("soxr_onProcess error: %s", soxr_strerror(err));
-            return MA_ERROR;
-        }
-
-        *pFrameCountIn = (ma_uint64)idone;
-        *pFrameCountOut = (ma_uint64)odone;
-
-        // No logging here: realtime thread (see src_onProcess).
-
-        return MA_SUCCESS;
-    }
-
-    static ma_result soxr_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
-    {
-        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-        if (!backend || sampleRateIn == 0 || sampleRateOut == 0)
-            return MA_ERROR;
-        backend->ratio = (double)sampleRateOut / (double)sampleRateIn;
-        engine_log("soxr_onSetRate: sampleRateIn=%u sampleRateOut=%u -> new ratio=%.4f", sampleRateIn, sampleRateOut, backend->ratio);
-
-        if (backend->handle)
-        {
-            soxr_delete(backend->handle);
-            backend->handle = nullptr;
-        }
-
-        unsigned long q_recipe = SOXR_HQ;
-        unsigned long q_flags = 0;
-        if (backend->algorithm == 7) {
-            q_recipe = SOXR_VHQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        } else if (backend->algorithm == 8) {
-            q_recipe = SOXR_VHQ;
-            q_flags = SOXR_MINIMUM_PHASE;
-        } else if (backend->algorithm == 9) {
-            q_recipe = SOXR_HQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        } else if (backend->algorithm == 10) {
-            q_recipe = SOXR_LQ;
-            q_flags = SOXR_LINEAR_PHASE;
-        }
-
-        soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
-        soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
-        soxr_error_t err = nullptr;
-        backend->handle = soxr_create((double)sampleRateIn, (double)sampleRateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
-        if (!backend->handle || err)
-        {
-            engine_log("soxr_onSetRate: soxr_create failed (%s)", soxr_strerror(err));
-            return MA_ERROR;
-        }
-        return MA_SUCCESS;
-    }
-
-    static ma_uint64 soxr_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
-    {
-        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!backend || !backend->handle || backend->ratio <= 0.0)
-            return 0;
-        double delayOut = soxr_delay(backend->handle);
-        return (ma_uint64)std::ceil(delayOut / backend->ratio);
-    }
-
-    static ma_uint64 soxr_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
-    {
-        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!backend || !backend->handle)
-            return 0;
-        double delayOut = soxr_delay(backend->handle);
-        return (ma_uint64)std::ceil(delayOut);
-    }
-
-    static ma_result soxr_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
-    {
-        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!pInputFrameCount)
-            return MA_INVALID_ARGS;
-        if (!backend || backend->ratio <= 0.0)
-        {
-            *pInputFrameCount = outputFrameCount;
-        }
-        else
-        {
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio);
-        }
-        return MA_SUCCESS;
-    }
-
-    static ma_result soxr_onGetExpectedOutputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 inputFrameCount, ma_uint64 *pOutputFrameCount)
-    {
-        const SoxrResamplerBackend *backend = (const SoxrResamplerBackend *)pBackend;
-        if (!pOutputFrameCount)
-            return MA_INVALID_ARGS;
-        if (!backend || backend->ratio <= 0.0)
-        {
-            *pOutputFrameCount = inputFrameCount;
-        }
-        else
-        {
-            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * backend->ratio);
-        }
-        return MA_SUCCESS;
-    }
-
-    static ma_result soxr_onReset(void *pUserData, ma_resampling_backend *pBackend)
-    {
-        SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-        if (backend && backend->handle)
-        {
-            soxr_clear(backend->handle);
-        }
-        return MA_SUCCESS;
-    }
-
-    static ma_resampling_backend_vtable g_soxrResamplerVTable = {
-        soxr_onGetHeapSize,
-        soxr_onInit,
-        soxr_onUninit,
-        soxr_onProcess,
-        soxr_onSetRate,
-        soxr_onGetInputLatency,
-        soxr_onGetOutputLatency,
-        soxr_onGetRequiredInputFrameCount,
-        soxr_onGetExpectedOutputFrameCount,
-        soxr_onReset
-    };
+    // Legacy SoX algorithms (7..10) are now transparently remapped to r8brain below
+    // for seamless backward compatibility without copyleft LGPL dependencies.
 
     struct R8brainBackend
     {
@@ -1100,7 +880,7 @@ namespace
         backend->maxInLen = 4096;
         const double reqTransBand = 2.0;
         const double reqAtten = 180.15;
-        const r8b::EDSPFilterPhaseResponse phase = (algo == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+        const r8b::EDSPFilterPhaseResponse phase = (algo == 12 || algo == 8) ? r8b::fprMinPhase : r8b::fprLinearPhase;
 
         backend->resamplers.resize(backend->channels, nullptr);
         backend->inBufs.resize(backend->channels);
@@ -1310,7 +1090,7 @@ namespace
 
         const double reqTransBand = 2.0;
         const double reqAtten = 180.15;
-        const r8b::EDSPFilterPhaseResponse phase = (backend->algorithm == 12) ? r8b::fprMinPhase : r8b::fprLinearPhase;
+        const r8b::EDSPFilterPhaseResponse phase = (backend->algorithm == 12 || backend->algorithm == 8) ? r8b::fprMinPhase : r8b::fprLinearPhase;
 
         for (int c = 0; c < backend->channels; ++c)
         {
@@ -1411,9 +1191,8 @@ namespace
 
     static inline ma_resampling_backend_vtable *get_resampler_vtable_for_algorithm(int algo)
     {
-        if (algo >= 7 && algo <= 10)
-            return &g_soxrResamplerVTable;
-        if (algo == 11 || algo == 12)
+        // 11 & 12 are r8brain; legacy 7..10 (former SoX) are transparently mapped to r8brain
+        if (algo == 11 || algo == 12 || (algo >= 7 && algo <= 10))
             return &g_r8brainResamplerVTable;
         return &g_customResamplerVTable;
     };
@@ -3636,8 +3415,8 @@ struct AudioEngineHandle
     int eqBandCount = 0;
     std::mutex eqMutex; // Protect EQ config changes
 
-    std::atomic<int> resampleAlgorithm{8}; // Default to AE_RESAMPLE_ALGORITHM_SOXR_VHQ_MINIMUM_PHASE (mode 8)
-    std::atomic<int> currentResampleAlgorithm{8}; // shared as backend user data; atomic: read on init threads, written by control thread
+    std::atomic<int> resampleAlgorithm{12}; // Default to AE_RESAMPLE_ALGORITHM_R8BRAIN_24_MINIMUM_PHASE (mode 12)
+    std::atomic<int> currentResampleAlgorithm{12}; // shared as backend user data; atomic: read on init threads, written by control thread
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
@@ -4598,8 +4377,8 @@ static bool load_decoder_for_path(
                            : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000);
     ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, outCh, targetRate);
 
-    // Online streams: Resampling defaults to FFmpeg's built-in SwrContext resampler (not SoXR / r8brain / libsamplerate).
-    // Local files: Use the user-selected high-precision resampler backend (SoXR / r8brain / libsamplerate).
+    // Online streams: Resampling defaults to FFmpeg's built-in SwrContext resampler (not r8brain / libsamplerate).
+    // Local files: Use the user-selected high-precision resampler backend (r8brain / libsamplerate).
     const int decAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
     e->currentResampleAlgorithm = decAlgo;
     if (!isNetwork && decAlgo > 0)
@@ -7702,7 +7481,7 @@ extern "C"
 
         // The OS hardware device handle uses standard miniaudio direct/linear fallback,
         // while all internal track decoding & rate conversion use the high-precision
-        // SoXR VHQ Minimum Phase / Sinc engine (e->pitchResampler & e->deviceResampler).
+        // r8brain 24-bit Minimum Phase / Sinc engine (e->pitchResampler & e->deviceResampler).
         cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
         if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
@@ -9685,7 +9464,7 @@ extern "C"
             cfg.pUserData = e;
 
             // The hardware device uses standard linear fallback, while Sautiflow's
-            // internal engine resamplers use SoXR VHQ Minimum Phase (e->resampleAlgorithm).
+            // internal engine resamplers use r8brain 24-bit Minimum Phase (e->resampleAlgorithm).
             cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
             const int devResampAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
@@ -11616,7 +11395,7 @@ extern "C"
         }
 
         // Integer formats always process in the float domain: the custom
-        // backends (SoXR / r8brain / libsamplerate) are float32-only, and a
+        // backends (r8brain / libsamplerate) are float32-only, and a
         // float domain is also required to dither/quantize on the target
         // integer grid. For F32 callers there is no quantization grid, so
         // dither stays a documented no-op.
@@ -11651,7 +11430,7 @@ extern "C"
             return 0;
 
         // Integer-format callers: process in the float domain. The custom
-        // backends (SoXR / r8brain / libsamplerate) are float32-only —
+        // backends (r8brain / libsamplerate) are float32-only —
         // passing raw integer buffers through ma_resampler would reinterpret
         // them as f32 and emit garbage. The float domain also enables
         // dither/quantization on the target integer grid. Flush (NULL input)
@@ -13386,11 +13165,7 @@ extern "C"
             else
             {
                 const int algo = engine->resampleAlgorithm.load(std::memory_order_relaxed);
-                if (algo >= 7 && algo <= 10)
-                {
-                    info.mode = 4; // SoxrVHQ
-                }
-                else if (algo == 11 || algo == 12)
+                if (algo == 11 || algo == 12 || (algo >= 7 && algo <= 10))
                 {
                     info.mode = 5; // r8brain
                 }
@@ -13420,7 +13195,7 @@ extern "C"
             info.resampler_latency_ms = latencyMs;
             info.filter_passband_ratio = 0.45;
             const int algo = engine->resampleAlgorithm.load(std::memory_order_relaxed);
-            info.is_linear_phase = (algo == AE_RESAMPLE_ALGORITHM_SOXR_VHQ_LINEAR_PHASE || algo == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE) ? 1 : 0;
+            info.is_linear_phase = (algo == AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE || algo == 7 || algo == 9 || algo == 10) ? 1 : 0;
         }
         return info;
     }

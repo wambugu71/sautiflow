@@ -95,24 +95,22 @@ const List<FaqItem> sautiplayFaqItems = [
   FaqItem(
     id: 'resampler-choice',
     question:
-        'Which resampler should I choose (libsamplerate, r8brain, libsoxr)?',
+        'Which resampler should I choose (r8brain or libsamplerate)?',
     category: 'DSP & Resampling',
     tags: [
       'resampler',
       'libsamplerate',
       'r8brain',
-      'libsoxr',
       'sinc',
       'phase',
       'stopband',
       'dsp'
     ],
     answer:
-        'All three are top-tier sinc resamplers: libsamplerate provides classic '
-        'mastering-grade sinc conversion; r8brain offers ultra-clean linear/minimum '
-        'phase modes with over -160 dB stopband attenuation; and libsoxr provides '
-        'exceptional fidelity with very light CPU usage.\n\n'
-        'For local files, any of the three delivers mathematically transparent rate '
+        'Both are top-tier sinc resamplers: r8brain offers ultra-clean linear and '
+        'minimum phase modes with over -160 dB stopband attenuation and zero pre-ringing, '
+        'while libsamplerate provides classic mastering-grade sinc conversion.\n\n'
+        'For local files, either delivers mathematically transparent rate '
         'conversion with zero audible distortion or high-frequency loss.',
   ),
   FaqItem(

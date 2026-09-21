@@ -1108,9 +1108,13 @@ enum AEResampleAlgorithm {
   srcZeroOrderHold,
   srcLinear,
   custom,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrVHQLinearPhase,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24MinimumPhase instead.')
   soxrVHQMinimumPhase,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrHQ,
+  @Deprecated('SoX has been replaced by r8brain. Use r8brain24LinearPhase instead.')
   soxrFast,
   r8brain24LinearPhase,
   r8brain24MinimumPhase,
@@ -3254,6 +3258,9 @@ class AudioEngineFFI {
       _engine = ffi.nullptr;
     }
   }
+
+  /// Alias for [dispose] to release engine resources.
+  void destroy() => dispose();
 
   bool isNetworkStreamingSupported() {
     final getter = _getNetworkStreamingSupport;

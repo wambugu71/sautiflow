@@ -9,10 +9,9 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 #include <samplerate.h>
-#include <soxr.h>
 #include "CDSPResampler.h"
 
-// Re-create the LibSampleRateBackend and SoxrResamplerBackend VTable wrappers matching audio_engine.cpp
+// Re-create the LibSampleRateBackend and R8brainBackend VTable wrappers matching audio_engine.cpp
 
 struct LibSampleRateBackend
 {
@@ -107,101 +106,6 @@ static ma_resampling_backend_vtable g_customResamplerVTable = {
     src_onUninit,
     src_onProcess,
     src_onSetRate,
-    NULL, NULL, NULL, NULL, NULL
-};
-
-// Soxr Backend
-struct SoxrResamplerBackend
-{
-    soxr_t handle;
-    double ratio;
-    int channels;
-    int algorithm;
-};
-
-static ma_result soxr_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
-{
-    if (!pHeapSizeInBytes) return MA_INVALID_ARGS;
-    *pHeapSizeInBytes = sizeof(SoxrResamplerBackend);
-    return MA_SUCCESS;
-}
-
-static ma_result soxr_onInit(void *pUserData, const ma_resampler_config *pConfig, void *pAllocation, ma_resampling_backend **ppBackend)
-{
-    if (!pConfig || !pAllocation || !ppBackend) return MA_INVALID_ARGS;
-    SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pAllocation;
-    backend->channels = pConfig->channels;
-
-    int algo = pUserData ? *(int *)pUserData : 7;
-    backend->algorithm = algo;
-
-    unsigned long q_recipe = SOXR_HQ;
-    unsigned long q_flags = 0;
-
-    if (algo == 7) { q_recipe = SOXR_VHQ; q_flags = SOXR_LINEAR_PHASE; }
-    else if (algo == 8) { q_recipe = SOXR_VHQ; q_flags = SOXR_MINIMUM_PHASE; }
-    else if (algo == 9) { q_recipe = SOXR_HQ; q_flags = SOXR_LINEAR_PHASE; }
-    else if (algo == 10) { q_recipe = SOXR_LQ; q_flags = SOXR_LINEAR_PHASE; }
-
-    soxr_quality_spec_t q_spec = soxr_quality_spec(q_recipe, q_flags);
-    soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
-    backend->ratio = (pConfig->sampleRateIn > 0) ? ((double)pConfig->sampleRateOut / (double)pConfig->sampleRateIn) : 1.0;
-
-    soxr_error_t err = nullptr;
-    backend->handle = soxr_create((double)pConfig->sampleRateIn, (double)pConfig->sampleRateOut, (unsigned)backend->channels, &err, &io_spec, &q_spec, NULL);
-    if (!backend->handle || err)
-    {
-        std::printf("soxr_onInit failed (err=%s)\n", soxr_strerror(err));
-        return MA_ERROR;
-    }
-
-    *ppBackend = (ma_resampling_backend *)backend;
-    return MA_SUCCESS;
-}
-
-static void soxr_onUninit(void *pUserData, ma_resampling_backend *pBackend, const ma_allocation_callbacks *pAllocationCallbacks)
-{
-    SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-    if (backend && backend->handle)
-    {
-        soxr_delete(backend->handle);
-        backend->handle = nullptr;
-    }
-}
-
-static ma_result soxr_onProcess(void *pUserData, ma_resampling_backend *pBackend, const void *pFramesIn, ma_uint64 *pFrameCountIn, void *pFramesOut, ma_uint64 *pFrameCountOut)
-{
-    SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-    if (!backend || !backend->handle || !pFrameCountIn || !pFrameCountOut) return MA_ERROR;
-
-    size_t idone = 0, odone = 0;
-    soxr_error_t err = soxr_process(backend->handle, pFramesIn, (size_t)*pFrameCountIn, &idone, pFramesOut, (size_t)*pFrameCountOut, &odone);
-    if (err) return MA_ERROR;
-
-    *pFrameCountIn = (ma_uint64)idone;
-    *pFrameCountOut = (ma_uint64)odone;
-    return MA_SUCCESS;
-}
-
-static ma_result soxr_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
-{
-    SoxrResamplerBackend *backend = (SoxrResamplerBackend *)pBackend;
-    if (!backend) return MA_ERROR;
-    backend->ratio = (sampleRateIn > 0) ? ((double)sampleRateOut / (double)sampleRateIn) : 1.0;
-    if (backend->handle)
-    {
-        soxr_error_t err = soxr_set_io_ratio(backend->handle, 1.0 / backend->ratio, 0);
-        if (err) return MA_ERROR;
-    }
-    return MA_SUCCESS;
-}
-
-static ma_resampling_backend_vtable g_soxrResamplerVTable = {
-    soxr_onGetHeapSize,
-    soxr_onInit,
-    soxr_onUninit,
-    soxr_onProcess,
-    soxr_onSetRate,
     NULL, NULL, NULL, NULL, NULL
 };
 
@@ -578,14 +482,6 @@ int main()
 
     run_test("libsamplerate FASTEST", 3, &g_customResamplerVTable, 48000, 96000);
     run_test("libsamplerate FASTEST", 3, &g_customResamplerVTable, 96000, 48000);
-
-    std::printf("\n--- TESTING LIBSOXR BACKEND (g_soxrResamplerVTable) ---\n");
-    run_test("libsoxr VHQ", 7, &g_soxrResamplerVTable, 48000, 96000);
-    run_test("libsoxr VHQ", 7, &g_soxrResamplerVTable, 96000, 48000);
-    run_test("libsoxr VHQ", 7, &g_soxrResamplerVTable, 44100, 48000);
-    run_test("libsoxr VHQ", 7, &g_soxrResamplerVTable, 48000, 44100);
-    run_test("libsoxr HQ",  9, &g_soxrResamplerVTable, 48000, 96000);
-    run_test("libsoxr LQ", 10, &g_soxrResamplerVTable, 48000, 96000);
 
     std::printf("\n--- TESTING R8BRAIN BACKEND (g_r8brainResamplerVTable) ---\n");
     run_test("r8brain LinearPhase", 11, &g_r8brainResamplerVTable, 48000, 96000);

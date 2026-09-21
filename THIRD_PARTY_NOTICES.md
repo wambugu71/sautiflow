@@ -32,11 +32,6 @@ This project incorporates, links against, or builds with several open-source lib
 - **License:** BSD 2-Clause License
 - **Usage:** Audiophile sinc sample rate conversion (Sinc Best / Medium / Fastest).
 
-### libsoxr
-- **Project:** SoX Resampler Library
-- **Author:** Rob Sykes
-- **License:** GNU Lesser General Public License v2.1 or later (LGPLv2.1+)
-- **Usage:** High-quality resampling algorithms.
 
 ### cURL (Optional / Android Network Streaming)
 - **Project:** cURL

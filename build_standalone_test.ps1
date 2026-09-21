@@ -8,8 +8,6 @@ $includes = @(
     "-I.",
     "-Ithird_party",
     "-Ithird_party/libsamplerate/include",
-    "-Ithird_party/libsoxr/include",
-    "-Ithird_party/libsoxr/src",
     "-Ithird_party/r8brain"
 )
 
@@ -26,28 +24,12 @@ $defines = @(
     '-DHAVE_STDBOOL_H=1',
     '-DHAVE_STRINGS_H=1',
     '-DHAVE_SYS_TYPES_H=1',
-    '-DSOXR_LIB=1',
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
     '-DENABLE_SINC_FAST_CONVERTER=1'
 )
 
-$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + @(
-    (Get-Item "third_party/libsoxr/src/soxr.c").FullName,
-    (Get-Item "third_party/libsoxr/src/data-io.c").FullName,
-    (Get-Item "third_party/libsoxr/src/filter.c").FullName,
-    (Get-Item "third_party/libsoxr/src/cr.c").FullName,
-    (Get-Item "third_party/libsoxr/src/cr32.c").FullName,
-    (Get-Item "third_party/libsoxr/src/cr32s.c").FullName,
-    (Get-Item "third_party/libsoxr/src/cr64.c").FullName,
-    (Get-Item "third_party/libsoxr/src/vr32.c").FullName,
-    (Get-Item "third_party/libsoxr/src/pffft32s.c").FullName,
-    (Get-Item "third_party/libsoxr/src/pffft-wrap.c").FullName,
-    (Get-Item "third_party/libsoxr/src/fft4g32.c").FullName,
-    (Get-Item "third_party/libsoxr/src/fft4g64.c").FullName,
-    (Get-Item "third_party/libsoxr/src/dbesi0.c").FullName,
-    (Get-Item "third_party/libsoxr/src/util32s.c").FullName
-)
+$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
 
 foreach ($f in $cFiles) {
     $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"

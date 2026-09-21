@@ -417,7 +417,7 @@ class MiniaudioBiquad {
 class MiniaudioResampler {
   MiniaudioResampler(this._ffi, AudioFormat format, int channels,
       int sampleRateIn, int sampleRateOut,
-      {ResampleAlgorithm algorithm = ResampleAlgorithm.soxrHQ,
+      {ResampleAlgorithm algorithm = ResampleAlgorithm.r8brain24LinearPhase,
       DitherMode ditherMode = DitherMode.triangle})
       : _pointer = _ffi.createResampler(format, channels, sampleRateIn,
             sampleRateOut, algorithm, ditherMode);

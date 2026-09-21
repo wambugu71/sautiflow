@@ -38,8 +38,8 @@ namespace sautiflow {
 
 static void configure_audiophile_swr_opts(SwrContext* swrCtx) {
     if (!swrCtx) return;
-    // Attempt SoXR engine if compiled in libswresample, fallback gracefully
-    av_opt_set_int(swrCtx, "resampler", 1 /* SWR_ENGINE_SOXR */, 0);
+    // High-precision sinc resampling via FFmpeg native swresample engine
+    av_opt_set_int(swrCtx, "resampler", 0 /* SWR_ENGINE_SWR */, 0);
     // 32-tap high-precision sinc filter
     av_opt_set_int(swrCtx, "filter_size", 32, 0);
     av_opt_set_double(swrCtx, "cutoff", 0.99, 0);
@@ -51,19 +51,19 @@ static void configure_audiophile_swr_opts(SwrContext* swrCtx) {
 static bool init_swr_context(SwrContext* swrCtx) {
     if (!swrCtx) return false;
 
-    // 1. Attempt SoXR audiophile engine with minimum-phase sinc filter
+    // 1. High-precision sinc filter via native SWR engine
     configure_audiophile_swr_opts(swrCtx);
     int ret = swr_init(swrCtx);
     if (ret >= 0 && swr_is_initialized(swrCtx)) {
-        SF_LOG("[ffmpeg] SwrContext initialized successfully with SoXR audiophile engine\n");
+        SF_LOG("[ffmpeg] SwrContext initialized successfully with high-precision swresample engine\n");
         return true;
     }
 
-    // 2. Fallback to FFmpeg default swresample engine (guaranteed available across all platforms including Android)
-    SF_LOG("[ffmpeg] SoXR engine unavailable in libswresample (ret=%d); falling back to default swresample engine\n", ret);
+    // 2. Fallback to standard swresample options if extended options are not accepted
+    SF_LOG("[ffmpeg] High-precision swresample failed (ret=%d); falling back to default swresample options\n", ret);
     av_opt_set_int(swrCtx, "resampler", 0 /* SWR_ENGINE_SWR */, 0);
-    av_opt_set_int(swrCtx, "filter_size", 32, 0);
-    av_opt_set_double(swrCtx, "cutoff", 0.99, 0);
+    av_opt_set_int(swrCtx, "filter_size", 16, 0);
+    av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
     ret = swr_init(swrCtx);
     if (ret >= 0 && swr_is_initialized(swrCtx)) {
         SF_LOG("[ffmpeg] SwrContext initialized successfully with default swresample engine\n");

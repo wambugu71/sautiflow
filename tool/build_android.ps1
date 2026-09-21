@@ -27,8 +27,6 @@ $includes = @(
     "-Idsp",
     "-Ithird_party",
     "-Ithird_party/libsamplerate/include",
-    "-Ithird_party/libsoxr/include",
-    "-Ithird_party/libsoxr/src",
     "-Ithird_party/r8brain"
 )
 
@@ -44,31 +42,12 @@ $defines = @(
     '-DHAVE_SYS_TYPES_H=1',
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
-    '-DENABLE_SINC_FAST_CONVERTER=1',
-    '-DSOXR_LIB=1'
-)
-
-$soxrSources = @(
-    "third_party/libsoxr/src/soxr.c",
-    "third_party/libsoxr/src/data-io.c",
-    "third_party/libsoxr/src/filter.c",
-    "third_party/libsoxr/src/cr.c",
-    "third_party/libsoxr/src/cr32.c",
-    "third_party/libsoxr/src/cr32s.c",
-    "third_party/libsoxr/src/cr64.c",
-    "third_party/libsoxr/src/vr32.c",
-    "third_party/libsoxr/src/pffft32s.c",
-    "third_party/libsoxr/src/pffft-wrap.c",
-    "third_party/libsoxr/src/fft4g32.c",
-    "third_party/libsoxr/src/fft4g64.c",
-    "third_party/libsoxr/src/dbesi0.c",
-    "third_party/libsoxr/src/vr-coefs.c",
-    "third_party/libsoxr/src/util32s.c"
+    '-DENABLE_SINC_FAST_CONVERTER=1'
 )
 
 $allSources = @(
     "audio_engine.cpp"
-) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) + ($soxrSources | ForEach-Object { (Get-Item $_).FullName })
+) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
 
 foreach ($t in $targets) {
     $abi = $t.Abi

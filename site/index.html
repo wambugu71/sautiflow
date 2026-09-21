@@ -89,7 +89,7 @@
           <p>At its heart is <strong>Sautiflow</strong>, a custom low-latency C++ audio engine. Instead of
             relying on high-level system wrappers, Sautiplay talks directly to low-level hardware paths like
             AAudio MMAP on Android and WASAPI exclusive on Windows. It embeds proven, mastering-grade
-            resamplers (<code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>) so that
+            resamplers (<code>libsamplerate</code> and <code>r8brain</code>) so that
             when your songs have different sample rates, they stay clean and distortion-free.</p>
           <p>There are no accounts, no tracking, and no ads. Just your music, your device, and clean sound.</p>
         </div>
@@ -101,7 +101,7 @@
             <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
             <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
             <li><span>CORE</span><b>C++ · miniaudio</b></li>
-            <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
+            <li><span>RESAMPLER</span><b>libsamplerate · r8brain</b></li>
             <li><span>LICENSE</span><b>Open source</b></li>
             <li><span>BUILDS</span><b>GitHub Actions (public)</b></li>
           </ul>
@@ -144,7 +144,7 @@
             <li><span>AUDIO BACKEND</span><b>AAudio (Native C++)</b></li>
             <li><span>STREAM MODE</span><b>Low-Latency MMAP</b></li>
             <li><span>OEM DSP</span><b>Bypassed (on supported devices)</b></li>
-            <li><span>RESAMPLER</span><b>libsamplerate · r8brain · libsoxr</b></li>
+            <li><span>RESAMPLER</span><b>libsamplerate · r8brain</b></li>
             <li><span>ROOT REQUIRED</span><b>No (Clean User-Space)</b></li>
             <li><span>DAC RATE MATCH</span><b>Automatic per song</b></li>
             <li><span>DEVICE FALLBACK</span><b>Clean internal floating-point</b></li>
@@ -168,7 +168,7 @@
           <ul>
             <li>Songs in real collections come in all kinds of sample rates (44.1, 48, 88.2, 96, 192&nbsp;kHz).</li>
             <li>Instead of trusting Android's sloppy system resampler, the engine packs top-grade resamplers:
-              <code>libsamplerate</code>, <code>r8brain</code>, and <code>libsoxr</code>.
+              <code>libsamplerate</code> and <code>r8brain</code>.
             </li>
             <li>Local tracks get clean sinc math with zero audible distortion or muffled highs.</li>
             <li>Online network streams play through FFmpeg's default resampler for fast, reliable live decoding.</li>
@@ -508,12 +508,11 @@
         </article>
 
         <article class="feat">
-          <h3 class="mono">Q: WHICH RESAMPLER SHOULD I CHOOSE (LIBSAMPLERATE, R8BRAIN, LIBSOXR)?</h3>
-          <p>All three are top-tier sinc resamplers: <strong>libsamplerate</strong> provides classic mastering-grade
-            sinc conversion; <strong>r8brain</strong> offers ultra-clean linear/minimum phase modes with over
-            -160&nbsp;dB stopband attenuation; and <strong>libsoxr</strong> provides exceptional fidelity with very
-            light CPU usage.</p>
-          <p>For local files, any of the three delivers mathematically transparent rate conversion with zero audible
+          <h3 class="mono">Q: WHICH RESAMPLER SHOULD I CHOOSE (LIBSAMPLERATE OR R8BRAIN)?</h3>
+          <p>Both are top-tier sinc resamplers: <strong>libsamplerate</strong> provides classic mastering-grade
+            sinc conversion; while <strong>r8brain</strong> offers ultra-clean linear and minimum phase modes with over
+            -160&nbsp;dB stopband attenuation and pristine impulse response.</p>
+          <p>For local files, either choice delivers mathematically transparent rate conversion with zero audible
             distortion or high-frequency loss.</p>
         </article>
 
@@ -756,7 +755,6 @@ flutter build macos --release --dart-define=STREAM_URL_1="..." --dart-define=STR
           <ul>
             <li><strong>libsamplerate:</strong> Erik de Castro Lopo's Secret Rabbit Code sinc converter.</li>
             <li><strong>r8brain-free-src:</strong> Aleksey Vaneev / Voxengo's high-performance resampler.</li>
-            <li><strong>libsoxr:</strong> Rob Sykes' SoX resampler library.</li>
           </ul>
         </article>
 

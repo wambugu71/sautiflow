@@ -280,16 +280,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return 'Auto-Rate • ${_formatAudioDepth(widget.outputFormat)}';
     }
     final depth = _formatAudioDepth(widget.outputFormat);
-    final resamplerShort = _resampleAlgorithm == 7 || _resampleAlgorithm == 8
-        ? 'SoX VHQ'
-        : _resampleAlgorithm == 9
-            ? 'SoX HQ'
-            : _resampleAlgorithm == 11
-                ? 'r8brain LP'
-                : _resampleAlgorithm == 12
-                    ? 'r8brain MP'
-                    : _resampleAlgorithm == 1
-                        ? 'Master HD'
+    final resamplerShort = _resampleAlgorithm == 12 || _resampleAlgorithm == 8
+        ? 'r8brain MP'
+        : _resampleAlgorithm == 11 || _resampleAlgorithm == 7 || _resampleAlgorithm == 9 || _resampleAlgorithm == 10
+            ? 'r8brain LP'
+            : _resampleAlgorithm == 1
+                ? 'Master HD'
+                : _resampleAlgorithm == 2
+                    ? 'Sinc HQ'
+                    : _resampleAlgorithm == 3
+                        ? 'Sinc Good'
                         : 'Linear';
     return '$depth • $resamplerShort';
   }
@@ -4185,15 +4185,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 5:
         return 'Linear Extended';
       case 7:
-        return 'SoX VHQ Linear Phase (Audiophile)';
-      case 8:
-        return 'SoX VHQ Minimum Phase (Zero Pre-Ring)';
       case 9:
-        return 'SoX High Quality';
       case 10:
-        return 'SoX Fast Quality';
       case 11:
         return 'r8brain 24-bit Linear Phase (Mastering)';
+      case 8:
       case 12:
         return 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)';
       default:
@@ -4216,17 +4212,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 5:
         return 'Linear Ext';
       case 7:
-        return 'SoX VHQ (LP)';
-      case 8:
-        return 'SoX VHQ (MP)';
       case 9:
-        return 'SoX HQ';
       case 10:
-        return 'SoX Fast';
       case 11:
-        return 'r8brain (LP)';
+        return 'r8brain LP';
+      case 8:
       case 12:
-        return 'r8brain (MP)';
+        return 'r8brain MP';
       default:
         return 'Linear';
     }
@@ -4247,15 +4239,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 5:
         return 'Linear extended interpolation';
       case 7:
-        return 'SoX VHQ linear phase (175dB SNR)';
-      case 8:
-        return 'SoX VHQ minimum phase (zero pre-ring)';
       case 9:
-        return 'SoX high quality (160dB SNR)';
       case 10:
-        return 'SoX fast quality (120dB SNR)';
       case 11:
         return 'r8brain 24-bit linear phase (>160dB SNR)';
+      case 8:
       case 12:
         return 'r8brain 24-bit min-phase (zero pre-ring)';
       default:
@@ -4397,6 +4385,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final options = [
       {
+        'index': 12,
+        'name': 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)',
+        'subtitle':
+            'Voxengo r8brain minimum phase filter (>160dB SNR). Eliminates pre-ringing with natural transient response.',
+        'badge': 'Audiophile',
+        'isHeavy': true,
+      },
+      {
+        'index': 11,
+        'name': 'r8brain 24-bit Linear Phase (Mastering)',
+        'subtitle':
+            'Voxengo r8brain (>160dB SNR). Pristine mastering-grade linear phase conversion.',
+        'badge': isMobile ? '⚠️ High CPU' : 'Mastering LP',
+        'isHeavy': true,
+      },
+      {
+        'index': 1,
+        'name': 'Sinc Master Ultra HD (libsamplerate)',
+        'subtitle': '640-tap sinc filter (144dB SNR). Desktop High-End CPUs.',
+        'badge': isMobile ? '⚠️ Desktop Only' : 'Master HD',
+        'isHeavy': true,
+      },
+      {
+        'index': 2,
+        'name': 'Sinc High Quality (libsamplerate)',
+        'subtitle': 'Band-limited sinc filter (121dB SNR). High CPU load.',
+        'badge': isMobile ? '⚠️ High CPU' : 'Studio',
+        'isHeavy': true,
+      },
+      {
+        'index': 3,
+        'name': 'Sinc Good Quality (libsamplerate)',
+        'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
+        'badge': null,
+        'isHeavy': false,
+      },
+      {
         'index': 0,
         'name': 'Linear Standard (Fast & Smooth)',
         'subtitle':
@@ -4417,75 +4442,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'subtitle': 'Zero-order hold interpolation for vintage stepped sound.',
         'badge': null,
         'isHeavy': false,
-      },
-      {
-        'index': 9,
-        'name': 'SoX High Quality',
-        'subtitle':
-            'High Quality SoX resampler (160dB SNR). Fast & pristine rate conversion.',
-        'badge': 'SoX HQ',
-        'isHeavy': false,
-      },
-      {
-        'index': 10,
-        'name': 'SoX Fast Quality',
-        'subtitle':
-            'Fast SoX resampler (120dB SNR). High efficiency resampling.',
-        'badge': 'SoX Fast',
-        'isHeavy': false,
-      },
-      {
-        'index': 7,
-        'name': 'SoX VHQ Linear Phase (Audiophile)',
-        'subtitle':
-            'Very High Quality linear phase filter (175dB SNR). Exceptional purity.',
-        'badge': isMobile ? '⚠️ High CPU' : 'SoX VHQ',
-        'isHeavy': true,
-      },
-      {
-        'index': 8,
-        'name': 'SoX VHQ Minimum Phase (Zero Pre-Ring)',
-        'subtitle':
-            'VHQ minimum phase filter. Eliminates pre-ringing on acoustic transients.',
-        'badge': isMobile ? '⚠️ High CPU' : 'SoX Min-Phase',
-        'isHeavy': true,
-      },
-      {
-        'index': 11,
-        'name': 'r8brain 24-bit Linear Phase (Mastering)',
-        'subtitle':
-            'Voxengo r8brain (>160dB SNR). Pristine mastering-grade linear phase conversion.',
-        'badge': isMobile ? '⚠️ High CPU' : 'r8brain LP',
-        'isHeavy': true,
-      },
-      {
-        'index': 12,
-        'name': 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)',
-        'subtitle':
-            'Voxengo r8brain minimum phase filter. Eliminates pre-ringing with natural transient response.',
-        'badge': isMobile ? '⚠️ High CPU' : 'r8brain MP',
-        'isHeavy': true,
-      },
-      {
-        'index': 3,
-        'name': 'Sinc Good Quality (libsamplerate)',
-        'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
-        'badge': null,
-        'isHeavy': false,
-      },
-      {
-        'index': 2,
-        'name': 'Sinc High Quality (libsamplerate)',
-        'subtitle': 'Band-limited sinc filter (121dB SNR). High CPU load.',
-        'badge': isMobile ? '⚠️ High CPU' : 'Studio',
-        'isHeavy': true,
-      },
-      {
-        'index': 1,
-        'name': 'Sinc Master Ultra HD (libsamplerate)',
-        'subtitle': '640-tap sinc filter (144dB SNR). Desktop High-End CPUs.',
-        'badge': isMobile ? '⚠️ Desktop Only' : 'Master HD',
-        'isHeavy': true,
       },
     ];
 

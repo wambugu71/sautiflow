@@ -5,28 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB LIBSAMPLERATE_SOURCES "../../../../third_party/libsamplerate/src/*.c")
-set(LIBSOXR_SOURCES
-  "../../../../third_party/libsoxr/src/soxr.c"
-  "../../../../third_party/libsoxr/src/data-io.c"
-  "../../../../third_party/libsoxr/src/filter.c"
-  "../../../../third_party/libsoxr/src/cr.c"
-  "../../../../third_party/libsoxr/src/cr32.c"
-  "../../../../third_party/libsoxr/src/cr32s.c"
-  "../../../../third_party/libsoxr/src/cr64.c"
-  "../../../../third_party/libsoxr/src/vr32.c"
-  "../../../../third_party/libsoxr/src/pffft32s.c"
-  "../../../../third_party/libsoxr/src/pffft-wrap.c"
-  "../../../../third_party/libsoxr/src/fft4g32.c"
-  "../../../../third_party/libsoxr/src/fft4g64.c"
-  "../../../../third_party/libsoxr/src/dbesi0.c"
-  "../../../../third_party/libsoxr/src/vr-coefs.c"
-  "../../../../third_party/libsoxr/src/util32s.c"
-)
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
   ../../../../ffmpeg_stream_decoder.cpp
   ${LIBSAMPLERATE_SOURCES}
-  ${LIBSOXR_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
@@ -34,8 +16,6 @@ target_include_directories(audio_engine PRIVATE
   ../../../../dsp
   ../../../../third_party
   ../../../../third_party/libsamplerate/include
-  ../../../../third_party/libsoxr/include
-  ../../../../third_party/libsoxr/src
   ../../../../third_party/r8brain
   ../../../../third_party/ffmpeg/include
 )
@@ -57,7 +37,6 @@ target_compile_definitions(audio_engine PRIVATE
   MA_DR_WAV_NO_ASSERT
   MA_DR_FLAC_NO_ASSERT
   MA_DR_MP3_NO_ASSERT
-  SOXR_LIB=1
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

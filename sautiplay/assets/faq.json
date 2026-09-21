@@ -43,14 +43,13 @@
   },
   {
     "id": "which-resampler",
-    "question": "Which Resampler Should I Choose (libsamplerate, R8brain, Libsoxr)?",
-    "answer": "All three are top-tier sinc resamplers: libsamplerate provides classic mastering-grade sinc conversion; r8brain offers ultra-clean linear/minimum phase modes with over -160 dB stopband attenuation; and libsoxr provides exceptional fidelity with very light CPU usage.\n\nFor local files, any of the three delivers mathematically transparent rate conversion with zero audible distortion or high-frequency loss.",
+    "question": "Which Resampler Should I Choose (R8brain or Libsamplerate)?",
+    "answer": "Both are top-tier sinc resamplers: r8brain offers ultra-clean linear and minimum phase modes with over -160 dB stopband attenuation and zero pre-ringing, while libsamplerate provides classic mastering-grade sinc conversion.\n\nFor local files, either delivers mathematically transparent rate conversion with zero audible distortion or high-frequency loss.",
     "category": "DSP & Resampling",
     "tags": [
       "resampler",
       "libsamplerate",
       "r8brain",
-      "libsoxr",
       "sinc",
       "phase",
       "stopband",
