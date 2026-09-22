@@ -12,6 +12,7 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
+import 'artist_profile_screen.dart';
 import 'isolate_player.dart';
 import 'models/liked_song.dart';
 import 'queue_screen.dart';
@@ -885,6 +886,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             _showMusicInfoDialog(context);
                           },
                         ),
+                        if ((_customArtist ?? widget.artist).isNotEmpty &&
+                            (_customArtist ?? widget.artist) != 'Unknown Artist' &&
+                            (_customArtist ?? widget.artist) != 'Local File')
+                          ListTile(
+                            leading: const Icon(Icons.person_outline_rounded,
+                                color: Colors.white),
+                            title: const Text('View Artist Profile',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600)),
+                            subtitle: Text(
+                              'Explore songs, albums & playlists by ${_customArtist ?? widget.artist}',
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () {
+                              Navigator.pop(sheetContext);
+                              _openArtistProfile(_customArtist ?? widget.artist);
+                            },
+                          ),
                         /*  ListTile(
                           leading: Icon(Icons.developer_board,
                               color:
@@ -1232,6 +1254,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       case LoopMode.one:
         return Icons.repeat_one_on;
     }
+  }
+
+  void _openArtistProfile(String artistName) {
+    final cleanName = artistName.trim();
+    if (cleanName.isEmpty ||
+        cleanName == 'Unknown Artist' ||
+        cleanName == 'Local File') {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistProfileScreen(
+          artistName: cleanName,
+          onPlayTracks: widget.onPlayTracks,
+        ),
+      ),
+    );
   }
 
   void _showMusicInfoDialog(BuildContext context) {
@@ -1948,19 +1987,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         velocity: 30.0,
                                                       ),
                                                       const SizedBox(height: 6),
-                                                      Text(
-                                                        subtitle,
-                                                        style: TextStyle(
-                                                          fontSize: 18,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          color: Colors.white
-                                                              .withValues(
-                                                                  alpha: 0.8),
+                                                      InkWell(
+                                                        onTap: () => _openArtistProfile(subtitle),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                        child: Padding(
+                                                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                                          child: Row(
+                                                            mainAxisSize: MainAxisSize.min,
+                                                            children: [
+                                                              Flexible(
+                                                                child: Text(
+                                                                  subtitle,
+                                                                  style: TextStyle(
+                                                                    fontSize: 18,
+                                                                    fontWeight: FontWeight.w600,
+                                                                    color: Colors.white.withValues(alpha: 0.85),
+                                                                  ),
+                                                                  maxLines: 1,
+                                                                  overflow: TextOverflow.ellipsis,
+                                                                ),
+                                                              ),
+                                                              const SizedBox(width: 4),
+                                                              Icon(
+                                                                Icons.chevron_right_rounded,
+                                                                color: Colors.white.withValues(alpha: 0.6),
+                                                                size: 20,
+                                                              ),
+                                                            ],
+                                                          ),
                                                         ),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
                                                       ),
                                                     ],
                                                   ),
@@ -2570,16 +2625,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   velocity: 30.0,
                                                 ),
                                                 const SizedBox(height: 4),
-                                                Text(
-                                                  subtitle,
-                                                  style: const TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.white70,
+                                                InkWell(
+                                                  onTap: () => _openArtistProfile(subtitle),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Flexible(
+                                                        child: Text(
+                                                          subtitle,
+                                                          style: const TextStyle(
+                                                            fontSize: 15,
+                                                            fontWeight: FontWeight.w600,
+                                                            color: Colors.white70,
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      const Icon(
+                                                        Icons.chevron_right_rounded,
+                                                        color: Colors.white54,
+                                                        size: 16,
+                                                      ),
+                                                    ],
                                                   ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
                                                 ),
                                               ],
                                             ),

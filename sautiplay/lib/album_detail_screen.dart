@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 
+import 'artist_profile_screen.dart';
 import 'models/liked_song.dart';
 import 'services/app_theme_service.dart';
 import 'services/liked_songs_service.dart';
@@ -236,6 +237,22 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     }
   }
 
+  void _openArtist(String name, {String? artistId}) {
+    final clean = name.trim();
+    if (clean.isEmpty || clean == 'Unknown Artist' || clean == 'Local File') {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistProfileScreen(
+          artistId: artistId,
+          artistName: clean,
+          onPlayTracks: widget.onPlayTracks,
+        ),
+      ),
+    );
+  }
+
   String _formatDuration(int? seconds) {
     if (seconds == null || seconds <= 0) return '--:--';
     final m = (seconds ~/ 60).toString();
@@ -434,14 +451,36 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Flexible(
-          child: Text(
-            _artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _textPrimary.withValues(alpha: 0.85),
-              fontSize: isDesktop ? 17 : 14.5,
-              fontWeight: FontWeight.w600,
+          child: InkWell(
+            onTap: () {
+              String? id;
+              if (widget.item is AlbumDetailed) {
+                id = (widget.item as AlbumDetailed).artist.artistId;
+              }
+              _openArtist(_artist, artistId: id);
+            },
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      _artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _primary,
+                        fontSize: isDesktop ? 17 : 14.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded, color: _primary, size: 18),
+                ],
+              ),
             ),
           ),
         ),
@@ -738,13 +777,19 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _textMuted,
-                            fontSize: isDesktop ? 13 : 11.5,
+                        InkWell(
+                          onTap: () => _openArtist(track.artist),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Text(
+                            track.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _textMuted,
+                              fontSize: isDesktop ? 13 : 11.5,
+                              decoration: TextDecoration.underline,
+                              decorationColor: _textMuted.withValues(alpha: 0.4),
+                            ),
                           ),
                         ),
                       ],

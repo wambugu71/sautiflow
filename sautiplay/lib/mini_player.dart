@@ -17,6 +17,7 @@ class MiniPlayer extends StatefulWidget {
   final VoidCallback onNext;
   final VoidCallback? onPrevious;
   final VoidCallback onTap;
+  final VoidCallback? onArtistTap;
 
   const MiniPlayer({
     super.key,
@@ -30,6 +31,7 @@ class MiniPlayer extends StatefulWidget {
     required this.onNext,
     this.onPrevious,
     required this.onTap,
+    this.onArtistTap,
   });
 
   @override
@@ -253,13 +255,17 @@ class _MiniPlayerState extends State<MiniPlayer>
                             blankSpace: 30.0,
                             pauseAfterRound: const Duration(seconds: 2),
                           ),
-                          Text(
-                            widget.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: textMuted,
-                              fontSize: 12,
+                          InkWell(
+                            onTap: widget.onArtistTap,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Text(
+                              widget.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],

@@ -9,6 +9,7 @@ import 'package:material_3_expressive/components/floating_action_buttons/enums/m
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'album_detail_screen.dart';
+import 'artist_profile_screen.dart';
 import 'services/app_theme_service.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -1098,6 +1099,26 @@ class _SearchScreenState extends State<SearchScreen> {
         widget.onPlayTracks!([track], initialIndex: 0);
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
+    } else if (item is ArtistDetailed) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ArtistProfileScreen(
+            artistId: item.artistId,
+            artistName: item.name,
+            onPlayTracks: widget.onPlayTracks,
+          ),
+        ),
+      );
+    } else if (item is ArtistDetailedSearchResult) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ArtistProfileScreen(
+            artistId: item.artistDetailed.artistId,
+            artistName: item.artistDetailed.name,
+            onPlayTracks: widget.onPlayTracks,
+          ),
+        ),
+      );
     } else {
       Navigator.of(context).push(
         MaterialPageRoute(

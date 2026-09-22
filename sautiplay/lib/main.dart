@@ -27,6 +27,7 @@ import 'home_screen.dart';
 import 'library_screen.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
+import 'artist_profile_screen.dart';
 import 'mini_player.dart';
 import 'models/cached_stream_item.dart';
 import 'models/liked_song.dart';
@@ -2573,7 +2574,20 @@ class _PlayerShellState extends State<PlayerShell> {
     _isFtpDownloading = false;
   }
 
-  void _showNowPlayingScreen() {
+    void _openArtistProfile(String artistName) {
+    final clean = artistName.trim();
+    if (clean.isEmpty || clean == 'Unknown Artist' || clean == 'Local File') return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistProfileScreen(
+          artistName: clean,
+          onPlayTracks: _playOnlineTracks,
+        ),
+      ),
+    );
+  }
+
+void _showNowPlayingScreen() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2882,6 +2896,7 @@ class _PlayerShellState extends State<PlayerShell> {
                             onNext: () => _player.next(),
                             onPrevious: () => _player.previous(),
                             onTap: _showNowPlayingScreen,
+                            onArtistTap: () => _openArtistProfile(meta.artist),
                           ),
                         );
                       },
