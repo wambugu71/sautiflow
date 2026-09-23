@@ -581,7 +581,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                                   tooltip: 'Delete Profile',
                                   onPressed: () async {
                                     await AutoEqService.instance
-                                        .deleteCustomProfile(item.id);
+                                        .deleteCustomProfile(item.id, widget.player);
                                     setDialogState(() {});
                                     if (mounted) setState(() {});
                                   },
@@ -784,7 +784,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
 
     final activeLabel = _activeProfile != null
         ? _activeProfile!.name
-        : 'Harman Target 2019';
+        : 'None (Flat)';
 
     return Container(
       decoration: BoxDecoration(
@@ -817,11 +817,25 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
+                    if (_activeProfile != null) ...[
+                      Icon(
+                        _activeProfile!.isParametric
+                            ? Icons.show_chart_rounded
+                            : Icons.equalizer_rounded,
+                        color: _activeProfile!.isParametric
+                            ? Colors.cyanAccent
+                            : Colors.tealAccent,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     Expanded(
                       child: Text(
                         activeLabel,
-                        style: const TextStyle(
-                          color: Color(0xFF38BDF8),
+                        style: TextStyle(
+                          color: _activeProfile != null
+                              ? const Color(0xFF38BDF8)
+                              : Colors.white54,
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                         ),
@@ -829,9 +843,11 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    const Icon(
+                    Icon(
                       Icons.unfold_more_rounded,
-                      color: Color(0xFF38BDF8),
+                      color: _activeProfile != null
+                          ? const Color(0xFF38BDF8)
+                          : Colors.white54,
                       size: 16,
                     ),
                   ],
@@ -839,6 +855,27 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               ),
             ),
           ),
+          if (_activeProfile != null) ...[
+            const SizedBox(width: 6),
+            // Reset / Bypass Button (when a profile is active)
+            InkWell(
+              onTap: () => _handleSelection('__none__'),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF162232),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white70,
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
           // Cloud Upload / Import Button
           InkWell(

@@ -2,8 +2,45 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sautiflow/sautiflow.dart';
+import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/models/autoeq_profile.dart';
+import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/autoeq_parser.dart';
+import 'package:sautiplay/services/autoeq_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class FakePlayerForAutoEq extends Fake implements IsolateAudioPlayer {
+  double gain = 0.0;
+  bool multibandFxEnabled = true;
+  bool multibandFxCleared = false;
+  bool multibandEqEnabled = true;
+  final Map<int, double> eqBandGains = {};
+
+  @override
+  void setGain(double g) {
+    gain = g;
+  }
+
+  @override
+  void setMultibandFxEnabled(bool enabled) {
+    multibandFxEnabled = enabled;
+  }
+
+  @override
+  void clearMultibandFx() {
+    multibandFxCleared = true;
+  }
+
+  @override
+  void setMultibandEqBandGain(int index, double gainDb) {
+    eqBandGains[index] = gainDb;
+  }
+
+  @override
+  void setMultibandEqEnabled(bool enabled) {
+    multibandEqEnabled = enabled;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -169,6 +206,48 @@ GraphicEQ: 20 0.2; 25 -0.5; 31.5 -1.2; 40 -1.8; 50 -2.5; 63 -3.2; 80 -4.0; 100 -
           expect(parsed.bandGainDbs31.isNotEmpty, isTrue);
         }
       }
+    });
+  });
+
+  group('AutoEqService Profile Reset & Bypass', () {
+    test('clearActiveProfile resets preamp gain, PEQ, GEQ, and AppStateService to flat/off', () async {
+      SharedPreferences.setMockInitialValues({
+        'sp_active_autoeq_profile_id_v2': 'test_active_profile',
+        'sp_parametric_eq_enabled': true,
+        'sp_active_parametric_preset': 'HD 600',
+        'sp_eq_enabled': true,
+        'sp_eq_preset': 'WH-1000XM4',
+        'sp_preamp_db': -6.5,
+      });
+
+      final fakePlayer = FakePlayerForAutoEq();
+      fakePlayer.gain = 0.473; // non-1.0 gain
+      fakePlayer.multibandFxEnabled = true;
+      fakePlayer.multibandEqEnabled = true;
+
+      await AutoEqService.instance.clearActiveProfile(fakePlayer);
+
+      expect(AutoEqService.instance.activeProfile, isNull);
+      expect(fakePlayer.gain, 1.0);
+      expect(fakePlayer.multibandFxEnabled, isFalse);
+      expect(fakePlayer.multibandFxCleared, isTrue);
+      expect(fakePlayer.multibandEqEnabled, isFalse);
+      expect(fakePlayer.eqBandGains.length, 32);
+      expect(fakePlayer.eqBandGains.values.every((g) => g == 0.0), isTrue);
+
+      final pEq = await AppStateService.instance.loadParametricEq();
+      expect(pEq.enabled, isFalse);
+      expect(pEq.bands, isEmpty);
+
+      final geq = await AppStateService.instance.loadEqBands();
+      expect(geq.enabled, isFalse);
+      expect(geq.preset, 'Flat');
+      expect(geq.gains.every((g) => g == 0.0), isTrue);
+      expect(geq.preampDb, 0.0);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('sp_active_autoeq_profile_id_v2'), isFalse);
+      expect(prefs.containsKey('sp_active_parametric_preset'), isFalse);
     });
   });
 }

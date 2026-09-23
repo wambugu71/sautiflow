@@ -173,22 +173,55 @@ class AutoEqService {
   }
 
   /// Deletes a user-imported custom profile.
-  Future<void> deleteCustomProfile(String id) async {
+  Future<void> deleteCustomProfile(String id, [IsolateAudioPlayer? player]) async {
     _customProfiles.removeWhere((p) => p.id == id);
     await _saveCustomProfiles();
     if (_activeProfile?.id == id) {
-      _activeProfile = null;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kActiveProfileIdKey);
-      activeProfileChanged.add(null);
+      if (player != null) {
+        await clearActiveProfile(player);
+      } else {
+        _activeProfile = null;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_kActiveProfileIdKey);
+        activeProfileChanged.add(null);
+      }
     }
   }
 
-  /// Clears the active AutoEQ profile.
+  /// Clears the active AutoEQ profile, resets preamp headroom scaling to 1.0 (0 dB),
+  /// and resets both Parametric EQ and Graphic EQ engines and their persisted state to Flat/Off.
   Future<void> clearActiveProfile(IsolateAudioPlayer player) async {
     _activeProfile = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kActiveProfileIdKey);
+
+    // 1. Reset Master Preamp Gain headroom back to 1.0 (0.0 dB)
+    player.setGain(1.0);
+
+    // 2. Reset Parametric EQ (multiband FX)
+    player.setMultibandFxEnabled(false);
+    player.clearMultibandFx();
+    await AppStateService.instance.saveParametricEq(
+      enabled: false,
+      bands: const [],
+    );
+    await prefs.remove('sp_active_parametric_preset');
+
+    // 3. Reset Graphic EQ (multiband EQ) to Flat (0.0 dB) & disabled
+    final freqs = _getStandardFrequencies(32);
+    final zeroGains = List<double>.filled(freqs.length, 0.0);
+    for (int i = 0; i < freqs.length; i++) {
+      player.setMultibandEqBandGain(i, 0.0);
+    }
+    player.setMultibandEqEnabled(false);
+    await AppStateService.instance.saveEqBands(
+      enabled: false,
+      preset: 'Flat',
+      gains: zeroGains,
+      preampDb: 0.0,
+      bandCount: freqs.length,
+    );
+
     activeProfileChanged.add(null);
   }
 
