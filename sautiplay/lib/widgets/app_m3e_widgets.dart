@@ -137,7 +137,146 @@ class AppStatusBadge extends StatelessWidget {
   }
 }
 
-/// Standard M3E switch tile with reactive styling.
+/// Standard responsive settings tile with multi-line support and adaptive trailing.
+class AppSettingsTile extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget? leading;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry padding;
+
+  const AppSettingsTile({
+    super.key,
+    String? title,
+    String? headline,
+    String? subtitle,
+    String? supportingText,
+    this.leading,
+    this.trailing,
+    this.onTap,
+    this.padding = const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+  })  : title = title ?? headline ?? '',
+        subtitle = subtitle ?? supportingText;
+
+  @override
+  Widget build(BuildContext context) {
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+
+    final content = Padding(
+      padding: padding,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 14),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    style: TextStyle(
+                      color: textMuted,
+                      fontSize: 12.5,
+                      height: 1.25,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 10),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: content,
+      );
+    }
+
+    return content;
+  }
+}
+
+/// Standard settings tile for selectable values opening a picker modal.
+class AppSettingsValueTile extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final String value;
+  final Widget? leading;
+  final VoidCallback? onTap;
+
+  const AppSettingsValueTile({
+    super.key,
+    String? title,
+    String? headline,
+    String? subtitle,
+    String? supportingText,
+    required this.value,
+    this.leading,
+    this.onTap,
+  })  : title = title ?? headline ?? '',
+        subtitle = subtitle ?? supportingText;
+
+  @override
+  Widget build(BuildContext context) {
+    final textMuted = context.textMuted;
+    return AppSettingsTile(
+      title: title,
+      subtitle: subtitle,
+      leading: leading,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 130),
+            child: Text(
+              value,
+              style: TextStyle(
+                color: textMuted,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(Icons.chevron_right_rounded, color: textMuted, size: 20),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+/// Standard M3E switch tile with reactive styling and multi-line safety.
 class AppM3ESwitchTile extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -156,9 +295,9 @@ class AppM3ESwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return M3EListItem(
-      headline: title,
-      supportingText: subtitle,
+    return AppSettingsTile(
+      title: title,
+      subtitle: subtitle,
       leading: leading,
       trailing: M3ESwitch(
         value: value,
@@ -170,7 +309,7 @@ class AppM3ESwitchTile extends StatelessWidget {
 }
 
 /// Standardized layout for sub-screens in SautiPlay with unified theme background,
-/// responsive width constraint, and back navigation.
+/// responsive width constraint, and natural back navigation.
 class AppSubScreenScaffold extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -198,7 +337,7 @@ class AppSubScreenScaffold extends StatelessWidget {
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.keyboard_arrow_down, color: textPrimary),
+          icon: Icon(Icons.keyboard_arrow_down_rounded, color: textPrimary, size: 28),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -225,3 +364,4 @@ class AppSubScreenScaffold extends StatelessWidget {
     );
   }
 }
+

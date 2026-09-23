@@ -272,26 +272,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  String _getAudioProcessingBadgeText() {
+  String _getAudioProcessingSubtitle() {
     if (widget.exclusiveMode) {
-      return 'Bit-Perfect';
+      return 'Bit-Perfect exclusive mode active';
     }
     if (_autoBitPerfectEnabled) {
-      return 'Auto-Rate • ${_formatAudioDepth(widget.outputFormat)}';
+      return 'Auto-rate match • ${_formatAudioDepth(widget.outputFormat)}';
     }
     final depth = _formatAudioDepth(widget.outputFormat);
     final resamplerShort = _resampleAlgorithm == 12 || _resampleAlgorithm == 8
-        ? 'r8brain MP'
-        : _resampleAlgorithm == 11 || _resampleAlgorithm == 7 || _resampleAlgorithm == 9 || _resampleAlgorithm == 10
-            ? 'r8brain LP'
+        ? 'Studio Natural'
+        : _resampleAlgorithm == 11 ||
+                _resampleAlgorithm == 7 ||
+                _resampleAlgorithm == 9 ||
+                _resampleAlgorithm == 10
+            ? 'Studio Neutral'
             : _resampleAlgorithm == 1
-                ? 'Master HD'
+                ? 'Ultra High Sinc'
                 : _resampleAlgorithm == 2
-                    ? 'Sinc HQ'
+                    ? 'High Sinc'
                     : _resampleAlgorithm == 3
-                        ? 'Sinc Good'
-                        : 'Linear';
+                        ? 'Balanced Sinc'
+                        : 'Standard Linear';
     return '$depth • $resamplerShort';
+  }
+
+  String _getAudioProcessingBadgeText() {
+    return _getAudioProcessingSubtitle();
   }
 
   String _getStreamingQualityBadgeText() {
@@ -518,38 +525,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        //  _buildSettingsHeaderCard(),
-                        const SizedBox(height: 20),
-                        _buildSectionHeader('PREFERENCES'),
-                        const SizedBox(height: 10),
-                        M3ECardList(
-                          itemCount: 9,
-                          onTap: (index) {
-                            switch (index) {
-                              case 0:
-                                _navigateToSubScreen(
-                                    _buildLookAndFeelSubScreen());
-                                break;
-                              case 1:
-                                _navigateToSubScreen(
-                                    _buildAudioProcessingSubScreen());
-                                break;
-                              case 2:
-                                _navigateToSubScreen(
-                                    _buildEqualizerSubScreen());
-                                break;
-                              case 3:
-                                _navigateToSubScreen(
-                                    _buildVisualizationSubScreen());
-                                break;
-                              case 4:
-                                _navigateToSubScreen(_buildPlaybackSubScreen());
-                                break;
-                              case 5:
-                                _navigateToSubScreen(
-                                    _buildDataAndStreamingSubScreen());
-                                break;
-                              case 6:
+                        const SizedBox(height: 12),
+
+                        // ── GROUP 1: PLAYBACK & SOUND ──
+                        _buildSectionHeader('PLAYBACK & SOUND'),
+                        const SizedBox(height: 8),
+                        AppCardContainer(
+                          children: [
+                            _buildCategoryCard(
+                              title: 'Appearance',
+                              subtitle:
+                                  '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_useWaveformSeekBar ? "Waveform" : "Classic slider"}',
+                              icon: Icons.palette_outlined,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildLookAndFeelSubScreen()),
+                            ),
+                            const M3EDivider(),
+                            _buildCategoryCard(
+                              title: 'Audio Engine',
+                              subtitle: _getAudioProcessingSubtitle(),
+                              icon: Icons.graphic_eq_rounded,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildAudioProcessingSubScreen()),
+                            ),
+                            const M3EDivider(),
+                            _buildCategoryCard(
+                              title: 'Equalizer',
+                              subtitle: '$_eqBandCount bands • Sound tuning',
+                              icon: Icons.tune_rounded,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildEqualizerSubScreen()),
+                            ),
+                            const M3EDivider(),
+                            _buildCategoryCard(
+                              title: 'Visualizer',
+                              subtitle: widget.analyzerEnabled
+                                  ? '${widget.spectrumStyle.toUpperCase()} • Live Meter'
+                                  : 'Visualizer off',
+                              icon: Icons.bar_chart_rounded,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildVisualizationSubScreen()),
+                            ),
+                            const M3EDivider(),
+                            _buildCategoryCard(
+                              title: 'Playback',
+                              subtitle: widget.crossfadeEnabled
+                                  ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s crossfade'
+                                  : 'Gapless playback',
+                              icon: Icons.queue_music_rounded,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildPlaybackSubScreen()),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        // ── GROUP 2: SOURCES & DATA ──
+                        _buildSectionHeader('SOURCES & DATA'),
+                        const SizedBox(height: 8),
+                        AppCardContainer(
+                          children: [
+                            _buildCategoryCard(
+                              title: 'Streaming & Storage',
+                              subtitle:
+                                  '${_getStreamingQualityBadgeText()} quality • Offline cache',
+                              icon: Icons.stream_rounded,
+                              accentColor: _primary,
+                              onTap: () => _navigateToSubScreen(
+                                  _buildDataAndStreamingSubScreen()),
+                            ),
+                            const M3EDivider(),
+                            _buildCategoryCard(
+                              title: 'Local & Network Audio',
+                              subtitle: 'FTP servers & DLNA media hubs',
+                              icon: Icons.lan_rounded,
+                              accentColor: _primary,
+                              onTap: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -561,161 +617,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                   ),
                                 );
-                                break;
-                              case 7:
-                                _navigateToSubScreen(_buildLastFmSubScreen());
-                                break;
-                              case 8:
-                                _navigateToSubScreen(
-                                    _buildMiscSystemSubScreen());
-                                break;
-                            }
-                          },
-                          itemBuilder: (context, index) {
-                            switch (index) {
-                              case 0:
+                              },
+                            ),
+                            const M3EDivider(),
+                            AnimatedBuilder(
+                              animation: LastFmService.instance,
+                              builder: (context, _) {
+                                final lastFm = LastFmService.instance;
                                 return _buildCategoryCard(
-                                  title: 'Look & Feel',
-                                  subtitle: 'Theme, seek bar & UI appearance',
-                                  icon: Icons.palette_outlined,
-                                  accentColor: _primary,
-                                  badgeText:
-                                      AppThemeService.dataFor(_activeThemeId)
-                                          .displayName,
+                                  title: 'Last.fm',
+                                  subtitle: lastFm.isLoggedIn
+                                      ? 'Connected as ${lastFm.username}'
+                                      : 'Connect account to sync scrobbles',
+                                  icon: Icons.radio_rounded,
+                                  accentColor: const Color(0xFFD51007),
                                   onTap: () => _navigateToSubScreen(
-                                      _buildLookAndFeelSubScreen()),
+                                      _buildLastFmSubScreen()),
                                 );
-                              case 1:
-                                return _buildCategoryCard(
-                                  title: 'Audio & Processing',
-                                  subtitle:
-                                      'Resampling, Bit depth & Hardware Safeguards',
-                                  icon: Icons.graphic_eq_rounded,
-                                  accentColor: _primary,
-                                  badgeText: _getAudioProcessingBadgeText(),
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildAudioProcessingSubScreen()),
-                                );
-                              case 2:
-                                return _buildCategoryCard(
-                                  title: 'Equalizer & DSP',
-                                  subtitle:
-                                      'Band configuration & Sauti DSP shortcuts',
-                                  icon: Icons.tune_rounded,
-                                  accentColor: _primary,
-                                  badgeText: '$_eqBandCount-Band',
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildEqualizerSubScreen()),
-                                );
-                              case 3:
-                                return _buildCategoryCard(
-                                  title: 'Visualization & RTA',
-                                  subtitle:
-                                      'Spectrum styles, FFT window & resolution, RTA monitoring',
-                                  icon: Icons.bar_chart_rounded,
-                                  accentColor: _primary,
-                                  badgeText: widget.analyzerEnabled
-                                      ? '${widget.spectrumStyle.toUpperCase()} • ${_getFftWindowDisplayName(widget.analyzerWindowType).toUpperCase()}'
-                                      : 'Off',
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildVisualizationSubScreen()),
-                                );
-                              case 4:
-                                return _buildCategoryCard(
-                                  title: 'Playback & Crossfade',
-                                  subtitle:
-                                      'Gapless mode, crossfade transitions & volume',
-                                  icon: Icons.queue_music_rounded,
-                                  accentColor: _primary,
-                                  badgeText: widget.crossfadeEnabled
-                                      ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s'
-                                      : 'Gapless',
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildPlaybackSubScreen()),
-                                );
-                              case 5:
-                                return _buildCategoryCard(
-                                  title: 'Data & Streaming',
-                                  subtitle:
-                                      'Direct YouTube stream bitrates, AAC, backup fallback & cache',
-                                  icon: Icons.stream_rounded,
-                                  accentColor: _primary,
-                                  badgeText: _getStreamingQualityBadgeText(),
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildDataAndStreamingSubScreen()),
-                                );
-                              case 6:
-                                return _buildCategoryCard(
-                                  title: 'Network Sources (FTP & DLNA)',
-                                  subtitle:
-                                      'Browse FTP servers, DLNA NAS, and cast audio',
-                                  icon: Icons.lan_rounded,
-                                  accentColor: _primary,
-                                  badgeText: 'FTP & DLNA',
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            NetworkSourcesScreen(
-                                          player: widget.player,
-                                          onPlayNetworkFile:
-                                              widget.onPlayNetworkFile,
-                                          onPlayFtpFolder:
-                                              widget.onPlayFtpFolder,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
-                              case 7:
-                                return AnimatedBuilder(
-                                  animation: LastFmService.instance,
-                                  builder: (context, _) {
-                                    final lastFm = LastFmService.instance;
-                                    return _buildCategoryCard(
-                                      title: 'Last.fm Scrobbler',
-                                      subtitle:
-                                          'Now Playing updates & track scrobbling to Last.fm',
-                                      icon: Icons.radio_rounded,
-                                      accentColor: const Color(0xFFD51007),
-                                      badgeText: lastFm.isLoggedIn
-                                          ? (lastFm.username ?? 'Connected')
-                                          : 'Not Connected',
-                                      onTap: () => _navigateToSubScreen(
-                                          _buildLastFmSubScreen()),
-                                    );
-                                  },
-                                );
-                              default:
-                                return ListenableBuilder(
-                                  listenable: AppUpdateService.instance,
-                                  builder: (context, _) {
-                                    final hasUpdate =
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        // ── GROUP 3: SYSTEM & ABOUT ──
+                        _buildSectionHeader('SYSTEM & ABOUT'),
+                        const SizedBox(height: 8),
+                        AppCardContainer(
+                          children: [
+                            ListenableBuilder(
+                              listenable: AppUpdateService.instance,
+                              builder: (context, _) {
+                                final hasUpdate =
+                                    AppUpdateService.instance.stage ==
+                                            UpdateStage.available ||
                                         AppUpdateService.instance.stage ==
-                                                UpdateStage.available ||
-                                            AppUpdateService.instance.stage ==
-                                                UpdateStage.downloaded ||
-                                            AppUpdateService.instance.stage ==
-                                                UpdateStage.downloading;
-                                    return _buildCategoryCard(
-                                      title: 'Misc & System',
-                                      subtitle:
-                                          'FAQs, open source licenses, updates, TLS, diagnostic logs',
-                                      icon: Icons.admin_panel_settings_outlined,
-                                      accentColor: hasUpdate
-                                          ? Colors.greenAccent
-                                          : _primary,
-                                      badgeText: hasUpdate
-                                          ? 'UPDATE AVAILABLE'
-                                          : _appVersion,
-                                      onTap: () => _navigateToSubScreen(
-                                          _buildMiscSystemSubScreen()),
-                                    );
-                                  },
+                                            UpdateStage.downloaded ||
+                                        AppUpdateService.instance.stage ==
+                                            UpdateStage.downloading;
+                                return _buildCategoryCard(
+                                  title: 'About & Diagnostics',
+                                  subtitle: hasUpdate
+                                      ? 'New update available to install'
+                                      : 'v$_appVersion • FAQs & error logs',
+                                  icon: Icons.admin_panel_settings_outlined,
+                                  accentColor:
+                                      hasUpdate ? Colors.greenAccent : _primary,
+                                  alertBadge: hasUpdate ? 'Update' : null,
+                                  onTap: () => _navigateToSubScreen(
+                                      _buildMiscSystemSubScreen()),
                                 );
-                            }
-                          },
+                              },
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 120),
                       ]),
@@ -745,45 +699,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     required IconData icon,
     required Color accentColor,
-    required String badgeText,
+    String? alertBadge,
     required VoidCallback onTap,
   }) {
-    return M3EListItem(
-      headline: title,
-      supportingText: subtitle,
-      leading: /* M3EContainer(
-        Shapes.pill,
-        width: 44,
-        height: 44,
-        color: accentColor.withAlpha(30),
-        border: BorderSide(color: accentColor.withAlpha(60), width: 1),
-        child: 
-        */
-          Center(
-        child: Icon(icon, color: accentColor, size: 22),
-        //  ),
+    return AppSettingsTile(
+      title: title,
+      subtitle: subtitle,
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: accentColor.withAlpha(25),
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Icon(icon, color: accentColor, size: 20),
+        ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: accentColor.withAlpha(25),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: accentColor.withAlpha(60)),
-            ),
-            child: Text(
-              badgeText,
-              style: TextStyle(
-                color: accentColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+          if (alertBadge != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.greenAccent.withAlpha(30),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.greenAccent.withAlpha(120)),
+              ),
+              child: Text(
+                alertBadge,
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Icon(Icons.chevron_right_rounded, color: _textDark, size: 22),
+            const SizedBox(width: 6),
+          ],
+          Icon(Icons.chevron_right_rounded, color: _textDark, size: 20),
         ],
       ),
       onTap: onTap,
@@ -808,15 +763,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildLeadingIcon(IconData icon, [Color? color]) {
     final c = color ?? _primary;
-    return /* M3EContainer(
-      Shapes.pill,
-      width: 40,
-      height: 40,
-      color: c.withValues(alpha: 0.15),
-      child: */
-        Center(
-      child: Icon(icon, color: c, size: 20),
-      //   ),
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.15),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Icon(icon, color: c, size: 18),
+      ),
     );
   }
 
@@ -827,15 +783,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
-    return M3EListItem(
-      headline: title,
-      supportingText: subtitle,
+    return AppM3ESwitchTile(
+      title: title,
+      subtitle: subtitle,
       leading: secondary,
-      trailing: M3ESwitch(
-        value: value,
-        onChanged: onChanged,
-      ),
-      onTap: () => onChanged(!value),
+      value: value,
+      onChanged: onChanged,
     );
   }
 
@@ -852,7 +805,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             isDarkTheme ? Colors.white : const Color(0xFF1A1A2E);
 
         return _buildSubScreenLayout(
-          title: 'Look & Feel',
+          title: 'Appearance',
           children: [
             // ── THEME SECTION ─────────────────────────────────────────────
             _buildSectionHeader('APP THEME'),
@@ -893,7 +846,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Changes the theme colors',
+                                'Personalize colors and accent styling',
                                 style:
                                     TextStyle(color: mutedText, fontSize: 12),
                               ),
@@ -1027,14 +980,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
             // ── NOW PLAYING ALBUM ART SHAPE SECTION ─────────────────────────
-            _buildSectionHeader('NOW PLAYING ALBUM ART SHAPE'),
+            _buildSectionHeader('ALBUM ART SHAPE'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'M3E Shape Containers',
+                  title: 'Material Shapes',
                   subtitle:
-                      'Enable Material 3 Expressive shapes for Now Playing album art (default is classic square)',
+                      'Use expressive geometric shapes for album art (classic square if disabled)',
                   secondary: _buildLeadingIcon(Icons.crop_original_rounded),
                   value: _useM3EAlbumArtShape,
                   onChanged: (val) {
@@ -1063,23 +1016,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
             // ── SEEK BAR & SLIDER SECTION ─────────────────────────────────
-            _buildSectionHeader('INTERFACE & SEEK BAR'),
+            _buildSectionHeader('SEEK BAR & PROGRESS'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
                   title: 'Waveform Seek Bar',
                   subtitle:
-                      'Replaces classic time slider with interactive track amplitude waveform',
-                  secondary: /*M3EContainer(
-                    Shapes.pill,
-                    width: 40,
-                    height: 40,
-                    color: _primary.withAlpha(25),
-                    child: */
-                      Center(
-                    child: Icon(Icons.graphic_eq, color: _primary, size: 20),
-                    //  ),
+                      'Display interactive audio waveforms instead of a flat progress line',
+                  secondary: Center(
+                    child: Icon(Icons.graphic_eq_rounded,
+                        color: _primary, size: 20),
                   ),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
@@ -1099,12 +1046,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          /* M3EContainer(
-                            Shapes.pill,
-                            width: 40,
-                            height: 40,
-                            color: _primary.withAlpha(25),
-                            child: */
                           Center(
                             child: Icon(
                               _useWavySlider
@@ -1113,7 +1054,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: _primary,
                               size: 20,
                             ),
-                            //  ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -1121,7 +1061,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Slider & Mini Player Style',
+                                  'Slider & Mini Player Animation',
                                   style: TextStyle(
                                     color: textPrimaryColor,
                                     fontSize: 15,
@@ -1131,8 +1071,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   _useWavySlider
-                                      ? 'M3E Linear Wavy travelling sine-wave (Now Playing & Mini Player)'
-                                      : 'M3E Linear Regular straight track (Now Playing & Mini Player)',
+                                      ? 'Travelling sine-wave animation'
+                                      : 'Classic straight progress line',
                                   style: TextStyle(
                                     color: mutedText,
                                     fontSize: 12,
@@ -1220,12 +1160,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           segments: const [
                             M3ESegment<bool>(
                               value: true,
-                              label: 'Linear Wavy',
+                              label: 'Wavy',
                               icon: Icon(Icons.waves_rounded, size: 18),
                             ),
                             M3ESegment<bool>(
                               value: false,
-                              label: 'Linear Regular',
+                              label: 'Straight',
                               icon: Icon(Icons.linear_scale_rounded, size: 18),
                             ),
                           ],
@@ -1251,20 +1191,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                M3EListItem(
-                  headline: 'Re-run Feature Tour',
-                  supportingText:
-                      'Re-start the interactive guided walkthrough for SautiPlay',
-                  leading: /* M3EContainer(
-                    Shapes.pill,
-                    width: 40,
-                    height: 40,
-                    color: _primary.withAlpha(25),
-                    child: */
-                      Center(
-                    child: Icon(Icons.tour_rounded, color: _primary, size: 20),
-                    // ),
-                  ),
+                AppSettingsTile(
+                  title: 'Re-run Feature Tour',
+                  subtitle:
+                      'Restart the guided walkthrough of SautiPlay features',
+                  leading: _buildLeadingIcon(Icons.tour_rounded),
                   trailing: Icon(Icons.play_arrow_rounded, color: _primary),
                   onTap: () {
                     Navigator.of(context).pop();
@@ -1284,87 +1215,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Audio & Processing',
+          title: 'Audio Engine',
           children: [
             const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                M3EListItem(
-                  headline: 'Resampler',
+                AppSettingsValueTile(
+                  headline: 'Resampler Quality',
                   supportingText:
                       _getResampleAlgorithmSupportingText(_resampleAlgorithm),
+                  value: _getResampleAlgorithmShortName(_resampleAlgorithm),
                   leading: _buildLeadingIcon(Icons.memory),
-                  trailing: SizedBox(
-                    width: 170,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _getResampleAlgorithmShortName(_resampleAlgorithm),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () => _showResampleAlgorithmDialog(
                       onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Oversampler',
-                  supportingText: 'Anti-aliasing for DSP',
+                AppSettingsValueTile(
+                  headline: 'Oversampling',
+                  supportingText: 'Internal anti-aliasing for audio filters',
+                  value: _getOversamplingName(_dspOversampling),
                   leading: _buildLeadingIcon(Icons.blur_on),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _getOversamplingName(_dspOversampling),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () =>
                       _showOversamplingDialog(onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Dither',
+                AppSettingsValueTile(
+                  headline: 'Dithering',
+                  supportingText:
+                      'Eliminates truncation noise when bit depth changes',
+                  value: _getDitherModeName(_ditherMode),
                   leading: _buildLeadingIcon(Icons.waves),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _getDitherModeName(_ditherMode),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () =>
                       _showDitherModeDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1375,28 +1257,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                M3EListItem(
+                AppSettingsValueTile(
                   headline: 'Output Bit Depth',
-                  supportingText: 'Audio precision',
+                  supportingText: 'Hardware playback resolution',
+                  value: _formatAudioDepth(widget.outputFormat),
                   leading: _buildLeadingIcon(Icons.code),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _formatAudioDepth(widget.outputFormat),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () =>
                       _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1406,159 +1271,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: AnimatedOpacity(
                     opacity: _autoBitPerfectEnabled ? 0.38 : 1.0,
                     duration: const Duration(milliseconds: 200),
-                    child: M3EListItem(
+                    child: AppSettingsValueTile(
                       headline: 'Sample Rate',
-                      supportingText:
-                          _autoBitPerfectEnabled ? 'Auto Bit-Perfect' : null,
+                      supportingText: _autoBitPerfectEnabled
+                          ? 'Managed automatically by Auto-Match'
+                          : 'Hardware output sample rate',
+                      value: widget.outputSampleRate == 0
+                          ? 'Native'
+                          : '${widget.outputSampleRate} Hz',
                       leading: _buildLeadingIcon(Icons.speed),
-                      trailing: SizedBox(
-                        width: 150,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                widget.outputSampleRate == 0
-                                    ? 'Native'
-                                    : '${widget.outputSampleRate} Hz',
-                                style:
-                                    TextStyle(color: _textDark, fontSize: 13),
-                                textAlign: TextAlign.right,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(Icons.chevron_right,
-                                color: _textDark, size: 20),
-                          ],
-                        ),
-                      ),
                       onTap: () => _showSampleRateDialog(
                           onDone: () => setSubState(() {})),
                     ),
                   ),
                 ),
                 const M3EDivider(),
-                M3EListItem(
+                AppSettingsValueTile(
                   headline: 'Output Channels',
+                  supportingText: 'Speaker channel layout',
+                  value: _formatChannelCount(widget.outputChannels),
                   leading: _buildLeadingIcon(Icons.speaker_group),
-                  trailing: SizedBox(
-                    width: 150,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _formatChannelCount(widget.outputChannels),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () =>
                       _showChannelsDialog(onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Output Buffer & Latency',
-                  supportingText:
-                      'Hardware period buffer frame size and periods',
+                AppSettingsValueTile(
+                  headline: 'Buffer & Latency',
+                  supportingText: 'Hardware audio buffer size and periods',
+                  value: _formatOutputBuffer(
+                      _outputBufferFrames, _outputBufferPeriods),
                   leading: _buildLeadingIcon(Icons.av_timer_rounded),
-                  trailing: SizedBox(
-                    width: 160,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _formatOutputBuffer(
-                                _outputBufferFrames, _outputBufferPeriods),
-                            style: TextStyle(color: _textDark, fontSize: 13),
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.chevron_right, color: _textDark, size: 20),
-                      ],
-                    ),
-                  ),
                   onTap: () =>
                       _showOutputBufferDialog(onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.swap_calls),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Phase Inversion (180°)',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Invert polarity',
-                                  style:
-                                      TextStyle(color: _textDark, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildM3ESwitchTile(
-                              title: 'Left Phase 180°',
-                              value: _phaseInvertLeft,
-                              onChanged: (val) {
-                                setState(() => _phaseInvertLeft = val);
-                                _persistPhaseInversionSettings();
-                                setSubState(() {});
-                              },
-                            ),
-                          ),
-                          Expanded(
-                            child: _buildM3ESwitchTile(
-                              title: 'Right Phase 180°',
-                              value: _phaseInvertRight,
-                              onChanged: (val) {
-                                setState(() => _phaseInvertRight = val);
-                                _persistPhaseInversionSettings();
-                                setSubState(() {});
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                _buildM3ESwitchTile(
+                  title: 'Invert Left Channel Phase',
+                  subtitle: 'Invert left audio polarity (180°)',
+                  secondary: _buildLeadingIcon(Icons.swap_calls),
+                  value: _phaseInvertLeft,
+                  onChanged: (val) {
+                    setState(() => _phaseInvertLeft = val);
+                    _persistPhaseInversionSettings();
+                    setSubState(() {});
+                  },
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: 'Swap Channels', //swap horizon
+                  title: 'Invert Right Channel Phase',
+                  subtitle: 'Invert right audio polarity (180°)',
+                  secondary: _buildLeadingIcon(Icons.swap_calls),
+                  value: _phaseInvertRight,
+                  onChanged: (val) {
+                    setState(() => _phaseInvertRight = val);
+                    _persistPhaseInversionSettings();
+                    setSubState(() {});
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Swap Stereo Channels',
                   subtitle: _lrSwapEnabled
-                      ? 'Left and right outputs are swapped'
-                      : 'Mirror left and right audio channels',
+                      ? 'Left and right audio channels are swapped'
+                      : 'Standard stereo channel orientation',
                   secondary: _buildLeadingIcon(
                     Icons.swap_horiz_rounded,
                     _lrSwapEnabled ? _primary : _textDark,
@@ -1593,7 +1368,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)', //
+                                  'Independent L/R trim (\u221212\u202fdB to +12\u202fdB)',
                                   style:
                                       TextStyle(color: _textDark, fontSize: 12),
                                 ),
@@ -1728,8 +1503,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: _buildM3ESwitchTile(
                       title: 'Bit-Perfect Playback',
                       subtitle: _autoBitPerfectEnabled
-                          ? 'Managed automatically (Auto Sample-Rate Match is on)'
-                          : 'Bypasses OS Mixer',
+                          ? 'Managed automatically (Auto-Match enabled)'
+                          : 'Bypasses system sound mixer for direct stream',
                       secondary: _buildLeadingIcon(Icons.verified),
                       value: widget.exclusiveMode,
                       onChanged: (val) async {
@@ -1824,8 +1599,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: '64-Bit Float DSP',
-                  subtitle: 'Higher accuracy (more power consumption)',
+                  title: '64-Bit Studio DSP',
+                  subtitle: 'Ultra-high precision floating point processing',
                   secondary: _buildLeadingIcon(Icons.architecture),
                   value: _use64BitProcessingEnabled,
                   onChanged: (val) {
@@ -1837,8 +1612,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: 'Auto Sample-Rate',
-                  subtitle: 'Sync audio to track rate (Recommended)',
+                  title: 'Auto Sample-Rate Match',
+                  subtitle: 'Auto match hardware rate to source (Recomended)',
                   secondary: _buildLeadingIcon(Icons.graphic_eq),
                   value: _autoBitPerfectEnabled,
                   onChanged: (val) {
@@ -1885,23 +1660,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 if (Platform.isAndroid) ...[
                   const M3EDivider(),
-                  M3EListItem(
-                    headline: 'Android Output Backend',
-                    supportingText: _selectedBackend.displayName,
+                  AppSettingsValueTile(
+                    headline: 'Android Audio Backend',
+                    supportingText:
+                        'Low-level driver (${_selectedBackend.displayName})',
+                    value: _selectedBackend.displayName,
                     leading: _buildLeadingIcon(Icons.developer_board_rounded),
-                    trailing:
-                        Icon(Icons.chevron_right_rounded, color: _textDark),
                     onTap: () =>
                         _showAndroidBackendPicker(context, setSubState),
                   ),
                   if (_detectedDspHardware.isNotEmpty) ...[
                     const M3EDivider(),
-                    M3EListItem(
-                      headline: 'Hardware Variant',
-                      supportingText: [
-                        if (_detectedDspHardware.isNotEmpty)
-                          _detectedDspHardware,
-                      ].join(' • '),
+                    AppSettingsTile(
+                      title: 'Hardware Audio DSP',
+                      subtitle: _detectedDspHardware,
                       leading: _buildLeadingIcon(Icons.memory_rounded),
                     ),
                   ],
@@ -1909,15 +1681,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            _buildSectionHeader('HARDWARE PROTECTION'),
+            _buildSectionHeader('SPEAKER & EAR PROTECTION'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Hardware Safeguards',
+                  title: 'Speaker & Ear Safeguards',
                   subtitle: _speakerProtectionEnabled
-                      ? 'Peak ceiling & subsonic/ultrasonic guard active'
-                      : 'Hardware protection disabled',
+                      ? 'Peak ceiling limiter & frequency filters active'
+                      : 'Protection filters disabled',
                   secondary: _buildLeadingIcon(
                     _speakerProtectionEnabled
                         ? Icons.health_and_safety
@@ -1933,58 +1705,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 if (_speakerProtectionEnabled) ...[
                   const M3EDivider(),
-                  M3EListItem(
-                    headline: 'Subsonic Filter',
-                    supportingText: 'Below woofer tuning',
+                  AppSettingsValueTile(
+                    headline: 'Sub-Bass Rumble Filter',
+                    supportingText: 'Cuts frequencies below speaker limit',
+                    value: _subsonicCutoffHz <= 0
+                        ? 'Off'
+                        : '${_subsonicCutoffHz.toInt()} Hz',
                     leading: _buildLeadingIcon(Icons.arrow_upward),
-                    trailing: SizedBox(
-                      width: 130,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _subsonicCutoffHz <= 0
-                                  ? 'Off'
-                                  : '${_subsonicCutoffHz.toInt()} Hz',
-                              style: TextStyle(color: _textDark, fontSize: 13),
-                              textAlign: TextAlign.right,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.chevron_right, color: _textDark, size: 20),
-                        ],
-                      ),
-                    ),
                     onTap: () =>
                         _showSubsonicDialog(onDone: () => setSubState(() {})),
                   ),
                   const M3EDivider(),
-                  M3EListItem(
-                    headline: 'Ultrasonic Guard (Low-Pass)',
-                    supportingText: 'Filters frequencies above 18-22kHz',
+                  AppSettingsValueTile(
+                    headline: 'Ultrasonic Noise Filter',
+                    supportingText: 'Cuts inaudible high-frequency noise',
+                    value: _ultrasonicCutoffHz >= 24000
+                        ? 'Off'
+                        : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
                     leading: _buildLeadingIcon(Icons.keyboard_arrow_down),
-                    trailing: SizedBox(
-                      width: 130,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _ultrasonicCutoffHz >= 24000
-                                  ? 'Off'
-                                  : '${(_ultrasonicCutoffHz / 1000).toStringAsFixed(1)} kHz',
-                              style: TextStyle(color: _textDark, fontSize: 13),
-                              textAlign: TextAlign.right,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.chevron_right, color: _textDark, size: 20),
-                        ],
-                      ),
-                    ),
                     onTap: () =>
                         _showUltrasonicDialog(onDone: () => setSubState(() {})),
                   ),
@@ -2073,6 +1811,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ],
             ),
+            const SizedBox(height: 32),
           ],
         );
       },
@@ -2084,8 +1823,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Equalizer & DSP',
+          title: 'Equalizer',
           children: [
+            const SizedBox(height: 20),
             _buildSectionHeader('GRAPHIC EQUALIZER BANDS'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -2103,13 +1843,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Frequency Precision',
+                                Text('EQ Band Layout',
                                     style: TextStyle(
                                         color: _textPrimary,
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500)),
                                 const SizedBox(height: 4),
-                                Text('Choose total active EQ bands',
+                                Text('Select number of graphic frequency bands',
                                     style: TextStyle(
                                         color: _textDark, fontSize: 13)),
                               ],
@@ -2176,10 +1916,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final activeStyleName = widget.spectrumStyle.toLowerCase();
 
         return _buildSubScreenLayout(
-          title: 'Visualization & RTA',
+          title: 'Visualizer',
           children: [
+            const SizedBox(height: 20),
             // ── TOP LIVE RTA & RMS LOUDNESS CARD ────────────────────────────
-            _buildSectionHeader('REAL-TIME AUDIO & RMS LOUDNESS'),
+            _buildSectionHeader('LIVE VOLUME & PEAK METER'),
             const SizedBox(height: 8),
             AppCardContainer(
               padding: const EdgeInsets.all(16.0),
@@ -2199,7 +1940,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'RTA RMS Loudness',
+                            'RMS Level & Peak',
                             style: TextStyle(
                               color: _textPrimary,
                               fontSize: 15,
@@ -2210,9 +1951,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text(
                             widget.analyzerEnabled
                                 ? (_isPlaying
-                                    ? 'Real-Time RMS & Peak Level Monitoring'
-                                    : 'Awaiting Audio Playback')
-                                : 'Level Meter Bypassed',
+                                    ? 'Live stereo level meter'
+                                    : 'Awaiting playback')
+                                : 'Level meter bypassed',
                             style: TextStyle(
                               color: _textDark,
                               fontSize: 12,
@@ -2223,9 +1964,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     AppStatusBadge(
                       text: widget.analyzerEnabled
-                          ? '${_isPlaying ? "ACTIVE" : "STANDBY"} • ${_getFftWindowDisplayName(widget.analyzerWindowType).toUpperCase()}'
-                          : 'BYPASSED',
-                      color: widget.analyzerEnabled ? _primary : _textDark,
+                          ? (_isPlaying ? 'ACTIVE' : 'STANDBY')
+                          : 'OFF',
+                      color: widget.analyzerEnabled
+                          ? (_isPlaying ? Colors.greenAccent : _primary)
+                          : _textDark,
                     ),
                   ],
                 ),
@@ -2261,7 +2004,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Audio loudness meter is paused & bypassed',
+                                'Audio meter paused',
                                 style: TextStyle(
                                   color: _textDark,
                                   fontSize: 13,
@@ -2277,13 +2020,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 20),
 
             // ── SPECTRUM ENGINE & RENDERING CARD ──────────────────────────
-            _buildSectionHeader('SPECTRUM ENGINE & RENDERING'),
+            _buildSectionHeader('SPECTRUM DISPLAY & STYLE'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Spectrum Analyzer Engine',
-                  subtitle: 'Real-time native FFT frequency spectrum analyzer',
+                  title: 'Spectrum Analyzer',
+                  subtitle: 'Real-time audio frequency visualizer',
                   secondary: _buildLeadingIcon(Icons.bar_chart_rounded),
                   value: widget.analyzerEnabled,
                   onChanged: (v) {
@@ -2299,29 +2042,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Rendering Mode',
-                                  style: TextStyle(
-                                    color: _textPrimary,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Discrete frequency bars or continuous area curve',
-                                  style:
-                                      TextStyle(color: _textDark, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ],
+                        Text(
+                          'Visual Style',
+                          style: TextStyle(
+                            color: _textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Frequency bars or continuous wave',
+                          style: TextStyle(color: _textDark, fontSize: 12),
                         ),
                         const SizedBox(height: 14),
                         SizedBox(
@@ -2330,12 +2062,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             segments: const [
                               M3ESegment(
                                 value: 'bar',
-                                label: 'Bar Spectrum',
+                                label: 'Bars',
                                 icon: Icon(Icons.bar_chart_rounded, size: 18),
                               ),
                               M3ESegment(
                                 value: 'area',
-                                label: 'Area Curve',
+                                label: 'Wave',
                                 icon: Icon(Icons.show_chart_rounded, size: 18),
                               ),
                             ],
@@ -2359,7 +2091,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Visual Theme',
+                          'Color Theme',
                           style: TextStyle(
                             color: _textPrimary,
                             fontSize: 15,
@@ -2368,7 +2100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Color gradient palette and bar styling preset',
+                          'Gradient color preset for spectrum bars',
                           style: TextStyle(color: _textDark, fontSize: 12),
                         ),
                         const SizedBox(height: 14),
@@ -2390,7 +2122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               M3ESegment(
                                 value: 'minimal',
-                                label: 'Minimal',
+                                label: 'Clean',
                                 icon: Icon(Icons.horizontal_rule_rounded,
                                     size: 16),
                               ),
@@ -2437,7 +2169,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Quick 1-tap curated configurations',
+                              'Quick 1-tap style configurations',
                               style: TextStyle(color: _textDark, fontSize: 12),
                             ),
                           ],
@@ -2453,28 +2185,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             M3EMenuGroup.entries(
                               entries: [
                                 M3EMenuEntry(
-                                  label: 'Balanced (Bar • Neon • 1024)',
+                                  label: 'Balanced (Bars • Neon)',
                                   leading: const Icon(Icons.bar_chart_rounded,
                                       size: 18),
                                   onPressed: () => _applyVisualizerPreset(
                                       'balanced', setSubState),
                                 ),
                                 M3EMenuEntry(
-                                  label: 'Smooth Curve (Area • Fire • 2048)',
+                                  label: 'Smooth Wave (Fire)',
                                   leading: const Icon(Icons.show_chart_rounded,
                                       size: 18),
                                   onPressed: () => _applyVisualizerPreset(
                                       'smooth_curve', setSubState),
                                 ),
                                 M3EMenuEntry(
-                                  label: 'Audiophile (Bar • Pill • 4096)',
+                                  label: 'Studio Detail (Pills)',
                                   leading: const Icon(Icons.lens_blur_rounded,
                                       size: 18),
                                   onPressed: () => _applyVisualizerPreset(
                                       'audiophile_precision', setSubState),
                                 ),
                                 M3EMenuEntry(
-                                  label: 'Minimalist (Area • Minimal • 512)',
+                                  label: 'Minimalist (Clean Wave)',
                                   leading: const Icon(
                                       Icons.horizontal_rule_rounded,
                                       size: 18),
@@ -2496,14 +2228,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // ── SCALING & GRID DYNAMICS CARD ──────────────────────────────
             if (widget.analyzerEnabled) ...[
-              _buildSectionHeader('SCALING & GRID DYNAMICS'),
+              _buildSectionHeader('SCALING & DISPLAY'),
               const SizedBox(height: 8),
               _buildCardContainer(
                 children: [
                   _buildM3ESwitchTile(
-                    title: 'Auto Peak Headroom',
-                    subtitle:
-                        'Dynamically adapts Y-axis ceiling to track loudness',
+                    title: 'Auto-Fit Peak Height',
+                    subtitle: 'Dynamically adapts visualizer height to volume',
                     secondary: _buildLeadingIcon(Icons.fit_screen_rounded),
                     value: widget.analyzerAutoFit,
                     onChanged: (v) {
@@ -2514,8 +2245,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                   _buildM3ESwitchTile(
                     title: 'Show Grids & Decibels',
-                    subtitle:
-                        'Display amplitude level grid and frequency axis ticks',
+                    subtitle: 'Display level grid and frequency axis markers',
                     secondary: _buildLeadingIcon(Icons.grid_4x4_rounded),
                     value: widget.analyzerShowGrids,
                     onChanged: (v) {
@@ -2539,7 +2269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Visualizer Scale Mode',
+                                    'Frequency Scale',
                                     style: TextStyle(
                                       color: _textPrimary,
                                       fontSize: 15,
@@ -2549,8 +2279,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   const SizedBox(height: 2),
                                   Text(
                                     widget.analyzerLogScale
-                                        ? 'Logarithmic: Musical octaves & decibel perception'
-                                        : 'Linear: Even frequency bandwidths & linear magnitude',
+                                        ? 'Logarithmic: Follows natural hearing'
+                                        : 'Linear: Even spacing across bandwidth',
                                     style: TextStyle(
                                         color: _textDark, fontSize: 12),
                                   ),
@@ -2593,172 +2323,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 20),
 
               // ── FFT RESOLUTION & PERFORMANCE CARD ───────────────────────
-              _buildSectionHeader('FFT RESOLUTION & PERFORMANCE'),
+              _buildSectionHeader('FREQUENCY RESOLUTION & FILTER'),
               const SizedBox(height: 8),
               _buildCardContainer(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            _buildLeadingIcon(Icons.data_array_rounded),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'FFT Frame Size (Buffer)',
-                                    style: TextStyle(
-                                      color: _textPrimary,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _getFftSampleSizeDescription(
-                                        widget.analyzerSampleSize),
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            AppStatusBadge(
-                              text: '${widget.analyzerSampleSize} pts',
-                              onTap: () => _showAnalyzerSampleSizeDialog(
-                                onDone: () => setSubState(() {}),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: M3ESegmentedButton<int>(
-                            segments: const [
-                              M3ESegment(value: 512, label: '512 (Fast)'),
-                              M3ESegment(value: 1024, label: '1024 (Std)'),
-                              M3ESegment(value: 2048, label: '2048 (Hi-Res)'),
-                              M3ESegment(value: 4096, label: '4096 (Ultra)'),
-                            ],
-                            selected: {
-                              [512, 1024, 2048, 4096]
-                                      .contains(widget.analyzerSampleSize)
-                                  ? widget.analyzerSampleSize
-                                  : 1024
-                            },
-                            onSelectionChanged: (val) {
-                              if (val.isNotEmpty) {
-                                widget.onAnalyzerSampleSizeChanged(val.first);
-                                widget.player.configureAnalyzer(
-                                  frameSize: val.first,
-                                  windowType: widget.analyzerWindowType,
-                                );
-                                setSubState(() {});
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const M3EDivider(),
-                  M3EListItem(
-                    headline: 'All Sample Sizes (256 - 8192)',
+                  AppSettingsValueTile(
+                    headline: 'Resolution & Speed',
                     supportingText:
-                        'Inspect full latency and resolution breakdown',
-                    leading: _buildLeadingIcon(Icons.tune_rounded),
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 22),
+                        _getFftSampleSizeDescription(widget.analyzerSampleSize),
+                    value: '${widget.analyzerSampleSize} pts',
+                    leading: _buildLeadingIcon(Icons.data_array_rounded),
                     onTap: () => _showAnalyzerSampleSizeDialog(
                       onDone: () => setSubState(() {}),
                     ),
                   ),
                   const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            _buildLeadingIcon(Icons.waves_rounded),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'FFT Window Function',
-                                    style: TextStyle(
-                                      color: _textPrimary,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _getFftWindowDescription(
-                                        widget.analyzerWindowType),
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            AppStatusBadge(
-                              text: _getFftWindowDisplayName(
-                                  widget.analyzerWindowType),
-                              onTap: () => _showAnalyzerWindowDialog(
-                                onDone: () => setSubState(() {}),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: M3ESegmentedButton<String>(
-                            segments: const [
-                              M3ESegment(value: 'hann', label: 'Hann'),
-                              M3ESegment(value: 'hamming', label: 'Hamming'),
-                              M3ESegment(
-                                  value: 'blackman_harris',
-                                  label: 'Blackman-H'),
-                              M3ESegment(value: 'flat_top', label: 'Flat-Top'),
-                            ],
-                            selected: {
-                              ['hann', 'hamming', 'blackman_harris', 'flat_top']
-                                      .contains(widget.analyzerWindowType)
-                                  ? widget.analyzerWindowType
-                                  : 'hann'
-                            },
-                            onSelectionChanged: (val) {
-                              if (val.isNotEmpty) {
-                                widget.onAnalyzerWindowTypeChanged(val.first);
-                                widget.player.configureAnalyzer(
-                                  frameSize: widget.analyzerSampleSize,
-                                  windowType: val.first,
-                                );
-                                setSubState(() {});
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const M3EDivider(),
-                  M3EListItem(
-                    headline: 'Window Characteristics & Guide',
+                  AppSettingsValueTile(
+                    headline: 'Window Filter Shape',
                     supportingText:
-                        'Explore sidelobe suppression, bandwidth & RTA accuracy',
-                    leading: _buildLeadingIcon(Icons.info_outline_rounded),
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 22),
+                        _getFftWindowDescription(widget.analyzerWindowType),
+                    value: _getFftWindowDisplayName(widget.analyzerWindowType),
+                    leading: _buildLeadingIcon(Icons.waves_rounded),
                     onTap: () => _showAnalyzerWindowDialog(
                       onDone: () => setSubState(() {}),
                     ),
@@ -2779,32 +2364,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _getFftWindowDescription(String type) {
     switch (FftWindowType.fromString(type)) {
       case FftWindowType.hann:
-        return 'Hann • Balanced all-rounder with smooth visual response (-31.5 dB sidelobes)';
+        return 'Smooth, balanced visual response (Recommended)';
       case FftWindowType.hamming:
-        return 'Hamming • Narrow main lobe for sharp harmonic separation (-42.5 dB sidelobes)';
+        return 'Sharp peak separation for tonal music';
       case FftWindowType.blackmanHarris:
-        return 'Blackman-Harris • 4-term ultra-low leakage (-92.0 dB sidelobes)';
+        return 'Maximum clarity with lowest spectral blur';
       case FftWindowType.flatTop:
-        return 'Flat-Top • Calibrated passband with < 0.01 dB scalloping loss';
+        return 'Calibrated amplitude accuracy';
     }
   }
 
   String _getFftSampleSizeDescription(int size) {
     switch (size) {
       case 256:
-        return '256 samples • Ultra-fast, lowest latency';
+        return 'Fastest response • Lowest latency';
       case 512:
-        return '512 samples • Fast transient response';
+        return 'Snappy & responsive';
       case 1024:
-        return '1024 samples • Balanced standard';
+        return 'Balanced detail and speed (Recommended)';
       case 2048:
-        return '2048 samples • High frequency resolution';
+        return 'High resolution frequency bars';
       case 4096:
-        return '4096 samples • Studio precision FFT';
+        return 'Studio precision detail';
       case 8192:
-        return '8192 samples • Ultra HD analytical resolution';
+        return 'Ultra-high resolution';
       default:
-        return '$size samples window';
+        return '$size samples';
     }
   }
 
@@ -2865,15 +2450,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Playback & Crossfade',
+          title: 'Playback',
           children: [
+            const SizedBox(height: 20),
             _buildSectionHeader('TRANSITIONS & PLAYBACK'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
                   title: 'Gapless Playback',
-                  subtitle: 'Seamless transitions between track ends',
+                  subtitle:
+                      'Seamless transitions between continuous album tracks',
                   secondary: _buildLeadingIcon(Icons.queue_music),
                   value: _gaplessPlayback,
                   onChanged: (v) {
@@ -2957,10 +2544,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 if (widget.crossfadeEnabled) ...[
                   _buildM3ESwitchTile(
-                    title: 'Loudness-Aware Crossfade',
+                    title: 'Smart Loudness Crossfade',
                     subtitle: _loudnessCrossfadeEnabled
-                        ? 'Per-track gain applied during blend — no volume jumps'
-                        : 'Disabled — raw PCM blending',
+                        ? 'Equalizes track volume before crossfading'
+                        : 'Off (standard volume blend)',
                     secondary: _buildLeadingIcon(
                       Icons.volume_up_rounded,
                       _loudnessCrossfadeEnabled ? _primary : _textDark,
@@ -2977,8 +2564,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                 ],
                 _buildM3ESwitchTile(
-                  title: 'Normalize Volume',
-                  subtitle: 'Normalizes volume across tracks',
+                  title: 'ReplayGain Volume Normalization',
+                  subtitle: 'Keeps consistent volume level across tracks',
                   secondary: _buildLeadingIcon(Icons.bar_chart),
                   value: _normalizeVolume,
                   onChanged: (v) {
@@ -3000,8 +2587,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Data & Streaming',
+          title: 'Streaming & Storage',
           children: [
+            const SizedBox(height: 20),
             // ── AUDIO STREAMING QUALITY ──────────────────────────────────────
             _buildSectionHeader('STREAMING QUALITY'),
             const SizedBox(height: 8),
@@ -3043,13 +2631,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 20),
 
             // ── HARDWARE & CONTAINER PREFERENCES ────────────────────────────
-            _buildSectionHeader('HARDWARE & PLAYBACK OPTIMIZATION'),
+            _buildSectionHeader('STREAMING OPTIMIZATION'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Prefer Native AAC',
-                  subtitle: 'Prioritize Native M4A streams',
+                  title: 'Prioritize Native AAC Audio',
+                  subtitle:
+                      'Plays M4A streams directly for lower battery usage',
                   secondary: _buildLeadingIcon(Icons.memory_rounded),
                   value: _preferNativeAac,
                   onChanged: (val) {
@@ -3060,8 +2649,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
-                  title: 'Enable Backup Fallback',
-                  subtitle: '(Recommended)',
+                  title: 'Stream Mirror Fallback',
+                  subtitle:
+                      'Automatically try alternate servers if playback fails',
                   secondary: _buildLeadingIcon(
                     Icons.cloud_sync_rounded,
                     _enableHostedFallback ? _primary : _textDark,
@@ -3073,7 +2663,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppStateService.instance.saveEnableHostedFallback(val);
                   },
                 ),
-                // const M3EDivider(),
               ],
             ),
             const SizedBox(height: 20),
@@ -3087,10 +2676,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   valueListenable:
                       CachedStreamService.instance.totalSizeBytesNotifier,
                   builder: (context, totalBytes, _) {
-                    return M3EListItem(
-                      headline: 'Cached Stream Storage',
-                      supportingText:
-                          'Local cache of previously resolved tracks',
+                    return AppSettingsTile(
+                      title: 'Cached Audio Data',
+                      subtitle: 'Stored audio files for instant playback',
                       leading: _buildLeadingIcon(Icons.dns_rounded),
                       trailing: Text(
                         CachedStreamService.formatBytes(totalBytes),
@@ -3104,10 +2692,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Clear Stream Cache',
-                  supportingText:
-                      'Delete temporary audio files & purge cache index',
+                AppSettingsTile(
+                  title: 'Clear Audio Cache',
+                  subtitle: 'Free up local storage without affecting playlists',
                   leading: _buildLeadingIcon(
                       Icons.cleaning_services_rounded, Colors.redAccent),
                   trailing: const Icon(Icons.chevron_right_rounded,
@@ -3450,14 +3037,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
-          title: 'Misc & System',
+          title: 'About & Diagnostics',
           children: [
+            const SizedBox(height: 20),
             _buildSectionHeader('ABOUT & SYSTEM LICENSES'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                M3EListItem(
-                  headline: 'Version',
+                AppSettingsTile(
+                  title: 'Version',
                   leading: _buildLeadingIcon(Icons.info_outline),
                   trailing: Text(_appVersion,
                       style: TextStyle(color: _textDark, fontSize: 14)),
@@ -3533,9 +3121,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: _textDark, size: 20);
                     }
 
-                    return M3EListItem(
-                      headline: 'Check for Updates',
-                      supportingText: subtitle,
+                    return AppSettingsTile(
+                      title: 'Check for Updates',
+                      subtitle: subtitle,
                       leading: _buildLeadingIcon(
                         Icons.system_update_rounded,
                         (isAvailable || isDownloaded)
@@ -3570,38 +3158,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Check Updates on Startup',
-                  supportingText:
-                      'Automatically check for updates when Sautiplay opens',
-                  leading: _buildLeadingIcon(Icons.update_rounded),
-                  trailing: M3ESwitch(
-                    value: _autoCheckUpdates,
-                    onChanged: (val) async {
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setBool('auto_check_updates', val);
-                      setSubState(() => _autoCheckUpdates = val);
-                      setState(() => _autoCheckUpdates = val);
-                    },
-                  ),
+                _buildM3ESwitchTile(
+                  title: 'Check Updates on Startup',
+                  subtitle:
+                      'Automatically check for new releases when app launches',
+                  secondary: _buildLeadingIcon(Icons.update_rounded),
+                  value: _autoCheckUpdates,
+                  onChanged: (val) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('auto_check_updates', val);
+                    setSubState(() => _autoCheckUpdates = val);
+                    setState(() => _autoCheckUpdates = val);
+                  },
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Developer',
+                AppSettingsTile(
+                  title: 'Developer',
+                  subtitle: 'Created by Wambugu Kinyua',
                   leading: _buildLeadingIcon(Icons.person_outline),
-                  trailing: Text('Wambugu Kinyua',
-                      style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Copyright',
+                AppSettingsTile(
+                  title: 'Copyright',
+                  subtitle:
+                      '© ${DateTime.now().year} Wambugu Kinyua. All rights reserved.',
                   leading: _buildLeadingIcon(Icons.copyright_outlined),
-                  trailing: Text('© ${DateTime.now().year} Wambugu Kinyua',
-                      style: TextStyle(color: _textDark, fontSize: 14)),
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Open Source Licenses',
+                AppSettingsTile(
+                  title: 'Open Source Licenses',
+                  subtitle: 'Third-party libraries & acknowledgments',
                   leading: _buildLeadingIcon(Icons.policy_outlined),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
@@ -3614,9 +3200,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Changelog',
-                  supportingText: 'Release notes and version updates',
+                AppSettingsTile(
+                  title: 'Release Notes & Changelog',
+                  subtitle: 'What\'s new and improved in SautiPlay',
                   leading: _buildLeadingIcon(Icons.history_edu_outlined),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -3646,10 +3232,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: _showChangelogBottomSheet,
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Join Telegram Community',
-                  supportingText:
-                      'Discuss features, report issues & get early builds',
+                AppSettingsTile(
+                  title: 'Telegram Community',
+                  subtitle:
+                      'Join community discussions, feedback & beta updates',
                   leading: _buildLeadingIcon(
                       Icons.send_rounded, const Color(0xFF229ED9)),
                   trailing: Icon(Icons.open_in_new_rounded,
@@ -3672,52 +3258,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            _buildSectionHeader('HELP & FREQUENTLY ASKED QUESTIONS'),
+            _buildSectionHeader('HELP & SUPPORT'),
             const SizedBox(height: 8),
-            M3ECardList(
-              itemCount: 1,
-              onTap: (_) => _navigateToSubScreen(const FaqScreen()),
-              itemBuilder: (context, index) => M3EListItem(
-                headline: 'Frequently Asked Questions',
-                supportingText:
-                    'Bit-perfect, AAudio MMAP, resamplers, 64-bit float & DSP',
-                leading: _buildLeadingIcon(Icons.quiz_outlined),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _primary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: _primary.withValues(alpha: 0.4)),
-                      ),
-                      child: Text(
-                        '9 TOPICS',
-                        style: TextStyle(
-                          color: _primary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+            _buildCardContainer(
+              children: [
+                AppSettingsTile(
+                  title: 'Frequently Asked Questions',
+                  subtitle:
+                      'Bit-perfect, AAudio, resamplers & performance guide',
+                  leading: _buildLeadingIcon(Icons.quiz_outlined),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: _primary.withValues(alpha: 0.4)),
+                        ),
+                        child: Text(
+                          'FAQ',
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(Icons.chevron_right_rounded,
-                        color: _textDark, size: 20),
-                  ],
+                      const SizedBox(width: 6),
+                      Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20),
+                    ],
+                  ),
+                  onTap: () => _navigateToSubScreen(const FaqScreen()),
                 ),
-              ),
+              ],
             ),
             const SizedBox(height: 20),
-            _buildSectionHeader('DEBUG & ERROR CONTROLS'),
+            _buildSectionHeader('DEBUG & DIAGNOSTICS'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Allow invalid TLS certs',
-                  subtitle: 'Testing & fallback media server mode',
+                  title: 'Allow Invalid TLS Certificates',
+                  subtitle: 'For local media servers and testing only',
                   secondary: _buildLeadingIcon(Icons.security),
                   value: widget.allowInvalidTls,
                   onChanged: (v) {
@@ -3726,16 +3313,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Poll Native Error',
+                AppSettingsTile(
+                  title: 'Poll Native Audio Errors',
+                  subtitle: 'Check low-level engine status',
                   leading: _buildLeadingIcon(Icons.refresh),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
                 const M3EDivider(),
-                M3EListItem(
-                  headline: 'Clear Native Error',
+                AppSettingsTile(
+                  title: 'Clear Native Errors',
+                  subtitle: 'Reset engine error flags',
                   leading: _buildLeadingIcon(Icons.cleaning_services_outlined),
                   trailing:
                       Icon(Icons.chevron_right, color: _textDark, size: 20),
@@ -3872,7 +3461,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return StatefulBuilder(
           builder: (context, setSubState) {
             return _buildSubScreenLayout(
-              title: 'Last.fm Scrobbler',
+              title: 'Last.fm',
               children: [
                 // ── ACCOUNT STATUS & PROFILE BANNER ────────────────────────
                 _buildSectionHeader('ACCOUNT & CONNECTION'),
@@ -4073,9 +3662,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ] else ...[
-                      M3EListItem(
-                        headline: 'Disconnect Last.fm Account',
-                        supportingText: 'Log out and stop scrobbling',
+                      AppSettingsTile(
+                        title: 'Disconnect Last.fm Account',
+                        subtitle: 'Sign out and stop scrobbling',
                         leading: _buildLeadingIcon(
                             Icons.logout_rounded, Colors.redAccent),
                         trailing: const Icon(Icons.chevron_right_rounded,
@@ -4173,42 +3762,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _getResampleAlgorithmName(int index) {
     switch (index) {
       case 0:
-        return 'Linear Standard (Fast & Smooth)';
+        return 'Fast & Smooth (Linear)';
       case 1:
-        return 'Sinc Master Ultra HD';
+        return 'Ultra HD Sinc (Desktop)';
       case 2:
-        return 'Sinc High Quality';
+        return 'High Quality Sinc';
       case 3:
-        return 'Sinc Good Quality';
+        return 'Standard Sinc';
       case 4:
-        return 'Step / Hold (Lo-Fi)';
+        return 'Vintage Lo-Fi (Step)';
       case 5:
-        return 'Linear Extended';
+        return 'Fast Linear Extended';
       case 7:
       case 9:
       case 10:
       case 11:
-        return 'r8brain 24-bit Linear Phase (Mastering)';
+        return 'Studio Linear (r8brain LP)';
       case 8:
       case 12:
-        return 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)';
+        return 'Studio Natural (r8brain MP)';
       default:
-        return 'Linear Standard (Fast & Smooth)';
+        return 'Fast & Smooth (Linear)';
     }
   }
 
   String _getResampleAlgorithmShortName(int index) {
     switch (index) {
       case 0:
-        return 'Linear';
+        return 'Fast Linear';
       case 1:
-        return 'Master HD';
+        return 'Ultra Sinc';
       case 2:
-        return 'Sinc HQ';
+        return 'HQ Sinc';
       case 3:
-        return 'Sinc Good';
+        return 'Standard Sinc';
       case 4:
-        return 'Step / Hold';
+        return 'Lo-Fi Step';
       case 5:
         return 'Linear Ext';
       case 7:
@@ -4220,32 +3809,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 12:
         return 'r8brain MP';
       default:
-        return 'Linear';
+        return 'Fast Linear';
     }
   }
 
   String _getResampleAlgorithmSupportingText(int index) {
     switch (index) {
       case 0:
-        return 'Linear standard interpolation';
+        return 'Fast and battery-friendly interpolation';
       case 1:
-        return 'Sinc master ultra HD (640 taps)';
+        return 'Maximum precision desktop sinc filter';
       case 2:
-        return 'Sinc high quality (libsamplerate)';
+        return 'High-precision audio conversion';
       case 3:
-        return 'Sinc good quality (libsamplerate)';
+        return 'Clean and efficient conversion';
       case 4:
-        return 'Step / hold (lo-fi vintage)';
+        return 'Retro stepped interpolation';
       case 5:
-        return 'Linear extended interpolation';
+        return 'Standard linear interpolation';
       case 7:
       case 9:
       case 10:
       case 11:
-        return 'r8brain 24-bit linear phase (>160dB SNR)';
+        return 'Mastering-grade linear phase conversion';
       case 8:
       case 12:
-        return 'r8brain 24-bit min-phase (zero pre-ring)';
+        return 'Zero pre-ringing natural response';
       default:
         return 'Audio sample rate conversion';
     }
@@ -4317,16 +3906,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showOversamplingDialog({VoidCallback? onDone}) {
     final options = [
-      {'factor': 1, 'name': 'Off (1x)', 'subtitle': 'Native sample rate'},
+      {
+        'factor': 1,
+        'name': 'Off (1x)',
+        'subtitle': 'Native sample rate (Saves battery)'
+      },
       {
         'factor': 2,
         'name': '2x Oversampling',
-        'subtitle': 'High Quality (Anti-aliasing saturation)'
+        'subtitle': 'Enhanced clarity for EQ and DSP effects (Recommended)',
       },
       {
         'factor': 4,
         'name': '4x Oversampling',
-        'subtitle': 'Ultra HD (Maximum purity)'
+        'subtitle': 'Maximum purity and anti-aliasing (Higher CPU usage)',
       },
     ];
 
@@ -4334,8 +3927,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'DSP Anti-Aliasing Oversampling',
-          subtitle: 'Anti-aliasing oversampling for DSP & limiters',
+          title: 'Anti-Aliasing Oversampling',
+          subtitle: 'Improves DSP effects clarity and prevents harshness',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4386,60 +3979,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final options = [
       {
         'index': 12,
-        'name': 'r8brain 24-bit Minimum Phase (Zero Pre-Ring)',
+        'name': 'Studio Natural (r8brain Minimum Phase)',
         'subtitle':
-            'Voxengo r8brain minimum phase filter (>160dB SNR). Eliminates pre-ringing with natural transient response.',
+            'Punchy transients with zero pre-ringing. Best for music listening.',
         'badge': 'Audiophile',
         'isHeavy': true,
       },
       {
         'index': 11,
-        'name': 'r8brain 24-bit Linear Phase (Mastering)',
+        'name': 'Mastering Linear Phase (r8brain)',
         'subtitle':
-            'Voxengo r8brain (>160dB SNR). Pristine mastering-grade linear phase conversion.',
-        'badge': isMobile ? '⚠️ High CPU' : 'Mastering LP',
+            'Flat frequency response and perfect phase. Demands high CPU.',
+        'badge': isMobile ? 'High CPU' : 'Mastering',
         'isHeavy': true,
       },
       {
         'index': 1,
-        'name': 'Sinc Master Ultra HD (libsamplerate)',
-        'subtitle': '640-tap sinc filter (144dB SNR). Desktop High-End CPUs.',
-        'badge': isMobile ? '⚠️ Desktop Only' : 'Master HD',
+        'name': 'Ultra HD Sinc (Master)',
+        'subtitle':
+            'Extremely steep anti-alias filter. Designed for high-end desktop systems.',
+        'badge': isMobile ? 'Desktop' : 'Ultra HD',
         'isHeavy': true,
       },
       {
         'index': 2,
-        'name': 'Sinc High Quality (libsamplerate)',
-        'subtitle': 'Band-limited sinc filter (121dB SNR). High CPU load.',
-        'badge': isMobile ? '⚠️ High CPU' : 'Studio',
+        'name': 'High Quality Sinc',
+        'subtitle': 'Clean frequency cutoff with studio-grade anti-aliasing.',
+        'badge': isMobile ? 'High CPU' : 'Studio',
         'isHeavy': true,
       },
       {
         'index': 3,
-        'name': 'Sinc Good Quality (libsamplerate)',
-        'subtitle': 'Band-limited sinc filter (97dB SNR). Efficient & clean.',
+        'name': 'Standard Sinc',
+        'subtitle': 'Balanced anti-aliasing with moderate CPU usage.',
         'badge': null,
         'isHeavy': false,
       },
       {
         'index': 0,
-        'name': 'Linear Standard (Fast & Smooth)',
-        'subtitle':
-            'Default. Ultra-low CPU, zero latency. Recommended for Mobile.',
+        'name': 'Fast & Smooth (Linear)',
+        'subtitle': 'Ultra-efficient with instant response. Ideal for phones.',
         'badge': 'Recommended',
         'isHeavy': false,
       },
       {
         'index': 5,
         'name': 'Linear Extended',
-        'subtitle': 'Standard linear interpolation algorithm.',
+        'subtitle': 'Alternative lightweight linear interpolation.',
         'badge': null,
         'isHeavy': false,
       },
       {
         'index': 4,
-        'name': 'Step / Hold (Lo-Fi)',
-        'subtitle': 'Zero-order hold interpolation for vintage stepped sound.',
+        'name': 'Vintage Step (Lo-Fi)',
+        'subtitle':
+            'Zero-order hold interpolation for a retro digital character.',
         'badge': null,
         'isHeavy': false,
       },
@@ -4449,8 +4043,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Resampling Quality Tier',
-          subtitle: 'Select interpolation algorithm for rate conversion',
+          title: 'Resampling Quality',
+          subtitle:
+              'Method used when converting audio between different sample rates',
           height: MediaQuery.of(context).size.height * 0.78,
           child: M3ECardList.builder(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -4548,13 +4143,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final String techDetails;
     if (requestedIndex == 11 || requestedIndex == 12) {
       techDetails =
-          '$name performs multi-stage convolution (>160dB SNR). On mobile devices, this may increase CPU usage.';
+          '$name uses heavy multi-stage filtering. On mobile devices, this may increase battery drain.';
     } else if (requestedIndex == 1) {
       techDetails =
-          '$name calculates 640 filter taps per sample. On mobile devices, this may cause stuttering or battery drain.';
+          '$name is designed for desktop processors and may cause audio stuttering on phones.';
     } else {
       techDetails =
-          '$name uses high-precision DSP filtering. On mobile devices, this may cause battery drain.';
+          '$name uses precision audio filtering which increases CPU and battery usage.';
     }
 
     M3EDialog.show<void>(
@@ -4562,9 +4157,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       dialog: M3EDialog(
         contentPadding:
             const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-        title: 'High CPU Resampler Warning',
+        title: 'High CPU Resampler',
         content: Text(
-          '$techDetails\n\nDo you want to enable it anyway or stay with Linear Standard (Recommended)?',
+          '$techDetails\n\nWould you like to keep Fast & Smooth (Recommended) or enable anyway?',
           style: TextStyle(color: _textDark, fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -4580,7 +4175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _applyResampleAlgorithm(requestedIndex, onDone);
               Navigator.pop(context);
             },
-            child: const Text('Enable'),
+            child: const Text('Enable Anyway'),
           ),
         ],
       ),
@@ -4589,19 +4184,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showAnalyzerSampleSizeDialog({VoidCallback? onDone}) {
     final sizes = [
-      (256, '256 samples', 'Ultra-fast, lowest CPU (Lightweight FFT)'),
-      (512, '512 samples', 'Fast transient response (Low Latency)'),
-      (1024, '1024 samples', 'Balanced default (Standard Music Playback)'),
-      (2048, '2048 samples', 'High frequency resolution (Crisp Bass/Treble)'),
-      (4096, '4096 samples', 'Studio precision (Audiophile Inspection)'),
-      (8192, '8192 samples', 'Ultra HD analytical FFT (Maximum Resolution)'),
+      (256, '256 points', 'Fastest reaction, minimal battery use'),
+      (512, '512 points', 'Snappy response for beats and transients'),
+      (1024, '1024 points (Default)', 'Balanced visual smoothness and detail'),
+      (2048, '2048 points', 'Sharp low-end frequency detail'),
+      (4096, '4096 points', 'Studio precision frequency analysis'),
+      (8192, '8192 points', 'Maximum pitch resolution (Higher CPU)'),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'FFT Sample Window Size',
-          subtitle: 'Frequency resolution vs time domain responsiveness',
+          title: 'Spectrum Analyzer Resolution',
+          subtitle:
+              'Balances visual smoothness against pitch frequency accuracy',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4649,32 +4245,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final windows = [
       (
         'hann',
-        'Hann (Hanning)',
-        'Balanced standard for music visualization and audio analysis (-31.5 dB sidelobes, 18 dB/oct rolloff). Smooth natural ballistics.',
+        'Hann (Balanced)',
+        'Smooth and natural response. Recommended default for music visualization.',
       ),
       (
         'hamming',
-        'Hamming',
-        'Narrowest main lobe for resolving closely spaced pitches, vocal harmonics, and rapid transients (-42.5 dB sidelobes).',
+        'Hamming (Sharp)',
+        'Crisp separation of closely spaced notes and vocal tones.',
       ),
       (
         'blackman_harris',
-        'Blackman-Harris (4-Term)',
-        'Ultra-low leakage with -92 dB sidelobe suppression. Eliminates bleed across adjacent RTA bands for pristine dynamic range.',
+        'Blackman-Harris (Pristine)',
+        'Ultra-clean isolation eliminating bleed across neighboring frequency bands.',
       ),
       (
         'flat_top',
-        'Flat-Top (5-Term)',
-        'Amplitude-calibrated reference with < 0.01 dB passband ripple. Eliminates scalloping loss for precise decibel and SPL metering.',
+        'Flat-Top (Accurate Levels)',
+        'Calibrated for accurate decibel volume and SPL readings with minimal amplitude error.',
       ),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'FFT Window Functions',
+          title: 'Spectrum Window Shape',
           subtitle:
-              'Spectral leakage suppression vs main lobe frequency resolution',
+              'Smoothing filter shaping how frequencies appear in the visualizer',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4729,21 +4325,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 0:
         return 'None';
       case 1:
-        return 'Rectangle (RPDF)';
+        return 'Rectangular';
       case 2:
-        return 'Triangle (TPDF)';
+        return 'Triangular (Standard)';
       case 3:
-        return 'Lipshitz';
+        return 'Lipshitz (Shaped)';
       case 4:
-        return 'F-Weighted';
+        return 'F-Weighted (Vocal)';
       case 5:
-        return 'Modified E-Weighted';
+        return 'Modified E (Pop/Rock)';
       case 6:
-        return 'Shibata';
+        return 'Shibata (Audiophile)';
       case 7:
-        return 'Low Shibata';
+        return 'Low Shibata (Subtle)';
       case 8:
-        return 'High Shibata';
+        return 'High Shibata (High-Res)';
       default:
         return 'None';
     }
@@ -4751,42 +4347,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _showDitherModeDialog({VoidCallback? onDone}) async {
     final modes = [
-      {'id': 0, 'name': 'None', 'subtitle': 'No dithering applied'},
-      {'id': 1, 'name': 'Rectangle (RPDF)', 'subtitle': 'Simple flat dither'},
+      {
+        'id': 0,
+        'name': 'None',
+        'subtitle': 'No dithering applied (Truncate samples)'
+      },
+      {
+        'id': 1,
+        'name': 'Rectangular (Simple)',
+        'subtitle': 'Flat random noise'
+      },
       {
         'id': 2,
-        'name': 'Triangle (TPDF)',
-        'subtitle': 'Standard flat dither (Recommended)'
+        'name': 'Triangular (Standard)',
+        'subtitle': 'Clean, neutral noise floor (Recommended standard)',
       },
       {
         'id': 3,
-        'name': 'Lipshitz',
-        'subtitle': 'Classic 5th-order noise-shaped'
+        'name': 'Lipshitz (Shaped)',
+        'subtitle':
+            'Classic noise shaping shifting hiss away from audible frequencies',
       },
       {
         'id': 4,
-        'name': 'F-Weighted',
-        'subtitle': 'Midrange cut noise-shaped (Acoustic/Vocal)'
+        'name': 'F-Weighted (Vocal & Acoustic)',
+        'subtitle':
+            'Clears midrange noise for acoustic, folk, and vocal clarity',
       },
       {
         'id': 5,
-        'name': 'Modified E-Weighted',
-        'subtitle': 'Peak-safe noise-shaped (Pop/Rock)'
+        'name': 'Modified E-Weighted (Pop & Rock)',
+        'subtitle': 'Maintains headroom and punch for high-energy music',
       },
       {
         'id': 6,
-        'name': 'Shibata',
-        'subtitle': 'Standard audiophile noise-shaped'
+        'name': 'Shibata (Audiophile)',
+        'subtitle':
+            'Advanced psychoacoustic curve pushing noise beyond audible range',
       },
       {
         'id': 7,
-        'name': 'Low Shibata',
-        'subtitle': 'Gentle audiophile noise-shaped (Safest)'
+        'name': 'Low Shibata (Subtle)',
+        'subtitle':
+            'Gentle audiophile noise shaping with low ultrasonic energy',
       },
       {
         'id': 8,
-        'name': 'High Shibata',
-        'subtitle': 'Steep audiophile noise-shaped'
+        'name': 'High Shibata (High-Res)',
+        'subtitle': 'Maximum high-frequency noise shifting for high-res DACs',
       },
     ];
 
@@ -4794,8 +4402,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Dither Mode',
-          subtitle: 'Quantization noise shaping for bit-depth reduction',
+          title: 'Dither & Noise Shaping',
+          subtitle:
+              'Prevents harsh quantization artifacts when reducing bit depth',
           height: MediaQuery.of(context).size.height * 0.78,
           child: M3ECardList.builder(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -4850,36 +4459,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final formats = [
       (
         AudioFormat.f32,
-        '32-Bit Floating Point (f32)',
-        'Highest dynamic range IEEE float (Recommended)'
+        '32-Bit Float',
+        'Highest dynamic range with headroom to prevent clipping (Recommended)'
       ),
       (
         AudioFormat.s32,
-        '32-Bit Signed Integer (s32)',
-        '32-bit signed integer hardware PCM'
+        '32-Bit Integer',
+        'Direct 32-bit hardware PCM for high-end DACs'
       ),
       (
         AudioFormat.s24,
-        '24-Bit Signed Integer (s24)',
-        '24-bit high-resolution studio standard'
+        '24-Bit Integer',
+        'Studio standard high-resolution audio format'
       ),
       (
         AudioFormat.s16,
-        '16-Bit Signed Integer (s16)',
-        '16-bit standard CD quality PCM'
+        '16-Bit Integer',
+        'Standard CD quality PCM (Universal compatibility)'
       ),
-      (
-        AudioFormat.u8,
-        '8-Bit Unsigned Integer (u8)',
-        '8-bit legacy PCM format'
-      ),
+      (AudioFormat.u8, '8-Bit Integer', 'Legacy 8-bit PCM format'),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Engine Output Format',
-          subtitle: 'Target PCM bit depth for audio hardware output',
+          title: 'Output Bit Depth',
+          subtitle: 'Target PCM resolution sent to audio hardware or DAC',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4927,18 +4532,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showSampleRateDialog({VoidCallback? onDone}) {
     final rates = [
-      (0, 'Native', 'Match device hardware rate'),
-      (44100, '44.1 kHz (44,100 Hz)', 'Standard rate'),
-      (48000, '48.0 kHz (48,000 Hz)', 'Studio Audio rate'),
-      (96000, '96.0 kHz (96,000 Hz)', 'High-Resolution rate'),
-      (192000, '192.0 kHz (192,000 Hz)', 'Ultra HD Master rate'),
+      (
+        0,
+        'Native (Auto)',
+        'Matches connected hardware to avoid extra resampling'
+      ),
+      (44100, '44.1 kHz', 'Standard CD audio sample rate'),
+      (48000, '48.0 kHz', 'Standard digital media and video audio rate'),
+      (96000, '96.0 kHz', 'High-Resolution 24/96 studio rate'),
+      (192000, '192.0 kHz', 'Ultra HD Master high-resolution rate'),
     ];
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Engine Sample Rate',
-          subtitle: 'Target rate for audio output stream',
+          title: 'Output Sample Rate',
+          subtitle: 'Target sample rate sent to the audio output stream',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -4989,32 +4598,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final backends = [
       (
         AudioOutputBackend.auto,
-        'Auto (System Optimal)',
-        'Automatically chooses the lowest latency',
+        'Auto (Recommended)',
+        'Automatically chooses the lowest latency driver for your device',
         Icons.auto_awesome_rounded,
       ),
       (
         AudioOutputBackend.aaudio,
-        'AAudio (Low-Latency MMAP)',
-        'High-performance (Android 8.0+) (Recommended)',
+        'AAudio (Fast & Direct)',
+        'Modern high-performance Android driver (Android 8.0+)',
         Icons.speed_rounded,
       ),
       (
         AudioOutputBackend.openSl,
         'OpenSL ES (Legacy)',
-        'Standard Android audio interface',
+        'Reliable fallback driver for older Android versions',
         Icons.history_toggle_off_rounded,
       ),
       (
         AudioOutputBackend.audioTrack,
-        'AudioTrack (Framework)',
-        'Standard Android audio ',
+        'AudioTrack (Standard)',
+        'Standard Android audio framework pipeline',
         Icons.layers_rounded,
       ),
       (
         AudioOutputBackend.directHiRes,
-        'Direct Hi-Res (limited)',
-        'Direct Hi-Res DSPs (on supported hardware only)',
+        'Direct Hi-Res (Bit-Perfect)',
+        'Bypasses system mixer on supported high-res hardware',
         Icons.verified_rounded,
       ),
     ];
@@ -5023,8 +4632,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Android Output Backend',
-          subtitle: 'Select audio output driver',
+          title: 'Android Audio Driver',
+          subtitle: 'Select the low-level audio driver for sound output',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -5101,33 +4710,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {
         'ch': 2,
         'name': 'Stereo',
-        'subtitle': 'Standard 2-channel Left / Right stereo'
+        'subtitle': 'Standard 2-channel Left / Right stereo (Recommended)'
       },
       {
         'ch': 3,
         'name': '2.1 Surround',
-        'subtitle': 'Left, Right, Center/Subwoofer'
+        'subtitle': 'Left, Right, and dedicated Subwoofer'
       },
       {
         'ch': 4,
         'name': '4.0 Quadraphonic',
-        'subtitle': 'FL, FR, Center, Back Center'
+        'subtitle': 'Front Left/Right and Rear Left/Right'
       },
-      {'ch': 5, 'name': '5.0 Surround', 'subtitle': 'FL, FR, Center, Back L/R'},
+      {
+        'ch': 5,
+        'name': '5.0 Surround',
+        'subtitle': 'Front Left/Right, Center, and Rear Left/Right'
+      },
       {
         'ch': 6,
         'name': '5.1 Surround',
-        'subtitle': 'FL, FR, Center, LFE Sub, Side L/R'
+        'subtitle': '5 speakers plus dedicated subwoofer'
       },
       {
         'ch': 7,
         'name': '7.0 Surround',
-        'subtitle': 'FL, FR, Center, LFE, Back C, Side L/R'
+        'subtitle': '7-channel full surround layout'
       },
       {
         'ch': 8,
         'name': '7.1 Surround',
-        'subtitle': 'FL, FR, Center, LFE, Back L/R, Side L/R'
+        'subtitle': '7 speakers plus dedicated subwoofer'
       },
     ];
 
@@ -5135,8 +4748,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Output Channels',
-          subtitle: 'Select speaker channels layout',
+          title: 'Speaker Configuration',
+          subtitle: 'Select speaker layout for output channels',
           height: MediaQuery.of(context).size.height * 0.78,
           child: M3ECardList.builder(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -5199,43 +4812,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {
         'frames': 0,
         'periods': 0,
-        'name': 'Auto (Default)',
-        'subtitle': 'System-negotiated period sizing (~10–25ms)',
+        'name': 'Auto (System Optimal)',
+        'subtitle': 'Automatically matches device hardware buffer (~10–25ms)',
         'badge': 'Recommended',
       },
       {
         'frames': 128,
         'periods': 2,
-        'name': '128 frames • 2 periods (Ultra Low)',
-        'subtitle': '~2.7ms at 48kHz — Minimum latency for live response',
+        'name': 'Ultra-Low (~2.7ms)',
+        'subtitle': 'Instant response. Requires high-performance hardware.',
         'badge': 'Ultra Low',
       },
       {
         'frames': 256,
         'periods': 2,
-        'name': '256 frames • 2 periods (Low Latency)',
-        'subtitle': '~5.3ms at 48kHz — Fast response',
+        'name': 'Low Latency (~5.3ms)',
+        'subtitle': 'Snappy response for fast playback controls',
         'badge': 'Low Latency',
       },
       {
         'frames': 512,
         'periods': 2,
-        'name': '512 frames • 2 periods (Standard)',
-        'subtitle': '~10.7ms at 48kHz — Good latency and stability',
+        'name': 'Standard (~10.7ms)',
+        'subtitle': 'Balanced latency and stutter-free stability',
         'badge': 'Standard',
       },
       {
         'frames': 1024,
         'periods': 3,
-        'name': '1024 frames • 3 periods (High Stability)',
-        'subtitle': '~21.3ms at 48kHz — Resilient',
-        'badge': 'Safe',
+        'name': 'High Stability (~21.3ms)',
+        'subtitle': 'Extra buffering to prevent skips during multitasking',
+        'badge': 'Stable',
       },
       {
         'frames': 2048,
         'periods': 4,
-        'name': '2048 frames • 4 periods (Max Reliability)',
-        'subtitle': '~42.6ms at 48kHz — Maximum underrun prevention',
+        'name': 'Maximum Stability (~42.6ms)',
+        'subtitle': 'Heaviest buffering for stutter-free background playback',
         'badge': 'Max Safe',
       },
     ];
@@ -5244,8 +4857,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Fixed Output Buffer & Latency',
-          subtitle: 'Configure hardware period buffer size and periods',
+          title: 'Output Buffer & Latency',
+          subtitle:
+              'Balance instant audio response against stutter-free playback',
           height: MediaQuery.of(context).size.height * 0.78,
           child: M3ECardList.builder(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -5343,18 +4957,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showSubsonicDialog({VoidCallback? onDone}) {
     final options = [
-      (0.0, 'Disabled', 'No sub-bass removal'),
-      (15.0, 'Ultra Sub-bass', 'Preserves extreme low end'),
-      (20.0, 'Standard Subwoofer', 'Reduces distortion'),
-      (25.0, 'Small Woofers', 'Protects small drivers from damage'),
+      (0.0, 'Disabled', 'Passes full sub-bass spectrum unfiltered'),
+      (
+        15.0,
+        '15 Hz (Gentle)',
+        'Removes direct-current rumble while keeping deepest bass'
+      ),
+      (
+        20.0,
+        '20 Hz (Standard)',
+        'Cuts inaudible sub-bass and saves amplifier power (Recommended)'
+      ),
+      (
+        25.0,
+        '25 Hz (Compact Speakers)',
+        'Protects smaller speakers and phone drivers from bass distortion'
+      ),
     ];
 
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Subsonic Filter',
-          subtitle: 'Filter DC and inaudible sub-bass',
+          title: 'Sub-Bass Protection Filter',
+          subtitle:
+              'Removes inaudible rumble below human hearing to protect woofers',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
@@ -5397,22 +5024,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showUltrasonicDialog({VoidCallback? onDone}) {
     final options = [
-      (24000.0, 'Disabled', 'No filtering applied'),
-      (22000.0, 'Hi-Res Limit', 'Protects DACs'),
+      (24000.0, 'Disabled', 'Passes ultra-high frequencies without cutoff'),
+      (
+        22000.0,
+        '22 kHz (Hi-Res Limit)',
+        'Retains high-res harmonics while blocking high-band noise'
+      ),
       (
         20000.0,
-        'Human Hearing Limit',
-        'Filters frequencies above human hearing'
+        '20 kHz (Hearing Limit)',
+        'Standard limit of human hearing. Reduces listener fatigue (Recommended)'
       ),
-      (18000.0, 'Tweeter Guard', 'Protects tweeters from RF noise'),
+      (
+        18000.0,
+        '18 kHz (Tweeter Guard)',
+        'Protects sensitive tweeters from radio frequency hiss and noise'
+      ),
     ];
 
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Ultrasonic Filter',
-          subtitle: 'Filter out-of-band high frequencies',
+          title: 'High-Frequency Guard Filter',
+          subtitle:
+              'Filters ultrasonic frequencies above human hearing to protect tweeters and ears',
           child: M3ECardList(
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
