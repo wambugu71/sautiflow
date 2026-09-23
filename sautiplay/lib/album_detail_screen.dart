@@ -14,6 +14,7 @@ class TrackInfo {
   final String videoId;
   final String title;
   final String artist;
+  final String? artistId;
   final String? thumbnailUrl;
   final int? durationSeconds;
 
@@ -21,6 +22,7 @@ class TrackInfo {
     required this.videoId,
     required this.title,
     required this.artist,
+    this.artistId,
     this.thumbnailUrl,
     this.durationSeconds,
   });
@@ -31,6 +33,7 @@ class TrackInfo {
       videoId: json['videoId'] as String,
       title: json['title'] as String,
       artist: json['artist'] as String,
+      artistId: json['artistId'] as String?,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       durationSeconds: json['durationSeconds'] as int?,
     );
@@ -42,6 +45,7 @@ class TrackInfo {
       'videoId': videoId,
       'title': title,
       'artist': artist,
+      if (artistId != null) 'artistId': artistId,
       if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
       if (durationSeconds != null) 'durationSeconds': durationSeconds,
     };
@@ -59,6 +63,7 @@ class TrackInfo {
       videoId: song.videoId,
       title: song.name,
       artist: song.artist.name,
+      artistId: song.artist.artistId,
       thumbnailUrl: thumb,
       durationSeconds: song.duration,
     );
@@ -76,6 +81,7 @@ class TrackInfo {
       videoId: video.videoId,
       title: video.name,
       artist: video.artist.name,
+      artistId: video.artist.artistId,
       thumbnailUrl: thumb,
       durationSeconds: video.duration,
     );
@@ -141,6 +147,11 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       _artist = item.artist.name;
       _thumbnailUrl = _bestThumb(item.thumbnails);
       _screenLabel = 'SONG';
+    } else if (item is VideoDetailed) {
+      _title = item.name;
+      _artist = item.artist.name;
+      _thumbnailUrl = _bestThumb(item.thumbnails);
+      _screenLabel = 'VIDEO';
     }
   }
 
@@ -199,17 +210,23 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             });
           }
         }
-      } else if (item is SongDetailed) {
-        // Show the song + load related tracks via getUpNexts
+      } else if (item is SongDetailed || item is VideoDetailed) {
+        // Show the song/video + load related tracks via getUpNexts
         await _ytMusic.initialize();
-        final List<TrackInfo> trackList = [TrackInfo.fromSongDetailed(item)];
+        final String videoId =
+            item is SongDetailed ? item.videoId : (item as VideoDetailed).videoId;
+        final TrackInfo mainTrack = item is SongDetailed
+            ? TrackInfo.fromSongDetailed(item)
+            : TrackInfo.fromVideoDetailed(item as VideoDetailed);
+        final List<TrackInfo> trackList = [mainTrack];
         try {
-          final upNexts = await _ytMusic.getUpNexts(item.videoId);
+          final upNexts = await _ytMusic.getUpNexts(videoId);
           for (final next in upNexts) {
             trackList.add(TrackInfo(
               videoId: next.videoId,
               title: next.title,
               artist: next.artists.name,
+              artistId: next.artists.artistId,
               thumbnailUrl:
                   next.thumbnails.isNotEmpty ? next.thumbnails.first.url : null,
               durationSeconds: next.duration,
@@ -778,7 +795,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                         ),
                         const SizedBox(height: 2),
                         InkWell(
-                          onTap: () => _openArtist(track.artist),
+                          onTap: () => _openArtist(track.artist, artistId: track.artistId),
                           borderRadius: BorderRadius.circular(4),
                           child: Text(
                             track.artist,

@@ -166,8 +166,9 @@ class TrackMetadata {
   final Uint8List? albumArt;
   final double? replayGainTrack;
   final double? replayGainAlbum;
+  final String? artistId;
   const TrackMetadata(this.artist, this.albumArt,
-      {this.replayGainTrack, this.replayGainAlbum});
+      {this.replayGainTrack, this.replayGainAlbum, this.artistId});
 }
 
 class PlayerShell extends StatefulWidget {
@@ -796,12 +797,17 @@ class _PlayerShellState extends State<PlayerShell> {
       // Record in History
       String videoIdToSave = title; // fallback
       String? thumbnailUrlToSave;
+      String? artistIdToSave;
       if (_onlineTrackMetadata.containsKey(source.uri)) {
         videoIdToSave = _onlineTrackMetadata[source.uri]!.videoId;
         thumbnailUrlToSave = _onlineTrackMetadata[source.uri]!.thumbnailUrl;
+        artistIdToSave = _onlineTrackMetadata[source.uri]!.artistId;
       } else if (source.uri.scheme == 'file') {
         final path = _safeFilePathFromUri(source.uri);
         if (path != null) videoIdToSave = path;
+      }
+      if (artistIdToSave == null && idx >= 0 && idx < _currentUiQueue.length) {
+        artistIdToSave = _currentUiQueue[idx].artistId;
       }
 
       unawaited(
@@ -810,6 +816,7 @@ class _PlayerShellState extends State<PlayerShell> {
             videoId: videoIdToSave,
             title: title,
             artist: finalArtist,
+            artistId: artistIdToSave,
             thumbnailUrl: thumbnailUrlToSave,
             durationSeconds: finalDurationSecs,
             playedAt: DateTime.now(),
@@ -971,6 +978,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _lastMetadataSource = source;
 
     String artist = _subtitleFromSource(source);
+    String? artistId;
     Uint8List? albumArt;
     double? rgTrack;
     double? rgAlbum;
@@ -979,6 +987,7 @@ class _PlayerShellState extends State<PlayerShell> {
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       final track = _onlineTrackMetadata[source.uri]!;
       artist = track.artist;
+      artistId = track.artistId;
       if (track.thumbnailUrl != null) {
         isOnlineTrackWithThumbnail = true;
         if (_thumbnailCache.containsKey(track.thumbnailUrl)) {
@@ -1080,7 +1089,7 @@ class _PlayerShellState extends State<PlayerShell> {
     }
 
     _metadata.value = TrackMetadata(artist, albumArt,
-        replayGainTrack: rgTrack, replayGainAlbum: rgAlbum);
+        replayGainTrack: rgTrack, replayGainAlbum: rgAlbum, artistId: artistId);
 
     final idx = _status.value.currentIndex;
     if (idx >= 0 && idx < _currentUiQueue.length) {
@@ -1092,6 +1101,7 @@ class _PlayerShellState extends State<PlayerShell> {
           videoId: currentTrack.videoId,
           title: currentTrack.title,
           artist: artist,
+          artistId: currentTrack.artistId ?? artistId,
           thumbnailUrl: currentTrack.thumbnailUrl,
           durationSeconds: currentTrack.durationSeconds,
         );
@@ -1245,6 +1255,7 @@ class _PlayerShellState extends State<PlayerShell> {
           videoId: item.videoId,
           title: item.title,
           artist: item.artists.name,
+          artistId: item.artists.artistId,
           durationSeconds: item.duration, // integer seconds
           thumbnailUrl: thumbUrl,
         ));
@@ -2248,6 +2259,7 @@ class _PlayerShellState extends State<PlayerShell> {
               videoId: t.videoId,
               title: t.title,
               artist: t.artist,
+              artistId: t.artistId,
               thumbnailUrl: t.thumbnailUrl,
               durationSeconds: t.durationSeconds,
             ))
@@ -2268,6 +2280,7 @@ class _PlayerShellState extends State<PlayerShell> {
               videoId: t.videoId,
               title: t.title,
               artist: t.artist,
+              artistId: t.artistId,
               thumbnailUrl: t.thumbnailUrl,
               durationSeconds: t.durationSeconds,
             ))
@@ -2383,6 +2396,13 @@ class _PlayerShellState extends State<PlayerShell> {
       return (p == null || p.isEmpty) ? uri.toString() : p;
     }
     return uri.toString();
+  }
+
+  String? _artistIdFromSource(AudioSource source) {
+    if (_onlineTrackMetadata.containsKey(source.uri)) {
+      return _onlineTrackMetadata[source.uri]!.artistId;
+    }
+    return null;
   }
 
   int? _durationFromSource(AudioSource source) {
@@ -2574,12 +2594,13 @@ class _PlayerShellState extends State<PlayerShell> {
     _isFtpDownloading = false;
   }
 
-    void _openArtistProfile(String artistName) {
+  void _openArtistProfile(String artistName, {String? artistId}) {
     final clean = artistName.trim();
     if (clean.isEmpty || clean == 'Unknown Artist' || clean == 'Local File') return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ArtistProfileScreen(
+          artistId: artistId,
           artistName: clean,
           onPlayTracks: _playOnlineTracks,
         ),
@@ -2614,11 +2635,37 @@ void _showNowPlayingScreen() {
                 ? _onlineTrackMetadata[currentSource!.uri]?.videoId
                 : null;
 
+            final currentArtistId = (hasTrack && currentSourceType == 'online')
+                ? (_onlineTrackMetadata[currentSource!.uri]?.artistId ??
+                    (idx >= 0 && idx < _currentUiQueue.length
+                        ? _currentUiQueue[idx].artistId
+                        : null))
+                : null;
+
             return NowPlayingScreen(
               statusNotifier: _status,
               player: _player,
               albumArt: meta.albumArt,
               artist: meta.artist,
+              artistId: currentArtistId ?? meta.artistId,
+              getArtist: (index) {
+                if (index >= 0 && index < _currentUiQueue.length && _currentUiQueue[index].artist.isNotEmpty) {
+                  return _currentUiQueue[index].artist;
+                }
+                if (index >= 0 && index < _playlist.length) {
+                  return _subtitleFromSource(_playlist[index]);
+                }
+                return _metadata.value.artist;
+              },
+              getArtistId: (index) {
+                if (index >= 0 && index < _currentUiQueue.length && _currentUiQueue[index].artistId != null) {
+                  return _currentUiQueue[index].artistId;
+                }
+                if (index >= 0 && index < _playlist.length) {
+                  return _artistIdFromSource(_playlist[index]);
+                }
+                return _metadata.value.artistId;
+              },
               codec: _codecFromCurrentTrack(),
               durationOverride:
                   hasTrack ? _durationFromSource(currentSource!) : null,
@@ -2896,7 +2943,14 @@ void _showNowPlayingScreen() {
                             onNext: () => _player.next(),
                             onPrevious: () => _player.previous(),
                             onTap: _showNowPlayingScreen,
-                            onArtistTap: () => _openArtistProfile(meta.artist),
+                            onArtistTap: () {
+                              final idx = status.currentIndex;
+                              String? curArtistId = meta.artistId;
+                              if (curArtistId == null && idx >= 0 && idx < _currentUiQueue.length) {
+                                curArtistId = _currentUiQueue[idx].artistId;
+                              }
+                              _openArtistProfile(meta.artist, artistId: curArtistId);
+                            },
                           ),
                         );
                       },

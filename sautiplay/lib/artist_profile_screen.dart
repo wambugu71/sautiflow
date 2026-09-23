@@ -55,29 +55,93 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
 
       // 1. If artistId is not directly passed, search for the artist to get their ID
       if (resolvedId == null || resolvedId.isEmpty) {
-        final results = await _ytMusic.search(widget.artistName);
-        if (results.isEmpty) {
-          throw Exception("Artist not found");
+        String cleanQuery = widget.artistName.trim();
+        // Remove trailing - Topic (standard YouTube channel suffix for music artists)
+        cleanQuery = cleanQuery
+            .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+            .trim();
+        // Remove trailing VEVO
+        cleanQuery = cleanQuery
+            .replaceAll(RegExp(r'\s+VEVO$', caseSensitive: false), '')
+            .trim();
+        // If featured artist syntax exists ("Artist A feat. Artist B"), take primary artist
+        final featMatch = RegExp(
+                r'^(.*?)\s+(?:feat\.|ft\.|featuring)\s+.*$',
+                caseSensitive: false)
+            .firstMatch(cleanQuery);
+        if (featMatch != null) {
+          cleanQuery = featMatch.group(1)!.trim();
         }
 
-        SearchResult? artistSearchItem;
+        // Try searching dedicated artist endpoint first (avoids mixed search picking wrong collaborator/song)
         try {
-          artistSearchItem = results.firstWhere((item) =>
-              item is ArtistDetailed || item is ArtistDetailedSearchResult);
-        } catch (e) {
-          artistSearchItem = null;
+          final artists = await _ytMusic.searchArtists(cleanQuery);
+          if (artists.isNotEmpty) {
+            final match = artists.firstWhere(
+              (a) => a.name.toLowerCase() == cleanQuery.toLowerCase(),
+              orElse: () => artists.first,
+            );
+            if (match.artistId.isNotEmpty) {
+              resolvedId = match.artistId;
+              _headerImageUrl = _getBestThumbnail(match.thumbnails);
+            }
+          }
+        } catch (_) {}
+
+        // If multiple comma-separated artists, try the primary artist before comma
+        if ((resolvedId == null || resolvedId.isEmpty) && cleanQuery.contains(',')) {
+          final first = cleanQuery.split(',').first.trim();
+          if (first.isNotEmpty && first != cleanQuery) {
+            try {
+              final artists = await _ytMusic.searchArtists(first);
+              if (artists.isNotEmpty) {
+                final match = artists.firstWhere(
+                  (a) => a.name.toLowerCase() == first.toLowerCase(),
+                  orElse: () => artists.first,
+                );
+                if (match.artistId.isNotEmpty) {
+                  resolvedId = match.artistId;
+                  _headerImageUrl = _getBestThumbnail(match.thumbnails);
+                }
+              }
+            } catch (_) {}
+          }
         }
 
-        if (artistSearchItem == null) {
-          throw Exception("Could not resolve artist ID");
+        // Fallback: Broad search if dedicated artist search didn't resolve
+        if (resolvedId == null || resolvedId.isEmpty) {
+          final results = await _ytMusic.search(cleanQuery);
+          for (final item in results) {
+            if (item is ArtistDetailed && item.artistId.isNotEmpty) {
+              resolvedId = item.artistId;
+              _headerImageUrl = _getBestThumbnail(item.thumbnails);
+              break;
+            }
+            if (item is ArtistDetailedSearchResult &&
+                item.artistDetailed.artistId.isNotEmpty) {
+              resolvedId = item.artistDetailed.artistId;
+              _headerImageUrl =
+                  _getBestThumbnail(item.artistDetailed.thumbnails);
+              break;
+            }
+          }
+
+          // If still unresolved, look for a SongDetailed by this artist
+          if (resolvedId == null || resolvedId.isEmpty) {
+            for (final item in results) {
+              if (item is SongDetailed &&
+                  item.artist.artistId != null &&
+                  item.artist.artistId!.isNotEmpty) {
+                resolvedId = item.artist.artistId;
+                break;
+              }
+            }
+          }
         }
 
-        final artistInfo = artistSearchItem is ArtistDetailedSearchResult
-            ? artistSearchItem.artistDetailed
-            : artistSearchItem as ArtistDetailed;
-
-        resolvedId = artistInfo.artistId;
-        _headerImageUrl = _getBestThumbnail(artistInfo.thumbnails);
+        if (resolvedId == null || resolvedId.isEmpty) {
+          throw Exception("Could not resolve artist ID for \"${widget.artistName}\"");
+        }
       }
 
       _artistId = resolvedId;

@@ -36,6 +36,9 @@ class NowPlayingScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
   final String Function(int index) getTitle;
   final String artist;
+  final String? artistId;
+  final String Function(int index)? getArtist;
+  final String? Function(int index)? getArtistId;
   final Uint8List? albumArt;
   final String codec; // e.g. 'FLAC'
   final int? durationOverride; // Override duration for online streams
@@ -64,6 +67,9 @@ class NowPlayingScreen extends StatefulWidget {
     required this.player,
     required this.getTitle,
     required this.artist,
+    this.artistId,
+    this.getArtist,
+    this.getArtistId,
     this.albumArt,
     this.codec = 'MP3',
     this.durationOverride,
@@ -368,6 +374,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _abPointBMs = null;
       widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
 
+      // Immediately clear custom tag overrides on track change
+      _customArtist = null;
+      _customTitle = null;
+
       // Immediately clear previous song's lyrics so they don't linger
       _isCustomLyricsLoaded = false;
       _customLyricsFileName = null;
@@ -425,6 +435,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         oldWidget.sourceType != widget.sourceType ||
         oldWidget.artist != widget.artist ||
         oldTitle != newTitle) {
+      _customArtist = null;
+      _customTitle = null;
       _pendingSeekMs = null;
       _isDragging = false;
       _seekTimeoutTimer?.cancel();
@@ -886,10 +898,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             _showMusicInfoDialog(context);
                           },
                         ),
-                        if ((_customArtist ?? widget.artist).isNotEmpty &&
-                            (_customArtist ?? widget.artist) != 'Unknown Artist' &&
-                            (_customArtist ?? widget.artist) != 'Local File')
-                          ListTile(
+                        () {
+                          final curIdx = widget.statusNotifier.value.currentIndex;
+                          final curTrack = (curIdx >= 0 && curIdx < widget.queue.length)
+                              ? widget.queue[curIdx]
+                              : null;
+                          final dynArtist = widget.getArtist != null
+                              ? widget.getArtist!(curIdx)
+                              : (curTrack?.artist ?? widget.artist);
+                          final curArtist = _customArtist ?? dynArtist;
+                          final curArtistId = widget.getArtistId != null
+                              ? widget.getArtistId!(curIdx)
+                              : (curTrack?.artistId ?? widget.artistId);
+
+                          if (curArtist.isEmpty ||
+                              curArtist == 'Unknown Artist' ||
+                              curArtist == 'Local File') {
+                            return const SizedBox.shrink();
+                          }
+
+                          return ListTile(
                             leading: const Icon(Icons.person_outline_rounded,
                                 color: Colors.white),
                             title: const Text('View Artist Profile',
@@ -897,16 +925,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     color: Colors.white,
                                     fontWeight: FontWeight.w600)),
                             subtitle: Text(
-                              'Explore songs, albums & playlists by ${_customArtist ?? widget.artist}',
+                              'Explore songs, albums & playlists by $curArtist',
                               style: const TextStyle(
                                   color: Colors.white54, fontSize: 12),
                               overflow: TextOverflow.ellipsis,
                             ),
                             onTap: () {
                               Navigator.pop(sheetContext);
-                              _openArtistProfile(_customArtist ?? widget.artist);
+                              _openArtistProfile(curArtist, artistId: curArtistId);
                             },
-                          ),
+                          );
+                        }(),
                         /*  ListTile(
                           leading: Icon(Icons.developer_board,
                               color:
@@ -1256,7 +1285,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  void _openArtistProfile(String artistName) {
+  void _openArtistProfile(String artistName, {String? artistId}) {
     final cleanName = artistName.trim();
     if (cleanName.isEmpty ||
         cleanName == 'Unknown Artist' ||
@@ -1266,6 +1295,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ArtistProfileScreen(
+          artistId: artistId,
           artistName: cleanName,
           onPlayTracks: widget.onPlayTracks,
         ),
@@ -1755,9 +1785,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? _dragPositionMs.clamp(0.0, maxMs)
             : (_pendingSeekMs?.clamp(0.0, maxMs) ?? posMs.clamp(0.0, maxMs));
 
+        final curTrack = (status.currentIndex >= 0 && status.currentIndex < widget.queue.length)
+            ? widget.queue[status.currentIndex]
+            : null;
         final rawTitle = widget.getTitle(status.currentIndex);
         final title = _customTitle ?? rawTitle;
-        final subtitle = _customArtist ?? widget.artist;
+
+        final dynamicArtist = widget.getArtist != null
+            ? widget.getArtist!(status.currentIndex)
+            : (curTrack?.artist ?? widget.artist);
+        final subtitle = _customArtist ?? dynamicArtist;
+
+        final dynamicArtistId = widget.getArtistId != null
+            ? widget.getArtistId!(status.currentIndex)
+            : (curTrack?.artistId ?? widget.artistId);
 
         final Color primaryColor = AppThemeService.instance.currentData.primary;
         final Color bgColor = AppThemeService.instance.currentData.bgDark;
@@ -1988,7 +2029,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       ),
                                                       const SizedBox(height: 6),
                                                       InkWell(
-                                                        onTap: () => _openArtistProfile(subtitle),
+                                                        onTap: () => _openArtistProfile(subtitle, artistId: dynamicArtistId),
                                                         borderRadius: BorderRadius.circular(8),
                                                         child: Padding(
                                                           padding: const EdgeInsets.symmetric(vertical: 2.0),
@@ -2084,6 +2125,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                           title,
                                                                       artist:
                                                                           subtitle,
+                                                                        artistId: dynamicArtistId,
                                                                       thumbnailUrl: widget.albumArt ==
                                                                               null
                                                                           ? null
@@ -2626,7 +2668,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                                 const SizedBox(height: 4),
                                                 InkWell(
-                                                  onTap: () => _openArtistProfile(subtitle),
+                                                  onTap: () => _openArtistProfile(subtitle, artistId: dynamicArtistId),
                                                   borderRadius: BorderRadius.circular(6),
                                                   child: Row(
                                                     mainAxisSize: MainAxisSize.min,
@@ -2716,6 +2758,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                 title: title,
                                                                 artist:
                                                                     subtitle,
+                                                                  artistId: dynamicArtistId,
                                                                 thumbnailUrl:
                                                                     widget.albumArt ==
                                                                             null

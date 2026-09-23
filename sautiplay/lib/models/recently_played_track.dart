@@ -7,6 +7,7 @@ class RecentlyPlayedTrack {
       videoId; // Use videoId to store either the YT ID or local file path
   final String title;
   final String artist;
+  final String? artistId;
   final String? thumbnailUrl;
   final int durationSeconds;
   final DateTime playedAt;
@@ -15,6 +16,7 @@ class RecentlyPlayedTrack {
     required this.videoId,
     required this.title,
     required this.artist,
+    this.artistId,
     this.thumbnailUrl,
     required this.durationSeconds,
     required this.playedAt,
@@ -29,6 +31,7 @@ class RecentlyPlayedTrack {
       'videoId': videoId,
       'title': title,
       'artist': artist,
+      if (artistId != null) 'artistId': artistId,
       'thumbnailUrl': thumbnailUrl,
       'durationSeconds': durationSeconds,
       'playedAt': playedAt.toIso8601String(),
@@ -40,6 +43,7 @@ class RecentlyPlayedTrack {
       videoId: map['videoId'] as String,
       title: map['title'] as String,
       artist: map['artist'] as String,
+      artistId: map['artistId'] as String?,
       thumbnailUrl: map['thumbnailUrl'] as String?,
       durationSeconds: map['durationSeconds'] as int? ?? 0,
       playedAt: DateTime.parse(map['playedAt'] as String),

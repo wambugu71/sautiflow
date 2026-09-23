@@ -1090,9 +1090,23 @@ class _SearchScreenState extends State<SearchScreen> {
         videoId: item.videoId,
         title: item.name,
         artist: item.artist.name,
+        artistId: item.artist.artistId,
         durationSeconds: item.duration is int
             ? item.duration
             : _parseDuration(item.duration?.toString()),
+        thumbnailUrl: _itemThumbnail(item),
+      );
+      if (widget.onPlayTracks != null) {
+        widget.onPlayTracks!([track], initialIndex: 0);
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } else if (item is VideoDetailed) {
+      final track = TrackInfo(
+        videoId: item.videoId,
+        title: item.name,
+        artist: item.artist.name,
+        artistId: item.artist.artistId,
+        durationSeconds: item.duration,
         thumbnailUrl: _itemThumbnail(item),
       );
       if (widget.onPlayTracks != null) {
