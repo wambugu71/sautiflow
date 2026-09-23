@@ -429,17 +429,25 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         m_fmtCtx->interrupt_callback.opaque = this;
     }
 
-    SF_LOG("[ffmpeg] Step 1/5: Opening format context for %s: %s\n",
-           isNetwork ? "network URL" : "local file", m_url.c_str());
+    if (isNetwork) {
+        SF_LOG("[ffmpeg] Step 1/5: Opening format context for online stream\n");
+    } else {
+        SF_LOG("[ffmpeg] Step 1/5: Opening format context for local file: %s\n", m_url.c_str());
+    }
 
     int ret = avformat_open_input(&m_fmtCtx, m_url.c_str(), nullptr, opts ? &opts : nullptr);
     if (opts) av_dict_free(&opts);
 
     if (ret < 0) {
-        SF_LOGE("[ffmpeg] Step 1/5 FAILED: avformat_open_input returned error %s for %s\n",
-                av_err2str_cpp(ret).c_str(), m_url.c_str());
+        if (isNetwork) {
+            SF_LOGE("[ffmpeg] Step 1/5 FAILED: avformat_open_input returned error %s for online stream\n",
+                    av_err2str_cpp(ret).c_str());
+        } else {
+            SF_LOGE("[ffmpeg] Step 1/5 FAILED: avformat_open_input returned error %s for %s\n",
+                    av_err2str_cpp(ret).c_str(), m_url.c_str());
+        }
         if (!m_stopRequested.load(std::memory_order_acquire)) {
-            set_error(StreamErrorCode::OpenFailed, "Failed to open " + std::string(isNetwork ? "stream URL: " : "audio file: ") + av_err2str_cpp(ret));
+            set_error(StreamErrorCode::OpenFailed, "Failed to open " + std::string(isNetwork ? "online stream: " : "audio file: ") + av_err2str_cpp(ret));
         }
         m_isBuffering.store(false, std::memory_order_release);
         m_isEnded.store(true, std::memory_order_release);
@@ -450,7 +458,11 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     SF_LOG("[ffmpeg] Step 2/5: Probing stream information...\n");
 
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
-        SF_LOGE("[ffmpeg] Step 2/5 FAILED: avformat_find_stream_info failed for %s\n", m_url.c_str());
+        if (isNetwork) {
+            SF_LOGE("[ffmpeg] Step 2/5 FAILED: avformat_find_stream_info failed for online stream\n");
+        } else {
+            SF_LOGE("[ffmpeg] Step 2/5 FAILED: avformat_find_stream_info failed for %s\n", m_url.c_str());
+        }
         if (!m_stopRequested.load(std::memory_order_acquire)) {
             set_error(StreamErrorCode::StreamInfoNotFound, "Could not find stream info");
         }
@@ -463,7 +475,11 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     const AVCodec* decoder = nullptr;
     m_audioStreamIndex = av_find_best_stream(m_fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &decoder, 0);
     if (m_audioStreamIndex < 0 || !decoder) {
-        SF_LOGE("[ffmpeg] Step 2/5 FAILED: No audio stream or decoder found in %s\n", m_url.c_str());
+        if (isNetwork) {
+            SF_LOGE("[ffmpeg] Step 2/5 FAILED: No audio stream or decoder found in online stream\n");
+        } else {
+            SF_LOGE("[ffmpeg] Step 2/5 FAILED: No audio stream or decoder found in %s\n", m_url.c_str());
+        }
         if (!m_stopRequested.load(std::memory_order_acquire)) {
             set_error(StreamErrorCode::CodecNotFound, "No audio stream or decoder found");
         }
@@ -1458,12 +1474,12 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
         }
         int prebufferMs = 1500;
 
-        std::printf("[ffmpeg_backend] Requesting online stream decoder for: %s\n", pFilePath);
+        std::printf("[ffmpeg_backend] Requesting online stream decoder\n");
         std::fflush(stdout);
 
         auto* stream = new sautiflow::FFmpegStreamSource();
         if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
-            std::printf("[ffmpeg_backend] Online stream decoder failed to open: %s\n", pFilePath);
+            std::printf("[ffmpeg_backend] Online stream decoder failed to open\n");
             std::fflush(stdout);
             delete stream;
             return MA_ERROR;

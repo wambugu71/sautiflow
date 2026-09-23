@@ -300,7 +300,7 @@ namespace
             curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curl_on_progress);
             curl_easy_setopt(curl, CURLOPT_XFERINFODATA, st);
 
-            engine_log("network thread start: %s", st->url.c_str());
+            engine_log("network thread start: [online stream]");
             CURLcode rc = curl_easy_perform(curl);
             if (rc != CURLE_OK && !st->stopRequested)
             {
@@ -311,7 +311,7 @@ namespace
             curl_easy_cleanup(curl);
             st->networkDone = true;
             st->cv.notify_all();
-            engine_log("network thread done: %s", st->url.c_str()); });
+            engine_log("network thread done: [online stream]"); });
 
         return st;
     }
@@ -4411,8 +4411,16 @@ static bool load_decoder_for_path(
     cfg.seekPointCount = is_network_url(path) ? 0 : 200;
 
     ma_decoder *tmp = new ma_decoder{};
-    engine_log("decoder_init: %s (isPreload=%s, isNetwork=%s)",
-               path.c_str(), isPreload ? "true" : "false", is_network_url(path) ? "true" : "false");
+    if (isNetwork)
+    {
+        engine_log("decoder_init: [online stream] (isPreload=%s, isNetwork=true)",
+                   isPreload ? "true" : "false");
+    }
+    else
+    {
+        engine_log("decoder_init: %s (isPreload=%s, isNetwork=false)",
+                   path.c_str(), isPreload ? "true" : "false");
+    }
 
 #if defined(_WIN32) || defined(_WIN64)
     std::wstring wpath = utf8_to_wstring(path);
@@ -4448,8 +4456,8 @@ static bool load_decoder_for_path(
 
     if (r != MA_SUCCESS)
     {
-        set_last_error(e, std::string("Failed to decode source: ") + path);
-        engine_log("decoder_init failed (ma_result=%d) for: %s", (int)r, path.c_str());
+        set_last_error(e, std::string("Failed to decode source: ") + (isNetwork ? "[online stream]" : path));
+        engine_log("decoder_init failed (ma_result=%d) for: %s", (int)r, isNetwork ? "[online stream]" : path.c_str());
         delete tmp;
         return false;
     }
@@ -4470,8 +4478,16 @@ static bool load_decoder_for_path(
     (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
 
     uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)tmp->outputSampleRate;
-    engine_log("decoder_init_file success: %s | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
-               path.c_str(), srcRate, targetRate, isPreload ? "true" : "false");
+    if (isNetwork)
+    {
+        engine_log("decoder_init_file success: [online stream] | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
+                   srcRate, targetRate, isPreload ? "true" : "false");
+    }
+    else
+    {
+        engine_log("decoder_init_file success: %s | Native Rate=%u Hz | Assigned Target Rate=%u Hz (isPreload=%s)",
+                   path.c_str(), srcRate, targetRate, isPreload ? "true" : "false");
+    }
     clear_last_error(e);
     return true;
 }
