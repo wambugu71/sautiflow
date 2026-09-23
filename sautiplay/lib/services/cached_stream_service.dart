@@ -21,6 +21,11 @@ class CachedStreamService {
 
   final Set<String> _activeDownloads = <String>{};
 
+  final ValueNotifier<Set<String>> activeDownloadsNotifier =
+      ValueNotifier<Set<String>>(<String>{});
+
+  bool isDownloading(String videoId) => _activeDownloads.contains(videoId);
+
   bool _isInitialized = false;
 
   Directory get cacheDirectory => Directory(
@@ -57,6 +62,7 @@ class CachedStreamService {
     if (videoId.isEmpty) return;
     if (_activeDownloads.contains(videoId)) return;
     _activeDownloads.add(videoId);
+    activeDownloadsNotifier.value = Set<String>.unmodifiable(_activeDownloads);
 
     try {
       final dir = cacheDirectory;
@@ -158,6 +164,7 @@ class CachedStreamService {
       debugPrint('[CachedStreamService] Background cache error for $videoId: $e');
     } finally {
       _activeDownloads.remove(videoId);
+      activeDownloadsNotifier.value = Set<String>.unmodifiable(_activeDownloads);
     }
   }
 

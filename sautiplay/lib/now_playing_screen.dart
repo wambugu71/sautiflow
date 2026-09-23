@@ -14,10 +14,12 @@ import 'package:sautiflow/sautiflow.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'artist_profile_screen.dart';
 import 'isolate_player.dart';
+import 'models/cached_stream_item.dart';
 import 'models/liked_song.dart';
 import 'queue_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'services/cached_stream_service.dart';
 import 'services/audio_file_inspector.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/fft_processor.dart';
@@ -39,6 +41,7 @@ class NowPlayingScreen extends StatefulWidget {
   final String? artistId;
   final String Function(int index)? getArtist;
   final String? Function(int index)? getArtistId;
+  final String? Function(int index)? getStreamUrl;
   final Uint8List? albumArt;
   final String codec; // e.g. 'FLAC'
   final int? durationOverride; // Override duration for online streams
@@ -70,6 +73,7 @@ class NowPlayingScreen extends StatefulWidget {
     this.artistId,
     this.getArtist,
     this.getArtistId,
+    this.getStreamUrl,
     this.albumArt,
     this.codec = 'MP3',
     this.durationOverride,
@@ -899,6 +903,127 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           },
                         ),
                         () {
+                          if (widget.sourceType != 'online') {
+                            return const SizedBox.shrink();
+                          }
+                          final curIdx =
+                              widget.statusNotifier.value.currentIndex;
+                          final curTrack = (curIdx >= 0 &&
+                                  curIdx < widget.queue.length)
+                              ? widget.queue[curIdx]
+                              : null;
+                          final vid = curTrack?.videoId.isNotEmpty == true
+                              ? curTrack!.videoId
+                              : (widget.videoId ?? '');
+                          if (vid.isEmpty ||
+                              vid.contains(r'\') ||
+                              vid.contains('/') ||
+                              vid.startsWith('file://')) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return AnimatedBuilder(
+                            animation: Listenable.merge([
+                              CachedStreamService.instance.cachedStreamsNotifier,
+                              CachedStreamService
+                                  .instance.activeDownloadsNotifier,
+                            ]),
+                            builder: (ctx, _) {
+                              final cachedItem = CachedStreamService.instance
+                                  .getCachedItem(vid);
+                              final isCached = cachedItem != null;
+                              final isDownloading = CachedStreamService.instance
+                                  .isDownloading(vid);
+                              final trackTitle =
+                                  _customTitle ?? widget.getTitle(curIdx);
+                              final trackArtist = _customArtist ??
+                                  (widget.getArtist != null
+                                      ? widget.getArtist!(curIdx)
+                                      : (curTrack?.artist ?? widget.artist));
+
+                              return ListTile(
+                                leading: isDownloading
+                                    ? SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: Center(
+                                          child: M3EProgressIndicator.circular(
+                                            size: 20,
+                                            strokeWidth: 2.2,
+                                            color: AppThemeService
+                                                .instance.currentData.primary,
+                                          ),
+                                        ),
+                                      )
+                                    : Icon(
+                                        isCached
+                                            ? Icons.download_done_rounded
+                                            : Icons.download_rounded,
+                                        color: isCached
+                                            ? AppThemeService
+                                                .instance.currentData.primary
+                                            : Colors.white,
+                                      ),
+                                title: Text(
+                                  isCached
+                                      ? 'Saved to Offline Cache'
+                                      : (isDownloading
+                                          ? 'Downloading Track...'
+                                          : 'Save to Offline Cache'),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  isCached
+                                      ? '${CachedStreamService.formatBytes(cachedItem.fileSizeBytes)} • Tap to remove'
+                                      : (isDownloading
+                                          ? 'Caching stream on disk in background'
+                                          : 'Download and cache stream for offline playback'),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                onTap: () {
+                                  Navigator.pop(sheetContext);
+                                  if (isCached) {
+                                    _showRemoveCacheConfirmation(
+                                        context, cachedItem, trackTitle);
+                                  } else if (!isDownloading) {
+                                    final streamUrl = widget.getStreamUrl != null
+                                        ? widget.getStreamUrl!(curIdx)
+                                        : null;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            'Saving "$trackTitle" to offline cache...'),
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                    unawaited(
+                                      CachedStreamService.instance
+                                          .cacheStreamInBackground(
+                                        videoId: vid,
+                                        streamUrl: streamUrl ?? '',
+                                        title: trackTitle,
+                                        artist: trackArtist,
+                                        thumbnailUrl: curTrack?.thumbnailUrl ??
+                                            (widget.albumArt == null
+                                                ? null
+                                                : vid),
+                                        durationSeconds:
+                                            curTrack?.durationSeconds,
+                                      ),
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          );
+                        }(),
+                        () {
                           final curIdx = widget.statusNotifier.value.currentIndex;
                           final curTrack = (curIdx >= 0 && curIdx < widget.queue.length)
                               ? widget.queue[curIdx]
@@ -1299,6 +1424,154 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           artistName: cleanName,
           onPlayTracks: widget.onPlayTracks,
         ),
+      ),
+    );
+  }
+
+  Widget _buildStreamCacheButton({
+    required TrackInfo? curTrack,
+    required PlayerStatus status,
+    required String title,
+    required String subtitle,
+    required Color primaryColor,
+  }) {
+    if (widget.sourceType != 'online') return const SizedBox.shrink();
+
+    final videoId = curTrack?.videoId.isNotEmpty == true
+        ? curTrack!.videoId
+        : (widget.videoId ?? '');
+
+    if (videoId.isEmpty) return const SizedBox.shrink();
+    if (videoId.contains(r'\') ||
+        videoId.contains('/') ||
+        videoId.startsWith('file://')) {
+      return const SizedBox.shrink();
+    }
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        CachedStreamService.instance.cachedStreamsNotifier,
+        CachedStreamService.instance.activeDownloadsNotifier,
+      ]),
+      builder: (context, _) {
+        final cachedItem =
+            CachedStreamService.instance.getCachedItem(videoId);
+        final isCached = cachedItem != null;
+        final isDownloading =
+            CachedStreamService.instance.isDownloading(videoId);
+
+        if (isDownloading) {
+          return M3EIconButton(
+            variant: M3EIconButtonVariant.tonal,
+            icon: SizedBox(
+              width: 20,
+              height: 20,
+              child: Center(
+                child: M3EProgressIndicator.circular(
+                  size: 18,
+                  strokeWidth: 2.2,
+                  color: primaryColor,
+                ),
+              ),
+            ),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Downloading "$title" in background...'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          );
+        }
+
+        if (isCached) {
+          return M3EIconButton(
+            variant: M3EIconButtonVariant.filled,
+            icon: const Icon(Icons.download_done_rounded),
+            onPressed: () {
+              _showRemoveCacheConfirmation(context, cachedItem, title);
+            },
+          );
+        }
+
+        return M3EIconButton(
+          variant: M3EIconButtonVariant.outlined,
+          icon: const Icon(Icons.download_rounded),
+          onPressed: () async {
+            final streamUrl = widget.getStreamUrl != null
+                ? widget.getStreamUrl!(status.currentIndex)
+                : null;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Saving "$title" to offline cache...'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            unawaited(
+              CachedStreamService.instance.cacheStreamInBackground(
+                videoId: videoId,
+                streamUrl: streamUrl ?? '',
+                title: title,
+                artist: subtitle,
+                thumbnailUrl: curTrack?.thumbnailUrl ??
+                    (widget.albumArt == null ? null : videoId),
+                durationSeconds: curTrack?.durationSeconds,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRemoveCacheConfirmation(
+    BuildContext context,
+    CachedStreamItem cachedItem,
+    String title,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18232E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Cached Offline',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          '"$title" is saved to your offline cache (${CachedStreamService.formatBytes(cachedItem.fileSizeBytes)}).\n\nDo you want to remove this track from your offline cache?',
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Keep', style: TextStyle(color: Colors.white60)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await CachedStreamService.instance
+                  .removeCachedStream(cachedItem.filePath);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Removed "$title" from offline cache.'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Remove'),
+          ),
+        ],
       ),
     );
   }
@@ -2152,6 +2425,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                 .thumb_down_outlined),
                                                             onPressed: () {},
                                                           ),
+                                                          if (widget.sourceType == 'online') ...[
+                                                            const SizedBox(width: 12),
+                                                            _buildStreamCacheButton(
+                                                              curTrack: curTrack,
+                                                              status: status,
+                                                              title: title,
+                                                              subtitle: subtitle,
+                                                              primaryColor: primaryColor,
+                                                            ),
+                                                          ],
                                                         ],
                                                       ),
                                                       Row(
@@ -2785,6 +3068,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           .thumb_down_outlined),
                                                       onPressed: () {},
                                                     ),
+                                                    if (widget.sourceType == 'online') ...[
+                                                      const SizedBox(width: 8),
+                                                      _buildStreamCacheButton(
+                                                        curTrack: curTrack,
+                                                        status: status,
+                                                        title: title,
+                                                        subtitle: subtitle,
+                                                        primaryColor: primaryColor,
+                                                      ),
+                                                    ],
                                                   ],
                                                 ),
                                                 Row(

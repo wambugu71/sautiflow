@@ -2666,6 +2666,15 @@ void _showNowPlayingScreen() {
                 }
                 return _metadata.value.artistId;
               },
+              getStreamUrl: (index) {
+                if (index >= 0 && index < _playlist.length) {
+                  final uri = _playlist[index].uri;
+                  if (uri.scheme == 'http' || uri.scheme == 'https') {
+                    return uri.toString();
+                  }
+                }
+                return null;
+              },
               codec: _codecFromCurrentTrack(),
               durationOverride:
                   hasTrack ? _durationFromSource(currentSource!) : null,
