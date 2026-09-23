@@ -65,13 +65,20 @@ int main()
     ae_get_output_buffer(e, &f, &c);
     CHECK(f == 0 && c == 0, "reset to auto (0, 0) successful");
 
-    // 5. Hardware Info Telemetry
+    // 5. Hardware Info Telemetry with Explicit Buffer
+    ae_set_output_buffer(e, 1024, 3);
     AEHardwareInfo hw{};
     hw = ae_get_hardware_info(e);
     CHECK(hw.sample_rate > 0, "hardware info reports valid sample rate");
-    CHECK(hw.period_size_frames > 0, "hardware info reports valid negotiated period size");
+    CHECK(hw.period_size_frames == 1024, "hardware info reports configured period frames == 1024");
+    CHECK(hw.period_count == 3, "hardware info reports configured period count == 3");
     std::printf("  Negotiated Backend: %s, Device: %s, PeriodSize: %u frames, Periods: %u, Latency: %.2f ms\n",
                 hw.backend_name, hw.device_name, hw.period_size_frames, hw.period_count, hw.latency_ms);
+
+    // 6. Reset to auto
+    ae_set_output_buffer(e, 0, 0);
+    hw = ae_get_hardware_info(e);
+    CHECK(hw.period_size_frames > 0, "auto hardware info reports valid period frames");
 
     ae_destroy_engine(e);
 

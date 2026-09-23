@@ -4018,6 +4018,10 @@ static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
     {
         cfg.periodSizeInFrames = (ma_uint32)userFrames;
         cfg.periodSizeInMilliseconds = 0;
+#if defined(__ANDROID__)
+        cfg.aaudio.allowSetBufferCapacity = MA_TRUE;
+        cfg.aaudio.enableCompatibilityWorkarounds = MA_FALSE;
+#endif
     }
     if (userPeriods > 0)
     {
@@ -8646,11 +8650,24 @@ extern "C"
     {
         if (e == nullptr)
             return 0.0f;
-        if (e->device.sampleRate == 0)
+        uint32_t sr = (e->device.sampleRate > 0) ? e->device.sampleRate : (uint32_t)e->engineSampleRate;
+        if (sr == 0)
             return 0.0f;
-            
-        uint32_t frames = e->device.playback.internalPeriodSizeInFrames * e->device.playback.internalPeriods;
-        return (float)frames / (float)e->device.sampleRate * 1000.0f;
+
+        const int userFrames = e->userPeriodFrames.load(std::memory_order_relaxed);
+        const int userPeriods = e->userPeriodCount.load(std::memory_order_relaxed);
+        uint32_t periodFrames = e->device.playback.internalPeriodSizeInFrames;
+        uint32_t periodCount = e->device.playback.internalPeriods;
+
+        if (userFrames > 0)
+        {
+            periodFrames = (uint32_t)userFrames;
+            if (userPeriods > 0) periodCount = (uint32_t)userPeriods;
+            if (periodCount == 0) periodCount = 2;
+        }
+
+        uint32_t frames = periodFrames * (periodCount > 0 ? periodCount : 2);
+        return (float)frames / (float)sr * 1000.0f;
     }
 
     static double calculate_total_pipeline_latency_samples(AudioEngineHandle *e)
@@ -12649,7 +12666,7 @@ extern "C"
                         if (bufUtf)
                         {
                             int parsedFrames = std::atoi(bufUtf);
-                            if (parsedFrames > 0)
+                            if (parsedFrames > 0 && info->period_size_frames == 0)
                             {
                                 info->period_size_frames = (uint32_t)parsedFrames;
                             }
@@ -12890,6 +12907,13 @@ extern "C"
                 info.channels = sink->channels;
                 info.period_size_frames = (uint32_t)sink->framesPerBuffer;
                 info.period_count = 2;
+                const int userFramesAT = engine->userPeriodFrames.load(std::memory_order_relaxed);
+                const int userPeriodsAT = engine->userPeriodCount.load(std::memory_order_relaxed);
+                if (userFramesAT > 0)
+                {
+                    info.period_size_frames = (uint32_t)userFramesAT;
+                    if (userPeriodsAT > 0) info.period_count = (uint32_t)userPeriodsAT;
+                }
                 info.is_exclusive_mode = (activeBkForHw == AE_BACKEND_DIRECT_HIRES) ? 1 : 0;
 
                 if (sink->encoding == 21)
@@ -12925,6 +12949,17 @@ extern "C"
                 info.channels = (int)pDevice->playback.internalChannels;
                 info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
                 info.period_count = (uint32_t)pDevice->playback.internalPeriods;
+
+                const int userFramesDev = engine->userPeriodFrames.load(std::memory_order_relaxed);
+                const int userPeriodsDev = engine->userPeriodCount.load(std::memory_order_relaxed);
+                if (userFramesDev > 0)
+                {
+                    info.period_size_frames = (uint32_t)userFramesDev;
+                    if (userPeriodsDev > 0)
+                    {
+                        info.period_count = (uint32_t)userPeriodsDev;
+                    }
+                }
 
                 info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
 

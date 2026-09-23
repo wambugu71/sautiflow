@@ -1613,7 +1613,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 _buildM3ESwitchTile(
                   title: 'Auto Sample-Rate Match',
-                  subtitle: 'Auto match hardware rate to source (Recomended)',
+                  subtitle: 'Auto match hardware rate to source (Recommended)',
                   secondary: _buildLeadingIcon(Icons.graphic_eq),
                   value: _autoBitPerfectEnabled,
                   onChanged: (val) {

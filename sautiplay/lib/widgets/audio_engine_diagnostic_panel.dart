@@ -450,7 +450,10 @@ class _AudioEngineDiagnosticPanelState
               _buildTelemetryRow('Backend',
                   '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})'),
               _buildTelemetryRow(
-                  'Buffer', '$periodFrames frames ($periodCount periods)'),
+                  'Buffer',
+                  periodCount > 1
+                      ? '$periodFrames frames × $periodCount periods (${periodFrames * periodCount} total)'
+                      : '$periodFrames frames'),
               _buildTelemetryRow('Total Latency',
                   '${totalEndToEndLatencyMs.toStringAsFixed(2)} ms (DSP: ${sumDspMs.toStringAsFixed(2)} ms + Hardware: ${hwLatencyMs.toStringAsFixed(2)} ms)'),
               _buildTelemetryRow(

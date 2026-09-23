@@ -123,3 +123,8 @@ add_executable(test_cases test/auto_sr_disable_cases_test.cpp)
 target_link_libraries(test_cases PRIVATE audio_engine)
 target_include_directories(test_cases PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(test_buffer_config tests/test_buffer_config.cpp)
+target_link_libraries(test_buffer_config PRIVATE audio_engine)
+target_include_directories(test_buffer_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+
