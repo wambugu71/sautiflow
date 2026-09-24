@@ -124,20 +124,23 @@ class M3ECardListItem extends StatelessWidget {
         ? () => onLongPress!(index)
         : null;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: isLast ? 0 : gap),
-      child: M3ECard(
-        variant: M3ECardVariant.filled,
-        borderRadius: borderRadius,
-        color: color ?? cardListTheme.backgroundColor(scheme),
-        padding: padding ?? cardListTheme.itemPadding,
-        onPressed: wrappedOnTap,
-        onLongPress: wrappedOnLongPress,
-        mouseCursor: mouseCursor,
-        semanticLabel: semanticLabel,
-        haptic: haptic,
-        width: double.infinity,
-        child: M3EListItemScope(child: child),
+    return RepaintBoundary(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: isLast ? 0 : gap),
+        child: M3ECard(
+          clipBehavior: Clip.none,
+          variant: M3ECardVariant.filled,
+          borderRadius: borderRadius,
+          color: color ?? cardListTheme.backgroundColor(scheme),
+          padding: padding ?? cardListTheme.itemPadding,
+          onPressed: wrappedOnTap,
+          onLongPress: wrappedOnLongPress,
+          mouseCursor: mouseCursor,
+          semanticLabel: semanticLabel,
+          haptic: haptic,
+          width: double.infinity,
+          child: M3EListItemScope(child: child),
+        ),
       ),
     );
   }

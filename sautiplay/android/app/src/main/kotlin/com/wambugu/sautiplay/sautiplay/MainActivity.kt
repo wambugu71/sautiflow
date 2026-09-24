@@ -175,9 +175,40 @@ class MainActivity : AudioServiceActivity() {
     // ── Activity Lifecycle ────────────────────────────────────────────────────
     override fun onStart() {
         super.onStart()
+        enableHighRefreshRateIfAvailable()
         setupAudioDeviceCallback()
         requestBluetoothPermissionIfNeeded()
         registerHardwareReceiver()
+    }
+
+    private fun enableHighRefreshRateIfAvailable() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    display
+                } else {
+                    @Suppress("DEPRECATION")
+                    window.windowManager.defaultDisplay
+                }
+                val modes = display?.supportedModes ?: return
+                var maxRate = 60.0f
+                var targetModeId = 0
+                for (mode in modes) {
+                    if (mode.refreshRate > maxRate) {
+                        maxRate = mode.refreshRate
+                        targetModeId = mode.modeId
+                    }
+                }
+                if (targetModeId != 0) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = targetModeId
+                    window.attributes = params
+                    Log.d(TAG, "Configured high refresh rate: $maxRate Hz (mode $targetModeId)")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to configure high refresh rate: ${e.message}")
+            }
+        }
     }
 
     override fun onStop() {

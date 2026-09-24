@@ -163,6 +163,10 @@ class EqScreen extends StatefulWidget {
   final bool analyzerEnabled;
   final String analyzerType;
   final GlobalKey? effectsKnobKey;
+  final List<Widget>? headerSlivers;
+  final ScrollController? scrollController;
+  final ScrollPhysics? physics;
+  final ValueChanged<bool>? onScrollingChanged;
 
   const EqScreen({
     super.key,
@@ -170,6 +174,10 @@ class EqScreen extends StatefulWidget {
     required this.analyzerEnabled,
     required this.analyzerType,
     this.effectsKnobKey,
+    this.headerSlivers,
+    this.scrollController,
+    this.physics,
+    this.onScrollingChanged,
   });
 
   /// Applies persisted Sauti DSP suite settings directly to the audio engine.
@@ -1147,9 +1155,9 @@ class _EqScreenState extends State<EqScreen>
   bool _compressorAutoMakeup = false;
   double _compressorMix = 1.0;
   final ValueNotifier<double> _compressorGrNotifier = ValueNotifier(0.0);
-  double get _compressorGainReductionDb => _compressorGrNotifier.value;
-  set _compressorGainReductionDb(double v) => _compressorGrNotifier.value = v;
   Timer? _compressorMeterTimer;
+  final GlobalKey _fallbackEffectsKnobKey = GlobalKey();
+  bool _isDynamicsModalActive = false;
 
   // ── Sauti DSP Suite States ──
   // 1. Audio Clarity
@@ -1194,8 +1202,6 @@ class _EqScreenState extends State<EqScreen>
   double _deEsserAttackMs = 1.0;
   double _deEsserReleaseMs = 35.0;
   final ValueNotifier<double> _deEsserGrNotifier = ValueNotifier(0.0);
-  double get _deEsserGainReductionDb => _deEsserGrNotifier.value;
-  set _deEsserGainReductionDb(double v) => _deEsserGrNotifier.value = v;
 
   // 4b. Downward Expander (Vinyl & Tape Noise Floor Reducer)
   bool _expanderEnabled = false;
@@ -1289,8 +1295,6 @@ class _EqScreenState extends State<EqScreen>
   double _noiseGateReleaseMs = 120.0;
   double _noiseGateHpfHz = 80.0;
   final ValueNotifier<double> _noiseGateGrNotifier = ValueNotifier(0.0);
-  double get _noiseGateGainReductionDb => _noiseGateGrNotifier.value;
-  set _noiseGateGainReductionDb(double v) => _noiseGateGrNotifier.value = v;
 
   // 9. Broadcast Leveller (Slow-Window AGC)
   bool _levellerEnabled = false;
@@ -1301,8 +1305,6 @@ class _EqScreenState extends State<EqScreen>
   double _levellerMaxAttenuationDb = 12.0;
   double _levellerSilenceGateLufs = -45.0;
   final ValueNotifier<double> _levellerGainNotifier = ValueNotifier(0.0);
-  double get _levellerCurrentGainDb => _levellerGainNotifier.value;
-  set _levellerCurrentGainDb(double v) => _levellerGainNotifier.value = v;
 
   // 10. 6-Band Dynamic Equalizer (DynamicEqDSP)
   bool _dynamicEqEnabled = false;
@@ -1923,9 +1925,18 @@ class _EqScreenState extends State<EqScreen>
       _syncAutoEqStateFromEngine();
     });
 
+    _eqSettingsSub =
+        AppStateService.instance.eqSettingsChanged.stream.listen((_) {
+      if (mounted) _loadPreferences();
+    });
+  }
+
+  void _startDynamicsMeterTimer() {
+    _compressorMeterTimer?.cancel();
+    _isDynamicsModalActive = true;
     _compressorMeterTimer =
         Timer.periodic(const Duration(milliseconds: 60), (_) async {
-      if (!mounted) return;
+      if (!mounted || !_isDynamicsModalActive) return;
       final anyDynamicsActive = _compressorEnabled ||
           _deEsserEnabled ||
           _noiseGateEnabled ||
@@ -1993,20 +2004,25 @@ class _EqScreenState extends State<EqScreen>
         await Future.wait(futures);
       }
     });
+  }
 
-    _eqSettingsSub =
-        AppStateService.instance.eqSettingsChanged.stream.listen((_) {
-      if (mounted) _loadPreferences();
-    });
+  void _stopDynamicsMeterTimer() {
+    _isDynamicsModalActive = false;
+    _compressorMeterTimer?.cancel();
+    _compressorMeterTimer = null;
+    if (_compressorGrNotifier.value != 0.0) _compressorGrNotifier.value = 0.0;
+    if (_deEsserGrNotifier.value != 0.0) _deEsserGrNotifier.value = 0.0;
+    if (_noiseGateGrNotifier.value != 0.0) _noiseGateGrNotifier.value = 0.0;
+    if (_levellerGainNotifier.value != 0.0) _levellerGainNotifier.value = 0.0;
   }
 
   @override
   void dispose() {
+    _stopDynamicsMeterTimer();
     _compressorGrNotifier.dispose();
     _deEsserGrNotifier.dispose();
     _noiseGateGrNotifier.dispose();
     _levellerGainNotifier.dispose();
-    _compressorMeterTimer?.cancel();
     _statusSub?.cancel();
     _autoEqSub?.cancel();
     _eqSettingsSub?.cancel();
@@ -3379,7 +3395,7 @@ class _EqScreenState extends State<EqScreen>
       _deEsserMaxReductionDb = 12.0;
       _deEsserAttackMs = 1.0;
       _deEsserReleaseMs = 35.0;
-      _deEsserGainReductionDb = 0.0;
+      _deEsserGrNotifier.value = 0.0;
       widget.player.setDeEsser(enabled: false);
 
       _expanderEnabled = false;
@@ -3445,7 +3461,7 @@ class _EqScreenState extends State<EqScreen>
       _noiseGateAttackMs = 1.0;
       _noiseGateReleaseMs = 120.0;
       _noiseGateHpfHz = 80.0;
-      _noiseGateGainReductionDb = 0.0;
+      _noiseGateGrNotifier.value = 0.0;
       widget.player.setNoiseGateEnabled(false);
 
       _levellerEnabled = false;
@@ -3455,7 +3471,7 @@ class _EqScreenState extends State<EqScreen>
       _levellerMaxBoostDb = 9.0;
       _levellerMaxAttenuationDb = 12.0;
       _levellerSilenceGateLufs = -45.0;
-      _levellerCurrentGainDb = 0.0;
+      _levellerGainNotifier.value = 0.0;
       widget.player.setLevellerEnabled(false);
 
       _dynamicEqEnabled = false;
@@ -3487,35 +3503,37 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildSectionHeader(String title, {IconData? icon, Widget? trailing}) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-      child: Row(
-        children: [
-          if (icon != null) ...[
-            Icon(icon, color: primaryColor, size: 14),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              color: primaryColor,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, color: primaryColor, size: 14),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              title.toUpperCase(),
+              style: TextStyle(
+                color: primaryColor,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Container(
-              height: 1,
-              color: primaryColor.withValues(alpha: 0.15),
-            ),
-          ),
-          if (trailing != null) ...[
             const SizedBox(width: 8),
-            trailing,
+            Expanded(
+              child: Container(
+                height: 1,
+                color: primaryColor.withValues(alpha: 0.15),
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing,
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -3579,6 +3597,14 @@ class _EqScreenState extends State<EqScreen>
   void _openDetailScreen(
       String title, IconData icon, WidgetBuilder contentBuilder,
       {Shapes shape = Shapes.c4SidedCookie}) {
+    final isDynamicsScreen = title == 'Compressor' ||
+        title == 'De-Esser' ||
+        title == 'Noise Gate' ||
+        title == 'Leveller';
+    if (isDynamicsScreen) {
+      _startDynamicsMeterTimer();
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -3680,6 +3706,9 @@ class _EqScreenState extends State<EqScreen>
       ),
     ).then((_) {
       _subScreenSetState = null;
+      if (isDynamicsScreen) {
+        _stopDynamicsMeterTimer();
+      }
     });
   }
 
@@ -3690,9 +3719,24 @@ class _EqScreenState extends State<EqScreen>
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1000.0),
-        child: CustomScrollView(
-          key: const PageStorageKey<String>('eq_screen_scroll'),
-          slivers: [
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification is ScrollStartNotification) {
+              widget.onScrollingChanged?.call(true);
+            } else if (notification is ScrollEndNotification) {
+              widget.onScrollingChanged?.call(false);
+            }
+            return false;
+          },
+          child: CustomScrollView(
+            key: const PageStorageKey<String>('eq_screen_scroll'),
+            controller: widget.scrollController,
+            physics: widget.physics ??
+                const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+            slivers: [
+              if (widget.headerSlivers != null) ...widget.headerSlivers!,
             // Top Master Control Bar
             /*  SliverToBoxAdapter(
               child: Padding(
@@ -4207,7 +4251,8 @@ class _EqScreenState extends State<EqScreen>
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return AppShowcase(
-                        showcaseKey: widget.effectsKnobKey ?? GlobalKey(),
+                        showcaseKey:
+                            widget.effectsKnobKey ?? _fallbackEffectsKnobKey,
                         title: 'Knob Controls',
                         description:
                             'Drag knobs to adjust EQ. Tip: Tap/Long-press any knob to edit values directly with your keyboard!',
@@ -4964,8 +5009,9 @@ class _EqScreenState extends State<EqScreen>
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildPresetChip(String label) {
     final isSelected = _activePreset == label;
@@ -10099,9 +10145,6 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildCompressorSection() {
     final primaryColor = context.primaryColor;
-    final grDb = _compressorGainReductionDb.abs();
-    // Normalize GR to 0.0 .. 1.0 (range: 0 dB to 24 dB)
-    final grFraction = (grDb / 24.0).clamp(0.0, 1.0);
 
     return _CollapsibleSection(
       icon: Center(
@@ -11138,7 +11181,6 @@ class _EqScreenState extends State<EqScreen>
             final isGateActive = _noiseGateEnabled && _isPlaying;
             final isOpen = isGateActive && grDb < 0.2;
             final isClosed = !isGateActive || grDb > 10.0;
-            final isHold = isGateActive && !isOpen && !isClosed;
             final gateColor = !_noiseGateEnabled
                 ? Colors.white24
                 : (!isGateActive

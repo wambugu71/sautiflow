@@ -61,6 +61,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
   List<AudioProfile> _audioProfiles = [];
   AudioProfile? _selectedAudioProfile;
   bool _isPlaying = false;
+  bool _isScrolling = false;
+  int _scrollThrottleCounter = 0;
   FftProcessor? _fftProcessor;
   late String _currentAnalyzerType;
   late String _currentSpectrumStyle;
@@ -260,6 +262,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
         if (!_isPlaying) {
           _isPlaying = true;
         }
+        if (_isScrolling) {
+          _scrollThrottleCounter++;
+          if (_scrollThrottleCounter % 3 != 0) return;
+        }
         const targetBins = 60;
         final bins = _fftProcessor!.processFrame(
           frame,
@@ -361,48 +367,36 @@ class _EffectsScreenState extends State<EffectsScreen> {
     final bgColor = context.bgDark;
     final headerColor = bgColor;
 
-    // Calculate the dynamic expanded height based on what's visible
-    final double analyzerChartHeight =
-        widget.analyzerEnabled ? 194.0 : 0.0; // 160 + 18 (specs) + 16 (padding)
-    final double spectrumHeight = widget.analyzerEnabled
-        ? 160.0
-        : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
     const double controlBarHeight = 98.0;
     const double titleBarHeight = 50.0;
-    const double dragHandleHeight = 10.0;
     final topPadding = MediaQuery.of(context).padding.top;
-    final double expandedHeight = topPadding +
-        titleBarHeight +
-        controlBarHeight +
-        analyzerChartHeight +
-        spectrumHeight +
-        dragHandleHeight;
-    final double collapsedHeight =
-        topPadding + titleBarHeight + controlBarHeight + dragHandleHeight;
 
     return Scaffold(
       backgroundColor: bgColor,
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverAppBar(
-              backgroundColor: headerColor,
-              pinned: true,
-              floating: false,
-              snap: false,
-              expandedHeight: expandedHeight,
-              collapsedHeight: collapsedHeight,
-              toolbarHeight: 0, // We handle our own title in flexibleSpace
-              automaticallyImplyLeading: false,
-              flexibleSpace: Builder(
-                builder: (context) {
-                  final double expandableRange =
-                      expandedHeight - collapsedHeight;
-
-                  return Column(
-                    children: [
-                      // Safe area top padding
-                      SizedBox(height: topPadding),
+      body: EqScreen(
+        effectsKnobKey: widget.effectsKnobKey,
+        player: widget.player,
+        analyzerEnabled: widget.analyzerEnabled,
+        analyzerType: widget.analyzerType,
+        onScrollingChanged: (scrolling) {
+          if (_isScrolling != scrolling) {
+            _isScrolling = scrolling;
+            _scrollThrottleCounter = 0;
+          }
+        },
+        headerSlivers: [
+          SliverAppBar(
+            backgroundColor: headerColor,
+            pinned: true,
+            floating: false,
+            elevation: 0,
+            scrolledUnderElevation: 2,
+            toolbarHeight: titleBarHeight + controlBarHeight,
+            automaticallyImplyLeading: false,
+            flexibleSpace: Column(
+              children: [
+                // Safe area top padding
+                SizedBox(height: topPadding),
 
                       // Title Bar (Always visible)
                       SizedBox(
@@ -745,93 +739,68 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         ),
                       ),
 
-                      // Collapsible analyzer section
-                      if (expandableRange > 0)
-                        Expanded(
-                          child: ClipRect(
-                            child: SingleChildScrollView(
-                              physics: const NeverScrollableScrollPhysics(),
-                              child: Column(
-                                children: [
-                                  // Realtime Visualizer (BarChart / LineChart / GLSL Shaders)
-                                  if (widget.analyzerEnabled)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 16.0, vertical: 8.0),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ValueListenableBuilder<List<double>>(
-                                            valueListenable:
-                                                _analyzerValuesNotifier,
-                                            builder: (context, analyzerVals, _) {
-                                              return RepaintBoundary(
-                                                child: SizedBox(
-                                                  height: 160,
-                                                  child: _buildVisualizer(
-                                                    primaryColor,
-                                                    analyzerVals,
-                                                    _peakValuesNotifier.value,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                      ],
+                    ),
+                  ),
 
-                                  // RMS Loudness Meter Slider
-                                  if (widget.analyzerEnabled)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 16.0, vertical: 6.0),
-                                      child: RepaintBoundary(
-                                        child: RmsMeterWidget(
-                                          analyzerStream:
-                                              widget.player.analyzerStream,
-                                          isPlaying: _isPlaying,
-                                        ),
-                                      ),
-                                    ),
-                                ],
+          // Realtime Visualizer Section (Fixed height, isolated RepaintBoundary)
+          if (widget.analyzerEnabled)
+            SliverToBoxAdapter(
+              child: RepaintBoundary(
+                key: const ValueKey('effects_visualizer_section'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16.0, vertical: 8.0),
+                        child: ValueListenableBuilder<List<double>>(
+                          valueListenable: _analyzerValuesNotifier,
+                          builder: (context, analyzerVals, _) {
+                            return RepaintBoundary(
+                              child: SizedBox(
+                                height: 160,
+                                child: _buildVisualizer(
+                                  primaryColor,
+                                  analyzerVals,
+                                  _peakValuesNotifier.value,
+                                ),
                               ),
+                            );
+                          },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16.0, vertical: 6.0),
+                        child: RepaintBoundary(
+                          child: RmsMeterWidget(
+                            analyzerStream: widget.player.analyzerStream,
+                            isPlaying: _isPlaying,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, bottom: 2),
+                        child: Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(2),
                             ),
                           ),
                         ),
-
-                      // Drag Handle Affordance (Pill indicator for sliver expansion/collapse)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4, bottom: 2),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
-                  );
-                },
+                  ),
+                ),
               ),
             ),
-          ];
-        },
-        body: RepaintBoundary(
-          child: EqScreen(
-            effectsKnobKey: widget.effectsKnobKey,
-            player: widget.player,
-            analyzerEnabled: widget.analyzerEnabled,
-            analyzerType: widget.analyzerType,
-          ),
-        ),
+        ],
       ),
     );
   }
