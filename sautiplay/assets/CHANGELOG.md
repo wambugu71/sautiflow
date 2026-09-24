@@ -1,3 +1,13 @@
+## v0.6.30 — 2026-09-24
+- r8brain Resampling Standardization: Standardized on r8brain 24-bit Minimum Phase as default resampler; retired legacy libsoxr and migrated saved preferences seamlessly
+- Artist Profiles & Discography Browsing: Interactive artist names in Now Playing, MiniPlayer, and albums leading to full artist profiles, top tracks, releases, and catalog explorer
+- Smooth Loudness & Crossfades: Frame-0 loudness initialization and loudness-aware crossfade mixing eliminate volume surges and delays on track changes
+- AutoEQ Reset & Headroom Alignment: Clearing AutoEQ resets digital headroom preamp to 0 dB, zeroes Graphic EQ, disables Parametric EQ, and restores the inline bypass button
+- Offline Stream Caching: Added Save to Offline Cache button on Now Playing screen with accelerated downloads and Windows path sanitization
+- AAudio Low-Latency Buffer Configuration: Configurable AAudio buffer capacity with accurate latency telemetry and buffer depth diagnostics
+- Settings UX Overhaul: Responsive multi-line settings tiles, clear human-readable audio explanations, and streamlined category organization
+- Stream Log Redaction: Redacted stream URLs and auth tokens from network and audio engine logs for complete privacy
+
 ## v0.6.29 — 2026-09-20
 - SIMD DSP Acceleration: 14 high-compute DSP modules vectorized across NEON, SSE/AVX, and scalar fallbacks with a new 58-test verification suite
 - Six New DSP Engines: Dynamic Loudness (ISO 226), AutoEQ profile importer, Broadcast Leveller (EBU R128), Studio Noise Gate, 6-Band Dynamic EQ, and Vintage Tape Drift
