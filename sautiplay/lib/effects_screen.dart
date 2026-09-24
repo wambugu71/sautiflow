@@ -49,8 +49,10 @@ class EffectsScreen extends StatefulWidget {
 }
 
 class _EffectsScreenState extends State<EffectsScreen> {
-  List<double> _analyzerValues = [];
-  List<double> _peakValues = [];
+  final ValueNotifier<List<double>> _analyzerValuesNotifier =
+      ValueNotifier<List<double>>([]);
+  final ValueNotifier<List<double>> _peakValuesNotifier =
+      ValueNotifier<List<double>>([]);
   StreamSubscription? _analyzerSub;
   StreamSubscription<PlayerStatus>? _statusSub;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
@@ -78,14 +80,6 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   /// True Nyquist upper boundary (f_s / 2) for the currently used sample rate.
   int get _currentMaxFreq => _currentlyUsedSampleRate ~/ 2;
-
-  String _formatRateString(int rateHz) {
-    if (rateHz <= 0) return '48 kHz';
-    final double kHz = rateHz / 1000.0;
-    return rateHz % 1000 == 0
-        ? '${rateHz ~/ 1000} kHz'
-        : '${kHz.toStringAsFixed(1)} kHz';
-  }
 
   @override
   void initState() {
@@ -142,11 +136,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
   String get _visualizerLabel {
     if (_currentAnalyzerType == 'vectorscope' ||
         _currentAnalyzerType == 'Stereo Vectorscope') {
-      return 'Vectorscope';
+      return 'Stereo Radar';
     } else if (_currentAnalyzerType == 'area') {
-      return 'Wave Area';
+      return 'Flowing Wave';
     } else if (_currentAnalyzerType == 'bar') {
-      return 'Dot Matrix';
+      return 'Dot Spectrum';
     }
     final glslMatch = GlslShaderStyle.values.firstWhere(
       (s) =>
@@ -246,6 +240,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
     _statusSub?.cancel();
     _hardwareSub?.cancel();
     _profileSub?.cancel();
+    _analyzerValuesNotifier.dispose();
+    _peakValuesNotifier.dispose();
     super.dispose();
   }
 
@@ -270,32 +266,27 @@ class _EffectsScreenState extends State<EffectsScreen> {
           targetBins: targetBins,
           logScale: widget.analyzerLogScale,
         );
-        if (mounted) {
-          setState(() {
-            _analyzerValues = bins;
-            if (_peakValues.length != targetBins) {
-              _peakValues = List<double>.filled(targetBins, 0.0);
-            }
-            for (int i = 0; i < targetBins; i++) {
-              if (bins[i] > _peakValues[i]) {
-                _peakValues[i] = bins[i];
-              } else {
-                _peakValues[i] = math.max(0.0, _peakValues[i] - 0.02);
-              }
-            }
-          });
+        _analyzerValuesNotifier.value = bins;
+
+        final currentPeaks = _peakValuesNotifier.value;
+        final peaks = currentPeaks.length == targetBins
+            ? List<double>.from(currentPeaks)
+            : List<double>.filled(targetBins, 0.0);
+        for (int i = 0; i < targetBins; i++) {
+          if (bins[i] > peaks[i]) {
+            peaks[i] = bins[i];
+          } else {
+            peaks[i] = math.max(0.0, peaks[i] - 0.02);
+          }
         }
+        _peakValuesNotifier.value = peaks;
       });
     } else {
       _analyzerSub?.cancel();
       _analyzerSub = null;
       _fftProcessor?.reset();
-      if (mounted) {
-        setState(() {
-          _analyzerValues = [];
-          _peakValues = [];
-        });
-      }
+      _analyzerValuesNotifier.value = [];
+      _peakValuesNotifier.value = [];
     }
   }
 
@@ -372,9 +363,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
     // Calculate the dynamic expanded height based on what's visible
     final double analyzerChartHeight =
-        (widget.analyzerEnabled && _analyzerValues.isNotEmpty)
-            ? 194.0
-            : 0.0; // 160 + 18 (specs) + 16 (padding)
+        widget.analyzerEnabled ? 194.0 : 0.0; // 160 + 18 (specs) + 16 (padding)
     final double spectrumHeight = widget.analyzerEnabled
         ? 160.0
         : 0.0; // 85 (spectrum) + 8 (gap) + 45 (RMS meter) + 22 (padding)
@@ -405,16 +394,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
               collapsedHeight: collapsedHeight,
               toolbarHeight: 0, // We handle our own title in flexibleSpace
               automaticallyImplyLeading: false,
-              flexibleSpace: LayoutBuilder(
-                builder: (context, constraints) {
-                  // How much space is available beyond the collapsed state
-                  final double currentHeight = constraints.maxHeight;
+              flexibleSpace: Builder(
+                builder: (context) {
                   final double expandableRange =
                       expandedHeight - collapsedHeight;
-                  final double scrollFraction = expandableRange > 0
-                      ? ((currentHeight - collapsedHeight) / expandableRange)
-                          .clamp(0.0, 1.0)
-                      : 0.0;
 
                   return Column(
                     children: [
@@ -434,7 +417,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   color: primaryColor, size: 22),
                               const SizedBox(width: 8),
                               const Text(
-                                'Audio Effects & DSP',
+                                'Sound Effects & EQ',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 17,
@@ -520,10 +503,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     ),
                                     children: [
                                       M3EMenuGroup.entries(
-                                        label: 'Standard Visualizers',
+                                        label: 'Visualizer Styles',
                                         entries: [
                                           M3EMenuEntry(
-                                            label: 'Stereo Vectorscope',
+                                            label: 'Stereo Radar',
                                             leading: const Icon(
                                                 Icons.radar_rounded,
                                                 size: 18),
@@ -535,7 +518,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             },
                                           ),
                                           M3EMenuEntry(
-                                            label: 'Wave Area',
+                                            label: 'Flowing Wave',
                                             leading: const Icon(
                                                 Icons.show_chart_rounded,
                                                 size: 18),
@@ -546,7 +529,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             },
                                           ),
                                           M3EMenuEntry(
-                                            label: 'Matrix Spectrum',
+                                            label: 'Dot Spectrum',
                                             leading: const Icon(
                                                 Icons.grain_rounded,
                                                 size: 18),
@@ -560,8 +543,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       ),
                                       M3EMenuGroup.entries(
                                         label: _currentAnalyzerType == 'area'
-                                            ? 'Wave Themes'
-                                            : 'Matrix Themes',
+                                            ? 'Wave Color Themes'
+                                            : 'Dot Color Themes',
                                         entries: (_currentAnalyzerType == 'area'
                                                 ? FluidAreaTheme.values.map(
                                                     (theme) => M3EMenuEntry(
@@ -606,7 +589,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             .toList(),
                                       ),
                                       M3EMenuGroup.entries(
-                                        label: 'GLSL Shaders',
+                                        label: 'Animated Visualizers',
                                         entries: GlslShaderStyle.values
                                             .map(
                                               (s) => M3EMenuEntry(
@@ -766,44 +749,52 @@ class _EffectsScreenState extends State<EffectsScreen> {
                       if (expandableRange > 0)
                         Expanded(
                           child: ClipRect(
-                            child: Opacity(
-                              opacity: scrollFraction,
-                              child: SingleChildScrollView(
-                                physics: const NeverScrollableScrollPhysics(),
-                                child: Column(
-                                  children: [
-                                    // Realtime Visualizer (BarChart / LineChart / GLSL Shaders)
-                                    if (widget.analyzerEnabled)
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16.0, vertical: 8.0),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SizedBox(
-                                              height: 160,
-                                              child: _buildVisualizer(
-                                                  primaryColor,
-                                                  _analyzerValues,
-                                                  _peakValues),
-                                            ),
-                                          ],
-                                        ),
+                            child: SingleChildScrollView(
+                              physics: const NeverScrollableScrollPhysics(),
+                              child: Column(
+                                children: [
+                                  // Realtime Visualizer (BarChart / LineChart / GLSL Shaders)
+                                  if (widget.analyzerEnabled)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16.0, vertical: 8.0),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          ValueListenableBuilder<List<double>>(
+                                            valueListenable:
+                                                _analyzerValuesNotifier,
+                                            builder: (context, analyzerVals, _) {
+                                              return RepaintBoundary(
+                                                child: SizedBox(
+                                                  height: 160,
+                                                  child: _buildVisualizer(
+                                                    primaryColor,
+                                                    analyzerVals,
+                                                    _peakValuesNotifier.value,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ],
                                       ),
+                                    ),
 
-                                    // RMS Loudness Meter Slider
-                                    if (widget.analyzerEnabled)
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16.0, vertical: 6.0),
+                                  // RMS Loudness Meter Slider
+                                  if (widget.analyzerEnabled)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16.0, vertical: 6.0),
+                                      child: RepaintBoundary(
                                         child: RmsMeterWidget(
                                           analyzerStream:
                                               widget.player.analyzerStream,
                                           isPlaying: _isPlaying,
                                         ),
                                       ),
-                                  ],
-                                ),
+                                    ),
+                                ],
                               ),
                             ),
                           ),
@@ -833,11 +824,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
             ),
           ];
         },
-        body: EqScreen(
-          effectsKnobKey: widget.effectsKnobKey,
-          player: widget.player,
-          analyzerEnabled: widget.analyzerEnabled,
-          analyzerType: widget.analyzerType,
+        body: RepaintBoundary(
+          child: EqScreen(
+            effectsKnobKey: widget.effectsKnobKey,
+            player: widget.player,
+            analyzerEnabled: widget.analyzerEnabled,
+            analyzerType: widget.analyzerType,
+          ),
         ),
       ),
     );
