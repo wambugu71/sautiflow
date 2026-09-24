@@ -995,28 +995,65 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     final streamUrl = widget.getStreamUrl != null
                                         ? widget.getStreamUrl!(curIdx)
                                         : null;
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    final messenger =
+                                        ScaffoldMessenger.of(context);
+                                    messenger.showSnackBar(
                                       SnackBar(
                                         content: Text(
                                             'Saving "$trackTitle" to offline cache...'),
                                         duration: const Duration(seconds: 2),
                                       ),
                                     );
-                                    unawaited(
-                                      CachedStreamService.instance
-                                          .cacheStreamInBackground(
-                                        videoId: vid,
-                                        streamUrl: streamUrl ?? '',
-                                        title: trackTitle,
-                                        artist: trackArtist,
-                                        thumbnailUrl: curTrack?.thumbnailUrl ??
-                                            (widget.albumArt == null
-                                                ? null
-                                                : vid),
-                                        durationSeconds:
-                                            curTrack?.durationSeconds,
-                                      ),
-                                    );
+                                    CachedStreamService.instance
+                                        .cacheStreamInBackground(
+                                      videoId: vid,
+                                      streamUrl: streamUrl ?? '',
+                                      title: trackTitle,
+                                      artist: trackArtist,
+                                      thumbnailUrl: curTrack?.thumbnailUrl ??
+                                          (widget.albumArt == null
+                                              ? null
+                                              : vid),
+                                      durationSeconds:
+                                          curTrack?.durationSeconds,
+                                    )
+                                        .then((success) {
+                                      if (mounted) {
+                                        if (success) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Row(
+                                                children: [
+                                                  const Icon(
+                                                      Icons.check_circle_rounded,
+                                                      color:
+                                                          Colors.greenAccent,
+                                                      size: 20),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                        'Saved "$trackTitle" for offline playback'),
+                                                  ),
+                                                ],
+                                              ),
+                                              duration:
+                                                  const Duration(seconds: 3),
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                  'Could not save "$trackTitle" offline. Please try again.'),
+                                              duration:
+                                                  const Duration(seconds: 3),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    });
                                   }
                                 },
                               );
@@ -1508,17 +1545,46 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 duration: const Duration(seconds: 2),
               ),
             );
-            unawaited(
-              CachedStreamService.instance.cacheStreamInBackground(
-                videoId: videoId,
-                streamUrl: streamUrl ?? '',
-                title: title,
-                artist: subtitle,
-                thumbnailUrl: curTrack?.thumbnailUrl ??
-                    (widget.albumArt == null ? null : videoId),
-                durationSeconds: curTrack?.durationSeconds,
-              ),
-            );
+            CachedStreamService.instance
+                .cacheStreamInBackground(
+              videoId: videoId,
+              streamUrl: streamUrl ?? '',
+              title: title,
+              artist: subtitle,
+              thumbnailUrl: curTrack?.thumbnailUrl ??
+                  (widget.albumArt == null ? null : videoId),
+              durationSeconds: curTrack?.durationSeconds,
+            )
+                .then((success) {
+              if (mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded,
+                              color: Colors.greenAccent, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child:
+                                Text('Saved "$title" for offline playback'),
+                          ),
+                        ],
+                      ),
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          'Could not save "$title" offline. Please try again.'),
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              }
+            });
           },
         );
       },

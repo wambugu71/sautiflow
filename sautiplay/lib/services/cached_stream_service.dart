@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/cached_stream_item.dart';
@@ -28,9 +29,46 @@ class CachedStreamService {
 
   bool _isInitialized = false;
 
-  Directory get cacheDirectory => Directory(
-        '${Directory.systemTemp.path}${Platform.pathSeparator}miniaudiodart_stream_cache',
-      );
+  Directory get cacheDirectory {
+    final tempDir = Directory.systemTemp;
+    String basePath;
+    try {
+      basePath = tempDir.resolveSymbolicLinksSync();
+    } catch (_) {
+      basePath = tempDir.path;
+    }
+    return Directory(
+      '$basePath${Platform.pathSeparator}miniaudiodart_stream_cache',
+    );
+  }
+
+  /// Checks whether a given path points to an existing file in the stream cache directory.
+  ///
+  /// Resilient against Windows 8.3 short paths (e.g. WAMBUG~1 vs wambugukinyua)
+  /// and path separator differences, while strictly rejecting any local user tracks.
+  bool _isCacheFile(String filePath) {
+    if (filePath.isEmpty) return false;
+    final lower = filePath.toLowerCase();
+    if (!lower.contains('miniaudiodart_stream_cache')) return false;
+    return File(filePath).existsSync();
+  }
+
+  /// Searches the cache directory for any existing cached audio file for [videoId].
+  File? findExistingCacheFile(String videoId) {
+    if (videoId.isEmpty) return null;
+    try {
+      final dir = cacheDirectory;
+      if (!dir.existsSync()) return null;
+      for (final ext in ['webm', 'm4a', 'mp3', 'opus']) {
+        final f =
+            File('${dir.path}${Platform.pathSeparator}stream_$videoId.$ext');
+        if (f.existsSync() && f.lengthSync() > 1024) {
+          return f;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
   /// Initializes the service, loading persisted metadata and verifying files on disk.
   Future<void> init() async {
@@ -41,17 +79,33 @@ class CachedStreamService {
 
   /// Looks up whether an audio stream is already downloaded and cached locally.
   CachedStreamItem? getCachedItem(String videoId) {
+    if (videoId.isEmpty) return null;
     for (final item in cachedStreamsNotifier.value) {
       if (item.videoId == videoId && File(item.filePath).existsSync()) {
         return item;
       }
+    }
+    // Also check physical disk in case metadata was not yet refreshed
+    final physical = findExistingCacheFile(videoId);
+    if (physical != null) {
+      return CachedStreamItem(
+        videoId: videoId,
+        title: 'Stream $videoId',
+        artist: 'Online Stream',
+        durationSeconds: 0,
+        filePath: physical.path,
+        fileSizeBytes: physical.lengthSync(),
+        cachedAt: physical.lastModifiedSync(),
+      );
     }
     return null;
   }
 
   /// Downloads an online audio stream in the background, saves it to disk cache,
   /// and automatically registers it for the Library "Cached Online Streams" playlist.
-  Future<void> cacheStreamInBackground({
+  ///
+  /// Returns `true` if the stream was successfully cached, `false` otherwise.
+  Future<bool> cacheStreamInBackground({
     required String videoId,
     required String streamUrl,
     required String title,
@@ -59,8 +113,8 @@ class CachedStreamService {
     String? thumbnailUrl,
     int? durationSeconds,
   }) async {
-    if (videoId.isEmpty) return;
-    if (_activeDownloads.contains(videoId)) return;
+    if (videoId.isEmpty) return false;
+    if (_activeDownloads.contains(videoId)) return false;
     _activeDownloads.add(videoId);
     activeDownloadsNotifier.value = Set<String>.unmodifiable(_activeDownloads);
 
@@ -70,24 +124,73 @@ class CachedStreamService {
         dir.createSync(recursive: true);
       }
 
-      // Determine container extension (.m4a, .webm, or .mp3)
-      String ext = 'm4a';
-      final lowerUrl = streamUrl.toLowerCase();
-      if (lowerUrl.contains('webm') ||
-          lowerUrl.contains('opus') ||
-          lowerUrl.contains('itag=251') ||
-          lowerUrl.contains('itag=250') ||
-          lowerUrl.contains('itag=249')) {
-        ext = 'webm';
-      } else if (lowerUrl.contains('download') || lowerUrl.contains('mp3')) {
-        ext = 'mp3';
+      // If valid file already exists on disk, register and return immediately
+      final existingFile = findExistingCacheFile(videoId);
+      if (existingFile != null) {
+        await registerCachedStream(
+          videoId: videoId,
+          title: title,
+          artist: artist,
+          thumbnailUrl: thumbnailUrl,
+          durationSeconds: durationSeconds,
+          filePath: existingFile.path,
+          streamUrl: streamUrl,
+          fileSizeBytes: existingFile.lengthSync(),
+        );
+        return true;
       }
 
-      final targetFile =
-          File('${dir.path}${Platform.pathSeparator}stream_$videoId.$ext');
+      final tempFile = File(
+        '${dir.path}${Platform.pathSeparator}stream_${videoId}_temp_${DateTime.now().millisecondsSinceEpoch}.tmp',
+      );
+      String? downloadedContainer;
 
-      // If valid file already exists, just register metadata
-      if (targetFile.existsSync() && targetFile.lengthSync() > 1024) {
+      // 1. Primary: Fast direct chunked download via YoutubeExplode
+      final isYoutubeId = !videoId.contains('/') &&
+          !videoId.contains(r'\') &&
+          !videoId.startsWith('http');
+      if (isYoutubeId) {
+        downloadedContainer = await StreamingService.downloadAudioStreamToFile(
+          videoId: videoId,
+          targetFile: tempFile,
+        );
+      }
+
+      // 2. Fallback: Download via HttpClient if direct chunked download failed or not a YouTube ID
+      if (downloadedContainer == null) {
+        String effectiveUrl = streamUrl;
+        if (effectiveUrl.isEmpty && isYoutubeId) {
+          effectiveUrl = await StreamingService.resolveStreamUrl(videoId) ?? '';
+        }
+        if (effectiveUrl.isNotEmpty) {
+          final clientSuccess =
+              await _downloadViaHttpClient(effectiveUrl, tempFile);
+          if (clientSuccess) {
+            final lower = effectiveUrl.toLowerCase();
+            if (lower.contains('m4a') || lower.contains('mp4')) {
+              downloadedContainer = 'm4a';
+            } else if (lower.contains('mp3')) {
+              downloadedContainer = 'mp3';
+            } else {
+              downloadedContainer = 'webm';
+            }
+          }
+        }
+      }
+
+      if (downloadedContainer != null &&
+          tempFile.existsSync() &&
+          tempFile.lengthSync() > 1024) {
+        final targetFile = File(
+          '${dir.path}${Platform.pathSeparator}stream_$videoId.$downloadedContainer',
+        );
+        if (targetFile.existsSync()) {
+          try {
+            targetFile.deleteSync();
+          } catch (_) {}
+        }
+        tempFile.renameSync(targetFile.path);
+
         await registerCachedStream(
           videoId: videoId,
           title: title,
@@ -98,73 +201,44 @@ class CachedStreamService {
           streamUrl: streamUrl,
           fileSizeBytes: targetFile.lengthSync(),
         );
-        return;
+        debugPrint(
+            '[CachedStreamService] Successfully cached offline stream: $title (${formatBytes(targetFile.lengthSync())})');
+        return true;
       }
 
-      final tempFile = File('${targetFile.path}.tmp');
-      final client = HttpClient();
-      try {
-        String effectiveUrl = streamUrl;
-        if (effectiveUrl.isEmpty) {
-          final resolved = await StreamingService.resolveStreamUrl(videoId);
-          if (resolved != null && resolved.isNotEmpty) {
-            effectiveUrl = resolved;
-          }
-        }
-        if (effectiveUrl.isEmpty) return;
-
-        HttpClientRequest req = await client.getUrl(Uri.parse(effectiveUrl));
-        HttpClientResponse res = await req.close();
-
-        // If direct stream URL expired or failed with HTTP 403, attempt re-resolution
-        if (res.statusCode != 200 && res.statusCode != 206) {
-          final freshUrl = await StreamingService.resolveStreamUrl(videoId);
-          if (freshUrl != null && freshUrl.isNotEmpty && freshUrl != effectiveUrl) {
-            effectiveUrl = freshUrl;
-            req = await client.getUrl(Uri.parse(effectiveUrl));
-            res = await req.close();
-          }
-        }
-
-        if (res.statusCode == 200 || res.statusCode == 206) {
-          final sink = tempFile.openWrite();
-          await res.pipe(sink);
-          await sink.flush();
-          await sink.close();
-
-          if (tempFile.existsSync() && tempFile.lengthSync() > 1024) {
-            if (targetFile.existsSync()) {
-              targetFile.deleteSync();
-            }
-            tempFile.renameSync(targetFile.path);
-
-            await registerCachedStream(
-              videoId: videoId,
-              title: title,
-              artist: artist,
-              thumbnailUrl: thumbnailUrl,
-              durationSeconds: durationSeconds,
-              filePath: targetFile.path,
-              streamUrl: effectiveUrl,
-              fileSizeBytes: targetFile.lengthSync(),
-            );
-            debugPrint(
-                '[CachedStreamService] Successfully cached offline stream: $title (${formatBytes(targetFile.lengthSync())})');
-          }
-        }
-      } finally {
-        client.close(force: true);
-        if (tempFile.existsSync()) {
-          try {
-            tempFile.deleteSync();
-          } catch (_) {}
-        }
-      }
+      return false;
     } catch (e) {
       debugPrint('[CachedStreamService] Background cache error for $videoId: $e');
+      return false;
     } finally {
       _activeDownloads.remove(videoId);
       activeDownloadsNotifier.value = Set<String>.unmodifiable(_activeDownloads);
+    }
+  }
+
+  Future<bool> _downloadViaHttpClient(String url, File tempFile) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      final res = await req.close();
+      if (res.statusCode == 200 || res.statusCode == 206) {
+        final sink = tempFile.openWrite();
+        await res.pipe(sink);
+        await sink.flush();
+        await sink.close();
+        return tempFile.existsSync() && tempFile.lengthSync() > 1024;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('[CachedStreamService] HttpClient download error: $e');
+      return false;
+    } finally {
+      client.close(force: true);
+      if (!tempFile.existsSync() || tempFile.lengthSync() <= 1024) {
+        try {
+          if (tempFile.existsSync()) tempFile.deleteSync();
+        } catch (_) {}
+      }
     }
   }
 
@@ -175,19 +249,17 @@ class CachedStreamService {
       final rawList = prefs.getStringList(_storageKey) ?? [];
 
       final loadedItems = <CachedStreamItem>[];
-      final seenPaths = <String>{};
-      final cacheRoot = cacheDirectory.path.toLowerCase();
+      final seenVideoIds = <String>{};
+      final seenFileNames = <String>{};
 
       for (final raw in rawList) {
         try {
           final item = CachedStreamItem.fromJson(raw);
-          // Prune wrongly-registered local music files: only files inside the
-          // dedicated stream-cache folder are legitimate offline streams.
-          if (!item.filePath.toLowerCase().startsWith(cacheRoot)) continue;
-          if (File(item.filePath).existsSync()) {
-            loadedItems.add(item);
-            seenPaths.add(item.filePath);
-          }
+          // Only files inside the dedicated stream-cache folder that physically exist
+          if (!_isCacheFile(item.filePath)) continue;
+          loadedItems.add(item);
+          seenVideoIds.add(item.videoId);
+          seenFileNames.add(p.basename(item.filePath).toLowerCase());
         } catch (_) {}
       }
 
@@ -195,26 +267,32 @@ class CachedStreamService {
       if (cacheDirectory.existsSync()) {
         final dirFiles = cacheDirectory.listSync().whereType<File>();
         for (final file in dirFiles) {
-          if (!file.path.endsWith('.tmp') && !seenPaths.contains(file.path)) {
+          if (!file.path.endsWith('.tmp')) {
             final size = file.existsSync() ? file.lengthSync() : 0;
             if (size > 1024) {
-              final fileName = file.uri.pathSegments.last;
-              loadedItems.add(CachedStreamItem(
-                videoId: fileName,
-                title: fileName
-                    .replaceAll('.mp3', '')
-                    .replaceAll('.m4a', '')
-                    .replaceAll('.webm', '')
-                    .replaceAll('stream_', ''),
-                artist: 'Online Stream',
-                thumbnailUrl: null,
-                durationSeconds: 0,
-                filePath: file.path,
-                streamUrl: null,
-                fileSizeBytes: size,
-                cachedAt: file.lastModifiedSync(),
-              ));
-              seenPaths.add(file.path);
+              final fileName = p.basename(file.path);
+              final fileNameLower = fileName.toLowerCase();
+              final baseWithoutExt = p.basenameWithoutExtension(file.path);
+              final cleanVideoId = baseWithoutExt.startsWith('stream_')
+                  ? baseWithoutExt.substring(7)
+                  : baseWithoutExt;
+
+              if (!seenFileNames.contains(fileNameLower) &&
+                  !seenVideoIds.contains(cleanVideoId)) {
+                loadedItems.add(CachedStreamItem(
+                  videoId: cleanVideoId,
+                  title: 'Stream $cleanVideoId',
+                  artist: 'Online Stream',
+                  thumbnailUrl: null,
+                  durationSeconds: 0,
+                  filePath: file.path,
+                  streamUrl: null,
+                  fileSizeBytes: size,
+                  cachedAt: file.lastModifiedSync(),
+                ));
+                seenVideoIds.add(cleanVideoId);
+                seenFileNames.add(fileNameLower);
+              }
             }
           }
         }
@@ -252,9 +330,12 @@ class CachedStreamService {
       final actualSize = fileSizeBytes ?? file.lengthSync();
       if (actualSize <= 1024) return; // Skip zero or invalid files
 
+      final fileName = p.basename(filePath).toLowerCase();
       final current = List<CachedStreamItem>.from(cachedStreamsNotifier.value);
-      current.removeWhere(
-          (item) => item.filePath == filePath || item.videoId == videoId);
+      current.removeWhere((item) =>
+          item.videoId == videoId ||
+          item.filePath == filePath ||
+          p.basename(item.filePath).toLowerCase() == fileName);
 
       final newItem = CachedStreamItem(
         videoId: videoId,
@@ -290,8 +371,11 @@ class CachedStreamService {
         }
       }
 
+      final fileName = p.basename(filePath).toLowerCase();
       final current = List<CachedStreamItem>.from(cachedStreamsNotifier.value)
-        ..removeWhere((item) => item.filePath == filePath);
+        ..removeWhere((item) =>
+            item.filePath == filePath ||
+            p.basename(item.filePath).toLowerCase() == fileName);
 
       cachedStreamsNotifier.value = List.unmodifiable(current);
       _updateTotalSize(current);

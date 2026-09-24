@@ -283,6 +283,63 @@ class StreamingService {
     return null;
   }
 
+  /// Downloads audio for [videoId] directly to [targetFile] via chunked parallel streams.
+  ///
+  /// Uses [YoutubeExplode.videos.streamsClient] to bypass YouTube's single-connection throttling.
+  /// Returns the stream container format (e.g. 'webm' or 'm4a') if successful, or null on failure.
+  static Future<String?> downloadAudioStreamToFile({
+    required String videoId,
+    required File targetFile,
+    AudioQualityPreset? quality,
+    bool? preferAac,
+  }) async {
+    final activeQuality =
+        quality ?? await AppStateService.instance.loadStreamingQualityPreset();
+    final activePreferAac =
+        preferAac ?? await AppStateService.instance.loadPreferNativeAac();
+
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      try {
+        final targetVideoId = VideoId(videoId);
+        final manifest = await _ytExplode.videos.streams
+            .getManifest(targetVideoId)
+            .timeout(const Duration(seconds: 25));
+        final streamInfo = AudioStreamSelector.selectStream(
+          manifest,
+          quality: activeQuality,
+          preferAac: activePreferAac,
+        );
+
+        final sink = targetFile.openWrite();
+        await _ytExplode.videos.streamsClient.get(streamInfo).pipe(sink);
+        await sink.flush();
+        await sink.close();
+
+        if (targetFile.existsSync() && targetFile.lengthSync() > 1024) {
+          final container = streamInfo.container.name;
+          return container == 'mp4' ? 'm4a' : container;
+        }
+      } catch (e) {
+        debugPrint(
+            '[StreamingService] Direct download attempt $attempt failed for $videoId: $e');
+        try {
+          _ytExplode.close();
+        } catch (_) {}
+        _ytExplode = YoutubeExplode();
+
+        if (attempt == 1 &&
+            (e is SocketException ||
+                e is HandshakeException ||
+                e is TimeoutException)) {
+          await Future.delayed(const Duration(milliseconds: 1200));
+        } else {
+          break;
+        }
+      }
+    }
+    return null;
+  }
+
   /// Concurrently resolves a list of videoIds with concurrency-controlled pooling.
   ///
   /// Preserves list order and returns `null` for failed tracks.
