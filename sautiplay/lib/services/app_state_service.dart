@@ -1292,6 +1292,126 @@ class AppStateService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_kEnableHostedFallback) ?? true;
   }
+
+  // ─── Audio Focus & Hardware Controls (Mobile Only) ──────────────────────────
+  static const _kAudioFocusEnableDucking = 'sp_focus_enable_ducking';
+  static const _kAudioFocusDuckGain = 'sp_focus_duck_gain';
+  static const _kAudioFocusPauseWhenInterrupted =
+      'sp_focus_pause_when_interrupted';
+  static const _kAudioFocusResumeAfterCall = 'sp_focus_resume_after_call';
+  static const _kAudioFocusResumeOnStart = 'sp_focus_resume_on_start';
+  static const _kAudioFocusPauseOnBecomingNoisy =
+      'sp_focus_pause_on_becoming_noisy';
+  static const _kAudioFocusResumeOnHeadsetConnect =
+      'sp_focus_resume_on_headset_connect';
+  static const _kAudioFocusPermanentLossAction =
+      'sp_focus_permanent_loss_action';
+  static const _kAudioFocusHandleHeadsetMultiClicks =
+      'sp_focus_handle_headset_multi_clicks';
+  static const _kAudioFocusHeadsetClickTimeoutMs =
+      'sp_focus_headset_click_timeout_ms';
+
+  final StreamController<AudioFocusSettings> audioFocusSettingsChanged =
+      StreamController<AudioFocusSettings>.broadcast();
+
+  Future<void> saveAudioFocusSettings(AudioFocusSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAudioFocusEnableDucking, settings.enableDucking);
+    await prefs.setDouble(_kAudioFocusDuckGain, settings.duckGain);
+    await prefs.setBool(
+        _kAudioFocusPauseWhenInterrupted, settings.pauseWhenInterrupted);
+    await prefs.setBool(_kAudioFocusResumeAfterCall, settings.resumeAfterCall);
+    await prefs.setBool(_kAudioFocusResumeOnStart, settings.resumeOnStart);
+    await prefs.setBool(
+        _kAudioFocusPauseOnBecomingNoisy, settings.pauseOnBecomingNoisy);
+    await prefs.setBool(
+        _kAudioFocusResumeOnHeadsetConnect, settings.resumeOnHeadsetConnect);
+    await prefs.setString(
+        _kAudioFocusPermanentLossAction, settings.permanentFocusLossAction);
+    await prefs.setBool(_kAudioFocusHandleHeadsetMultiClicks,
+        settings.handleHeadsetMultiClicks);
+    await prefs.setInt(
+        _kAudioFocusHeadsetClickTimeoutMs, settings.headsetClickTimeoutMs);
+    audioFocusSettingsChanged.add(settings);
+  }
+
+  Future<AudioFocusSettings> loadAudioFocusSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return AudioFocusSettings(
+      enableDucking: prefs.getBool(_kAudioFocusEnableDucking) ?? true,
+      duckGain: prefs.getDouble(_kAudioFocusDuckGain) ?? 0.25,
+      pauseWhenInterrupted:
+          prefs.getBool(_kAudioFocusPauseWhenInterrupted) ?? true,
+      resumeAfterCall: prefs.getBool(_kAudioFocusResumeAfterCall) ?? true,
+      resumeOnStart: prefs.getBool(_kAudioFocusResumeOnStart) ?? false,
+      pauseOnBecomingNoisy:
+          prefs.getBool(_kAudioFocusPauseOnBecomingNoisy) ?? true,
+      resumeOnHeadsetConnect:
+          prefs.getBool(_kAudioFocusResumeOnHeadsetConnect) ?? false,
+      permanentFocusLossAction:
+          prefs.getString(_kAudioFocusPermanentLossAction) ?? 'pause',
+      handleHeadsetMultiClicks:
+          prefs.getBool(_kAudioFocusHandleHeadsetMultiClicks) ?? true,
+      headsetClickTimeoutMs:
+          prefs.getInt(_kAudioFocusHeadsetClickTimeoutMs) ?? 350,
+    );
+  }
+}
+
+class AudioFocusSettings {
+  final bool enableDucking;
+  final double duckGain;
+  final bool pauseWhenInterrupted;
+  final bool resumeAfterCall;
+  final bool resumeOnStart;
+  final bool pauseOnBecomingNoisy;
+  final bool resumeOnHeadsetConnect;
+  final String permanentFocusLossAction; // 'pause' or 'stop'
+  final bool handleHeadsetMultiClicks;
+  final int headsetClickTimeoutMs;
+
+  const AudioFocusSettings({
+    this.enableDucking = true,
+    this.duckGain = 0.25,
+    this.pauseWhenInterrupted = true,
+    this.resumeAfterCall = true,
+    this.resumeOnStart = false,
+    this.pauseOnBecomingNoisy = true,
+    this.resumeOnHeadsetConnect = false,
+    this.permanentFocusLossAction = 'pause',
+    this.handleHeadsetMultiClicks = true,
+    this.headsetClickTimeoutMs = 350,
+  });
+
+  AudioFocusSettings copyWith({
+    bool? enableDucking,
+    double? duckGain,
+    bool? pauseWhenInterrupted,
+    bool? resumeAfterCall,
+    bool? resumeOnStart,
+    bool? pauseOnBecomingNoisy,
+    bool? resumeOnHeadsetConnect,
+    String? permanentFocusLossAction,
+    bool? handleHeadsetMultiClicks,
+    int? headsetClickTimeoutMs,
+  }) {
+    return AudioFocusSettings(
+      enableDucking: enableDucking ?? this.enableDucking,
+      duckGain: duckGain ?? this.duckGain,
+      pauseWhenInterrupted: pauseWhenInterrupted ?? this.pauseWhenInterrupted,
+      resumeAfterCall: resumeAfterCall ?? this.resumeAfterCall,
+      resumeOnStart: resumeOnStart ?? this.resumeOnStart,
+      pauseOnBecomingNoisy: pauseOnBecomingNoisy ?? this.pauseOnBecomingNoisy,
+      resumeOnHeadsetConnect:
+          resumeOnHeadsetConnect ?? this.resumeOnHeadsetConnect,
+      permanentFocusLossAction:
+          permanentFocusLossAction ?? this.permanentFocusLossAction,
+      handleHeadsetMultiClicks:
+          handleHeadsetMultiClicks ?? this.handleHeadsetMultiClicks,
+      headsetClickTimeoutMs:
+          headsetClickTimeoutMs ?? this.headsetClickTimeoutMs,
+    );
+  }
 }
 
 

@@ -222,6 +222,7 @@ class _PlayerShellState extends State<PlayerShell> {
   StreamSubscription? _statusSubscription;
   StreamSubscription? _logSubscription;
   StreamSubscription? _replayGainSubscription;
+  StreamSubscription<AudioFocusSettings>? _audioFocusSubscription;
   StreamSubscription? _bufferingSubscription;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSubscription;
 
@@ -420,6 +421,11 @@ class _PlayerShellState extends State<PlayerShell> {
         AppStateService.instance.replayGainChanged.stream.listen((_) {
       _applyReplayGain();
     });
+    _audioFocusSubscription = AppStateService
+        .instance.audioFocusSettingsChanged.stream
+        .listen((settings) {
+      _player.updateAudioFocusSettings(settings);
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndShowOnboarding();
@@ -598,6 +604,8 @@ class _PlayerShellState extends State<PlayerShell> {
     await EqScreen.applySavedStateToEngine(_player);
 
     // Load and restore queue
+    final focusSettings =
+        await AppStateService.instance.loadAudioFocusSettings();
     final queueData = await AppStateService.instance.loadQueue();
     if (queueData.tracks.isNotEmpty) {
       _logs.insert(0,
@@ -651,7 +659,7 @@ class _PlayerShellState extends State<PlayerShell> {
           initialIndex: initialIndex,
           initialPosition: Duration(milliseconds: queueData.positionMs),
           useLazyPreparation: true,
-          autoPlay: false,
+          autoPlay: focusSettings.resumeOnStart,
         );
 
         _logs.insert(0,
@@ -693,6 +701,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _statusSubscription?.cancel();
     _logSubscription?.cancel();
     _replayGainSubscription?.cancel();
+    _audioFocusSubscription?.cancel();
     _bufferingSubscription?.cancel();
     _hardwareSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);

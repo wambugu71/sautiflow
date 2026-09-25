@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart'; // For RootIsolateToken
 import 'package:sautiflow/sautiflow.dart';
+import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/desktop_system_audio.dart';
 import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/dlna_service.dart';
@@ -28,6 +29,7 @@ class IsolateAudioPlayer {
   bool _isBuffering = false;
   PlayerStatus? _lastStatus;
   bool _isPlaying = false;
+  double _currentGain = 1.0;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
@@ -84,6 +86,8 @@ class IsolateAudioPlayer {
     // Initialize system audio controller on the main isolate
     if (enableSystemAudio) {
       if (Platform.isAndroid || Platform.isIOS) {
+        final focusSettings =
+            await AppStateService.instance.loadAudioFocusSettings();
         _systemAudio = MiniAudioSystemAudioController(
           statusStream: statusStream,
           telemetryStream: _telemetryController.stream,
@@ -94,10 +98,20 @@ class IsolateAudioPlayer {
           onPrevious: previous,
           onSeek: (pos) => seekTo(pos),
           onSetGain: setGain,
+          onGetGain: () => _currentGain,
           onToggleFavorite: () => onToggleFavorite?.call(),
         );
         await _systemAudio!.enable(
-          config: const MiniAudioSystemAudioConfig(
+          config: MiniAudioSystemAudioConfig(
+            enableDucking: focusSettings.enableDucking,
+            duckGain: focusSettings.duckGain,
+            pauseWhenInterrupted: focusSettings.pauseWhenInterrupted,
+            resumeAfterInterruption: focusSettings.resumeAfterCall,
+            pauseOnBecomingNoisy: focusSettings.pauseOnBecomingNoisy,
+            resumeOnHeadsetConnect: focusSettings.resumeOnHeadsetConnect,
+            permanentFocusLossAction: focusSettings.permanentFocusLossAction,
+            handleHeadsetMultiClicks: focusSettings.handleHeadsetMultiClicks,
+            headsetClickTimeoutMs: focusSettings.headsetClickTimeoutMs,
             androidNotificationIcon: 'drawable/ic_notification',
           ),
         );
@@ -300,7 +314,10 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setEq', 'low': low, 'mid': mid, 'high': high});
   }
 
-  void setGain(double gain) => _send({'cmd': 'setGain', 'gain': gain});
+  void setGain(double gain) {
+    _currentGain = gain;
+    _send({'cmd': 'setGain', 'gain': gain});
+  }
   void setReplayGain(double gainDb) =>
       _send({'cmd': 'setReplayGain', 'gainDb': gainDb});
   void setPan(double pan) => _send({'cmd': 'setPan', 'pan': pan});
@@ -1426,6 +1443,23 @@ class IsolateAudioPlayer {
 
   void setFavorite(bool isFavorite) {
     _systemAudio?.setFavorite(isFavorite);
+  }
+
+  void updateAudioFocusSettings(AudioFocusSettings settings) {
+    _systemAudio?.updateConfig(
+      MiniAudioSystemAudioConfig(
+        enableDucking: settings.enableDucking,
+        duckGain: settings.duckGain,
+        pauseWhenInterrupted: settings.pauseWhenInterrupted,
+        resumeAfterInterruption: settings.resumeAfterCall,
+        pauseOnBecomingNoisy: settings.pauseOnBecomingNoisy,
+        resumeOnHeadsetConnect: settings.resumeOnHeadsetConnect,
+        permanentFocusLossAction: settings.permanentFocusLossAction,
+        handleHeadsetMultiClicks: settings.handleHeadsetMultiClicks,
+        headsetClickTimeoutMs: settings.headsetClickTimeoutMs,
+        androidNotificationIcon: 'drawable/ic_notification',
+      ),
+    );
   }
 
   void setLoopMode(LoopMode mode) =>

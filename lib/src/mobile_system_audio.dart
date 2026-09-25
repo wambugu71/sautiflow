@@ -13,7 +13,12 @@ class MiniAudioSystemAudioConfig {
     this.duckGain = 0.25,
     this.normalGain = 1.0,
     this.pauseWhenInterrupted = true,
-    this.resumeAfterInterruption = false,
+    this.resumeAfterInterruption = true,
+    this.pauseOnBecomingNoisy = true,
+    this.resumeOnHeadsetConnect = false,
+    this.permanentFocusLossAction = 'pause',
+    this.handleHeadsetMultiClicks = true,
+    this.headsetClickTimeoutMs = 350,
     this.androidNotificationChannelId = 'com.wambugu.miniaudiodart.playback',
     this.androidNotificationChannelName = 'Audio Playback',
     this.androidNotificationOngoing = true,
@@ -26,11 +31,62 @@ class MiniAudioSystemAudioConfig {
   final double normalGain;
   final bool pauseWhenInterrupted;
   final bool resumeAfterInterruption;
+  final bool pauseOnBecomingNoisy;
+  final bool resumeOnHeadsetConnect;
+  final String permanentFocusLossAction;
+  final bool handleHeadsetMultiClicks;
+  final int headsetClickTimeoutMs;
   final String androidNotificationChannelId;
   final String androidNotificationChannelName;
   final bool androidNotificationOngoing;
   final bool androidStopForegroundOnPause;
   final String androidNotificationIcon;
+
+  MiniAudioSystemAudioConfig copyWith({
+    bool? enableDucking,
+    double? duckGain,
+    double? normalGain,
+    bool? pauseWhenInterrupted,
+    bool? resumeAfterInterruption,
+    bool? pauseOnBecomingNoisy,
+    bool? resumeOnHeadsetConnect,
+    String? permanentFocusLossAction,
+    bool? handleHeadsetMultiClicks,
+    int? headsetClickTimeoutMs,
+    String? androidNotificationChannelId,
+    String? androidNotificationChannelName,
+    bool? androidNotificationOngoing,
+    bool? androidStopForegroundOnPause,
+    String? androidNotificationIcon,
+  }) {
+    return MiniAudioSystemAudioConfig(
+      enableDucking: enableDucking ?? this.enableDucking,
+      duckGain: duckGain ?? this.duckGain,
+      normalGain: normalGain ?? this.normalGain,
+      pauseWhenInterrupted: pauseWhenInterrupted ?? this.pauseWhenInterrupted,
+      resumeAfterInterruption:
+          resumeAfterInterruption ?? this.resumeAfterInterruption,
+      pauseOnBecomingNoisy: pauseOnBecomingNoisy ?? this.pauseOnBecomingNoisy,
+      resumeOnHeadsetConnect:
+          resumeOnHeadsetConnect ?? this.resumeOnHeadsetConnect,
+      permanentFocusLossAction:
+          permanentFocusLossAction ?? this.permanentFocusLossAction,
+      handleHeadsetMultiClicks:
+          handleHeadsetMultiClicks ?? this.handleHeadsetMultiClicks,
+      headsetClickTimeoutMs:
+          headsetClickTimeoutMs ?? this.headsetClickTimeoutMs,
+      androidNotificationChannelId:
+          androidNotificationChannelId ?? this.androidNotificationChannelId,
+      androidNotificationChannelName:
+          androidNotificationChannelName ?? this.androidNotificationChannelName,
+      androidNotificationOngoing:
+          androidNotificationOngoing ?? this.androidNotificationOngoing,
+      androidStopForegroundOnPause:
+          androidStopForegroundOnPause ?? this.androidStopForegroundOnPause,
+      androidNotificationIcon:
+          androidNotificationIcon ?? this.androidNotificationIcon,
+    );
+  }
 }
 
 class MiniAudioSystemAudioController {
@@ -76,14 +132,25 @@ class MiniAudioSystemAudioController {
   StreamSubscription<StreamTelemetry>? _telemetrySub;
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<void>? _becomingNoisySub;
+  StreamSubscription<AudioDevicesChangedEvent>? _devicesSub;
   MiniAudioSystemAudioConfig? _config;
   bool _isDucked = false;
   double _preDuckGain = 1.0;
   StreamTelemetry? _latestTelemetry;
   bool _audioSessionActive = false;
+  PlayerStatus? _lastPlayerStatus;
+  bool _wasPlayingBeforeInterruption = false;
 
   bool get isSupported => Platform.isAndroid || Platform.isIOS;
   bool get isEnabled => _config != null;
+
+  void updateConfig(MiniAudioSystemAudioConfig config) {
+    _config = config;
+    _typedHandler?.updateHeadsetSettings(
+      handleHeadsetMultiClicks: config.handleHeadsetMultiClicks,
+      headsetClickTimeoutMs: config.headsetClickTimeoutMs,
+    );
+  }
 
   Future<bool> enable({
     MiniAudioSystemAudioConfig config = const MiniAudioSystemAudioConfig(),
@@ -115,6 +182,8 @@ class MiniAudioSystemAudioController {
             onPrevious: _onPrevious,
             onSeek: _onSeek,
             onToggleFavorite: _onToggleFavorite,
+            handleHeadsetMultiClicks: config.handleHeadsetMultiClicks,
+            headsetClickTimeoutMs: config.headsetClickTimeoutMs,
           ),
           config: AudioServiceConfig(
             androidNotificationChannelId: config.androidNotificationChannelId,
@@ -127,6 +196,11 @@ class MiniAudioSystemAudioController {
         );
         _handler = handler;
         _typedHandler = handler;
+      } else {
+        _typedHandler?.updateHeadsetSettings(
+          handleHeadsetMultiClicks: config.handleHeadsetMultiClicks,
+          headsetClickTimeoutMs: config.headsetClickTimeoutMs,
+        );
       }
 
       _telemetrySub?.cancel();
@@ -138,6 +212,7 @@ class MiniAudioSystemAudioController {
 
       _statusSub?.cancel();
       _statusSub = _statusStream.listen((status) {
+        _lastPlayerStatus = status;
         _typedHandler?.updateFromPlayerStatus(status, telemetry: _latestTelemetry);
 
         final shouldBeActive = status.isPlaying;
@@ -153,10 +228,10 @@ class MiniAudioSystemAudioController {
         duckRampTimer?.cancel();
         final startGain = _onGetGain?.call() ?? targetGain;
         final startTime = DateTime.now().millisecondsSinceEpoch;
-        final stepInterval = 10;
+        const stepInterval = 10;
 
         duckRampTimer =
-            Timer.periodic(Duration(milliseconds: stepInterval), (timer) {
+            Timer.periodic(const Duration(milliseconds: stepInterval), (timer) {
           final elapsed = DateTime.now().millisecondsSinceEpoch - startTime;
           final progress = (elapsed / durationMs).clamp(0.0, 1.0);
           final smoothed = 0.5 * (1.0 - math.cos(progress * math.pi));
@@ -184,25 +259,59 @@ class MiniAudioSystemAudioController {
             return;
           }
 
+          _wasPlayingBeforeInterruption = _lastPlayerStatus?.isPlaying == true;
+
+          if (event.type == AudioInterruptionType.unknown) {
+            // Permanent focus loss (e.g. another media app took exclusive playback)
+            if (c.permanentFocusLossAction == 'stop') {
+              _onStop();
+            } else {
+              _onPause();
+            }
+            _wasPlayingBeforeInterruption = false;
+            return;
+          }
+
           if (c.pauseWhenInterrupted) {
             _onPause();
           }
           return;
         }
 
+        // Interruption ended (phone call concluded, notification chime finished)
         if (_isDucked) {
           rampGain(targetGain: _preDuckGain, durationMs: 80);
           _isDucked = false;
         }
 
-        if (c.resumeAfterInterruption) {
+        if (c.resumeAfterInterruption && _wasPlayingBeforeInterruption) {
+          _wasPlayingBeforeInterruption = false;
           _onPlay();
         }
       });
 
       _becomingNoisySub?.cancel();
       _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
-        _onPause();
+        if (_config?.pauseOnBecomingNoisy == true) {
+          _onPause();
+        }
+      });
+
+      _devicesSub?.cancel();
+      _devicesSub = session.devicesChangedEventStream.listen((event) {
+        final c = _config;
+        if (c == null || !c.resumeOnHeadsetConnect) return;
+
+        final hasAddedHeadset = event.devicesAdded.any((d) =>
+            d.type == AudioDeviceType.wiredHeadset ||
+            d.type == AudioDeviceType.wiredHeadphones ||
+            d.type == AudioDeviceType.bluetoothA2dp ||
+            d.type == AudioDeviceType.bluetoothSco ||
+            d.type == AudioDeviceType.bluetoothLe);
+
+        if (hasAddedHeadset && !(_lastPlayerStatus?.isPlaying ?? false)) {
+          _onPlay();
+        }
       });
 
       return true;
@@ -221,6 +330,8 @@ class MiniAudioSystemAudioController {
     _interruptionSub = null;
     _becomingNoisySub?.cancel();
     _becomingNoisySub = null;
+    _devicesSub?.cancel();
+    _devicesSub = null;
 
     final c = _config;
     _config = null;
@@ -280,13 +391,17 @@ class _MiniAudioHandler extends BaseAudioHandler
     required FutureOr<void> Function() onPrevious,
     required FutureOr<void> Function(Duration position) onSeek,
     FutureOr<void> Function()? onToggleFavorite,
+    bool handleHeadsetMultiClicks = true,
+    int headsetClickTimeoutMs = 350,
   })  : _onPlay = onPlay,
         _onPause = onPause,
         _onStop = onStop,
         _onNext = onNext,
         _onPrevious = onPrevious,
         _onSeek = onSeek,
-        _onToggleFavorite = onToggleFavorite {
+        _onToggleFavorite = onToggleFavorite,
+        _handleHeadsetMultiClicks = handleHeadsetMultiClicks,
+        _headsetClickTimeoutMs = headsetClickTimeoutMs {
     playbackState.add(
       PlaybackState(
         controls: [
@@ -313,6 +428,18 @@ class _MiniAudioHandler extends BaseAudioHandler
   bool _isFavorite = false;
   PlayerStatus? _lastStatus;
   StreamTelemetry? _lastTelemetry;
+  bool _handleHeadsetMultiClicks;
+  int _headsetClickTimeoutMs;
+  Timer? _mediaClickTimer;
+  int _mediaClickCount = 0;
+
+  void updateHeadsetSettings({
+    required bool handleHeadsetMultiClicks,
+    required int headsetClickTimeoutMs,
+  }) {
+    _handleHeadsetMultiClicks = handleHeadsetMultiClicks;
+    _headsetClickTimeoutMs = headsetClickTimeoutMs;
+  }
 
   void setFavorite(bool isFavorite) {
     if (_isFavorite == isFavorite) return;
@@ -366,6 +493,52 @@ class _MiniAudioHandler extends BaseAudioHandler
   @override
   Future<void> seek(Duration position) async {
     await _onSeek(position);
+  }
+
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    if (button == MediaButton.next) {
+      await skipToNext();
+      return;
+    }
+    if (button == MediaButton.previous) {
+      await skipToPrevious();
+      return;
+    }
+
+    if (!_handleHeadsetMultiClicks) {
+      if (_lastStatus?.isPlaying == true) {
+        await pause();
+      } else {
+        await play();
+      }
+      return;
+    }
+
+    // Multi-click detection for 3.5mm headphones and Bluetooth headsets:
+    // 1 click: Play / Pause toggle
+    // 2 clicks: Next song in current playlist
+    // 3 clicks: Previous song in current playlist
+    _mediaClickCount++;
+    _mediaClickTimer?.cancel();
+    _mediaClickTimer =
+        Timer(Duration(milliseconds: _headsetClickTimeoutMs), () async {
+      final count = _mediaClickCount;
+      _mediaClickCount = 0;
+      _mediaClickTimer = null;
+
+      if (count == 1) {
+        if (_lastStatus?.isPlaying == true) {
+          await pause();
+        } else {
+          await play();
+        }
+      } else if (count == 2) {
+        await skipToNext();
+      } else if (count >= 3) {
+        await skipToPrevious();
+      }
+    });
   }
 
   void updateFromPlayerStatus(PlayerStatus status, {StreamTelemetry? telemetry}) {

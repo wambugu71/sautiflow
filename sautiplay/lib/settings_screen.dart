@@ -194,6 +194,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Active theme ID (always synced with AppThemeProvider)
   AppThemeId get _activeThemeId => context.appTheme.id;
 
+  // Audio Focus & Hardware Controls (Mobile Only)
+  AudioFocusSettings _audioFocusSettings = const AudioFocusSettings();
+  StreamSubscription<AudioFocusSettings>? _audioFocusSub;
+
   StreamSubscription<void>? _audioSettingsSub;
   StreamSubscription<PlayerStatus>? _playerStatusSub;
   StreamSubscription<String>? _lastFmAuthSub;
@@ -216,6 +220,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .listen((_) {
       if (mounted) {
         _loadUiSettings();
+      }
+    });
+    _audioFocusSub = AppStateService
+        .instance.audioFocusSettingsChanged.stream
+        .listen((settings) {
+      if (mounted) {
+        setState(() => _audioFocusSettings = settings);
       }
     });
     _playerStatusSub = widget.player.statusStream.listen((status) {
@@ -266,6 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _audioSettingsSub?.cancel();
+    _audioFocusSub?.cancel();
     _playerStatusSub?.cancel();
     _lastFmAuthSub?.cancel();
     _useM3EShapeSub?.cancel();
@@ -335,6 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await AppStateService.instance.loadStreamingQualityPreset();
     final preferAac = await AppStateService.instance.loadPreferNativeAac();
     final fallback = await AppStateService.instance.loadEnableHostedFallback();
+    final focusSaved = await AppStateService.instance.loadAudioFocusSettings();
 
     String versionStr = 'v0.6.30';
     try {
@@ -378,6 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _useWaveformSeekBar = waveformSaved;
       _useWavySlider = wavySaved;
       _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
+      _audioFocusSettings = focusSaved;
     });
 
     final loudnessNorm =
@@ -581,6 +595,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onTap: () => _navigateToSubScreen(
                                   _buildPlaybackSubScreen()),
                             ),
+                            if (!kIsWeb &&
+                                (Platform.isAndroid || Platform.isIOS)) ...[
+                              const M3EDivider(),
+                              _buildCategoryCard(
+                                title: 'Audio Focus',
+                                subtitle: _getAudioFocusSubtitle(),
+                                icon: Icons.headphones_rounded,
+                                accentColor: _primary,
+                                onTap: () => _navigateToSubScreen(
+                                    _buildAudioFocusSubScreen()),
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 24),
@@ -2576,6 +2602,453 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _getAudioFocusSubtitle() {
+    final parts = <String>[];
+    if (_audioFocusSettings.enableDucking) {
+      parts.add('Ducking (${(_audioFocusSettings.duckGain * 100).round()}%)');
+    }
+    if (_audioFocusSettings.resumeAfterCall) {
+      parts.add('Auto-resume calls');
+    }
+    if (_audioFocusSettings.handleHeadsetMultiClicks) {
+      parts.add('Headset 2x/3x');
+    }
+    if (parts.isEmpty) {
+      return 'Audio focus & hardware controls';
+    }
+    return parts.join(' • ');
+  }
+
+  Widget _buildGestureRow(String gesture, String action) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: _cardDark,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: _textDark.withValues(alpha: 0.3)),
+          ),
+          child: Text(
+            gesture,
+            style: TextStyle(
+              color: _textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            action,
+            style: TextStyle(
+              color: _textPrimary,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Audio Focus & Hardware Controls Sub-Screen (Mobile Only)
+  Widget _buildAudioFocusSubScreen() {
+    return StatefulBuilder(
+      builder: (context, setSubState) {
+        void updateSettings(AudioFocusSettings newSettings) {
+          setState(() => _audioFocusSettings = newSettings);
+          setSubState(() {});
+          AppStateService.instance.saveAudioFocusSettings(newSettings);
+          widget.player.updateAudioFocusSettings(newSettings);
+        }
+
+        return _buildSubScreenLayout(
+          title: 'Audio Focus',
+          children: [
+            const SizedBox(height: 20),
+            _buildSectionHeader('FOCUS & INTERRUPTIONS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Audio Ducking',
+                  subtitle: _audioFocusSettings.enableDucking
+                      ? 'Lowers playback volume during GPS & notification alerts'
+                      : 'Pause playback during alerts instead of lowering volume',
+                  secondary: _buildLeadingIcon(Icons.volume_down_rounded),
+                  value: _audioFocusSettings.enableDucking,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(enableDucking: v));
+                  },
+                ),
+                if (_audioFocusSettings.enableDucking) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                _buildLeadingIcon(Icons.tune_rounded),
+                                const SizedBox(width: 16),
+                                Text('Ducking Volume Level',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            Text(
+                              '${(_audioFocusSettings.duckGain * 100).round()}%',
+                              style: TextStyle(
+                                color: _primary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        M3ESlider(
+                          value: _audioFocusSettings.duckGain,
+                          min: 0.05,
+                          max: 0.60,
+                          divisions: 11,
+                          onChanged: (val) {
+                            updateSettings(
+                                _audioFocusSettings.copyWith(duckGain: val));
+                          },
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Quiet (5%)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Normal (25%)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Loud (60%)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Resume Music After Call',
+                  subtitle:
+                      'Automatically resumes song playback when phone call or voice call ends',
+                  secondary: _buildLeadingIcon(Icons.phone_in_talk_rounded),
+                  value: _audioFocusSettings.resumeAfterCall,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(resumeAfterCall: v));
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Pause on Transient Interruption',
+                  subtitle:
+                      'Pauses audio when ducking is disabled or when another app takes temporary priority',
+                  secondary:
+                      _buildLeadingIcon(Icons.pause_circle_outline_rounded),
+                  value: _audioFocusSettings.pauseWhenInterrupted,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(pauseWhenInterrupted: v));
+                  },
+                ),
+                const M3EDivider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(
+                              Icons.motion_photos_paused_rounded),
+                          const SizedBox(width: 16),
+                          Text('Permanent Focus Loss Action',
+                              style: TextStyle(
+                                  color: _textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'When another audio app starts playing (e.g. YouTube, Spotify):',
+                        style: TextStyle(color: _textDark, fontSize: 13),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: _audioFocusSettings
+                                            .permanentFocusLossAction ==
+                                        'pause'
+                                    ? _primary.withValues(alpha: 0.2)
+                                    : Colors.transparent,
+                                side: BorderSide(
+                                  color: _audioFocusSettings
+                                              .permanentFocusLossAction ==
+                                          'pause'
+                                      ? _primary
+                                      : _textDark.withValues(alpha: 0.3),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: () {
+                                updateSettings(_audioFocusSettings.copyWith(
+                                    permanentFocusLossAction: 'pause'));
+                              },
+                              child: Text(
+                                'Pause Playback',
+                                style: TextStyle(
+                                  color: _audioFocusSettings
+                                              .permanentFocusLossAction ==
+                                          'pause'
+                                      ? _primary
+                                      : _textPrimary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: _audioFocusSettings
+                                            .permanentFocusLossAction ==
+                                        'stop'
+                                    ? _primary.withValues(alpha: 0.2)
+                                    : Colors.transparent,
+                                side: BorderSide(
+                                  color: _audioFocusSettings
+                                              .permanentFocusLossAction ==
+                                          'stop'
+                                      ? _primary
+                                      : _textDark.withValues(alpha: 0.3),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: () {
+                                updateSettings(_audioFocusSettings.copyWith(
+                                    permanentFocusLossAction: 'stop'));
+                              },
+                              child: Text(
+                                'Stop & Release',
+                                style: TextStyle(
+                                  color: _audioFocusSettings
+                                              .permanentFocusLossAction ==
+                                          'stop'
+                                      ? _primary
+                                      : _textPrimary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildSectionHeader('STARTUP & CONNECTION'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Resume on Start',
+                  subtitle:
+                      'Automatically starts playing the saved queue when opening SautiPlay',
+                  secondary:
+                      _buildLeadingIcon(Icons.play_circle_outline_rounded),
+                  value: _audioFocusSettings.resumeOnStart,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(resumeOnStart: v));
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Pause on Unplug / Disconnect',
+                  subtitle:
+                      'Instantly pauses music when 3.5mm jack is unplugged or Bluetooth disconnects (Noisy Audio)',
+                  secondary: _buildLeadingIcon(Icons.headset_off_rounded),
+                  value: _audioFocusSettings.pauseOnBecomingNoisy,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(pauseOnBecomingNoisy: v));
+                  },
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Resume on Headset Connect',
+                  subtitle:
+                      'Automatically resumes music when 3.5mm headphones or Bluetooth earbuds are connected',
+                  secondary: _buildLeadingIcon(Icons.headset_rounded),
+                  value: _audioFocusSettings.resumeOnHeadsetConnect,
+                  onChanged: (v) {
+                    updateSettings(
+                        _audioFocusSettings.copyWith(resumeOnHeadsetConnect: v));
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildSectionHeader('HEADSET & BLUETOOTH BUTTONS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Headset Button Gestures',
+                  subtitle:
+                      'Enables 1x, 2x, and 3x press actions for 3.5mm wired & Bluetooth headphone buttons',
+                  secondary: _buildLeadingIcon(Icons.smart_button_rounded),
+                  value: _audioFocusSettings.handleHeadsetMultiClicks,
+                  onChanged: (v) {
+                    updateSettings(_audioFocusSettings.copyWith(
+                        handleHeadsetMultiClicks: v));
+                  },
+                ),
+                const M3EDivider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: _primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border:
+                          Border.all(color: _primary.withValues(alpha: 0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.touch_app_rounded,
+                                color: _primary, size: 20),
+                            const SizedBox(width: 8),
+                            Text('Hardware Button Action Guide',
+                                style: TextStyle(
+                                    color: _primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14)),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        _buildGestureRow('1 Click', 'Play / Pause toggle'),
+                        const SizedBox(height: 6),
+                        _buildGestureRow('2 Clicks (double press)',
+                            'Next song in current playlist'),
+                        const SizedBox(height: 6),
+                        _buildGestureRow('3 Clicks (triple press)',
+                            'Previous song in current playlist'),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_audioFocusSettings.handleHeadsetMultiClicks) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                _buildLeadingIcon(Icons.speed_rounded),
+                                const SizedBox(width: 16),
+                                Text('Multi-Press Speed Window',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            Text(
+                              '${_audioFocusSettings.headsetClickTimeoutMs}ms',
+                              style: TextStyle(
+                                color: _primary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Time window to wait for consecutive clicks (lower = faster response, higher = easier multi-click)',
+                          style: TextStyle(color: _textDark, fontSize: 13),
+                        ),
+                        const SizedBox(height: 12),
+                        M3ESlider(
+                          value: _audioFocusSettings.headsetClickTimeoutMs
+                              .toDouble(),
+                          min: 200,
+                          max: 600,
+                          divisions: 8,
+                          onChanged: (val) {
+                            updateSettings(_audioFocusSettings.copyWith(
+                              headsetClickTimeoutMs: val.round(),
+                            ));
+                          },
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Fast (200ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Normal (350ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Relaxed (600ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 36),
           ],
         );
       },
