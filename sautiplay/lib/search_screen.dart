@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
 import 'services/app_theme_service.dart';
+import 'l10n/app_strings.dart';
 
 class SearchScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -415,7 +416,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
               Text(
-                'Search',
+                context.strings.search,
                 style: TextStyle(
                   color: _textPrimary,
                   fontSize: isDesktop ? 34 : 26,
@@ -450,7 +451,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     style: TextStyle(
                         color: _textPrimary, fontSize: isDesktop ? 18 : 16),
                     decoration: InputDecoration(
-                      hintText: 'Songs, artists, albums...',
+                      hintText: context.strings.searchPlaceholder,
                       hintStyle: TextStyle(
                           color: _textDark.withValues(alpha: 0.6),
                           fontSize: isDesktop ? 18 : 16),
@@ -489,6 +490,23 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  String _getLocalizedFilter(String filter) {
+    switch (filter) {
+      case 'All':
+        return context.strings.all;
+      case 'Songs':
+        return context.strings.tracks;
+      case 'Playlists':
+        return context.strings.playlists;
+      case 'Albums':
+        return context.strings.albums;
+      case 'Artists':
+        return context.strings.artists;
+      default:
+        return filter;
+    }
+  }
+
   Widget _buildFilterChips({bool isDesktop = false}) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -501,7 +519,7 @@ class _SearchScreenState extends State<SearchScreen> {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: M3EChip(
-              label: filter,
+              label: _getLocalizedFilter(filter),
               type: M3EChipType.filter,
               selected: isSelected,
               onPressed: () => setState(() => _selectedFilter = filter),

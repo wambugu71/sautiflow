@@ -544,7 +544,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 12),
 
                         // ── GROUP 1: PLAYBACK & SOUND ──
-                        _buildSectionHeader('PLAYBACK & SOUND'),
+                        _buildSectionHeader(context.strings.playbackAndSound),
                         const SizedBox(height: 8),
                         AppCardContainer(
                           children: [
@@ -559,7 +559,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const M3EDivider(),
                             _buildCategoryCard(
-                              title: 'Audio Engine',
+                              title: context.strings.audioEngine,
                               subtitle: _getAudioProcessingSubtitle(),
                               icon: Icons.graphic_eq_rounded,
                               accentColor: _primary,
@@ -568,7 +568,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const M3EDivider(),
                             _buildCategoryCard(
-                              title: 'Equalizer',
+                              title: context.strings.equalizer,
                               subtitle: '$_eqBandCount bands • Sound tuning',
                               icon: Icons.tune_rounded,
                               accentColor: _primary,
@@ -577,7 +577,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const M3EDivider(),
                             _buildCategoryCard(
-                              title: 'Visualizer',
+                              title: context.strings.visualizer,
                               subtitle: widget.analyzerEnabled
                                   ? '${widget.spectrumStyle.toUpperCase()} • Live Meter'
                                   : 'Visualizer off',
@@ -588,7 +588,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const M3EDivider(),
                             _buildCategoryCard(
-                              title: 'Playback',
+                              title: context.strings.playback,
                               subtitle: widget.crossfadeEnabled
                                   ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s crossfade'
                                   : 'Gapless playback',
@@ -601,7 +601,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 (Platform.isAndroid || Platform.isIOS)) ...[
                               const M3EDivider(),
                               _buildCategoryCard(
-                                title: 'Audio Focus',
+                                title: context.strings.audioFocus,
                                 subtitle: _getAudioFocusSubtitle(),
                                 icon: Icons.headphones_rounded,
                                 accentColor: _primary,
@@ -614,12 +614,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 24),
 
                         // ── GROUP 2: SOURCES & DATA ──
-                        _buildSectionHeader('SOURCES & DATA'),
+                        _buildSectionHeader(context.strings.sourcesAndData),
                         const SizedBox(height: 8),
                         AppCardContainer(
                           children: [
                             _buildCategoryCard(
-                              title: 'Streaming & Storage',
+                              title: context.strings.streamingStorage,
                               subtitle:
                                   '${_getStreamingQualityBadgeText()} quality • Offline cache',
                               icon: Icons.stream_rounded,
@@ -629,7 +629,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const M3EDivider(),
                             _buildCategoryCard(
-                              title: 'Local & Network Audio',
+                              title: context.strings.localAndNetwork,
                               subtitle: 'FTP servers & DLNA media hubs',
                               icon: Icons.lan_rounded,
                               accentColor: _primary,
@@ -669,7 +669,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 24),
 
                         // ── GROUP 3: SYSTEM & ABOUT ──
-                        _buildSectionHeader('SYSTEM & ABOUT'),
+                        _buildSectionHeader(context.strings.systemAndAbout),
                         const SizedBox(height: 8),
                         AppCardContainer(
                           children: [
@@ -684,7 +684,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         AppUpdateService.instance.stage ==
                                             UpdateStage.downloading;
                                 return _buildCategoryCard(
-                                  title: 'About & Diagnostics',
+                                  title: context.strings.aboutDiagnostics,
                                   subtitle: hasUpdate
                                       ? 'New update available to install'
                                       : 'v$_appVersion • FAQs & error logs',

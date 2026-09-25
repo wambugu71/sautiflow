@@ -255,17 +255,13 @@ class _MiniPlayerState extends State<MiniPlayer>
                             blankSpace: 30.0,
                             pauseAfterRound: const Duration(seconds: 2),
                           ),
-                          InkWell(
-                            onTap: widget.onArtistTap,
-                            borderRadius: BorderRadius.circular(4),
-                            child: Text(
-                              widget.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: textMuted,
-                                fontSize: 12,
-                              ),
+                          Text(
+                            widget.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: textMuted,
+                              fontSize: 12,
                             ),
                           ),
                         ],

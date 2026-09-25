@@ -34,6 +34,7 @@ import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/synced_lyrics_widget.dart';
 import 'widgets/waveform_seek_bar_widget.dart';
+import 'l10n/app_strings.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   final ValueNotifier<PlayerStatus> statusNotifier;
@@ -952,8 +953,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ListTile(
                           leading: const Icon(Icons.info_outline,
                               color: Colors.white),
-                          title: const Text('Song Info & Tags',
-                              style: TextStyle(
+                          title: Text(context.strings.songInfoAndTags,
+                              style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600)),
                           subtitle: const Text('View or edit track metadata',
@@ -1144,8 +1145,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           return ListTile(
                             leading: const Icon(Icons.person_outline_rounded,
                                 color: Colors.white),
-                            title: const Text('View Artist Profile',
-                                style: TextStyle(
+                            title: Text(context.strings.viewArtistProfile,
+                                style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w600)),
                             subtitle: Text(
@@ -3005,9 +3006,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 2),
-                                        const Text(
-                                          'Now Playing',
-                                          style: TextStyle(
+                                        Text(
+                                          context.strings.nowPlaying,
+                                          style: const TextStyle(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
                                             color: textLight,

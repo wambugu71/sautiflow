@@ -17,6 +17,7 @@ import 'widgets/physics_dots_visualizer.dart';
 import 'widgets/autoeq_selector_widget.dart';
 import 'widgets/profile_selector.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
+import 'l10n/app_strings.dart';
 
 class EffectsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -410,9 +411,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                               Icon(Icons.tune_rounded,
                                   color: primaryColor, size: 22),
                               const SizedBox(width: 8),
-                              const Text(
-                                'Sound Effects & EQ',
-                                style: TextStyle(
+                              Text(
+                                context.strings.soundEffectsAndEq,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 17,
                                   fontWeight: FontWeight.bold,

@@ -9,6 +9,7 @@ import 'album_detail_screen.dart'; // For TrackInfo
 import 'services/app_theme_service.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
+import 'l10n/app_strings.dart';
 
 class QueueScreen extends StatefulWidget {
   final List<TrackInfo> queue;
@@ -195,14 +196,14 @@ class _QueueScreenState extends State<QueueScreen>
     M3EDialog.show<void>(
       context,
       dialog: M3EDialog(
-        title: 'Clear Playback Queue',
-        content: const Text(
-          'Are you sure you want to clear all tracks from your current playback queue?',
+        title: context.strings.clearQueueTitle,
+        content: Text(
+          context.strings.clearQueueConfirm,
         ),
         actions: [
           M3EButton.text(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(context.strings.cancel),
           ),
           M3EButton(
             onPressed: () {
@@ -211,7 +212,7 @@ class _QueueScreenState extends State<QueueScreen>
                 widget.onClearQueue!();
               }
             },
-            child: const Text('Clear All'),
+            child: Text(context.strings.clearAll),
           ),
         ],
       ),
@@ -283,7 +284,7 @@ class _QueueScreenState extends State<QueueScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Up Next Queue',
+                        context.strings.upNextQueue,
                         style: TextStyle(
                           color: textPrimary,
                           fontSize: 18,
@@ -293,7 +294,7 @@ class _QueueScreenState extends State<QueueScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${widget.queue.length} ${widget.queue.length == 1 ? 'track' : 'tracks'}',
+                        context.strings.trackCount(widget.queue.length),
                         style: TextStyle(
                           color: textDark,
                           fontSize: 12.5,
@@ -318,7 +319,9 @@ class _QueueScreenState extends State<QueueScreen>
                 child: Row(
                   children: [
                     M3EChip(
-                      label: _showUpcomingOnly ? 'Upcoming Only' : 'Show All',
+                      label: _showUpcomingOnly
+                          ? context.strings.upcomingOnly
+                          : context.strings.showAll,
                       leading: Icon(
                         _showUpcomingOnly
                             ? Icons.filter_list_rounded
@@ -342,7 +345,7 @@ class _QueueScreenState extends State<QueueScreen>
                     if (widget.onShuffleQueue != null) ...[
                       const SizedBox(width: 8),
                       M3EChip(
-                        label: 'Shuffle',
+                        label: context.strings.shuffle,
                         leading: const Icon(Icons.shuffle_rounded, size: 16),
                         onPressed: widget.onShuffleQueue,
                       ),
@@ -351,7 +354,7 @@ class _QueueScreenState extends State<QueueScreen>
                         widget.onRemoveFromQueue != null) ...[
                       const SizedBox(width: 8),
                       M3EChip(
-                        label: 'Clear',
+                        label: context.strings.clearAll,
                         leading: const Icon(Icons.clear_all_rounded, size: 16),
                         onPressed: () => _confirmClearQueue(context),
                       ),
@@ -388,7 +391,7 @@ class _QueueScreenState extends State<QueueScreen>
                           ),
                           const SizedBox(height: 20),
                           Text(
-                            'Queue is empty',
+                            context.strings.queueIsEmpty,
                             style: TextStyle(
                               color: textPrimary,
                               fontSize: 18,

@@ -34,6 +34,7 @@ import 'services/audio_file_inspector.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/song_options_menu.dart';
+import 'l10n/app_strings.dart';
 
 class LibraryScreen extends StatefulWidget {
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
@@ -93,6 +94,21 @@ enum LibraryCategory {
   const LibraryCategory(this.label, this.icon);
   final String label;
   final IconData icon;
+
+  String localizedLabel(BuildContext context) {
+    switch (this) {
+      case LibraryCategory.tracks:
+        return context.strings.tracks;
+      case LibraryCategory.albums:
+        return context.strings.albums;
+      case LibraryCategory.artists:
+        return context.strings.artists;
+      case LibraryCategory.playlists:
+        return context.strings.playlists;
+      case LibraryCategory.folders:
+        return context.strings.folders;
+    }
+  }
 }
 
 class LibraryScreenState extends State<LibraryScreen>
@@ -2117,7 +2133,8 @@ class LibraryScreenState extends State<LibraryScreen>
                                           color: textLight,
                                           fontSize: isDesktop ? 15 : 14),
                                       decoration: InputDecoration(
-                                        hintText: 'Search library...',
+                                        hintText:
+                                            context.strings.searchPlaceholder,
                                         hintStyle: TextStyle(
                                             color: textDark,
                                             fontSize: isDesktop ? 15 : 14),
@@ -2166,7 +2183,8 @@ class LibraryScreenState extends State<LibraryScreen>
                                             padding: const EdgeInsets.only(
                                                 right: 8.0),
                                             child: M3EChip(
-                                              label: cat.label,
+                                              label:
+                                                  cat.localizedLabel(context),
                                               type: M3EChipType.filter,
                                               selected: isSelected,
                                               leading: Icon(cat.icon, size: 16),

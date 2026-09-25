@@ -31,6 +31,7 @@ import 'widgets/race_visualizer.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
 
 import 'services/app_theme_service.dart';
+import 'l10n/app_strings.dart';
 
 const _dynamicEqBandCount = 6;
 
@@ -3238,12 +3239,12 @@ class _EqScreenState extends State<EqScreen>
     M3EDialog.show<void>(
       context,
       dialog: M3EDialog(
-        title: 'Reset All Effects?',
-        content: const Material(
+        title: context.strings.resetAllEffects,
+        content: Material(
           color: Colors.transparent,
           child: Text(
-            'This will reset the Equalizer and all audio DSP effects to defaults.',
-            style: TextStyle(color: Colors.white70, fontSize: 13.5),
+            context.strings.resetAllEffectsConfirm,
+            style: const TextStyle(color: Colors.white70, fontSize: 13.5),
           ),
         ),
         topDivider: true,
@@ -3251,14 +3252,14 @@ class _EqScreenState extends State<EqScreen>
         actions: [
           M3EButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.strings.cancel),
           ),
           M3EButton(
             onPressed: () {
               Navigator.pop(context);
               _performResetAll();
             },
-            child: const Text('Reset'),
+            child: Text(context.strings.reset),
           ),
         ],
       ),

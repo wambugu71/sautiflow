@@ -61,9 +61,41 @@ abstract class AppStrings {
   String get audioEngine;
   String get audioFocus;
   String get streamingStorage;
+  String get localAndNetwork;
   String get aboutDiagnostics;
+  String get playback;
+  String get playbackAndSound;
+  String get sourcesAndData;
+  String get systemAndAbout;
   String get version;
   String get checkUpdates;
+
+  // ── General Actions & Screens ──────────────────────────────────────────────
+  String get search;
+  String get retry;
+  String get cancel;
+  String get save;
+  String get clearAll;
+  String get seeAll;
+  String get all;
+  String get topTracks;
+  String get soundEffectsAndEq;
+  String get upNextQueue;
+  String get queueIsEmpty;
+  String get singlesAndEPs;
+  String get featuredOn;
+  String get similarArtists;
+  String get musicVideos;
+  String get catalog;
+  String get clearQueueTitle;
+  String get clearQueueConfirm;
+  String get showAll;
+  String get upcomingOnly;
+  String get reset;
+  String get resetAllEffects;
+  String get resetAllEffectsConfirm;
+  String get viewArtistProfile;
+  String get songInfoAndTags;
 
   // ── Plurals & Dynamic Interpolation ────────────────────────────────────────
   String trackCount(int count);
@@ -144,9 +176,40 @@ class _EnglishStrings implements AppStrings {
   @override String get audioEngine => 'Audio Engine';
   @override String get audioFocus => 'Audio Focus';
   @override String get streamingStorage => 'Streaming & Storage';
+  @override String get localAndNetwork => 'Local & Network Audio';
   @override String get aboutDiagnostics => 'About & Diagnostics';
+  @override String get playback => 'Playback';
+  @override String get playbackAndSound => 'PLAYBACK & SOUND';
+  @override String get sourcesAndData => 'SOURCES & DATA';
+  @override String get systemAndAbout => 'SYSTEM & ABOUT';
   @override String get version => 'Version';
   @override String get checkUpdates => 'Check for Updates';
+
+  @override String get search => 'Search';
+  @override String get retry => 'Retry';
+  @override String get cancel => 'Cancel';
+  @override String get save => 'Save';
+  @override String get clearAll => 'Clear All';
+  @override String get seeAll => 'SEE ALL';
+  @override String get all => 'All';
+  @override String get topTracks => 'Top Tracks';
+  @override String get soundEffectsAndEq => 'Sound Effects & EQ';
+  @override String get upNextQueue => 'Up Next Queue';
+  @override String get queueIsEmpty => 'Queue is empty';
+  @override String get singlesAndEPs => 'Singles & EPs';
+  @override String get featuredOn => 'Featured On';
+  @override String get similarArtists => 'Fans Also Like';
+  @override String get musicVideos => 'Music Videos';
+  @override String get catalog => 'Catalog';
+  @override String get clearQueueTitle => 'Clear Playback Queue';
+  @override String get clearQueueConfirm => 'Are you sure you want to clear all tracks from your current playback queue?';
+  @override String get showAll => 'Show All';
+  @override String get upcomingOnly => 'Upcoming Only';
+  @override String get reset => 'Reset';
+  @override String get resetAllEffects => 'Reset All Effects?';
+  @override String get resetAllEffectsConfirm => 'This will reset the Equalizer and all audio DSP effects to defaults.';
+  @override String get viewArtistProfile => 'View Artist Profile';
+  @override String get songInfoAndTags => 'Song Info & Tags';
 
   @override
   String trackCount(int count) => count == 1 ? '1 Track' : '$count Tracks';
@@ -211,9 +274,40 @@ class _SwahiliStrings implements AppStrings {
   @override String get audioEngine => 'Injini ya Sauti';
   @override String get audioFocus => 'Uzingativu wa Sauti';
   @override String get streamingStorage => 'Utiririshaji na Hifadhi';
+  @override String get localAndNetwork => 'Sauti ya Ndani na Mtandao';
   @override String get aboutDiagnostics => 'Kuhusu na Utambuzi';
+  @override String get playback => 'Uchezaji';
+  @override String get playbackAndSound => 'UCHEZAJI NA SAUTI';
+  @override String get sourcesAndData => 'CHANZO NA DATA';
+  @override String get systemAndAbout => 'MFUMO NA KUHUSU';
   @override String get version => 'Toleo';
   @override String get checkUpdates => 'Angalia Masasisho';
+
+  @override String get search => 'Tafuta';
+  @override String get retry => 'Jaribu Tena';
+  @override String get cancel => 'Ghairi';
+  @override String get save => 'Hifadhi';
+  @override String get clearAll => 'Futa Zote';
+  @override String get seeAll => 'ONA ZOTE';
+  @override String get all => 'Zote';
+  @override String get topTracks => 'Nyimbo Bora';
+  @override String get soundEffectsAndEq => 'Madoido ya Sauti na Kisawazishi';
+  @override String get upNextQueue => 'Foleni ya Nyimbo Zinazofuata';
+  @override String get queueIsEmpty => 'Foleni haina nyimbo';
+  @override String get singlesAndEPs => 'Nyimbo Moja na EP';
+  @override String get featuredOn => 'Iliyoangaziwa Kwenye';
+  @override String get similarArtists => 'Mashabiki Pia Wanapenda';
+  @override String get musicVideos => 'Video za Muziki';
+  @override String get catalog => 'Katalogi';
+  @override String get clearQueueTitle => 'Futa Foleni ya Uchezaji';
+  @override String get clearQueueConfirm => 'Una uhakika unataka kufuta nyimbo zote kwenye foleni ya sasa?';
+  @override String get showAll => 'Onyesha Zote';
+  @override String get upcomingOnly => 'Zinazofuata Tu';
+  @override String get reset => 'Weka Upya';
+  @override String get resetAllEffects => 'Weka Upya Madoido Yote?';
+  @override String get resetAllEffectsConfirm => 'Hii itaweka upya Kisawazishi na madoido yote ya sauti ya DSP kwa chaguomsingi.';
+  @override String get viewArtistProfile => 'Tazama Wasifu wa Msanii';
+  @override String get songInfoAndTags => 'Maelezo ya Wimbo na Lebo';
 
   @override
   String trackCount(int count) => count == 1 ? 'Wimbo 1' : 'Nyimbo $count';
@@ -278,9 +372,40 @@ class _AmharicStrings implements AppStrings {
   @override String get audioEngine => 'የድምፅ ሞተር';
   @override String get audioFocus => 'የድምፅ ትኩረት';
   @override String get streamingStorage => 'ዥረት እና ማከማቻ';
+  @override String get localAndNetwork => 'የውስጥ እና የአውታረ መረብ ኦዲዮ';
   @override String get aboutDiagnostics => 'ስለ መተግበሪያው';
+  @override String get playback => 'ማጫወቻ';
+  @override String get playbackAndSound => 'ማጫወቻ እና ድምፅ';
+  @override String get sourcesAndData => 'ምንጮች እና ዳታ';
+  @override String get systemAndAbout => 'ስርዓት እና መረጃ';
   @override String get version => 'ስሪት';
   @override String get checkUpdates => 'ዝመናዎችን ፈትሽ';
+
+  @override String get search => 'ፈልግ';
+  @override String get retry => 'እንደገና ሞክር';
+  @override String get cancel => 'ይቅር';
+  @override String get save => 'አስቀምጥ';
+  @override String get clearAll => 'ሁሉንም አጽዳ';
+  @override String get seeAll => 'ሁሉንም ይመልከቱ';
+  @override String get all => 'ሁሉም';
+  @override String get topTracks => 'ተወዳጅ ሙዚቃዎች';
+  @override String get soundEffectsAndEq => 'የድምፅ ተፅዕኖዎች እና ኢኳላይዘር';
+  @override String get upNextQueue => 'ቀጣይ የሙዚቃ ተራ';
+  @override String get queueIsEmpty => 'የተራ ዝርዝሩ ባዶ ነው';
+  @override String get singlesAndEPs => 'ነጠላ ዜማዎች እና ኢፒ';
+  @override String get featuredOn => 'የተካተተበት';
+  @override String get similarArtists => 'አድናቂዎች የሚወዱት';
+  @override String get musicVideos => 'የሙዚቃ ቪዲዮዎች';
+  @override String get catalog => 'ካታሎግ';
+  @override String get clearQueueTitle => 'የማጫወቻውን ተራ አጽዳ';
+  @override String get clearQueueConfirm => 'ሁሉንም ሙዚቃዎች አሁን ካለው የማጫወቻ ተራ ላይ ማስወገድ እርግጠኛ ነዎት?';
+  @override String get showAll => 'ሁሉንም አሳይ';
+  @override String get upcomingOnly => 'ቀጣዮች ብቻ';
+  @override String get reset => 'ዳግም አስጀምር';
+  @override String get resetAllEffects => 'ሁሉንም ተፅዕኖዎች ዳግም ማስጀመር?';
+  @override String get resetAllEffectsConfirm => 'ይህ ኢኳላይዘርንና ሁሉንም የድምፅ DSP ተፅዕኖዎች ወደ መጀመሪያው ሁኔታ ይመልሳል።';
+  @override String get viewArtistProfile => 'የአርቲስቱን መገለጫ ይመልከቱ';
+  @override String get songInfoAndTags => 'የሙዚቃ መረጃ እና መለያዎች';
 
   @override
   String trackCount(int count) => '$count ሙዚቃዎች';

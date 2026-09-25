@@ -6,6 +6,7 @@ import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'album_detail_screen.dart'; // For TrackInfo + routing
 import 'artist_catalog_screen.dart';
 import 'services/app_theme_service.dart';
+import 'l10n/app_strings.dart';
 
 class ArtistProfileScreen extends StatefulWidget {
   final String? artistId;
@@ -269,7 +270,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20)),
             ),
-            child: const Text('Retry', style: TextStyle(color: Colors.white)),
+            child: Text(context.strings.retry, style: const TextStyle(color: Colors.white)),
           )
         ],
       ),
@@ -291,29 +292,29 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
                 _buildTopTracksSection(isDesktop),
                 const SizedBox(height: 32),
                 _buildDiscographySection(
-                  'Albums',
+                  context.strings.albums,
                   _artistFull!.topAlbums,
                   isDesktop,
                   type: ArtistCatalogType.albums,
                 ),
                 const SizedBox(height: 32),
                 _buildDiscographySection(
-                  'Singles & EPs',
+                  context.strings.singlesAndEPs,
                   _artistFull!.topSingles,
                   isDesktop,
                   type: ArtistCatalogType.singles,
                 ),
                 if (_artistFull!.featuredOn.isNotEmpty) ...[
                   const SizedBox(height: 32),
-                  _buildPlaylistsSection('Featured On', _artistFull!.featuredOn, isDesktop),
+                  _buildPlaylistsSection(context.strings.featuredOn, _artistFull!.featuredOn, isDesktop),
                 ],
                 if (_artistFull!.topVideos.isNotEmpty) ...[
                   const SizedBox(height: 32),
-                  _buildVideosSection('Music Videos', _artistFull!.topVideos, isDesktop),
+                  _buildVideosSection(context.strings.musicVideos, _artistFull!.topVideos, isDesktop),
                 ],
                 if (_artistFull!.similarArtists.isNotEmpty) ...[
                   const SizedBox(height: 32),
-                  _buildSimilarArtistsSection('Fans Also Like', _artistFull!.similarArtists, isDesktop),
+                  _buildSimilarArtistsSection(context.strings.similarArtists, _artistFull!.similarArtists, isDesktop),
                 ],
                 const SizedBox(height: 120), // Padding for mini player
               ],
@@ -443,7 +444,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
                         OutlinedButton.icon(
                           onPressed: () => _openCatalog(ArtistCatalogType.albums),
                           icon: const Icon(Icons.library_music_rounded, size: 16, color: Colors.white),
-                          label: const Text('Catalog', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                          label: Text(context.strings.catalog, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -503,9 +504,9 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Top Tracks',
-              style: TextStyle(
+            Text(
+              context.strings.topTracks,
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -515,7 +516,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
               TextButton(
                 onPressed: () => _openCatalog(ArtistCatalogType.songs),
                 child: Text(
-                  'SEE ALL',
+                  context.strings.seeAll,
                   style: TextStyle(
                     color: _primary,
                     fontSize: 12,
@@ -652,7 +653,7 @@ class _ArtistProfileScreenState extends State<ArtistProfileScreen> {
               TextButton(
                 onPressed: () => _openCatalog(type),
                 child: Text(
-                  'SEE ALL',
+                  context.strings.seeAll,
                   style: TextStyle(
                     color: _primary,
                     fontSize: 12,

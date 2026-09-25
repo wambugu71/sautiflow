@@ -8,6 +8,7 @@ import 'artist_profile_screen.dart';
 import 'models/liked_song.dart';
 import 'services/app_theme_service.dart';
 import 'services/liked_songs_service.dart';
+import 'l10n/app_strings.dart';
 
 /// Unified track model that works with both dart_ytmusic_api and youtube_explode_dart
 class TrackInfo {
@@ -571,7 +572,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     final children = [
       M3EButton.icon(
         icon: const Icon(Icons.play_arrow_rounded, size: 18),
-        label: const Text('Play'),
+        label: Text(context.strings.play),
         onPressed: () => _playAll(),
       ),
       const SizedBox(width: 10),
@@ -579,10 +580,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         onPressed: () => _playAll(shuffle: true),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.shuffle_rounded, size: 16),
-            SizedBox(width: 6),
-            Text('Shuffle'),
+          children: [
+            const Icon(Icons.shuffle_rounded, size: 16),
+            const SizedBox(width: 6),
+            Text(context.strings.shuffle),
           ],
         ),
       ),
@@ -875,7 +876,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               SizedBox(height: isDesktop ? 24 : 18),
               M3EButton.icon(
                 icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Retry'),
+                label: Text(context.strings.retry),
                 onPressed: () {
                   setState(() {
                     _loading = true;
