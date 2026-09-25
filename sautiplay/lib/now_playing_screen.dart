@@ -7,6 +7,7 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
