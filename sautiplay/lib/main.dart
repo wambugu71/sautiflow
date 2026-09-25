@@ -1642,6 +1642,7 @@ class _PlayerShellState extends State<PlayerShell> {
         artist: track.artist,
         thumbnailUrl: track.thumbnailUrl,
         durationSeconds: track.durationSeconds,
+        isUserDownload: false, // Volatile stream cache in temp directory
       );
     }
 
@@ -2693,8 +2694,8 @@ class _PlayerShellState extends State<PlayerShell> {
     );
 
     try {
-      final tempDir = await getTemporaryDirectory();
-      final cacheDir = p.join(tempDir.path, 'ftp_cache', ftpConfig.id);
+      final supportDir = await getApplicationSupportDirectory();
+      final cacheDir = p.join(supportDir.path, 'ftp_cache', ftpConfig.id);
       final cacheDirFile = Directory(cacheDir);
       if (!await cacheDirFile.exists()) {
         await cacheDirFile.create(recursive: true);

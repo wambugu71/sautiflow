@@ -1063,7 +1063,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     messenger.showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                            'Saving "$trackTitle" to offline cache...'),
+                                            'Saving "$trackTitle" to offline downloads...'),
                                         duration: const Duration(seconds: 2),
                                       ),
                                     );
@@ -1079,6 +1079,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               : vid),
                                       durationSeconds:
                                           curTrack?.durationSeconds,
+                                      isUserDownload: true,
                                     )
                                         .then((success) {
                                       if (mounted) {
@@ -1096,7 +1097,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   const SizedBox(width: 8),
                                                   Expanded(
                                                     child: Text(
-                                                        'Saved "$trackTitle" for offline playback'),
+                                                        'Saved "$trackTitle" to offline downloads'),
                                                   ),
                                                 ],
                                               ),
@@ -1604,7 +1605,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 : null;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Saving "$title" to offline cache...'),
+                content: Text('Saving "$title" to offline downloads...'),
                 duration: const Duration(seconds: 2),
               ),
             );
@@ -1617,6 +1618,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               thumbnailUrl: curTrack?.thumbnailUrl ??
                   (widget.albumArt == null ? null : videoId),
               durationSeconds: curTrack?.durationSeconds,
+              isUserDownload: true,
             )
                 .then((success) {
               if (mounted) {
@@ -1630,7 +1632,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           const SizedBox(width: 8),
                           Expanded(
                             child:
-                                Text('Saved "$title" for offline playback'),
+                                Text('Saved "$title" to offline downloads'),
                           ),
                         ],
                       ),

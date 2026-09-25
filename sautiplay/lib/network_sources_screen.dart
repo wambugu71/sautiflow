@@ -150,9 +150,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     );
 
     try {
-      final tempDir = await getTemporaryDirectory();
+      final supportDir = await getApplicationSupportDirectory();
       final cachePath = p.join(
-        tempDir.path,
+        supportDir.path,
         'ftp_cache',
         _selectedFtpConfig!.id,
         fileEntry.name,

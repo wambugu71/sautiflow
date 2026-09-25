@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/cached_stream_item.dart';
@@ -29,7 +30,22 @@ class CachedStreamService {
 
   bool _isInitialized = false;
 
-  Directory get cacheDirectory {
+  static Directory? _persistentDownloadsDir;
+
+  /// Permanent directory for explicit user downloads (e.g. from Now Playing screen).
+  /// Stored in [getApplicationDocumentsDirectory] so it is immune to OS "Clear Cache".
+  Directory get downloadsDirectory {
+    if (_persistentDownloadsDir != null) {
+      return _persistentDownloadsDir!;
+    }
+    final tempDir = Directory.systemTemp;
+    return Directory(
+        '${tempDir.path}${Platform.pathSeparator}sautiplay_downloads');
+  }
+
+  /// Volatile directory for transient stream buffer caching during playback.
+  /// Stored in system temp directory so the OS can safely reclaim space if needed.
+  Directory get streamCacheDirectory {
     final tempDir = Directory.systemTemp;
     String basePath;
     try {
@@ -42,69 +58,109 @@ class CachedStreamService {
     );
   }
 
-  /// Checks whether a given path points to an existing file in the stream cache directory.
-  ///
-  /// Resilient against Windows 8.3 short paths (e.g. WAMBUG~1 vs wambugukinyua)
-  /// and path separator differences, while strictly rejecting any local user tracks.
+  /// Default directory for general lookups.
+  Directory get cacheDirectory => downloadsDirectory;
+
+  /// Helper to check if a file for [videoId] exists in a specific directory.
+  File? _findFileInDir(Directory dir, String videoId) {
+    if (videoId.isEmpty || !dir.existsSync()) return null;
+    for (final ext in ['webm', 'm4a', 'mp3', 'opus']) {
+      final f = File('${dir.path}${Platform.pathSeparator}stream_$videoId.$ext');
+      if (f.existsSync() && f.lengthSync() > 1024) {
+        return f;
+      }
+    }
+    return null;
+  }
+
+  /// Checks whether a given path points to an existing file in either the downloads
+  /// or stream cache directory.
   bool _isCacheFile(String filePath) {
     if (filePath.isEmpty) return false;
     final lower = filePath.toLowerCase();
-    if (!lower.contains('miniaudiodart_stream_cache')) return false;
+    if (!lower.contains('miniaudiodart_stream_cache') &&
+        !lower.contains('sautiplay_downloads')) return false;
     return File(filePath).existsSync();
   }
 
-  /// Searches the cache directory for any existing cached audio file for [videoId].
+  /// Searches first in permanent downloads, then in transient stream cache.
   File? findExistingCacheFile(String videoId) {
     if (videoId.isEmpty) return null;
     try {
-      final dir = cacheDirectory;
-      if (!dir.existsSync()) return null;
-      for (final ext in ['webm', 'm4a', 'mp3', 'opus']) {
-        final f =
-            File('${dir.path}${Platform.pathSeparator}stream_$videoId.$ext');
-        if (f.existsSync() && f.lengthSync() > 1024) {
-          return f;
-        }
-      }
+      // 1. Check permanent user downloads directory first
+      final downloadFile = _findFileInDir(downloadsDirectory, videoId);
+      if (downloadFile != null) return downloadFile;
+
+      // 2. Check transient stream cache directory second
+      final streamFile = _findFileInDir(streamCacheDirectory, videoId);
+      if (streamFile != null) return streamFile;
     } catch (_) {}
     return null;
   }
 
-  /// Initializes the service, loading persisted metadata and verifying files on disk.
+  /// Initializes the service, ensuring both downloads (documents) and stream cache
+  /// directories are prepared, and refreshes the cache index.
   Future<void> init() async {
     if (_isInitialized) return;
     _isInitialized = true;
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      _persistentDownloadsDir = Directory(
+        p.join(docsDir.path, 'sautiplay_downloads'),
+      );
+      if (!_persistentDownloadsDir!.existsSync()) {
+        await _persistentDownloadsDir!.create(recursive: true);
+      }
+
+      // Ensure transient stream cache dir exists
+      if (!streamCacheDirectory.existsSync()) {
+        await streamCacheDirectory.create(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('[CachedStreamService] Error initializing storage dirs: $e');
+    }
     await refreshCache();
   }
 
-  /// Looks up whether an audio stream is already downloaded and cached locally.
+  /// Looks up whether an audio stream is already downloaded or cached locally.
   CachedStreamItem? getCachedItem(String videoId) {
     if (videoId.isEmpty) return null;
     for (final item in cachedStreamsNotifier.value) {
-      if (item.videoId == videoId && File(item.filePath).existsSync()) {
-        return item;
+      if (item.videoId == videoId) {
+        if (File(item.filePath).existsSync()) return item;
+        final inDocs =
+            File(p.join(downloadsDirectory.path, p.basename(item.filePath)));
+        if (inDocs.existsSync()) return item;
+        final inTemp =
+            File(p.join(streamCacheDirectory.path, p.basename(item.filePath)));
+        if (inTemp.existsSync()) return item;
       }
     }
     // Also check physical disk in case metadata was not yet refreshed
     final physical = findExistingCacheFile(videoId);
     if (physical != null) {
+      final isDownload =
+          physical.path.toLowerCase().contains('sautiplay_downloads');
       return CachedStreamItem(
         videoId: videoId,
         title: 'Stream $videoId',
-        artist: 'Online Stream',
+        artist: isDownload ? 'Offline Download' : 'Cached Stream',
         durationSeconds: 0,
         filePath: physical.path,
         fileSizeBytes: physical.lengthSync(),
         cachedAt: physical.lastModifiedSync(),
+        isUserDownload: isDownload,
       );
     }
     return null;
   }
 
-  /// Downloads an online audio stream in the background, saves it to disk cache,
-  /// and automatically registers it for the Library "Cached Online Streams" playlist.
-  ///
-  /// Returns `true` if the stream was successfully cached, `false` otherwise.
+  /// Saves an online stream to disk.
+  /// - If [isUserDownload] is `true` (e.g. user tapped Download on Now Playing),
+  ///   it saves to the Documents directory ([downloadsDirectory]), making it permanent
+  ///   and immune to OS cache clearing until the user deletes it.
+  /// - If [isUserDownload] is `false` (passive playback streaming buffer),
+  ///   it saves to the Temporary directory ([streamCacheDirectory]) so OS can clear it.
   Future<bool> cacheStreamInBackground({
     required String videoId,
     required String streamUrl,
@@ -112,6 +168,7 @@ class CachedStreamService {
     required String artist,
     String? thumbnailUrl,
     int? durationSeconds,
+    bool isUserDownload = false,
   }) async {
     if (videoId.isEmpty) return false;
     if (_activeDownloads.contains(videoId)) return false;
@@ -119,29 +176,60 @@ class CachedStreamService {
     activeDownloadsNotifier.value = Set<String>.unmodifiable(_activeDownloads);
 
     try {
-      final dir = cacheDirectory;
-      if (!dir.existsSync()) {
-        dir.createSync(recursive: true);
+      final targetDir =
+          isUserDownload ? downloadsDirectory : streamCacheDirectory;
+      if (!targetDir.existsSync()) {
+        targetDir.createSync(recursive: true);
       }
 
-      // If valid file already exists on disk, register and return immediately
-      final existingFile = findExistingCacheFile(videoId);
-      if (existingFile != null) {
+      // If valid file already exists in target directory, register and return immediately
+      final existingInTarget = _findFileInDir(targetDir, videoId);
+      if (existingInTarget != null) {
         await registerCachedStream(
           videoId: videoId,
           title: title,
           artist: artist,
           thumbnailUrl: thumbnailUrl,
           durationSeconds: durationSeconds,
-          filePath: existingFile.path,
+          filePath: existingInTarget.path,
           streamUrl: streamUrl,
-          fileSizeBytes: existingFile.lengthSync(),
+          fileSizeBytes: existingInTarget.lengthSync(),
+          isUserDownload: isUserDownload,
         );
         return true;
       }
 
+      // Optimization: If user requested download and song was already in stream cache,
+      // promote it instantly to Documents dir without re-downloading!
+      if (isUserDownload) {
+        final existingInTemp = _findFileInDir(streamCacheDirectory, videoId);
+        if (existingInTemp != null &&
+            existingInTemp.existsSync() &&
+            existingInTemp.lengthSync() > 1024) {
+          final ext = p.extension(existingInTemp.path);
+          final destFile = File(
+            '${targetDir.path}${Platform.pathSeparator}stream_$videoId$ext',
+          );
+          existingInTemp.copySync(destFile.path);
+          await registerCachedStream(
+            videoId: videoId,
+            title: title,
+            artist: artist,
+            thumbnailUrl: thumbnailUrl,
+            durationSeconds: durationSeconds,
+            filePath: destFile.path,
+            streamUrl: streamUrl,
+            fileSizeBytes: destFile.lengthSync(),
+            isUserDownload: true,
+          );
+          debugPrint(
+              '[CachedStreamService] Promoted stream cache to permanent download: $title');
+          return true;
+        }
+      }
+
       final tempFile = File(
-        '${dir.path}${Platform.pathSeparator}stream_${videoId}_temp_${DateTime.now().millisecondsSinceEpoch}.tmp',
+        '${targetDir.path}${Platform.pathSeparator}stream_${videoId}_temp_${DateTime.now().millisecondsSinceEpoch}.tmp',
       );
       String? downloadedContainer;
 
@@ -182,7 +270,7 @@ class CachedStreamService {
           tempFile.existsSync() &&
           tempFile.lengthSync() > 1024) {
         final targetFile = File(
-          '${dir.path}${Platform.pathSeparator}stream_$videoId.$downloadedContainer',
+          '${targetDir.path}${Platform.pathSeparator}stream_$videoId.$downloadedContainer',
         );
         if (targetFile.existsSync()) {
           try {
@@ -200,9 +288,10 @@ class CachedStreamService {
           filePath: targetFile.path,
           streamUrl: streamUrl,
           fileSizeBytes: targetFile.lengthSync(),
+          isUserDownload: isUserDownload,
         );
         debugPrint(
-            '[CachedStreamService] Successfully cached offline stream: $title (${formatBytes(targetFile.lengthSync())})');
+            '[CachedStreamService] Successfully saved ${isUserDownload ? "permanent download" : "stream cache"}: $title (${formatBytes(targetFile.lengthSync())})');
         return true;
       }
 
@@ -255,51 +344,94 @@ class CachedStreamService {
       for (final raw in rawList) {
         try {
           final item = CachedStreamItem.fromJson(raw);
-          // Only files inside the dedicated stream-cache folder that physically exist
-          if (!_isCacheFile(item.filePath)) continue;
-          loadedItems.add(item);
-          seenVideoIds.add(item.videoId);
-          seenFileNames.add(p.basename(item.filePath).toLowerCase());
+          // Resilient file resolution: if stored path moved or container changed,
+          // check if it exists in downloadsDirectory or streamCacheDirectory by file name
+          String resolvedPath = item.filePath;
+          if (!File(resolvedPath).existsSync()) {
+            final fileName = p.basename(item.filePath);
+            final inDocs = File(p.join(downloadsDirectory.path, fileName));
+            final inTemp = File(p.join(streamCacheDirectory.path, fileName));
+            if (inDocs.existsSync()) {
+              resolvedPath = inDocs.path;
+            } else if (inTemp.existsSync()) {
+              resolvedPath = inTemp.path;
+            }
+          }
+
+          // Only files inside the dedicated cache/downloads folders that physically exist
+          if (!_isCacheFile(resolvedPath)) continue;
+
+          final isDownload = item.isUserDownload ||
+              resolvedPath.toLowerCase().contains('sautiplay_downloads');
+
+          final effectiveItem = (resolvedPath == item.filePath &&
+                  isDownload == item.isUserDownload)
+              ? item
+              : CachedStreamItem(
+                  videoId: item.videoId,
+                  title: item.title,
+                  artist: item.artist,
+                  thumbnailUrl: item.thumbnailUrl,
+                  durationSeconds: item.durationSeconds,
+                  filePath: resolvedPath,
+                  streamUrl: item.streamUrl,
+                  fileSizeBytes: item.fileSizeBytes,
+                  cachedAt: item.cachedAt,
+                  isUserDownload: isDownload,
+                );
+
+          loadedItems.add(effectiveItem);
+          seenVideoIds.add(effectiveItem.videoId);
+          seenFileNames.add(p.basename(effectiveItem.filePath).toLowerCase());
         } catch (_) {}
       }
 
-      // Also scan directory in case new stream files were written directly
-      if (cacheDirectory.existsSync()) {
-        final dirFiles = cacheDirectory.listSync().whereType<File>();
-        for (final file in dirFiles) {
-          if (!file.path.endsWith('.tmp')) {
-            final size = file.existsSync() ? file.lengthSync() : 0;
-            if (size > 1024) {
-              final fileName = p.basename(file.path);
-              final fileNameLower = fileName.toLowerCase();
-              final baseWithoutExt = p.basenameWithoutExtension(file.path);
-              final cleanVideoId = baseWithoutExt.startsWith('stream_')
-                  ? baseWithoutExt.substring(7)
-                  : baseWithoutExt;
+      // Also scan disk directories for any tracks
+      for (final dir in [downloadsDirectory, streamCacheDirectory]) {
+        if (dir.existsSync()) {
+          final isDocsDir = dir.path == downloadsDirectory.path;
+          final dirFiles = dir.listSync().whereType<File>();
+          for (final file in dirFiles) {
+            if (!file.path.endsWith('.tmp')) {
+              final size = file.existsSync() ? file.lengthSync() : 0;
+              if (size > 1024) {
+                final fileName = p.basename(file.path);
+                final fileNameLower = fileName.toLowerCase();
+                final baseWithoutExt = p.basenameWithoutExtension(file.path);
+                final cleanVideoId = baseWithoutExt.startsWith('stream_')
+                    ? baseWithoutExt.substring(7)
+                    : baseWithoutExt;
 
-              if (!seenFileNames.contains(fileNameLower) &&
-                  !seenVideoIds.contains(cleanVideoId)) {
-                loadedItems.add(CachedStreamItem(
-                  videoId: cleanVideoId,
-                  title: 'Stream $cleanVideoId',
-                  artist: 'Online Stream',
-                  thumbnailUrl: null,
-                  durationSeconds: 0,
-                  filePath: file.path,
-                  streamUrl: null,
-                  fileSizeBytes: size,
-                  cachedAt: file.lastModifiedSync(),
-                ));
-                seenVideoIds.add(cleanVideoId);
-                seenFileNames.add(fileNameLower);
+                if (!seenFileNames.contains(fileNameLower) &&
+                    !seenVideoIds.contains(cleanVideoId)) {
+                  loadedItems.add(CachedStreamItem(
+                    videoId: cleanVideoId,
+                    title: 'Stream $cleanVideoId',
+                    artist: isDocsDir ? 'Offline Download' : 'Cached Stream',
+                    thumbnailUrl: null,
+                    durationSeconds: 0,
+                    filePath: file.path,
+                    streamUrl: null,
+                    fileSizeBytes: size,
+                    cachedAt: file.lastModifiedSync(),
+                    isUserDownload: isDocsDir,
+                  ));
+                  seenVideoIds.add(cleanVideoId);
+                  seenFileNames.add(fileNameLower);
+                }
               }
             }
           }
         }
       }
 
-      // Sort newest first
-      loadedItems.sort((a, b) => b.cachedAt.compareTo(a.cachedAt));
+      // Sort: permanent downloads first, then newest
+      loadedItems.sort((a, b) {
+        if (a.isUserDownload != b.isUserDownload) {
+          return a.isUserDownload ? -1 : 1;
+        }
+        return b.cachedAt.compareTo(a.cachedAt);
+      });
 
       cachedStreamsNotifier.value = List.unmodifiable(loadedItems);
       _updateTotalSize(loadedItems);
@@ -322,6 +454,7 @@ class CachedStreamService {
     int? durationSeconds,
     String? streamUrl,
     int? fileSizeBytes,
+    bool? isUserDownload,
   }) async {
     try {
       final file = File(filePath);
@@ -337,6 +470,9 @@ class CachedStreamService {
           item.filePath == filePath ||
           p.basename(item.filePath).toLowerCase() == fileName);
 
+      final isDownload = isUserDownload ??
+          filePath.toLowerCase().contains('sautiplay_downloads');
+
       final newItem = CachedStreamItem(
         videoId: videoId,
         title: title.isNotEmpty ? title : 'Stream $videoId',
@@ -347,6 +483,7 @@ class CachedStreamService {
         streamUrl: streamUrl,
         fileSizeBytes: actualSize,
         cachedAt: DateTime.now(),
+        isUserDownload: isDownload,
       );
 
       current.insert(0, newItem);
@@ -385,11 +522,13 @@ class CachedStreamService {
     }
   }
 
-  /// Clears the entire stream cache folder and clears stored records.
-  Future<void> clearAllCache() async {
+  /// Clears stream cache files.
+  /// If [clearUserDownloads] is false (default), only the volatile stream cache is deleted,
+  /// preserving all user downloaded offline songs.
+  Future<void> clearAllCache({bool clearUserDownloads = false}) async {
     try {
-      if (cacheDirectory.existsSync()) {
-        final entities = cacheDirectory.listSync();
+      if (streamCacheDirectory.existsSync()) {
+        final entities = streamCacheDirectory.listSync();
         for (final entity in entities) {
           try {
             entity.deleteSync(recursive: true);
@@ -397,11 +536,16 @@ class CachedStreamService {
         }
       }
 
-      cachedStreamsNotifier.value = const [];
-      totalSizeBytesNotifier.value = 0;
+      if (clearUserDownloads && downloadsDirectory.existsSync()) {
+        final entities = downloadsDirectory.listSync();
+        for (final entity in entities) {
+          try {
+            entity.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_storageKey);
+      await refreshCache();
     } catch (e) {
       debugPrint('[CachedStreamService] Error clearing all cache: $e');
     }

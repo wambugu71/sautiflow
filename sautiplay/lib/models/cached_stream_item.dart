@@ -12,6 +12,7 @@ class CachedStreamItem {
   final String? streamUrl; // Original stream URL
   final int fileSizeBytes;
   final DateTime cachedAt;
+  final bool isUserDownload;
 
   CachedStreamItem({
     required this.videoId,
@@ -23,6 +24,7 @@ class CachedStreamItem {
     this.streamUrl,
     required this.fileSizeBytes,
     required this.cachedAt,
+    this.isUserDownload = false,
   });
 
   /// Check if the cached file actually exists on the filesystem.
@@ -58,22 +60,28 @@ class CachedStreamItem {
       'streamUrl': streamUrl,
       'fileSizeBytes': fileSizeBytes,
       'cachedAt': cachedAt.toIso8601String(),
+      'isUserDownload': isUserDownload,
     };
   }
 
   factory CachedStreamItem.fromMap(Map<String, dynamic> map) {
+    final path = map['filePath'] as String? ?? '';
+    final isExplicit = map['isUserDownload'] as bool?;
+    final isDownload = isExplicit ?? path.toLowerCase().contains('downloads');
+
     return CachedStreamItem(
       videoId: map['videoId'] as String? ?? '',
       title: map['title'] as String? ?? 'Cached Stream',
       artist: map['artist'] as String? ?? 'Online Stream',
       thumbnailUrl: map['thumbnailUrl'] as String?,
       durationSeconds: map['durationSeconds'] as int? ?? 0,
-      filePath: map['filePath'] as String? ?? '',
+      filePath: path,
       streamUrl: map['streamUrl'] as String?,
       fileSizeBytes: map['fileSizeBytes'] as int? ?? 0,
       cachedAt: map['cachedAt'] != null
           ? DateTime.tryParse(map['cachedAt'] as String) ?? DateTime.now()
           : DateTime.now(),
+      isUserDownload: isDownload,
     );
   }
 
