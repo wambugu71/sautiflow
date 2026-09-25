@@ -102,10 +102,16 @@ class NowPlayingScreen extends StatefulWidget {
 }
 
 class _NowPlayingScreenState extends State<NowPlayingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late bool _isAnalyzerEnabled;
   late final AnimationController _rotationController;
   late final PageController _pageController;
+
+  // ── High-Refresh-Rate (60-120Hz) Smooth Playhead Interpolator ─────────────
+  final ValueNotifier<double> _smoothPositionNotifier = ValueNotifier<double>(0.0);
+  Ticker? _smoothPositionTicker;
+  final Stopwatch _smoothStopwatch = Stopwatch();
+  double _anchorPosMs = 0.0;
 
   final ValueNotifier<List<double>> _analyzerValuesNotifier = ValueNotifier([]);
   StreamSubscription? _analyzerSub;
@@ -238,6 +244,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       duration: const Duration(seconds: 20),
     );
 
+    _smoothStopwatch.start();
+    _smoothPositionTicker = createTicker(_onSmoothPositionTick);
+
     widget.statusNotifier.addListener(_onStatusChanged);
   }
 
@@ -357,15 +366,60 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  void _onSmoothPositionTick(Duration elapsed) {
+    if (!mounted) return;
+    if (_isDragging) return;
+    if (_pendingSeekMs != null) return;
+    final status = widget.statusNotifier.value;
+    if (!status.isPlaying) return;
+
+    final elapsedMs = _smoothStopwatch.elapsedMilliseconds;
+    final overrideSecs = widget.durationOverride;
+    final baseDurationSecs = (overrideSecs != null && overrideSecs > 0)
+        ? overrideSecs.toDouble()
+        : status.durationSeconds;
+    final maxMs = baseDurationSecs > 0 ? baseDurationSecs * 1000.0 : 1.0;
+    final current = (_anchorPosMs + (elapsedMs * _currentRate)).clamp(0.0, maxMs);
+    if ((_smoothPositionNotifier.value - current).abs() >= 0.5) {
+      _smoothPositionNotifier.value = current;
+    }
+  }
+
   void _onStatusChanged() {
     final status = widget.statusNotifier.value;
-    if (status.isPlaying) {
+    final hasArt = widget.albumArt != null && widget.albumArt!.isNotEmpty;
+    if (status.isPlaying && !hasArt) {
       if (!_rotationController.isAnimating) {
         _rotationController.repeat();
       }
     } else {
       if (_rotationController.isAnimating) {
         _rotationController.stop();
+      }
+    }
+
+    final enginePosMs = status.positionSeconds * 1000.0;
+    if (!_isDragging && _pendingSeekMs == null) {
+      if (status.isPlaying) {
+        if (_smoothPositionTicker != null && !_smoothPositionTicker!.isActive) {
+          _smoothPositionTicker!.start();
+        }
+        final diff = (enginePosMs - _smoothPositionNotifier.value).abs();
+        if (diff > 500) {
+          _anchorPosMs = enginePosMs;
+          _smoothStopwatch.reset();
+          _smoothPositionNotifier.value = enginePosMs;
+        } else {
+          _anchorPosMs = enginePosMs;
+          _smoothStopwatch.reset();
+        }
+      } else {
+        if (_smoothPositionTicker != null && _smoothPositionTicker!.isActive) {
+          _smoothPositionTicker!.stop();
+        }
+        _anchorPosMs = enginePosMs;
+        _smoothStopwatch.reset();
+        _smoothPositionNotifier.value = enginePosMs;
       }
     }
 
@@ -377,6 +431,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _abRepeatState = 0;
       _abPointAMs = null;
       _abPointBMs = null;
+      _anchorPosMs = 0.0;
+      _smoothStopwatch.reset();
+      _smoothPositionNotifier.value = 0.0;
       widget.player.setAbRepeat(enabled: false, startSeconds: 0, endSeconds: 0);
 
       // Immediately clear custom tag overrides on track change
@@ -414,9 +471,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     final target = _pendingSeekMs;
     if (target == null) return;
-    final enginePosMs = status.positionSeconds * 1000.0;
     if ((enginePosMs - target).abs() < 1500) {
       _seekTimeoutTimer?.cancel();
+      _anchorPosMs = enginePosMs;
+      _smoothStopwatch.reset();
       if (mounted) setState(() => _pendingSeekMs = null);
     }
   }
@@ -466,6 +524,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   @override
   void dispose() {
+    _smoothPositionTicker?.dispose();
+    _smoothPositionNotifier.dispose();
     widget.statusNotifier.removeListener(_onStatusChanged);
     _seekTimeoutTimer?.cancel();
     _analyzerSub?.cancel();
@@ -2095,7 +2155,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return ValueListenableBuilder<PlayerStatus>(
       valueListenable: widget.statusNotifier,
       builder: (context, status, _) {
-        if (status.isPlaying) {
+        final hasArt = widget.albumArt != null && widget.albumArt!.isNotEmpty;
+        if (status.isPlaying && !hasArt) {
           if (!_rotationController.isAnimating) {
             _rotationController.repeat();
           }
@@ -2159,49 +2220,52 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Scaffold(
             body: Stack(
               children: [
-                // Immersive Dynamic Background Layer (Album art blurred background or ambient glow)
+                // Immersive Dynamic Background Layer (Optimized GPU-friendly blurred background)
                 Positioned.fill(
-                  child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
-                      ? Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.memory(
-                              widget.albumArt!,
-                              fit: BoxFit.cover,
-                            ),
-                            ClipRect(
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.black.withValues(alpha: 0.55),
-                                        bgColor.withValues(alpha: 0.82),
-                                        bgColor.withValues(alpha: 0.98),
-                                      ],
-                                      stops: const [0.0, 0.55, 1.0],
-                                    ),
+                  child: RepaintBoundary(
+                    child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                        ? Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ImageFiltered(
+                                imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                                child: Image.memory(
+                                  widget.albumArt!,
+                                  fit: BoxFit.cover,
+                                  cacheWidth: 96,
+                                  cacheHeight: 96,
+                                  filterQuality: FilterQuality.low,
+                                ),
+                              ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.black.withValues(alpha: 0.55),
+                                      bgColor.withValues(alpha: 0.82),
+                                      bgColor.withValues(alpha: 0.98),
+                                    ],
+                                    stops: const [0.0, 0.55, 1.0],
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        )
-                      : Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                primaryColor.withValues(alpha: 0.18),
-                                bgColor,
-                              ],
+                            ],
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  primaryColor.withValues(alpha: 0.18),
+                                  bgColor,
+                                ],
+                              ),
                             ),
                           ),
-                        ),
+                  ),
                 ),
                 PageView(
                   controller: _pageController,
@@ -2384,17 +2448,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         CrossAxisAlignment
                                                             .start,
                                                     children: [
-                                                      AdaptiveMarqueeText(
-                                                        text: title,
-                                                        style: const TextStyle(
-                                                          fontSize: 32,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          color: textLight,
-                                                          letterSpacing: -0.5,
+                                                      RepaintBoundary(
+                                                        child: AdaptiveMarqueeText(
+                                                          text: title,
+                                                          style: const TextStyle(
+                                                            fontSize: 32,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            color: textLight,
+                                                            letterSpacing: -0.5,
+                                                          ),
+                                                          blankSpace: 40.0,
+                                                          velocity: 30.0,
                                                         ),
-                                                        blankSpace: 40.0,
-                                                        velocity: 30.0,
                                                       ),
                                                       const SizedBox(height: 6),
                                                       InkWell(
@@ -2704,7 +2770,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
                                                         milliseconds:
-                                                            (displayPosMs -
+                                                            (_smoothPositionNotifier.value -
                                                                     10000)
                                                                 .toInt()
                                                                 .clamp(
@@ -2791,7 +2857,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
                                                         milliseconds:
-                                                            (displayPosMs +
+                                                            (_smoothPositionNotifier.value +
                                                                     10000)
                                                                 .toInt()
                                                                 .clamp(
@@ -2807,73 +2873,82 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
                                           // Seek Bar & Diagnostic Info Chip wrapped in RepaintBoundary
                                           RepaintBoundary(
-                                            child: Column(
-                                              children: [
-                                                if (_abRepeatState >= 1)
-                                                  _buildAbRegionLabels(
-                                                      maxMs: maxMs),
-                                                LayoutBuilder(
-                                                  builder:
-                                                      (context, constraints) {
-                                                    return _buildSeekBarWidget(
-                                                      displayPosMs:
-                                                          displayPosMs,
-                                                      maxMs: maxMs,
-                                                      totalWidth:
-                                                          constraints.maxWidth,
-                                                      isMobile: false,
-                                                      primaryColor:
-                                                          primaryColor,
-                                                    );
-                                                  },
-                                                ),
-                                                const SizedBox(height: 10),
-                                                Row(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment
-                                                          .spaceBetween,
+                                            child: ValueListenableBuilder<double>(
+                                              valueListenable: _smoothPositionNotifier,
+                                              builder: (context, smoothPosMs, _) {
+                                                final effectivePosMs = _isDragging
+                                                    ? _dragPositionMs.clamp(0.0, maxMs)
+                                                    : (_pendingSeekMs?.clamp(0.0, maxMs) ??
+                                                        smoothPosMs.clamp(0.0, maxMs));
+                                                return Column(
                                                   children: [
-                                                    Text(
-                                                      _fmt(Duration(
-                                                          milliseconds:
-                                                              displayPosMs
-                                                                  .toInt())),
-                                                      style: const TextStyle(
-                                                          fontSize: 14,
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.bold),
+                                                    if (_abRepeatState >= 1)
+                                                      _buildAbRegionLabels(
+                                                          maxMs: maxMs),
+                                                    LayoutBuilder(
+                                                      builder:
+                                                          (context, constraints) {
+                                                        return _buildSeekBarWidget(
+                                                          displayPosMs:
+                                                              effectivePosMs,
+                                                          maxMs: maxMs,
+                                                          totalWidth:
+                                                              constraints.maxWidth,
+                                                          isMobile: false,
+                                                          primaryColor:
+                                                              primaryColor,
+                                                        );
+                                                      },
                                                     ),
-                                                    // M3E Audio Diagnostic Badge Chip
-                                                    M3EChip(
-                                                      leading: Icon(
-                                                        Icons.info,
-                                                        size: 13,
-                                                        color: primaryColor,
-                                                      ),
-                                                      label:
-                                                          _buildAudioInfoBadgeText(
-                                                              trackPosition),
-                                                      onPressed: () =>
-                                                          showAudioEngineDiagnosticPanel(
-                                                              context,
-                                                              widget.player,
-                                                              filePath: widget.videoId != null &&
-                                                                      widget.videoId!.startsWith('file://')
-                                                                  ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                                  : widget.videoId),
-                                                    ),
-                                                    Text(
-                                                      _fmt(duration),
-                                                      style: const TextStyle(
-                                                          fontSize: 14,
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.bold),
+                                                    const SizedBox(height: 10),
+                                                    Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .spaceBetween,
+                                                      children: [
+                                                        Text(
+                                                          _fmt(Duration(
+                                                              milliseconds:
+                                                                  effectivePosMs
+                                                                      .toInt())),
+                                                          style: const TextStyle(
+                                                              fontSize: 14,
+                                                              color: Colors.white,
+                                                              fontWeight:
+                                                                  FontWeight.bold),
+                                                        ),
+                                                        // M3E Audio Diagnostic Badge Chip
+                                                        M3EChip(
+                                                          leading: Icon(
+                                                            Icons.info,
+                                                            size: 13,
+                                                            color: primaryColor,
+                                                          ),
+                                                          label:
+                                                              _buildAudioInfoBadgeText(
+                                                                  trackPosition),
+                                                          onPressed: () =>
+                                                              showAudioEngineDiagnosticPanel(
+                                                                  context,
+                                                                  widget.player,
+                                                                  filePath: widget.videoId != null &&
+                                                                          widget.videoId!.startsWith('file://')
+                                                                      ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                                      : widget.videoId),
+                                                        ),
+                                                        Text(
+                                                          _fmt(duration),
+                                                          style: const TextStyle(
+                                                              fontSize: 14,
+                                                              color: Colors.white,
+                                                              fontWeight:
+                                                                  FontWeight.bold),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ],
-                                                ),
-                                              ],
+                                                );
+                                              },
                                             ),
                                           ),
                                           if (!_showLyrics) const Spacer(),
@@ -3035,15 +3110,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                AdaptiveMarqueeText(
-                                                  text: title,
-                                                  style: const TextStyle(
-                                                    fontSize: 22,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: textLight,
+                                                RepaintBoundary(
+                                                  child: AdaptiveMarqueeText(
+                                                    text: title,
+                                                    style: const TextStyle(
+                                                      fontSize: 22,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: textLight,
+                                                    ),
+                                                    blankSpace: 40.0,
+                                                    velocity: 30.0,
                                                   ),
-                                                  blankSpace: 40.0,
-                                                  velocity: 30.0,
                                                 ),
                                                 const SizedBox(height: 4),
                                                 InkWell(
@@ -3249,10 +3326,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     icon: const Icon(Icons.fast_rewind_rounded,
                                         size: 28),
                                     onPressed: () {
+                                      final target =
+                                          (_smoothPositionNotifier.value - 10000)
+                                              .clamp(0.0, maxMs);
+                                      _pendingSeekMs = target;
+                                      _anchorPosMs = target;
+                                      _smoothStopwatch.reset();
+                                      _smoothPositionNotifier.value = target;
                                       widget.player.seekTo(Duration(
-                                          milliseconds: (displayPosMs - 10000)
-                                              .toInt()
-                                              .clamp(0, maxMs.toInt())));
+                                          milliseconds: target.toInt()));
+                                      _seekTimeoutTimer?.cancel();
+                                      _seekTimeoutTimer = Timer(
+                                          const Duration(milliseconds: 1500), () {
+                                        if (mounted) {
+                                          setState(() => _pendingSeekMs = null);
+                                        }
+                                      });
                                     },
                                   ),
                                   const SizedBox(width: 8),
@@ -3316,10 +3405,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     icon: const Icon(Icons.fast_forward_rounded,
                                         size: 28),
                                     onPressed: () {
+                                      final target =
+                                          (_smoothPositionNotifier.value + 10000)
+                                              .clamp(0.0, maxMs);
+                                      _pendingSeekMs = target;
+                                      _anchorPosMs = target;
+                                      _smoothStopwatch.reset();
+                                      _smoothPositionNotifier.value = target;
                                       widget.player.seekTo(Duration(
-                                          milliseconds: (displayPosMs + 10000)
-                                              .toInt()
-                                              .clamp(0, maxMs.toInt())));
+                                          milliseconds: target.toInt()));
+                                      _seekTimeoutTimer?.cancel();
+                                      _seekTimeoutTimer = Timer(
+                                          const Duration(milliseconds: 1500), () {
+                                        if (mounted) {
+                                          setState(() => _pendingSeekMs = null);
+                                        }
+                                      });
                                     },
                                   ),
                                 ],
@@ -3333,67 +3434,76 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 20.0),
                               child: RepaintBoundary(
-                                child: Column(
-                                  children: [
-                                    if (_abRepeatState >= 1)
-                                      _buildAbRegionLabels(maxMs: maxMs),
-                                    LayoutBuilder(
-                                      builder: (context, constraints) {
-                                        return _buildSeekBarWidget(
-                                          displayPosMs: displayPosMs,
-                                          maxMs: maxMs,
-                                          totalWidth: constraints.maxWidth,
-                                          isMobile: true,
-                                          primaryColor: primaryColor,
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: _smoothPositionNotifier,
+                                  builder: (context, smoothPosMs, _) {
+                                    final effectivePosMs = _isDragging
+                                        ? _dragPositionMs.clamp(0.0, maxMs)
+                                        : (_pendingSeekMs?.clamp(0.0, maxMs) ??
+                                            smoothPosMs.clamp(0.0, maxMs));
+                                    return Column(
                                       children: [
-                                        Text(
-                                          _fmt(Duration(
-                                              milliseconds:
-                                                  displayPosMs.toInt())),
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold),
+                                        if (_abRepeatState >= 1)
+                                          _buildAbRegionLabels(maxMs: maxMs),
+                                        LayoutBuilder(
+                                          builder: (context, constraints) {
+                                            return _buildSeekBarWidget(
+                                              displayPosMs: effectivePosMs,
+                                              maxMs: maxMs,
+                                              totalWidth: constraints.maxWidth,
+                                              isMobile: true,
+                                              primaryColor: primaryColor,
+                                            );
+                                          },
                                         ),
-                                        Flexible(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 4.0),
-                                            child: M3EChip(
-                                              leading: Icon(
-                                                  Icons.info_outline_rounded,
-                                                  size: 10,
-                                                  color: primaryColor),
-                                              label: _buildAudioInfoBadgeText(
-                                                  trackPosition),
-                                              onPressed: () =>
-                                                  showAudioEngineDiagnosticPanel(
-                                                      context,
-                                                      widget.player,
-                                                      filePath: widget.videoId != null &&
-                                                              widget.videoId!.startsWith('file://')
-                                                          ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                          : widget.videoId),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              _fmt(Duration(
+                                                  milliseconds:
+                                                      effectivePosMs.toInt())),
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold),
                                             ),
-                                          ),
-                                        ),
-                                        Text(
-                                          _fmt(duration),
-                                          style: const TextStyle(
-                                              fontSize: 8,
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold),
+                                            Flexible(
+                                              child: Padding(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 4.0),
+                                                child: M3EChip(
+                                                  leading: Icon(
+                                                      Icons.info_outline_rounded,
+                                                      size: 10,
+                                                      color: primaryColor),
+                                                  label: _buildAudioInfoBadgeText(
+                                                      trackPosition),
+                                                  onPressed: () =>
+                                                      showAudioEngineDiagnosticPanel(
+                                                          context,
+                                                          widget.player,
+                                                          filePath: widget.videoId != null &&
+                                                                  widget.videoId!.startsWith('file://')
+                                                              ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                              : widget.videoId),
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              _fmt(duration),
+                                              style: const TextStyle(
+                                                  fontSize: 8,
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
                                         ),
                                       ],
-                                    ),
-                                  ],
+                                    );
+                                  },
                                 ),
                               ),
                             ),
@@ -3690,12 +3800,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () {
+            final curMs = _smoothPositionNotifier.value;
             setState(() {
               if (_abRepeatState == 0) {
-                _abPointAMs = currentPositionMs;
+                _abPointAMs = curMs;
                 _abRepeatState = 1;
               } else if (_abRepeatState == 1) {
-                final b = currentPositionMs;
+                final b = curMs;
                 final a = _abPointAMs!;
                 if (b > a + 500) {
                   _abPointBMs = b;
@@ -3981,21 +4092,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           height: isMobile ? 48.0 : 56.0,
           activeColor: primaryColor,
           onDragStateChanged: (dragging) {
-            setState(() {
-              _isDragging = dragging;
-            });
+            _isDragging = dragging;
           },
           onDragUpdate: (v) {
-            setState(() {
-              _dragPositionMs = v;
-            });
+            _isDragging = true;
+            _dragPositionMs = v;
+            _smoothPositionNotifier.value = v;
           },
           onSeekEnd: (v) {
             _seekTimeoutTimer?.cancel();
-            setState(() {
-              _isDragging = false;
-              _pendingSeekMs = v;
-            });
+            _isDragging = false;
+            _pendingSeekMs = v;
+            _anchorPosMs = v;
+            _smoothStopwatch.reset();
+            _smoothPositionNotifier.value = v;
             widget.player.seekTo(Duration(milliseconds: v.toInt()));
             _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
               if (mounted) setState(() => _pendingSeekMs = null);
@@ -4015,17 +4125,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             thumbLength: isMobile ? 24.0 : 28.0,
             showValueIndicator: false,
             onChanged: (v) {
-              setState(() {
-                _isDragging = true;
-                _dragPositionMs = v;
-              });
+              _isDragging = true;
+              _dragPositionMs = v;
+              _smoothPositionNotifier.value = v;
             },
             onChangeEnd: (v) {
               _seekTimeoutTimer?.cancel();
-              setState(() {
-                _isDragging = false;
-                _pendingSeekMs = v;
-              });
+              _isDragging = false;
+              _pendingSeekMs = v;
+              _anchorPosMs = v;
+              _smoothStopwatch.reset();
+              _smoothPositionNotifier.value = v;
               widget.player.seekTo(Duration(milliseconds: v.toInt()));
               _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
                 if (mounted) setState(() => _pendingSeekMs = null);
@@ -4041,17 +4151,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             thumbLength: isMobile ? 24.0 : 28.0,
             showValueIndicator: false,
             onChanged: (v) {
-              setState(() {
-                _isDragging = true;
-                _dragPositionMs = v;
-              });
+              _isDragging = true;
+              _dragPositionMs = v;
+              _smoothPositionNotifier.value = v;
             },
             onChangeEnd: (v) {
               _seekTimeoutTimer?.cancel();
-              setState(() {
-                _isDragging = false;
-                _pendingSeekMs = v;
-              });
+              _isDragging = false;
+              _pendingSeekMs = v;
+              _anchorPosMs = v;
+              _smoothStopwatch.reset();
+              _smoothPositionNotifier.value = v;
               widget.player.seekTo(Duration(milliseconds: v.toInt()));
               _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
                 if (mounted) setState(() => _pendingSeekMs = null);

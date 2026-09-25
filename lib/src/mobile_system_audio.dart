@@ -23,7 +23,7 @@ class MiniAudioSystemAudioConfig {
     this.androidNotificationChannelName = 'Audio Playback',
     this.androidNotificationOngoing = true,
     this.androidStopForegroundOnPause = true,
-    this.androidNotificationIcon = 'drawable/ic_notification',
+    this.androidNotificationIcon = 'drawable/splash',
   });
 
   final bool enableDucking;

@@ -714,6 +714,9 @@ public class AudioService extends MediaBrowserServiceCompat {
         }
         int iconId = getResourceId(config.androidNotificationIcon);
         if (iconId == 0) {
+            iconId = getResourceId("drawable/splash");
+        }
+        if (iconId == 0) {
             iconId = getResourceId("drawable/ic_notification");
         }
         if (iconId == 0) {

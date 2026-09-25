@@ -112,7 +112,7 @@ class IsolateAudioPlayer {
             permanentFocusLossAction: focusSettings.permanentFocusLossAction,
             handleHeadsetMultiClicks: focusSettings.handleHeadsetMultiClicks,
             headsetClickTimeoutMs: focusSettings.headsetClickTimeoutMs,
-            androidNotificationIcon: 'drawable/ic_notification',
+            androidNotificationIcon: 'drawable/splash',
           ),
         );
       } else if (!kIsWeb &&
@@ -1457,7 +1457,7 @@ class IsolateAudioPlayer {
         permanentFocusLossAction: settings.permanentFocusLossAction,
         handleHeadsetMultiClicks: settings.handleHeadsetMultiClicks,
         headsetClickTimeoutMs: settings.headsetClickTimeoutMs,
-        androidNotificationIcon: 'drawable/ic_notification',
+        androidNotificationIcon: 'drawable/splash',
       ),
     );
   }

@@ -202,12 +202,23 @@ class MainActivity : AudioServiceActivity() {
                 if (targetModeId != 0) {
                     val params = window.attributes
                     params.preferredDisplayModeId = targetModeId
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        params.preferredMinDisplayRefreshRate = maxRate
+                        params.preferredMaxDisplayRefreshRate = maxRate
+                    }
                     window.attributes = params
                     Log.d(TAG, "Configured high refresh rate: $maxRate Hz (mode $targetModeId)")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to configure high refresh rate: ${e.message}")
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            enableHighRefreshRateIfAvailable()
         }
     }
 
