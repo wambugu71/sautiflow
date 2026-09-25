@@ -457,71 +457,74 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
     );
 
-    final confirm = isMobile
-        ? await M3EBottomSheet.show<bool>(
-            context,
-            builder: (ctx) => Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+    final bool? confirm;
+    if (isMobile) {
+      confirm = await M3EBottomSheet.show<bool>(
+        context,
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Import Stream URL',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              const SizedBox(height: 16),
+              dialogContent,
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Text(
-                    'Import Stream URL',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  M3EButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancel'),
                   ),
-                  const SizedBox(height: 16),
-                  dialogContent,
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      M3EButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 10),
-                      M3EButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text('Import Stream'),
-                      ),
-                    ],
+                  const SizedBox(width: 10),
+                  M3EButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Import Stream'),
                   ),
                 ],
               ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      confirm = await M3EDialog.show<bool>(
+        context,
+        dialog: M3EDialog(
+          title: 'Import Stream URL',
+          topDivider: true,
+          bottomDivider: true,
+          content: SizedBox(
+            width: 480,
+            child: dialogContent,
+          ),
+          actions: [
+            M3EButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
             ),
-          )
-        : await M3EDialog.show<bool>(
-            context,
-            dialog: M3EDialog(
-              title: 'Import Stream URL',
-              topDivider: true,
-              bottomDivider: true,
-              content: SizedBox(
-                width: 480,
-                child: dialogContent,
-              ),
-              actions: [
-                M3EButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                M3EButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Import Stream'),
-                ),
-              ],
+            M3EButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Import Stream'),
             ),
-          );
+          ],
+        ),
+      );
+    }
 
     if (confirm != true || urlController.text.trim().isEmpty) return;
 
@@ -1936,6 +1939,7 @@ class LibraryScreenState extends State<LibraryScreen>
             FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
       });
       await _saveCachedSongs();
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -4734,6 +4738,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           if (meta.duration > Duration.zero) d = meta.duration;
           if (meta.pictures.isNotEmpty) art = meta.pictures.first.bytes;
         } catch (_) {}
+        if (!mounted) return;
         await MusicInfoDialog.show(
           context,
           title: song.title,
