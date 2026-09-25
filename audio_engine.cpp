@@ -1520,7 +1520,8 @@ namespace
             return inDb + slope * (x * x) / (2.0f * kneeDb);
         }
 
-        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        template <typename SampleT>
+        void process(SampleT *interleaved, ma_uint32 frames, int channels, int sampleRate)
         {
             if (channels < 1)
                 return;
@@ -1544,7 +1545,7 @@ namespace
                 float levelDb[MAX_CHANNELS];
                 for (int c = 0; c < ch; ++c)
                 {
-                    const float x = interleaved[base + (size_t)c];
+                    const float x = static_cast<float>(interleaved[base + (size_t)c]);
                     float lvl;
                     if (isRms)
                     {
@@ -1596,9 +1597,9 @@ namespace
 
                     if (g < maxGrThisBlock) maxGrThisBlock = g;
 
-                    const float x = interleaved[base + (size_t)c];
-                    const float wet = x * g * makeupGainLinear;
-                    interleaved[base + (size_t)c] = mix * wet + (1.0f - mix) * x;
+                    const SampleT x = interleaved[base + (size_t)c];
+                    const SampleT wet = x * static_cast<SampleT>(g * makeupGainLinear);
+                    interleaved[base + (size_t)c] = static_cast<SampleT>(mix) * wet + (static_cast<SampleT>(1.0) - static_cast<SampleT>(mix)) * x;
                 }
             }
 
@@ -1697,6 +1698,7 @@ namespace
         float releaseMs = 50.0f;
 
         std::vector<float> delayBuffer;
+        std::vector<double> delayBuffer64;
         size_t writeIdx = 0;
         size_t lookAheadSamples = 0;
         float gainEnvelope = 1.0f;
@@ -1721,14 +1723,18 @@ namespace
             if (delayBuffer.size() != neededBufSize)
             {
                 delayBuffer.assign(neededBufSize, 0.0f);
+                delayBuffer64.assign(neededBufSize, 0.0);
                 writeIdx = 0;
             }
             gainEnvelope = 1.0f;
         }
 
-        void process(float *interleaved, ma_uint32 frames, int channels, int sampleRate)
+        template <typename SampleT>
+        void process(SampleT *interleaved, ma_uint32 frames, int channels, int sampleRate)
         {
-            if (channels < 1 || delayBuffer.empty()) return;
+            if (channels < 1) return;
+            const bool is64 = std::is_same<SampleT, double>::value;
+            if (is64 ? delayBuffer64.empty() : delayBuffer.empty()) return;
             const float linearCeiling = std::pow(10.0f, ceilingDBTP / 20.0f);
 
             const float releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
@@ -1741,7 +1747,7 @@ namespace
                 size_t base = (size_t)i * (size_t)channels;
                 for (int c = 0; c < channels; ++c)
                 {
-                    float absVal = std::abs(interleaved[base + (size_t)c]);
+                    float absVal = std::abs(static_cast<float>(interleaved[base + (size_t)c]));
                     if (absVal > peak) peak = absVal;
                 }
 
@@ -1762,16 +1768,32 @@ namespace
 
                 if (gainEnvelope < maxGRThisBlock) maxGRThisBlock = gainEnvelope;
 
-                size_t readIdx = (writeIdx + delayBuffer.size() - lookAheadSamples * (size_t)channels) % delayBuffer.size();
-
-                for (int c = 0; c < channels; ++c)
+                if constexpr (std::is_same<SampleT, double>::value)
                 {
-                    float delayedSample = delayBuffer[readIdx + (size_t)c];
-                    delayBuffer[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
-                    interleaved[base + (size_t)c] = delayedSample * gainEnvelope;
-                }
+                    size_t readIdx = (writeIdx + delayBuffer64.size() - lookAheadSamples * (size_t)channels) % delayBuffer64.size();
 
-                writeIdx = (writeIdx + (size_t)channels) % delayBuffer.size();
+                    for (int c = 0; c < channels; ++c)
+                    {
+                        double delayedSample = delayBuffer64[readIdx + (size_t)c];
+                        delayBuffer64[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
+                        interleaved[base + (size_t)c] = delayedSample * static_cast<double>(gainEnvelope);
+                    }
+
+                    writeIdx = (writeIdx + (size_t)channels) % delayBuffer64.size();
+                }
+                else
+                {
+                    size_t readIdx = (writeIdx + delayBuffer.size() - lookAheadSamples * (size_t)channels) % delayBuffer.size();
+
+                    for (int c = 0; c < channels; ++c)
+                    {
+                        float delayedSample = delayBuffer[readIdx + (size_t)c];
+                        delayBuffer[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
+                        interleaved[base + (size_t)c] = delayedSample * gainEnvelope;
+                    }
+
+                    writeIdx = (writeIdx + (size_t)channels) % delayBuffer.size();
+                }
             }
 
             float grDB = (maxGRThisBlock < 1.0f) ? 20.0f * std::log10(maxGRThisBlock) : 0.0f;
@@ -2830,7 +2852,8 @@ namespace
             return (r1 - r2) * scale;
         }
 
-        void process(int ditherMode, AEAudioFormat outFmt, float *inOutSamples, size_t totalSamples, int channels)
+        template <typename SampleT>
+        void process(int ditherMode, AEAudioFormat outFmt, SampleT *inOutSamples, size_t totalSamples, int channels)
         {
             if (ditherMode <= 0 || !inOutSamples || totalSamples == 0)
                 return;
@@ -2839,31 +2862,32 @@ namespace
             const int ch = std::min(std::max(1, activeChannels), 16);
             const size_t frames = totalSamples / (size_t)activeChannels;
 
-            float lsbScale = 1.0f / 32768.0f; // 16-bit target (default)
+            double lsbScale = 1.0 / 32768.0; // 16-bit target (default)
             if (outFmt == AE_FORMAT_S24)
-                lsbScale = 1.0f / 8388608.0f;
+                lsbScale = 1.0 / 8388608.0;
             else if (outFmt == AE_FORMAT_S32)
-                lsbScale = 1.0f / 2147483648.0f;
+                lsbScale = 1.0 / 2147483648.0;
             else if (outFmt == AE_FORMAT_U8)
-                lsbScale = 1.0f / 128.0f;
+                lsbScale = 1.0 / 128.0;
+
+            const double ditherAmp = lsbScale;
 
             // Mode 1: Rectangle (RPDF)
             if (ditherMode == 1)
             {
-                const float ditherAmp = lsbScale; // 1.0 LSB p-p
                 for (size_t i = 0; i < frames; ++i)
                 {
                     size_t base = i * (size_t)activeChannels;
                     for (int c = 0; c < ch; ++c)
                     {
-                        float x = inOutSamples[base + c];
-                        float d = getRpdfDither(ditherAmp, c);
-                        float q = std::round((x + d) / lsbScale) * lsbScale;
+                        SampleT x = inOutSamples[base + c];
+                        double d = static_cast<double>(getRpdfDither(static_cast<float>(ditherAmp), c));
+                        double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
                         // Dither can push a near-full-scale sample past ±1.0;
                         // clamp so the downstream converter doesn't wrap/clip.
-                        if (q > 1.0f) q = 1.0f;
-                        else if (q < -1.0f) q = -1.0f;
-                        inOutSamples[base + c] = q;
+                        if (q > 1.0) q = 1.0;
+                        else if (q < -1.0) q = -1.0;
+                        inOutSamples[base + c] = static_cast<SampleT>(q);
                     }
                 }
                 return;
@@ -2872,18 +2896,17 @@ namespace
             // Mode 2: Triangle (TPDF)
             if (ditherMode == 2)
             {
-                const float ditherAmp = lsbScale; // 2.0 LSB p-p
                 for (size_t i = 0; i < frames; ++i)
                 {
                     size_t base = i * (size_t)activeChannels;
                     for (int c = 0; c < ch; ++c)
                     {
-                        float x = inOutSamples[base + c];
-                        float d = getTpdfDither(ditherAmp, c);
-                        float q = std::round((x + d) / lsbScale) * lsbScale;
-                        if (q > 1.0f) q = 1.0f;
-                        else if (q < -1.0f) q = -1.0f;
-                        inOutSamples[base + c] = q;
+                        SampleT x = inOutSamples[base + c];
+                        double d = static_cast<double>(getTpdfDither(static_cast<float>(ditherAmp), c));
+                        double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
+                        if (q > 1.0) q = 1.0;
+                        else if (q < -1.0) q = -1.0;
+                        inOutSamples[base + c] = static_cast<SampleT>(q);
                     }
                 }
                 return;
@@ -2909,33 +2932,33 @@ namespace
             default: a = coefShibata; break;
             }
 
-            const float ditherAmp = lsbScale; // 2.0 LSB p-p TPDF dither
-
             for (size_t i = 0; i < frames; ++i)
             {
                 size_t base = i * (size_t)activeChannels;
                 for (int c = 0; c < ch; ++c)
                 {
                     size_t idx = base + (size_t)c;
-                    float x = inOutSamples[idx];
+                    SampleT x = inOutSamples[idx];
 
-                    float feedback = a[0] * history[c][0] + a[1] * history[c][1] +
-                                     a[2] * history[c][2] + a[3] * history[c][3] +
-                                     a[4] * history[c][4];
+                    double feedback = static_cast<double>(a[0]) * static_cast<double>(history[c][0]) +
+                                     static_cast<double>(a[1]) * static_cast<double>(history[c][1]) +
+                                     static_cast<double>(a[2]) * static_cast<double>(history[c][2]) +
+                                     static_cast<double>(a[3]) * static_cast<double>(history[c][3]) +
+                                     static_cast<double>(a[4]) * static_cast<double>(history[c][4]);
 
-                    float dither = getTpdfDither(ditherAmp, c);
-                    float xShaped = x + feedback + dither;
+                    double dither = static_cast<double>(getTpdfDither(static_cast<float>(ditherAmp), c));
+                    double xShaped = static_cast<double>(x) + feedback + dither;
 
-                    float quantized = std::round(xShaped / lsbScale) * lsbScale;
-                    if (quantized > 1.0f) quantized = 1.0f;
-                    else if (quantized < -1.0f) quantized = -1.0f;
-                    float err = xShaped - quantized;
+                    double quantized = std::round(xShaped / lsbScale) * lsbScale;
+                    if (quantized > 1.0) quantized = 1.0;
+                    else if (quantized < -1.0) quantized = -1.0;
+                    float err = static_cast<float>(xShaped - quantized);
 
                     // Anti-windup: when the clamp engages, the raw error is
                     // huge and feeding it back makes the shaper overshoot to
                     // the opposite rail (audible low-frequency buzzing on
                     // full-scale material). Drop the error instead.
-                    if (quantized >= 1.0f || quantized <= -1.0f)
+                    if (quantized >= 1.0 || quantized <= -1.0)
                         err = 0.0f;
 
                     history[c][4] = history[c][3];
@@ -2944,7 +2967,7 @@ namespace
                     history[c][1] = history[c][0];
                     history[c][0] = err;
 
-                    inOutSamples[idx] = quantized;
+                    inOutSamples[idx] = static_cast<SampleT>(quantized);
                 }
             }
         }
@@ -3985,6 +4008,22 @@ struct AudioEngineHandle
                 break;
             }
         }
+    }
+
+    bool has_active_multiband_fx() const
+    {
+        for (const auto &band : multibandFxBands)
+        {
+            if (!band.enabled)
+                continue;
+            const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
+                                     band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
+                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
+            if (isGainType && std::abs(band.gainDb) < 0.005f)
+                continue;
+            return true;
+        }
+        return false;
     }
 
     void capture_analyzer_frames(const float *frames, ma_uint32 frameCount, int channels)
@@ -6157,7 +6196,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
     // nearest against the original grid and clamp to the type's range.
     // The U8 grid here ((u-128)/128, inverse x*128+128) matches the dither
     // processor's U8 LSB grid exactly.
-    static void f32ToIntExact(AEAudioFormat fmt, void *dst, const float *src, size_t count)
+    template <typename FloatT>
+    static void floatToIntExact(AEAudioFormat fmt, void *dst, const FloatT *src, size_t count)
     {
         switch (fmt)
         {
@@ -6166,7 +6206,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             ma_uint8 *d = (ma_uint8 *)dst;
             for (size_t i = 0; i < count; ++i)
             {
-                int r = (int)std::lrintf(src[i] * 128.0f) + 128;
+                int r = (int)std::lrint(static_cast<double>(src[i]) * 128.0) + 128;
                 if (r < 0) r = 0;
                 else if (r > 255) r = 255;
                 d[i] = (ma_uint8)r;
@@ -6178,7 +6218,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             ma_int16 *d = (ma_int16 *)dst;
             for (size_t i = 0; i < count; ++i)
             {
-                int r = (int)std::lrintf(src[i] * 32768.0f);
+                int r = (int)std::lrint(static_cast<double>(src[i]) * 32768.0);
                 if (r < -32768) r = -32768;
                 else if (r > 32767) r = 32767;
                 d[i] = (ma_int16)r;
@@ -6190,7 +6230,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             ma_uint8 *d = (ma_uint8 *)dst;
             for (size_t i = 0; i < count; ++i)
             {
-                long long r = (long long)std::llround((double)src[i] * 8388608.0);
+                long long r = (long long)std::llround(static_cast<double>(src[i]) * 8388608.0);
                 if (r < -8388608LL) r = -8388608LL;
                 else if (r > 8388607LL) r = 8388607LL;
                 const ma_int32 t = (ma_int32)r;
@@ -6205,7 +6245,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             ma_int32 *d = (ma_int32 *)dst;
             for (size_t i = 0; i < count; ++i)
             {
-                long long r = (long long)std::llround((double)src[i] * 2147483648.0);
+                long long r = (long long)std::llround(static_cast<double>(src[i]) * 2147483648.0);
                 if (r < (-2147483647LL - 1)) r = -2147483648LL;
                 else if (r > 2147483647LL) r = 2147483647LL;
                 d[i] = (ma_int32)r;
@@ -6215,6 +6255,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
         default:
             break;
         }
+    }
+
+    static inline void f32ToIntExact(AEAudioFormat fmt, void *dst, const float *src, size_t count)
+    {
+        floatToIntExact(fmt, dst, src, count);
     }
 
     static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
@@ -6276,6 +6321,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     ma_uint32 produced = 0;
     const bool needsDeviceSRC = (e->engineSampleRate > 0 && e->deviceSampleRate > 0 && e->engineSampleRate != e->deviceSampleRate);
+    const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
+                       e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                       (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
+    double *buf64 = nullptr;
 
     if (!e->ringBufferFlushing.load(std::memory_order_relaxed))
     {
@@ -6489,12 +6538,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
         }
 
-        const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
-                           e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                           (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
         const size_t totalSamples = (size_t)produced * (size_t)e->channels;
 
-        double *buf64 = nullptr;
         if (use64)
         {
             if (e->processBuffer64.size() < totalSamples)
@@ -6671,7 +6716,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         else
                             e->process_multiband_eq(processBuffer, produced, e->channels);
                     }
-                    if (e->multibandFxEnabled)
+                    if (e->multibandFxEnabled && e->has_active_multiband_fx())
                     {
                         if (use64)
                         {
@@ -6706,29 +6751,103 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
                 if (dspLock.owns_lock())
                 {
+                    const bool hasFloatDspSuite = e->downwardExpanderDsp.isEnabled() ||
+                                                  e->harmonicBassDsp.isEnabled() ||
+                                                  e->dynamicSystemDsp.isEnabled() ||
+                                                  e->analogWarmthDsp.isEnabled() ||
+                                                  e->dialogEnhancerDsp.isEnabled() ||
+                                                  e->clarityDsp.isEnabled() ||
+                                                  e->deEsserDsp.isEnabled() ||
+                                                  (e->channels == 2 && e->surroundDsp.isEnabled()) ||
+                                                  e->fftConvolverDsp.isEnabled();
+                    const bool hasDoubleDspSuite = e->noiseGateDsp.isEnabled() ||
+                                                   e->tapeDriftDsp.isEnabled() ||
+                                                   e->dynamicEqDsp.isEnabled() ||
+                                                   e->masterLimiterDsp.isEnabled();
+
                     if (use64)
                     {
-                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                        if (hasFloatDspSuite)
+                        {
+                            // A float-only DSP module is active: run pre-float 64-bit module, convert once,
+                            // process float modules, convert back once, then run post-float 64-bit modules.
+                            if (e->noiseGateDsp.isEnabled())
+                                e->noiseGateDsp.process(buf64, produced, e->channels);
+
+                            for (size_t i = 0; i < totalSamples; ++i)
+                                processBuffer[i] = static_cast<float>(buf64[i]);
+
+                            if (e->downwardExpanderDsp.isEnabled())
+                                e->downwardExpanderDsp.process(processBuffer, produced);
+                            if (e->harmonicBassDsp.isEnabled())
+                                e->harmonicBassDsp.process(processBuffer, produced);
+                            if (e->dynamicSystemDsp.isEnabled())
+                                e->dynamicSystemDsp.process(processBuffer, produced);
+                            if (e->analogWarmthDsp.isEnabled())
+                                e->analogWarmthDsp.process(processBuffer, produced);
+                            if (e->dialogEnhancerDsp.isEnabled())
+                                e->dialogEnhancerDsp.process(processBuffer, produced);
+                            if (e->clarityDsp.isEnabled())
+                                e->clarityDsp.process(processBuffer, produced);
+                            if (e->deEsserDsp.isEnabled())
+                                e->deEsserDsp.process(processBuffer, produced);
+                            if (e->channels == 2 && e->surroundDsp.isEnabled())
+                                e->surroundDsp.process(processBuffer, produced);
+                            if (e->fftConvolverDsp.isEnabled())
+                                e->fftConvolverDsp.process(processBuffer, produced);
+
+                            for (size_t i = 0; i < totalSamples; ++i)
+                                buf64[i] = static_cast<double>(processBuffer[i]);
+
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(buf64, produced, e->channels);
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(buf64, produced, e->channels);
+                            if (e->masterLimiterDsp.isEnabled())
+                                e->masterLimiterDsp.process(buf64, produced);
+                        }
+                        else if (hasDoubleDspSuite)
+                        {
+                            // Pure 64-bit path: NO float truncation! Full 53-bit mantissa preserved.
+                            if (e->noiseGateDsp.isEnabled())
+                                e->noiseGateDsp.process(buf64, produced, e->channels);
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(buf64, produced, e->channels);
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(buf64, produced, e->channels);
+                            if (e->masterLimiterDsp.isEnabled())
+                                e->masterLimiterDsp.process(buf64, produced);
+                        }
+                        // else all 13 modules disabled: zero conversions, buf64 completely untouched!
                     }
-                    e->noiseGateDsp.process(processBuffer, produced, e->channels);
-                    e->downwardExpanderDsp.process(processBuffer, produced);
-                    e->harmonicBassDsp.process(processBuffer, produced);
-                    e->dynamicSystemDsp.process(processBuffer, produced);
-                    e->analogWarmthDsp.process(processBuffer, produced);
-                    e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-                    e->dialogEnhancerDsp.process(processBuffer, produced);
-                    e->clarityDsp.process(processBuffer, produced);
-                    e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-                    e->deEsserDsp.process(processBuffer, produced);
-                    if (e->channels == 2)
+                    else if (hasFloatDspSuite || hasDoubleDspSuite)
                     {
-                        e->surroundDsp.process(processBuffer, produced);
-                    }
-                    e->fftConvolverDsp.process(processBuffer, produced);
-                    e->masterLimiterDsp.process(processBuffer, produced);
-                    if (use64)
-                    {
-                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                        if (e->noiseGateDsp.isEnabled())
+                            e->noiseGateDsp.process(processBuffer, produced, e->channels);
+                        if (e->downwardExpanderDsp.isEnabled())
+                            e->downwardExpanderDsp.process(processBuffer, produced);
+                        if (e->harmonicBassDsp.isEnabled())
+                            e->harmonicBassDsp.process(processBuffer, produced);
+                        if (e->dynamicSystemDsp.isEnabled())
+                            e->dynamicSystemDsp.process(processBuffer, produced);
+                        if (e->analogWarmthDsp.isEnabled())
+                            e->analogWarmthDsp.process(processBuffer, produced);
+                        if (e->tapeDriftDsp.isEnabled())
+                            e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+                        if (e->dialogEnhancerDsp.isEnabled())
+                            e->dialogEnhancerDsp.process(processBuffer, produced);
+                        if (e->clarityDsp.isEnabled())
+                            e->clarityDsp.process(processBuffer, produced);
+                        if (e->dynamicEqDsp.isEnabled())
+                            e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+                        if (e->deEsserDsp.isEnabled())
+                            e->deEsserDsp.process(processBuffer, produced);
+                        if (e->channels == 2 && e->surroundDsp.isEnabled())
+                            e->surroundDsp.process(processBuffer, produced);
+                        if (e->fftConvolverDsp.isEnabled())
+                            e->fftConvolverDsp.process(processBuffer, produced);
+                        if (e->masterLimiterDsp.isEnabled())
+                            e->masterLimiterDsp.process(processBuffer, produced);
                     }
                 }
             }
@@ -6737,15 +6856,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
             if (e->compressorEnabled)
             {
                 if (use64)
-                {
-                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
-                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                }
+                    e->compressor.process(buf64, produced, e->channels, e->engineSampleRate);
                 else
-                {
                     e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
-                }
             }
         } // End of !bypassAppDsp block
 
@@ -6756,7 +6869,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
         //    and never fights the user's volume knob.
         // 2) FFT visualizer remains lively and dynamic at any volume setting.
         // =====================================================================
-        if (use64)
+        const bool needMeters = e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
+                                e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
+                                e->levellerDsp.isEnabled() ||
+                                e->truePeakMeterEnabled.load(std::memory_order_relaxed) ||
+                                e->analyzerEnabled.load(std::memory_order_relaxed);
+        if (use64 && needMeters)
         {
             for (size_t i = 0; i < totalSamples; ++i)
                 processBuffer[i] = static_cast<float>(buf64[i]);
@@ -6857,15 +6975,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
             if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
             {
                 if (use64)
-                {
-                    for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                    e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
-                    for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                }
+                    e->lookaheadLimiter.process(buf64, produced, e->channels, e->engineSampleRate);
                 else
-                {
                     e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
-                }
             }
             else if (e->limiterEnabled)
             {
@@ -6944,11 +7056,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
-            // Final output back into processBuffer for clipping check, resampling, and DAC delivery
-            for (size_t i = 0; i < totalSamples; ++i)
-            {
-                processBuffer[i] = static_cast<float>(buf64[i]);
-            }
         }
         else
         {
@@ -7003,11 +7110,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             uint64_t clippedCountLocal = 0;
             const size_t numSamplesCheck = produced * e->channels;
-            for (size_t i = 0; i < numSamplesCheck; ++i)
+            if (use64 && buf64 != nullptr)
             {
-                if (processBuffer[i] > 1.0f || processBuffer[i] < -1.0f)
+                for (size_t i = 0; i < numSamplesCheck; ++i)
                 {
-                    clippedCountLocal++;
+                    if (buf64[i] > 1.0 || buf64[i] < -1.0)
+                    {
+                        clippedCountLocal++;
+                    }
+                }
+            }
+            else
+            {
+                for (size_t i = 0; i < numSamplesCheck; ++i)
+                {
+                    if (processBuffer[i] > 1.0f || processBuffer[i] < -1.0f)
+                    {
+                        clippedCountLocal++;
+                    }
                 }
             }
             if (clippedCountLocal > 0)
@@ -7023,6 +7143,17 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     if (needsDeviceSRC)
     {
+        // When device resampling is required, miniaudio's resampler requires float32.
+        // Convert buf64 to processBuffer once here.
+        if (use64 && buf64 != nullptr)
+        {
+            const size_t inSamples = (size_t)produced * (size_t)e->channels;
+            for (size_t i = 0; i < inSamples; ++i)
+            {
+                processBuffer[i] = static_cast<float>(buf64[i]);
+            }
+        }
+
         // Never block the audio thread on the control thread: resampler
         // re-creation (rate plan change) holds this mutex on the worker
         // thread. On contention, emit silence for this block instead of
@@ -7122,35 +7253,74 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
 
-    if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
+    if (use64 && buf64 != nullptr && !needsDeviceSRC)
     {
-        e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels);
-    }
+        // Pure 64-bit path: preserve 53-bit mantissa precision all the way to quantization.
+        if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
+        {
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels);
+        }
 
-    // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
-    // (2^(N-1)-1) scale which shifts the dithered quantization grid by ~1 LSB
-    // and breaks bit-perfect pass-through of integer sources; f32ToIntExact
-    // rounds to nearest on the true grid, preserving the dither decorrelation
-    // applied above.
-    if (pDevice->playback.format == ma_format_s16)
-    {
-        f32ToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalSamples);
+        if (pDevice->playback.format == ma_format_s16)
+        {
+            floatToIntExact(AE_FORMAT_S16, pOutput, buf64, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_u8)
+        {
+            floatToIntExact(AE_FORMAT_U8, pOutput, buf64, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_s24)
+        {
+            floatToIntExact(AE_FORMAT_S24, pOutput, buf64, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_s32)
+        {
+            floatToIntExact(AE_FORMAT_S32, pOutput, buf64, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_f32)
+        {
+            float *outF32 = reinterpret_cast<float *>(pOutput);
+            for (size_t i = 0; i < totalSamples; ++i)
+            {
+                outF32[i] = static_cast<float>(buf64[i]);
+            }
+        }
     }
-    else if (pDevice->playback.format == ma_format_u8)
+    else
     {
-        f32ToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalSamples);
-    }
-    else if (pDevice->playback.format == ma_format_s24)
-    {
-        f32ToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalSamples);
-    }
-    else if (pDevice->playback.format == ma_format_s32)
-    {
-        f32ToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalSamples);
-    }
-    else if (pDevice->playback.format == ma_format_f32)
-    {
-        std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
+        if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
+        {
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels);
+        }
+
+        // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
+        // (2^(N-1)-1) scale which shifts the dithered quantization grid by ~1 LSB
+        // and breaks bit-perfect pass-through of integer sources; f32ToIntExact
+        // rounds to nearest on the true grid, preserving the dither decorrelation
+        // applied above.
+        if (pDevice->playback.format == ma_format_s16)
+        {
+            floatToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_u8)
+        {
+            floatToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_s24)
+        {
+            floatToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_s32)
+        {
+            floatToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalSamples);
+        }
+        else if (pDevice->playback.format == ma_format_f32)
+        {
+            if (finalDstBuffer != pOutput)
+            {
+                std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
+            }
+        }
     }
     // else F32 -> already in pOutput via finalDstBuffer!
     }

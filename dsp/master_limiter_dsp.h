@@ -63,6 +63,8 @@ public:
     void reset() {
         lookahead_buf_l_.assign(lookahead_samples_, 0.0f);
         lookahead_buf_r_.assign(lookahead_samples_, 0.0f);
+        lookahead_buf_l64_.assign(lookahead_samples_, 0.0);
+        lookahead_buf_r64_.assign(lookahead_samples_, 0.0);
         lookahead_pos_ = 0;
         peak_hold_counter_ = 0;
         envelope_ = 0.0f;
@@ -76,7 +78,7 @@ public:
         return 20.0f * std::log10(std::max(current_gain_, 0.0001f));
     }
 
-    // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
+    // Process interleaved stereo samples (32-bit float): [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
@@ -143,6 +145,68 @@ public:
         }
     }
 
+    // Process interleaved stereo samples (64-bit double): [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
+
+        for (uint32_t i = 0; i < frame_count; i++) {
+            // Per-sample gain smoothing
+            current_output_gain_linear_ += smoothing_coeff_ * (target_output_gain_linear_ - current_output_gain_linear_);
+            current_ceiling_linear_     += smoothing_coeff_ * (target_ceiling_linear_ - current_ceiling_linear_);
+
+            const double in_l = interleaved_samples[2 * i];
+            const double in_r = interleaved_samples[2 * i + 1];
+
+            // 1. Peak Envelope Detection across both channels via SIMD
+            const SimdDouble2 v_in(in_l, in_r);
+            const SimdDouble2 v_abs = SimdDouble2::abs(v_in);
+            const double peak = std::max(v_abs.get(0), v_abs.get(1));
+
+            if (peak > static_cast<double>(envelope_)) {
+                envelope_ = attack_coeff_ * envelope_ + (1.0f - attack_coeff_) * static_cast<float>(peak);
+                peak_hold_counter_ = lookahead_samples_;
+            } else if (peak_hold_counter_ > 0) {
+                peak_hold_counter_--;
+            } else {
+                envelope_ = release_coeff_ * envelope_ + (1.0f - release_coeff_) * static_cast<float>(peak);
+            }
+
+            // 2. Compute Gain Reduction (Soft-Knee Peak Clamping)
+            float target_gain = 1.0f;
+            if (envelope_ > current_ceiling_linear_) {
+                target_gain = current_ceiling_linear_ / envelope_;
+            }
+
+            if (target_gain < current_gain_) {
+                current_gain_ = target_gain;
+            } else {
+                current_gain_ += release_smooth_coeff_ * (target_gain - current_gain_);
+            }
+
+            // 3. Read delayed sample from lookahead ring buffer
+            const double delayed_l = lookahead_buf_l64_[lookahead_pos_];
+            const double delayed_r = lookahead_buf_r64_[lookahead_pos_];
+
+            // Write current input into lookahead buffer
+            lookahead_buf_l64_[lookahead_pos_] = in_l;
+            lookahead_buf_r64_[lookahead_pos_] = in_r;
+
+            lookahead_pos_ = (lookahead_pos_ + 1) % lookahead_samples_;
+
+            // 4. Vectorized gain scaling and safety ceiling clamping in 64-bit double
+            const double total_gain = static_cast<double>(current_gain_) * static_cast<double>(current_output_gain_linear_);
+            const SimdDouble2 v_delayed(delayed_l, delayed_r);
+            const SimdDouble2 v_scaled = v_delayed * SimdDouble2(total_gain);
+            const SimdDouble2 v_ceil(static_cast<double>(current_ceiling_linear_));
+            const SimdDouble2 v_neg_ceil(-static_cast<double>(current_ceiling_linear_));
+            const SimdDouble2 v_clamped = SimdDouble2::min(v_ceil, SimdDouble2::max(v_neg_ceil, v_scaled));
+
+            // Final output assignment
+            interleaved_samples[2 * i]     = v_clamped.get(0);
+            interleaved_samples[2 * i + 1] = v_clamped.get(1);
+        }
+    }
+
 private:
     // Default OFF: a limiter with a -0.1 dBFS ceiling must never color playback
     // unless the host explicitly opts in. It also adds ~1.5 ms of pipeline
@@ -173,6 +237,8 @@ private:
     size_t lookahead_samples_ = 72; // 72 samples @ 48kHz is 1.5ms
     std::vector<float> lookahead_buf_l_;
     std::vector<float> lookahead_buf_r_;
+    std::vector<double> lookahead_buf_l64_;
+    std::vector<double> lookahead_buf_r64_;
     size_t lookahead_pos_ = 0;
 
     void updateTimeConstants() {
@@ -180,6 +246,8 @@ private:
         lookahead_samples_ = std::max(static_cast<size_t>(sample_rate_ * 0.0015f), static_cast<size_t>(16));
         lookahead_buf_l_.assign(lookahead_samples_, 0.0f);
         lookahead_buf_r_.assign(lookahead_samples_, 0.0f);
+        lookahead_buf_l64_.assign(lookahead_samples_, 0.0);
+        lookahead_buf_r64_.assign(lookahead_samples_, 0.0);
         lookahead_pos_ = 0;
         peak_hold_counter_ = 0;
 

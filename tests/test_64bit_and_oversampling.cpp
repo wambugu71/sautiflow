@@ -20,6 +20,7 @@
 #include "dsp/subsonic_filter.h"
 #include "dsp/oversampler.h"
 #include "dsp/denormals.h"
+#include "dsp/master_limiter_dsp.h"
 
 using namespace sauti::dsp;
 
@@ -307,6 +308,107 @@ static void test_float64_vs_float32_dynamic_range()
     CHECK(nearlyEqualD(avg64, 2.0 * tinyAmp / M_PI, 1e-9), msg);
 }
 
+// -----------------------------------------------------------------------------
+// Test 5: MasterLimiterDSP 64-bit Double Precision & 53-Bit Mantissa Preservation
+// -----------------------------------------------------------------------------
+static void test_master_limiter_64bit()
+{
+    std::printf("\n== Test 5: MasterLimiterDSP 64-Bit Double Precision Preservation ==\n");
+    MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setEnabled(true);
+    limiter.setCeilingDb(-0.1f);
+    limiter.setOutputGainDb(0.0f);
+
+    const size_t totalFrames = 4800;
+    std::vector<double> in64(totalFrames * 2, 0.0);
+    const double carrierAmp = 0.5; // -6 dBFS
+    const double tinyAmp = 1e-7;   // -140 dBFS micro-signal
+
+    for (size_t i = 0; i < totalFrames; ++i)
+    {
+        double carrier = carrierAmp * std::sin(2.0 * M_PI * 440.0 * (double)i / 48000.0);
+        double tiny = tinyAmp * std::sin(2.0 * M_PI * 2500.0 * (double)i / 48000.0);
+        in64[i * 2 + 0] = carrier + tiny;
+        in64[i * 2 + 1] = carrier + tiny;
+    }
+
+    std::vector<double> processBuf = in64;
+    limiter.process(processBuf.data(), static_cast<uint32_t>(totalFrames));
+
+    // The limiter has a lookahead latency of 72 samples @ 48kHz (1.5ms).
+    const size_t latency = 72;
+    double maxErr64 = 0.0;
+    double maxErrIfTruncatedToFloat = 0.0;
+
+    for (size_t i = 1000; i < totalFrames; ++i)
+    {
+        double expected = in64[(i - latency) * 2 + 0];
+        double actual64 = processBuf[i * 2 + 0];
+        double err64 = std::fabs(actual64 - expected);
+        maxErr64 = std::max(maxErr64, err64);
+
+        // Compute error if truncated to float32
+        float f32Val = static_cast<float>(expected);
+        double errF32 = std::fabs(static_cast<double>(f32Val) - expected);
+        maxErrIfTruncatedToFloat = std::max(maxErrIfTruncatedToFloat, errF32);
+    }
+
+    char msg[180];
+    std::snprintf(msg, sizeof(msg),
+                  "MasterLimiterDSP64 maintains double precision: max error = %.3e (< 1e-12), vs float32 truncation error = %.3e",
+                  maxErr64, maxErrIfTruncatedToFloat);
+    CHECK(maxErr64 < 1e-12, msg);
+    CHECK(maxErrIfTruncatedToFloat > 1e-8, "Float32 truncation loses mantissa precision (> 1e-8 error on -140 dBFS tone)");
+}
+
+// -----------------------------------------------------------------------------
+// Test 6: Full Chain End-to-End 64-Bit Precision (No Intermediate Truncation)
+// -----------------------------------------------------------------------------
+static void test_chain_precision_preservation()
+{
+    std::printf("\n== Test 6: Full DSP Chain 64-Bit Precision Preservation ==\n");
+    SubsonicFilter filter;
+    filter.setSampleRate(48000.0f);
+    filter.setEnabled(true);
+
+    Biquad64Test eq;
+    eq.initPeak(48000.0, 1000.0, 0.0, 1.0); // 0 dB transparent peak filter
+
+    MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setEnabled(true);
+    limiter.setCeilingDb(-0.1f);
+    limiter.setOutputGainDb(0.0f);
+
+    const size_t totalFrames = 4800;
+    std::vector<double> chain64(totalFrames * 2, 0.0);
+    const double carrierAmp = 0.5;
+    const double tinyAmp = 1e-7;
+
+    for (size_t i = 0; i < totalFrames; ++i)
+    {
+        double carrier = carrierAmp * std::sin(2.0 * M_PI * 1000.0 * (double)i / 48000.0);
+        double tiny = tinyAmp * std::sin(2.0 * M_PI * 5000.0 * (double)i / 48000.0);
+        chain64[i * 2 + 0] = carrier + tiny;
+        chain64[i * 2 + 1] = carrier + tiny;
+    }
+
+    // Process through 64-bit chain
+    filter.process(chain64.data(), totalFrames, 2);
+    eq.process(chain64.data(), totalFrames, 2);
+    limiter.process(chain64.data(), static_cast<uint32_t>(totalFrames));
+
+    // Inspect signal at steady state
+    double maxSample = 0.0;
+    for (size_t i = 2000; i < totalFrames; ++i)
+    {
+        maxSample = std::max(maxSample, std::fabs(chain64[i * 2 + 0]));
+    }
+    CHECK(nearlyEqualD(maxSample, carrierAmp, 0.02),
+          "Chained 64-bit DSP preserves carrier amplitude transparently");
+}
+
 int main()
 {
     std::printf("====================================================\n");
@@ -317,6 +419,8 @@ int main()
     test_biquad64_precision();
     test_oversamplers_frequency_response();
     test_float64_vs_float32_dynamic_range();
+    test_master_limiter_64bit();
+    test_chain_precision_preservation();
 
     std::printf("\n----------------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

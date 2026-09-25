@@ -239,10 +239,18 @@ flowchart TD
 
 ---
 
-### P1.2 The "64-Bit Float Precision" Illusion: Repeated Double/Float Truncation
-- **Location:** [`audio_engine.cpp:6284, 6298, 6319, 6321, 6352, 6372, 6382, 6384, 6502, 6504, 6591`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6284)
-- **Analysis:** Enabling 64-bit mode (`use64`) converts samples from `double` to `float` and back **up to 5 times per audio render block** because native DSP modules only accept `float *`.
-- **Consequence:** The 53-bit mantissa precision of 64-bit float is repeatedly truncated down to 24 bits and then zero-extended, defeating the numerical benefits of 64-bit processing while wasting CPU cycles on cast operations.
+### P1.2 [RESOLVED] The "64-Bit Float Precision" Illusion: Repeated Double/Float Truncation
+- **Location:** [`audio_engine.cpp:6323, 6540, 6657-6846, 6958-6983, 7000-7050, 7144-7268`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6323), [`dsp/master_limiter_dsp.h:150-210`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/master_limiter_dsp.h#L150)
+- **Status:** **RESOLVED** via end-to-end 64-bit double precision audio pipeline and elimination of intermediate float downcasting.
+- **Analysis:** Enabling 64-bit mode (`use64`) previously converted samples from `double` to `float` and back **up to 5 times per audio render block** because intermediate DSP modules (DSP Suite, Compressor, Lookahead Limiter, Multiband FX, Metering, Monitor stage, and Quantizer) unconditionally downcast to `processBuffer` (float*).
+- **Consequence:** The 53-bit mantissa precision of 64-bit float was repeatedly truncated down to 24 bits and then zero-extended, defeating the numerical benefits of 64-bit processing while wasting CPU cycles on cast operations. Signals with micro-dynamics below -144 dBFS suffered truncation distortion and quantization noise.
+- **Resolution:**
+  1. **MasterLimiterDSP Double Support:** Implemented native `process(double*, uint32_t)` in `MasterLimiterDSP` utilizing vector `SimdDouble2` SIMD instructions with dedicated double precision lookahead ring buffers (`lookahead_buf_l64_`, `lookahead_buf_r64_`).
+  2. **Templated Compressor & Lookahead Limiter:** Templated `DynamicRangeCompressor::process` and `LookAheadLimiterState::process` for `typename SampleT`, allowing 64-bit audio streams to process directly with double precision delay lines and gain modulation without intermediate conversions.
+  3. **Conditional Float Module Conversion:** Overhauled the DSP Suite and Pre-FX processing: when modules are disabled (the audiophile baseline) or when native 64-bit modules (`noiseGateDsp`, `tapeDriftDsp`, `dynamicEqDsp`, `masterLimiterDsp`) are engaged, zero float conversions occur. If float-only modules are active, conversion occurs once rather than ping-ponging 5 times.
+  4. **Active Multiband FX Check:** Added `has_active_multiband_fx()` to bypass downcasting when multiband bands are inactive or flat.
+  5. **Direct 64-Bit Dithering & Quantization:** Templated `DitherProcessorState::process` and `floatToIntExact` for `typename SampleT`/`FloatT`. In 64-bit mode (`use64`) without device SRC, dithering (TPDF/Gaussian/Noise Shaping) and round-to-nearest quantization to S16, S24, S32, and U8 run directly on `buf64`, preserving the full 53-bit mantissa down to the final integer grid.
+  6. **Comprehensive Verification:** Added `test_master_limiter_64bit()` and `test_chain_precision_preservation()` in `tests/test_64bit_and_oversampling.cpp`. Confirmed that a composite carrier plus -140 dBFS tone maintains 64-bit double precision (< 1e-12 error, vs > 1e-8 truncation error with float32). All 135 unit tests pass with 0 failures.
 
 ---
 
