@@ -253,6 +253,58 @@ static void test_master_limiter_defaults_and_ceiling()
 }
 
 // -----------------------------------------------------------------------------
+// [C] 1.5b MasterLimiterDSP release ballistics & lookahead peak hold
+// -----------------------------------------------------------------------------
+static void test_master_limiter_ballistics_and_lookahead_hold()
+{
+    std::printf("\n== [C] 1.5b Master limiter release ballistics & lookahead hold ==\n");
+
+    sauti::dsp::MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setCeilingDb(0.0f); // 1.0 linear ceiling
+    limiter.setReleaseMs(60.0f);
+    limiter.setEnabled(true);
+    limiter.reset();
+
+    // 1. Lookahead Peak Hold verification:
+    // Feed single Dirac impulse of 2.0 (+6 dBFS) at sample 10, surrounded by silence.
+    // 72 samples @ 48kHz is the 1.5ms lookahead buffer.
+    const uint32_t frames = 250;
+    std::vector<float> impulse_buf(2 * frames, 0.0f);
+    impulse_buf[2 * 10] = 2.0f; // Left channel impulse
+
+    limiter.process(impulse_buf.data(), frames);
+
+    // Peak exits at sample 10 + 72 = 82
+    float peak_out_l = std::fabs(impulse_buf[2 * 82]);
+    char msg[128];
+    std::snprintf(msg, sizeof(msg), "delayed impulse output %.4f <= 1.0001 (no early-release overshoot)", peak_out_l);
+    CHECK(peak_out_l <= 1.0001f, msg);
+
+    // 2. Release Ballistics verification:
+    // With 60ms release, gain reduction must decay smoothly over ~2880 samples.
+    // It must NOT recover instantly on the next sample.
+    limiter.reset();
+    std::vector<float> hot_step(2 * 100, 2.0f); // hot burst
+    limiter.process(hot_step.data(), 100);
+
+    float gr_immediate = limiter.getCurrentGainReductionDb();
+    CHECK(gr_immediate < -5.0f, "active gain reduction engaged after hot burst (~ -6dB)");
+
+    // Process 1 single frame of silence: gain reduction must NOT disappear instantly
+    std::vector<float> single_frame(2, 0.0f);
+    limiter.process(single_frame.data(), 1);
+    float gr_one_sample = limiter.getCurrentGainReductionDb();
+    CHECK(gr_one_sample < -5.0f, "gain reduction does not collapse in 1 sample");
+
+    // Process 2880 frames (60 ms): gain reduction should release smoothly towards 0 dB
+    std::vector<float> release_buf(2 * 2880, 0.0f);
+    limiter.process(release_buf.data(), 2880);
+    float gr_60ms = limiter.getCurrentGainReductionDb();
+    CHECK(gr_60ms > -3.0f && gr_60ms <= 0.0f, "gain reduction smoothly released after 60ms");
+}
+
+// -----------------------------------------------------------------------------
 // [M] 3.2 AnalogWarmth triode DC blocker
 // -----------------------------------------------------------------------------
 static void test_analog_warmth_no_dc_offset()
@@ -1083,7 +1135,10 @@ int main(int argc, char **argv)
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
     if (only.empty() || only == "crossfeed") test_crossfeed_algorithm_switch();
-    if (only.empty() || only == "limiter") test_master_limiter_defaults_and_ceiling();
+    if (only.empty() || only == "limiter") {
+        test_master_limiter_defaults_and_ceiling();
+        test_master_limiter_ballistics_and_lookahead_hold();
+    }
     if (only.empty() || only == "warmth") test_analog_warmth_no_dc_offset();
     if (only.empty() || only == "clarity") test_clarity_presence_reconstruction();
     if (only.empty() || only == "dynsys") test_dynamic_system_cutoff_and_stability();

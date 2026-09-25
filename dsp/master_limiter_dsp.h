@@ -64,6 +64,7 @@ public:
         lookahead_buf_l_.assign(lookahead_samples_, 0.0f);
         lookahead_buf_r_.assign(lookahead_samples_, 0.0f);
         lookahead_pos_ = 0;
+        peak_hold_counter_ = 0;
         envelope_ = 0.0f;
         current_gain_ = 1.0f;
         current_output_gain_linear_ = target_output_gain_linear_;
@@ -94,6 +95,11 @@ public:
 
             if (peak > envelope_) {
                 envelope_ = attack_coeff_ * envelope_ + (1.0f - attack_coeff_) * peak;
+                // Hold peak envelope for the lookahead buffer duration so the
+                // delayed peak is limited at true peak gain without early release overshoots
+                peak_hold_counter_ = lookahead_samples_;
+            } else if (peak_hold_counter_ > 0) {
+                peak_hold_counter_--;
             } else {
                 envelope_ = release_coeff_ * envelope_ + (1.0f - release_coeff_) * peak;
             }
@@ -105,6 +111,8 @@ public:
             }
 
             // Instant attack / smoothed release
+            // release_smooth_coeff_ is precomputed as (1.0f - release_coeff_)
+            // so delta equation correctly implements a 1-pole lowpass release
             if (target_gain < current_gain_) {
                 current_gain_ = target_gain;
             } else {
@@ -155,7 +163,8 @@ private:
     float release_ms_ = 60.0f;
     float attack_coeff_ = 0.1f;
     float release_coeff_ = 0.999f;
-    float release_smooth_coeff_ = 0.999f;
+    float release_smooth_coeff_ = 0.001f;
+    size_t peak_hold_counter_ = 0;
 
     float envelope_ = 0.0f;
     float current_gain_ = 1.0f;
@@ -172,13 +181,15 @@ private:
         lookahead_buf_l_.assign(lookahead_samples_, 0.0f);
         lookahead_buf_r_.assign(lookahead_samples_, 0.0f);
         lookahead_pos_ = 0;
+        peak_hold_counter_ = 0;
 
         // Attack: instantaneous (see process); kept for API compatibility.
         attack_coeff_ = 0.0f;
 
         // Release: release_ms_
         release_coeff_ = std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.001f)));
-        release_smooth_coeff_ = release_coeff_;
+        // Delta accumulator form: dy = beta * (target - y), where beta = 1 - alpha
+        release_smooth_coeff_ = 1.0f - release_coeff_;
     }
 };
 
