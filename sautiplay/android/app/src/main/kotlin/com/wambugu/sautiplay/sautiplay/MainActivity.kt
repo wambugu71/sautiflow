@@ -202,9 +202,14 @@ class MainActivity : AudioServiceActivity() {
                 if (targetModeId != 0) {
                     val params = window.attributes
                     params.preferredDisplayModeId = targetModeId
+                    params.preferredRefreshRate = maxRate
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        params.preferredMinDisplayRefreshRate = maxRate
-                        params.preferredMaxDisplayRefreshRate = maxRate
+                        try {
+                            params.javaClass.getField("preferredMinDisplayRefreshRate").setFloat(params, maxRate)
+                            params.javaClass.getField("preferredMaxDisplayRefreshRate").setFloat(params, maxRate)
+                        } catch (_: Throwable) {
+                            // Ignored if not exposed on this Android API/OEM build
+                        }
                     }
                     window.attributes = params
                     Log.d(TAG, "Configured high refresh rate: $maxRate Hz (mode $targetModeId)")
