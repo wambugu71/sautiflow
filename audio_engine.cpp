@@ -3371,6 +3371,16 @@ struct AudioEngineHandle
     // network reads) OFF the audio thread during crossfades.
     SPSCBuffer<float> crossfadeRingBuffer;
     std::atomic<bool> crossfadeSourceEof{false};
+    // Outgoing track resampler: converts fadeOut from its native/decoded sample rate
+    // to engineSampleRate so crossfadeRingBuffer always holds audio matching the
+    // realtime mixer's processing rate (fixes P0.8 pitch/tempo doubling bug).
+    ma_resampler crossfadeResampler{};
+    bool crossfadeResamplerInit = false;
+    int crossfadeResamplerInRate = 0;
+    int crossfadeResamplerOutRate = 0;
+    int crossfadeResamplerCh = 0;
+    std::vector<float> crossfadeInputBuffer;
+    size_t crossfadeInputUnconsumed = 0;
     // Graceful abort: when a user skip interrupts an ACTIVE crossfade, the
     // outgoing track ramps to silence over a short window instead of cutting.
     // Lifetime rules are unchanged - the producer thread still retires
@@ -4401,6 +4411,19 @@ static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
         e->crossfadeStarveFrames.store(0, std::memory_order_relaxed);
         e->isCrossfading.store(false, std::memory_order_release);
     }
+    if (e != nullptr && e->crossfadeResamplerInit)
+    {
+        ma_resampler_uninit(&e->crossfadeResampler, nullptr);
+        e->crossfadeResamplerInit = false;
+        e->crossfadeResamplerInRate = 0;
+        e->crossfadeResamplerOutRate = 0;
+        e->crossfadeResamplerCh = 0;
+    }
+    if (e != nullptr)
+    {
+        e->crossfadeInputBuffer.clear();
+        e->crossfadeInputUnconsumed = 0;
+    }
 }
 
 // Arms a short (~120 ms) graceful fade-out of an ACTIVE crossfade so a user
@@ -5184,6 +5207,144 @@ extern "C" {
 static double calculate_total_pipeline_latency_samples(AudioEngineHandle *e);
 }
 
+// Reads frames from the fading-out decoder and resamples them if fadeOut's sample
+// rate does not match the active engine processing rate (fixes P0.8).
+// Producer-thread only (called from service_crossfade_state).
+static ma_result read_and_resample_crossfade(
+    AudioEngineHandle *e,
+    ma_decoder *fadeOut,
+    float *outBuffer,
+    size_t fillFrames,
+    ma_uint64 *outFramesRead)
+{
+    if (outFramesRead != nullptr)
+    {
+        *outFramesRead = 0;
+    }
+    if (e == nullptr || fadeOut == nullptr || outBuffer == nullptr || fillFrames == 0 || outFramesRead == nullptr)
+    {
+        return MA_INVALID_ARGS;
+    }
+
+    const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+    const int targetRate = (e->engineSampleRate > 0) ? e->engineSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+    int fadeOutRate = (int)fadeOut->outputSampleRate;
+    if (fadeOutRate <= 0)
+    {
+        fadeOutRate = targetRate;
+    }
+
+    // Direct passthrough when sample rates match
+    if (fadeOutRate == targetRate)
+    {
+        return ma_decoder_read_pcm_frames(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead);
+    }
+
+    // Reinitialize resampler if sample rates or channel count changed
+    if (!e->crossfadeResamplerInit ||
+        e->crossfadeResamplerInRate != fadeOutRate ||
+        e->crossfadeResamplerOutRate != targetRate ||
+        e->crossfadeResamplerCh != (int)ch)
+    {
+        if (e->crossfadeResamplerInit)
+        {
+            ma_resampler_uninit(&e->crossfadeResampler, nullptr);
+            e->crossfadeResamplerInit = false;
+        }
+
+        ma_resampler_config rcfg = ma_resampler_config_init(
+            ma_format_f32,
+            (ma_uint32)ch,
+            (ma_uint32)fadeOutRate,
+            (ma_uint32)targetRate,
+            ma_resample_algorithm_linear
+        );
+        if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
+        {
+            e->crossfadeResamplerInit = true;
+            e->crossfadeResamplerInRate = fadeOutRate;
+            e->crossfadeResamplerOutRate = targetRate;
+            e->crossfadeResamplerCh = (int)ch;
+        }
+        else
+        {
+            // Fallback: read directly without resampling if init failed
+            return ma_decoder_read_pcm_frames(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead);
+        }
+        e->crossfadeInputBuffer.clear();
+        e->crossfadeInputUnconsumed = 0;
+    }
+
+    const ma_uint64 outNeeded = (ma_uint64)fillFrames;
+    ma_uint64 inNeeded = 0;
+    ma_resampler_get_required_input_frame_count(&e->crossfadeResampler, outNeeded, &inNeeded);
+    if (inNeeded == 0)
+    {
+        inNeeded = (ma_uint64)std::ceil((double)outNeeded * (double)fadeOutRate / (double)targetRate);
+        if (inNeeded == 0) inNeeded = 1;
+    }
+
+    size_t framesToRead = 0;
+    if ((size_t)inNeeded > e->crossfadeInputUnconsumed)
+    {
+        framesToRead = (size_t)inNeeded - e->crossfadeInputUnconsumed;
+    }
+
+    const size_t requiredCapacityFrames = e->crossfadeInputUnconsumed + framesToRead;
+    const size_t requiredCapacitySamples = requiredCapacityFrames * ch;
+    if (e->crossfadeInputBuffer.size() < requiredCapacitySamples)
+    {
+        e->crossfadeInputBuffer.resize(requiredCapacitySamples);
+    }
+
+    ma_result rr = MA_SUCCESS;
+    ma_uint64 inRead = 0;
+    if (framesToRead > 0)
+    {
+        rr = ma_decoder_read_pcm_frames(
+            fadeOut,
+            e->crossfadeInputBuffer.data() + (e->crossfadeInputUnconsumed * ch),
+            (ma_uint64)framesToRead,
+            &inRead);
+    }
+
+    const ma_uint64 totalInFrames = (ma_uint64)(e->crossfadeInputUnconsumed + inRead);
+    if (totalInFrames == 0)
+    {
+        *outFramesRead = 0;
+        return (rr == MA_AT_END) ? MA_AT_END : MA_SUCCESS;
+    }
+
+    ma_uint64 outProcessed = outNeeded;
+    ma_uint64 inProcessed = totalInFrames;
+
+    ma_resampler_process_pcm_frames(
+        &e->crossfadeResampler,
+        e->crossfadeInputBuffer.data(),
+        &inProcessed,
+        outBuffer,
+        &outProcessed);
+
+    *outFramesRead = outProcessed;
+
+    const size_t unconsumedLeft = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
+    if (unconsumedLeft > 0 && inProcessed > 0)
+    {
+        std::memmove(
+            e->crossfadeInputBuffer.data(),
+            e->crossfadeInputBuffer.data() + (inProcessed * ch),
+            unconsumedLeft * ch * sizeof(float));
+    }
+    e->crossfadeInputUnconsumed = unconsumedLeft;
+
+    if (outProcessed == 0 && (rr == MA_AT_END || inRead == 0))
+    {
+        return MA_AT_END;
+    }
+
+    return (rr == MA_AT_END && unconsumedLeft == 0) ? MA_AT_END : MA_SUCCESS;
+}
+
 // Keeps the crossfade source ring topped up with pre-decoded old-track audio
 // and retires the outgoing decoder once a fade finishes (or is aborted).
 // Producer-thread only; must be invoked on EVERY loop iteration BEFORE any
@@ -5226,7 +5387,7 @@ static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &te
         if (fillFrames > 0)
         {
             ma_uint64 framesRead = 0;
-            const ma_result rr = ma_decoder_read_pcm_frames(fadeOut, tempChunk.data(), (ma_uint64)fillFrames, &framesRead);
+            const ma_result rr = read_and_resample_crossfade(e, fadeOut, tempChunk.data(), fillFrames, &framesRead);
             if (framesRead > 0)
             {
                 e->crossfadeRingBuffer.write(tempChunk.data(), (size_t)framesRead * ch);
@@ -5390,18 +5551,131 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->crossfadeRingBuffer.reset();
                             e->ringBufferFlushing.store(true, std::memory_order_release);
                             {
-                                size_t guard = 0;
-                                while (guard++ < 256)
+                                const int curRate = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                                    ? (int)e->currentDecoder->outputSampleRate
+                                                    : sr;
+                                if (curRate == sr)
                                 {
-                                    const size_t want = tempChunk.size() / ch;
-                                    const size_t room = e->crossfadeRingBuffer.available_write() / ch;
-                                    if (room == 0)
-                                        break;
-                                    const size_t gotSamples = e->pcmRingBuffer.read(
-                                        tempChunk.data(), std::min(want, room) * ch);
-                                    if (gotSamples == 0)
-                                        break;
-                                    e->crossfadeRingBuffer.write(tempChunk.data(), gotSamples);
+                                    size_t guard = 0;
+                                    while (guard++ < 256)
+                                    {
+                                        const size_t want = tempChunk.size() / ch;
+                                        const size_t room = e->crossfadeRingBuffer.available_write() / ch;
+                                        if (room == 0)
+                                            break;
+                                        const size_t gotSamples = e->pcmRingBuffer.read(
+                                            tempChunk.data(), std::min(want, room) * ch);
+                                        if (gotSamples == 0)
+                                            break;
+                                        e->crossfadeRingBuffer.write(tempChunk.data(), gotSamples);
+                                    }
+                                }
+                                else
+                                {
+                                    // Sample rate mismatch between outgoing track tail and engine rate:
+                                    // initialize crossfadeResampler and resample buffered audio to engine rate
+                                    if (!e->crossfadeResamplerInit ||
+                                        e->crossfadeResamplerInRate != curRate ||
+                                        e->crossfadeResamplerOutRate != sr ||
+                                        e->crossfadeResamplerCh != (int)ch)
+                                    {
+                                        if (e->crossfadeResamplerInit)
+                                        {
+                                            ma_resampler_uninit(&e->crossfadeResampler, nullptr);
+                                            e->crossfadeResamplerInit = false;
+                                        }
+                                        ma_resampler_config rcfg = ma_resampler_config_init(
+                                            ma_format_f32,
+                                            (ma_uint32)ch,
+                                            (ma_uint32)curRate,
+                                            (ma_uint32)sr,
+                                            ma_resample_algorithm_linear
+                                        );
+                                        if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
+                                        {
+                                            e->crossfadeResamplerInit = true;
+                                            e->crossfadeResamplerInRate = curRate;
+                                            e->crossfadeResamplerOutRate = sr;
+                                            e->crossfadeResamplerCh = (int)ch;
+                                        }
+                                        e->crossfadeInputBuffer.clear();
+                                        e->crossfadeInputUnconsumed = 0;
+                                    }
+
+                                    std::vector<float> resampleOutChunk(tempChunk.size());
+                                    size_t guard = 0;
+                                    while (guard++ < 256 && e->crossfadeResamplerInit)
+                                    {
+                                        const size_t roomFrames = e->crossfadeRingBuffer.available_write() / ch;
+                                        if (roomFrames == 0)
+                                            break;
+                                        const size_t wantOutFrames = std::min(roomFrames, tempChunk.size() / ch);
+                                        ma_uint64 inNeeded = 0;
+                                        ma_resampler_get_required_input_frame_count(&e->crossfadeResampler, (ma_uint64)wantOutFrames, &inNeeded);
+                                        if (inNeeded == 0) inNeeded = wantOutFrames;
+
+                                        size_t framesToRead = 0;
+                                        if ((size_t)inNeeded > e->crossfadeInputUnconsumed)
+                                        {
+                                            framesToRead = (size_t)inNeeded - e->crossfadeInputUnconsumed;
+                                        }
+
+                                        const size_t availInRing = e->pcmRingBuffer.available_read() / ch;
+                                        if (framesToRead > availInRing)
+                                        {
+                                            framesToRead = availInRing;
+                                        }
+
+                                        if (framesToRead == 0 && e->crossfadeInputUnconsumed == 0)
+                                        {
+                                            break;
+                                        }
+
+                                        const size_t requiredCapacityFrames = e->crossfadeInputUnconsumed + framesToRead;
+                                        if (e->crossfadeInputBuffer.size() < requiredCapacityFrames * ch)
+                                        {
+                                            e->crossfadeInputBuffer.resize(requiredCapacityFrames * ch);
+                                        }
+
+                                        size_t gotSamples = 0;
+                                        if (framesToRead > 0)
+                                        {
+                                            gotSamples = e->pcmRingBuffer.read(
+                                                e->crossfadeInputBuffer.data() + (e->crossfadeInputUnconsumed * ch),
+                                                framesToRead * ch);
+                                        }
+                                        const size_t gotFrames = gotSamples / ch;
+                                        const ma_uint64 totalInFrames = (ma_uint64)(e->crossfadeInputUnconsumed + gotFrames);
+                                        if (totalInFrames == 0)
+                                            break;
+
+                                        ma_uint64 inProcessed = totalInFrames;
+                                        ma_uint64 outProcessed = (ma_uint64)wantOutFrames;
+                                        ma_resampler_process_pcm_frames(
+                                            &e->crossfadeResampler,
+                                            e->crossfadeInputBuffer.data(),
+                                            &inProcessed,
+                                            resampleOutChunk.data(),
+                                            &outProcessed);
+
+                                        if (outProcessed > 0)
+                                        {
+                                            e->crossfadeRingBuffer.write(resampleOutChunk.data(), (size_t)outProcessed * ch);
+                                        }
+
+                                        const size_t unconsumed = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
+                                        if (unconsumed > 0 && inProcessed > 0)
+                                        {
+                                            std::memmove(
+                                                e->crossfadeInputBuffer.data(),
+                                                e->crossfadeInputBuffer.data() + (inProcessed * ch),
+                                                unconsumed * ch * sizeof(float));
+                                        }
+                                        e->crossfadeInputUnconsumed = unconsumed;
+
+                                        if (gotFrames == 0 && outProcessed == 0)
+                                            break;
+                                    }
                                 }
                                 // Pending resampler input still belongs to the OLD
                                 // stream; discard it so the new track decodes cleanly.

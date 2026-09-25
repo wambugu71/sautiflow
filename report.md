@@ -37,7 +37,7 @@ flowchart TD
         DEC --> RATE_CHECK{"Auto-SR Match? (Checks outputSampleRate [P0.6 BUG])"}
         RATE_CHECK --> PITCH_SCALE["Varispeed / Pitch Shifter (Linear Interpolator [P2.3 BUG])"]
         PITCH_SCALE --> WSOLA["ScaleTempo WSOLA Time-Stretching"]
-        WSOLA --> CF_MIX["Crossfade Transition Mixer (No Resampling on fadeOut [P0.8 BUG])"]
+        WSOLA --> CF_MIX["Crossfade Transition Mixer (Resampled via read_and_resample_crossfade)"]
         CF_MIX --> RING_IN["Write to pcmRingBuffer (SPSC lock-free)"]
     end
 
@@ -203,8 +203,9 @@ flowchart TD
 
 ---
 
-### P0.8 Crossfade Pitch and Tempo Doubling on Sample Rate Mismatch
-- **Location:** [`audio_engine.cpp:5136-5154`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5136-L5154) vs [`audio_engine.cpp:5988-6001`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5988-L6001)
+### P0.8 [RESOLVED] Crossfade Pitch and Tempo Doubling on Sample Rate Mismatch
+- **Location:** [`audio_engine.cpp:5200-5340`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5200-L5340) vs [`audio_engine.cpp:6073-6130`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6073-L6130)
+- **Status:** **RESOLVED** via `crossfadeResampler` & `read_and_resample_crossfade` on decoder producer thread.
 - **Mechanism:** During a crossfade between two tracks with different native sample rates (e.g. Track 1 @ 44.1 kHz, Track 2 @ 96 kHz):
   ```cpp
   // audio_engine.cpp:5144
@@ -222,6 +223,7 @@ flowchart TD
   gotSamples = e->crossfadeRingBuffer.read(e->crossfadeMixBuffer.data(), neededMixSamples);
   ```
 - **Consequence:** The render callback reads `produced` samples (running at 96 kHz) directly from the 44.1 kHz buffer without any rate conversion. Consuming 96,000 frames per second from a 44,100 Hz stream causes the fading-out track to play at **$2.17\times$ speed and chipmunk pitch** during the entire crossfade duration.
+- **Resolution:** Added dedicated resampler state (`ma_resampler crossfadeResampler`) to `AudioEngineHandle`. When crossfade triggers, any tail remaining in `pcmRingBuffer` is resampled to engine rate before transfer to `crossfadeRingBuffer`. During decoding in `service_crossfade_state`, `read_and_resample_crossfade` streams frames and resamples them via zero-latency linear interpolation directly into `crossfadeRingBuffer`. The real-time callback reads pre-resampled frames lock-free at engine sample rate without pitch or speed distortion. Verified with crossfade sample rate mismatch test in `test_engine_api`.
 
 ---
 

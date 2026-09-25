@@ -327,6 +327,62 @@ static void test_compressor_gain_reduction()
     std::remove(wavPath);
 }
 
+static void test_crossfade_sample_rate_mismatch_p08()
+{
+    std::printf("\n== Crossfade Sample Rate Mismatch Verification ([C] P0.8) ==\n");
+    const char *wav44k = "cf_test_track1_44k.wav";
+    const char *wav48k = "cf_test_track2_48k.wav";
+
+    CHECK(write_test_wav(wav44k, 44100, 2, 0.5f), "track 1 written (44.1 kHz)");
+    CHECK(write_test_wav(wav48k, 48000, 2, 0.5f), "track 2 written (48.0 kHz)");
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created for crossfade test");
+    if (!e)
+    {
+        std::remove(wav44k);
+        std::remove(wav48k);
+        return;
+    }
+
+    ae_set_crossfade_duration_ms(e, 500);
+    CHECK(ae_get_crossfade_duration_ms(e) == 500, "crossfade duration configured to 500ms");
+    ae_set_crossfade_enabled(e, 1);
+    CHECK(ae_get_crossfade_enabled(e) == 1, "crossfade enabled");
+
+    const char *playlist[2] = { wav44k, wav48k };
+    CHECK(ae_set_playlist(e, playlist, 2), "playlist with mismatched sample rates set");
+
+    CHECK(ae_play(e), "playback of track 1 started");
+
+    // Wait until track 1 starts playing
+    const auto deadline = Clock::now() + std::chrono::seconds(5);
+    bool playing = false;
+    while (Clock::now() < deadline)
+    {
+        const PlayerStatus st = ae_get_status(e);
+        if (st.is_playing && st.position_seconds > 0.05)
+        {
+            playing = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(playing, "track 1 actively producing audio");
+
+    // Trigger crossfade to track 2
+    CHECK(ae_next(e), "crossfade transition to track 2 triggered");
+
+    // Allow crossfade to process through resampler
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const PlayerStatus st2 = ae_get_status(e);
+    CHECK(st2.is_playing, "playback continues uninterrupted during crossfade across sample rates");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wav44k);
+    std::remove(wav48k);
+}
 
 int main()
 {
@@ -341,6 +397,7 @@ int main()
     test_push_stream_abort();
     test_telemetry_fields();
     test_compressor_gain_reduction();
+    test_crossfade_sample_rate_mismatch_p08();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);
