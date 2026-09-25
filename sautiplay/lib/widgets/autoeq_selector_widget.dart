@@ -498,15 +498,15 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               backgroundColor: context.cardDark,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16)),
-              title: const Row(
+              title: Row(
                 children: [
                   Icon(Icons.folder_shared_rounded,
-                      color: Colors.white, size: 20),
-                  SizedBox(width: 8),
+                      color: context.primaryColor, size: 20),
+                  const SizedBox(width: 8),
                   Text(
                     'Custom AutoEQ Profiles',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: context.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.bold),
                   ),
@@ -515,14 +515,14 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               content: SizedBox(
                 width: math.min(MediaQuery.of(context).size.width * 0.85, 420),
                 child: customs.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24.0),
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24.0),
                         child: Center(
                           child: Text(
                             'No custom profiles imported yet.\nUse the Import button to add downloaded AutoEQ curves.',
                             textAlign: TextAlign.center,
                             style:
-                                TextStyle(color: Colors.white60, fontSize: 12),
+                                TextStyle(color: context.textMuted, fontSize: 12),
                           ),
                         ),
                       )
@@ -530,7 +530,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         shrinkWrap: true,
                         itemCount: customs.length,
                         separatorBuilder: (_, __) =>
-                            const Divider(color: Colors.white12, height: 1),
+                            Divider(color: context.outlineColor, height: 1),
                         itemBuilder: (context, idx) {
                           final item = customs[idx];
                           final isActive = _activeProfile?.id == item.id;
@@ -542,8 +542,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                                   ? Icons.show_chart_rounded
                                   : Icons.equalizer_rounded,
                               color: item.isParametric
-                                  ? Colors.cyanAccent
-                                  : Colors.tealAccent,
+                                  ? context.primaryColor
+                                  : context.primaryColor.withValues(alpha: 0.75),
                               size: 20,
                             ),
                             title: Text(
@@ -551,7 +551,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                               style: TextStyle(
                                 color: isActive
                                     ? context.primaryColor
-                                    : Colors.white,
+                                    : context.textPrimary,
                                 fontWeight: isActive
                                     ? FontWeight.bold
                                     : FontWeight.normal,
@@ -561,7 +561,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                             subtitle: Text(
                               '${item.type.displayName} • Preamp: ${item.preampDb.toStringAsFixed(1)} dB',
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: context.textMuted,
                                 fontSize: 11,
                               ),
                             ),
@@ -605,8 +605,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogCtx).pop(),
-                  child: const Text('Close',
-                      style: TextStyle(color: Colors.white70)),
+                  child: Text('Close',
+                      style: TextStyle(color: context.textMuted)),
                 ),
               ],
             );
@@ -652,13 +652,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
-                        const Icon(Icons.auto_fix_high_rounded,
-                            color: Color(0xFF38BDF8), size: 20),
+                        Icon(Icons.auto_fix_high_rounded,
+                            color: context.primaryColor, size: 20),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Select AutoEQ Profile',
                           style: TextStyle(
-                              color: Colors.white,
+                              color: context.textPrimary,
                               fontSize: 16,
                               fontWeight: FontWeight.bold),
                         ),
@@ -681,21 +681,27 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: TextField(
                       controller: searchCtrl,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: context.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'Search headphones (HD 600, Sony, AirPods)...',
                         hintStyle: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.35),
+                            color: context.textMuted,
                             fontSize: 13),
-                        prefixIcon: const Icon(Icons.search,
-                            color: Colors.white54, size: 18),
+                        prefixIcon: Icon(Icons.search,
+                            color: context.textMuted, size: 18),
                         filled: true,
-                        fillColor: Colors.black26,
+                        fillColor: context.bgDark,
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 8),
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none),
+                            borderSide: BorderSide(color: context.outlineColor)),
+                        enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: context.outlineColor)),
+                        focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: context.primaryColor)),
                       ),
                       onChanged: (query) {
                         setSheetState(() {
@@ -740,8 +746,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                             item.label,
                             style: TextStyle(
                               color: isSelected
-                                  ? const Color(0xFF38BDF8)
-                                  : Colors.white,
+                                  ? context.primaryColor
+                                  : context.textPrimary,
                               fontWeight: isSelected
                                   ? FontWeight.bold
                                   : FontWeight.normal,
@@ -749,8 +755,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                             ),
                           ),
                           trailing: isSelected
-                              ? const Icon(Icons.check_rounded,
-                                  color: Color(0xFF38BDF8), size: 18)
+                              ? Icon(Icons.check_rounded,
+                                  color: context.primaryColor, size: 18)
                               : null,
                           onTap: () {
                             Navigator.pop(sheetCtx);
@@ -786,18 +792,26 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
         ? _activeProfile!.name
         : 'None (Flat)';
 
+    final primary = context.primaryColor;
+    final cardDark = context.cardDark;
+    final bgDark = context.bgDark;
+    final outline = context.outlineColor;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0E1724),
+        color: cardDark,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: outline),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: Row(
         children: [
-          const Text(
+          Text(
             'AutoEq',
             style: TextStyle(
-              color: Colors.white,
+              color: textPrimary,
               fontSize: 15,
               fontWeight: FontWeight.bold,
               letterSpacing: -0.2,
@@ -811,8 +825,9 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               child: Container(
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF070C14),
+                  color: bgDark,
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: outline),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -822,9 +837,7 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         _activeProfile!.isParametric
                             ? Icons.show_chart_rounded
                             : Icons.equalizer_rounded,
-                        color: _activeProfile!.isParametric
-                            ? Colors.cyanAccent
-                            : Colors.tealAccent,
+                        color: primary,
                         size: 14,
                       ),
                       const SizedBox(width: 6),
@@ -834,8 +847,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                         activeLabel,
                         style: TextStyle(
                           color: _activeProfile != null
-                              ? const Color(0xFF38BDF8)
-                              : Colors.white54,
+                              ? primary
+                              : textMuted,
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                         ),
@@ -846,8 +859,8 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                     Icon(
                       Icons.unfold_more_rounded,
                       color: _activeProfile != null
-                          ? const Color(0xFF38BDF8)
-                          : Colors.white54,
+                          ? primary
+                          : textMuted,
                       size: 16,
                     ),
                   ],
@@ -865,12 +878,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF162232),
+                  color: cardDark,
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: outline),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.close_rounded,
-                  color: Colors.white70,
+                  color: textMuted,
                   size: 18,
                 ),
               ),
@@ -885,12 +899,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               width: 34,
               height: 34,
               decoration: BoxDecoration(
-                color: const Color(0xFF162232),
+                color: cardDark,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: outline),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.cloud_upload_outlined,
-                color: Color(0xFF38BDF8),
+                color: primary,
                 size: 18,
               ),
             ),
@@ -904,12 +919,13 @@ class _AutoEqSelectorWidgetState extends State<AutoEqSelectorWidget> {
               width: 34,
               height: 34,
               decoration: BoxDecoration(
-                color: const Color(0xFF162232),
+                color: cardDark,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: outline),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.folder_open_outlined,
-                color: Color(0xFFBAE6FD),
+                color: primary,
                 size: 18,
               ),
             ),

@@ -166,13 +166,19 @@ class _EffectsScreenState extends State<EffectsScreen> {
       offset.dy + size.height + 6,
     );
 
+    final themePrimary = context.primaryColor;
+    final cardDarkColor = context.cardDark;
+    final outlineBorderColor = context.outlineColor;
+    final textPrimaryColor = context.textPrimary;
+    final textMutedColor = context.textMuted;
+
     final selected = await showMenu<AudioProfile>(
       context: context,
       position: position,
-      color: const Color(0xFF101924),
+      color: cardDarkColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFF1E2D40)),
+        side: BorderSide(color: outlineBorderColor),
       ),
       items: _audioProfiles.map((p) {
         final isSelected = p.id == _selectedAudioProfile?.id;
@@ -184,14 +190,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
               Icon(
                 Icons.bar_chart_rounded,
                 size: 16,
-                color: isSelected ? const Color(0xFF38BDF8) : Colors.white54,
+                color: isSelected ? themePrimary : textMutedColor,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   p.name,
                   style: TextStyle(
-                    color: isSelected ? const Color(0xFF38BDF8) : Colors.white,
+                    color: isSelected ? themePrimary : textPrimaryColor,
                     fontWeight:
                         isSelected ? FontWeight.bold : FontWeight.normal,
                     fontSize: 13,
@@ -199,8 +205,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                 ),
               ),
               if (isSelected)
-                const Icon(Icons.check_rounded,
-                    size: 16, color: Color(0xFF38BDF8)),
+                Icon(Icons.check_rounded,
+                    size: 16, color: themePrimary),
             ],
           ),
         );
@@ -464,7 +470,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         decoration: BoxDecoration(
                                           borderRadius:
                                               BorderRadius.circular(10),
-                                          color: const Color(0xFF101924),
+                                          color: context.cardDark,
+                                          border: Border.all(
+                                              color: context.outlineColor),
                                         ),
                                         height: 36,
                                         padding: const EdgeInsets.symmetric(
@@ -472,24 +480,24 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(
+                                            Icon(
                                               Icons.grid_view_rounded,
-                                              color: Color(0xFF38BDF8),
+                                              color: primaryColor,
                                               size: 16,
                                             ),
                                             const SizedBox(width: 6),
                                             Text(
                                               _visualizerLabel,
-                                              style: const TextStyle(
-                                                color: Color(0xFF38BDF8),
+                                              style: TextStyle(
+                                                color: primaryColor,
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w600,
                                               ),
                                             ),
                                             const SizedBox(width: 4),
-                                            const Icon(
+                                            Icon(
                                               Icons.keyboard_arrow_down_rounded,
-                                              color: Color(0xFF38BDF8),
+                                              color: primaryColor,
                                               size: 18,
                                             ),
                                           ],
@@ -502,8 +510,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         entries: [
                                           M3EMenuEntry(
                                             label: 'Stereo Radar',
-                                            leading: const Icon(
+                                            leading: Icon(
                                                 Icons.radar_rounded,
+                                                color: _currentAnalyzerType ==
+                                                        'vectorscope'
+                                                    ? primaryColor
+                                                    : null,
                                                 size: 18),
                                             onPressed: () {
                                               setState(() {
@@ -514,8 +526,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           ),
                                           M3EMenuEntry(
                                             label: 'Flowing Wave',
-                                            leading: const Icon(
+                                            leading: Icon(
                                                 Icons.show_chart_rounded,
+                                                color: _currentAnalyzerType ==
+                                                        'area'
+                                                    ? primaryColor
+                                                    : null,
                                                 size: 18),
                                             onPressed: () {
                                               setState(() {
@@ -525,8 +541,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           ),
                                           M3EMenuEntry(
                                             label: 'Dot Spectrum',
-                                            leading: const Icon(
+                                            leading: Icon(
                                                 Icons.grain_rounded,
+                                                color: _currentAnalyzerType ==
+                                                        'bar'
+                                                    ? primaryColor
+                                                    : null,
                                                 size: 18),
                                             onPressed: () {
                                               setState(() {
@@ -589,8 +609,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             .map(
                                               (s) => M3EMenuEntry(
                                                 label: s.displayName,
-                                                leading: const Icon(
+                                                leading: Icon(
                                                     Icons.auto_awesome,
+                                                    color: _currentAnalyzerType ==
+                                                            s.name
+                                                        ? primaryColor
+                                                        : null,
                                                     size: 18),
                                                 onPressed: () {
                                                   setState(() {
@@ -617,7 +641,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           decoration: BoxDecoration(
                                             borderRadius:
                                                 BorderRadius.circular(10),
-                                            color: const Color(0xFF101924),
+                                            color: context.cardDark,
+                                            border: Border.all(
+                                                color: context.outlineColor),
                                           ),
                                           height: 36,
                                           padding: const EdgeInsets.symmetric(
@@ -625,9 +651,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              const Icon(
+                                              Icon(
                                                 Icons.bar_chart_rounded,
-                                                color: Color(0xFF38BDF8),
+                                                color: primaryColor,
                                                 size: 16,
                                               ),
                                               const SizedBox(width: 6),
@@ -640,17 +666,17 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                                       'Flat',
                                                   overflow:
                                                       TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
+                                                  style: TextStyle(
+                                                    color: context.textPrimary,
                                                     fontSize: 13,
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
                                               ),
                                               const SizedBox(width: 4),
-                                              const Icon(
+                                              Icon(
                                                 Icons.keyboard_arrow_down_rounded,
-                                                color: Colors.white70,
+                                                color: context.textMuted,
                                                 size: 18,
                                               ),
                                             ],
@@ -676,12 +702,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       width: 34,
                                       height: 34,
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF162232),
+                                        color: context.cardDark,
                                         borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: context.outlineColor),
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.save_outlined,
-                                        color: Colors.white70,
+                                        color: context.textPrimary,
                                         size: 17,
                                       ),
                                     ),
@@ -706,12 +734,14 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       width: 34,
                                       height: 34,
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF162232),
+                                        color: context.cardDark,
                                         borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: context.outlineColor),
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.tune_rounded,
-                                        color: Colors.white70,
+                                        color: context.textPrimary,
                                         size: 17,
                                       ),
                                     ),
