@@ -48,6 +48,7 @@ class WaveformSeekBarWidget extends StatefulWidget {
 class _WaveformSeekBarWidgetState extends State<WaveformSeekBarWidget> {
   bool _isDragging = false;
   double? _dragPositionMs;
+  _WaveformGeometry? _geomCache;
 
   @override
   Widget build(BuildContext context) {
@@ -148,6 +149,8 @@ class _WaveformSeekBarWidgetState extends State<WaveformSeekBarWidget> {
                   abPointBMs: widget.abPointBMs,
                   maxMs: maxDuration,
                   abHighlightColor: abHighlightColor,
+                  geomCache: _geomCache,
+                  onGeometryUpdated: (g) => _geomCache = g,
                 ),
               ),
             ),
@@ -191,6 +194,9 @@ class _WaveformSeekBarPainter extends CustomPainter {
   final double maxMs;
   final Color abHighlightColor;
 
+  final _WaveformGeometry? geomCache;
+  final ValueChanged<_WaveformGeometry>? onGeometryUpdated;
+
   _WaveformSeekBarPainter({
     required this.peaks,
     required this.progress,
@@ -202,6 +208,8 @@ class _WaveformSeekBarPainter extends CustomPainter {
     required this.abPointBMs,
     required this.maxMs,
     required this.abHighlightColor,
+    this.geomCache,
+    this.onGeometryUpdated,
   });
 
   // Reusable static Paint instances to eliminate GC churn at 60-120Hz
@@ -222,16 +230,12 @@ class _WaveformSeekBarPainter extends CustomPainter {
     ..strokeWidth = 2.0;
   static final Paint _paintPinB = Paint()..strokeWidth = 2.0;
 
-  // Cached geometry (line segments) to avoid recalculating bar dimensions per frame
-  static _WaveformGeometry? _cachedGeom;
-
-  static Float32List _getPoints(
-      List<double> peaks, double width, double height) {
-    if (_cachedGeom != null &&
-        identical(_cachedGeom!.peaks, peaks) &&
-        _cachedGeom!.width == width &&
-        _cachedGeom!.height == height) {
-      return _cachedGeom!.points;
+  Float32List _getPoints(List<double> peaks, double width, double height) {
+    if (geomCache != null &&
+        identical(geomCache!.peaks, peaks) &&
+        geomCache!.width == width &&
+        geomCache!.height == height) {
+      return geomCache!.points;
     }
 
     const barWidth = 1.5;
@@ -241,13 +245,14 @@ class _WaveformSeekBarPainter extends CustomPainter {
     final count = math.max(0, math.min(maxBars, peaks.length));
 
     if (count == 0) {
-      _cachedGeom = _WaveformGeometry(
+      final emptyGeom = _WaveformGeometry(
         peaks: peaks,
         width: width,
         height: height,
         points: Float32List(0),
       );
-      return _cachedGeom!.points;
+      onGeometryUpdated?.call(emptyGeom);
+      return emptyGeom.points;
     }
 
     final points = Float32List(count * 4);
@@ -275,12 +280,13 @@ class _WaveformSeekBarPainter extends CustomPainter {
       points[offset + 3] = bottomY;
     }
 
-    _cachedGeom = _WaveformGeometry(
+    final newGeom = _WaveformGeometry(
       peaks: peaks,
       width: width,
       height: height,
       points: points,
     );
+    onGeometryUpdated?.call(newGeom);
     return points;
   }
 
