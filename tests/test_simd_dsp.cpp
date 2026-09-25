@@ -292,7 +292,7 @@ static void test_oversampler_simd_fidelity()
         if (out[2 * i + 1] > peakR) { peakR = out[2 * i + 1]; }
     }
 
-    CHECK(peakIdxL == 30, "SIMD PolyphaseOversampler2x cascade group delay = exactly 10 frames (peak at 30 for impulse at 20)");
+    CHECK(peakIdxL == 46, "SIMD PolyphaseOversampler2x cascade group delay = exactly 26 frames (peak at 46 for impulse at 20)");
     CHECK(std::fabs(sumL - 1.0) < 0.02, "SIMD PolyphaseOversampler2x Left DC gain is unity (~1.0)");
     CHECK(std::fabs(sumR - 0.5) < 0.02, "SIMD PolyphaseOversampler2x Right DC gain is unity (~0.5)");
 

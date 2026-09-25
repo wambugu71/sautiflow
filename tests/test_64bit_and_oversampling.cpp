@@ -236,6 +236,37 @@ static void test_oversamplers_frequency_response()
         // Requirement: passband ripple < 0.75 dB up to 20 kHz (old buggy FIR had -11.5 dB drop at 20 kHz!)
         CHECK(gainDB >= -0.75 && gainDB <= 0.35, msg);
     }
+
+    // Verify Stopband Attenuation >= 96 dB (P1.1):
+    // Generate a 35 kHz harmonic at 96 kHz oversampled rate (amplitude 1.0 = 0 dBFS).
+    // Decimation downsamples to 48 kHz native rate; 35 kHz folds across 24 kHz Nyquist
+    // to 48 - 35 = 13 kHz. Audiophile anti-aliasing standards require >= 96 dB stopband rejection.
+    {
+        PolyphaseOversampler2x64 testOS;
+        const uint32_t osFrames = 4096;
+        std::vector<double> osHarmonic(osFrames * 4, 0.0); // interleaved stereo at 96 kHz rate
+        std::vector<double> decimated(osFrames * 2, 0.0);   // interleaved stereo at 48 kHz rate
+
+        const double fHarm = 35000.0;
+        const double fsOS = 96000.0;
+        for (uint32_t i = 0; i < osFrames * 2; ++i) {
+            double val = std::sin(2.0 * M_PI * fHarm * (double)i / fsOS);
+            osHarmonic[i * 2 + 0] = val;
+            osHarmonic[i * 2 + 1] = val;
+        }
+
+        testOS.downsample(osHarmonic.data(), decimated.data(), osFrames);
+
+        double aliasPeak = 0.0;
+        for (size_t i = 2000; i < osFrames; ++i) {
+            aliasPeak = std::max(aliasPeak, std::fabs(decimated[i * 2 + 0]));
+        }
+
+        const double aliasDB = 20.0 * std::log10(std::max(aliasPeak, 1e-15));
+        char msgStopband[128];
+        std::snprintf(msgStopband, sizeof(msgStopband), "Stopband alias rejection at 35 kHz -> 13 kHz: %.2f dBFS (want <= -96.0 dBFS)", aliasDB);
+        CHECK(aliasDB <= -96.0, msgStopband);
+    }
 }
 
 // -----------------------------------------------------------------------------

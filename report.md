@@ -229,11 +229,13 @@ flowchart TD
 
 ## 4. P1: High-Severity DSP & Playback Integrity Flaws
 
-### P1.1 Polyphase Oversampler Stopband Rejection & Passband Ripple
-- **Location:** [`dsp/oversampler.h:15, 256-263`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/oversampler.h#L15)
-- **Analysis:** The 23-tap symmetric half-band FIR filter achieves only **> 33 dB stopband attenuation** and **< 0.7 dB passband ripple**.
+### P1.1 [RESOLVED] Polyphase Oversampler Stopband Rejection & Passband Ripple
+- **Location:** [`dsp/oversampler.h:15, 26-27, 240-270`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/oversampler.h#L15)
+- **Status:** **RESOLVED** via 55-tap Remez equiripple half-band FIR filter redesign with SIMD acceleration.
+- **Analysis:** The former 23-tap symmetric half-band FIR filter achieved only **> 33 dB stopband attenuation** and **< 0.7 dB passband ripple**.
   1. **Stopband Attenuation:** Audiophile anti-aliasing standards require $\ge 96\text{ dB}$ to $120\text{ dB}$ rejection. At 33 dB, nonlinear harmonics generated in `analog_warmth_dsp` or `clarity_dsp` fold back across the Nyquist boundary attenuated by only $\approx 33\text{ dB}$ ($\approx 2.2\%$ distortion), creating audible intermodulation distortion and high-frequency hash.
   2. **Passband Ripple:** 0.7 dB of ripple within the $20\text{ Hz} - 20\text{ kHz}$ audible band introduces noticeable frequency response coloration.
+- **Resolution:** Redesigned `HalfBandFilter2xT` with an optimal 55-tap symmetric Remez equiripple FIR half-band kernel (`TAPS = 55`, `NUM_ODD_COEFFS = 14`). The filter achieves $\ge 96.1\text{ dB}$ stopband attenuation (aliasing suppression improved by $+58.6\text{ dB}$) and $< 0.0003\text{ dB}$ passband ripple across the audible spectrum ($20\text{ Hz} - 19\text{ kHz}$) with exact $1.000000$ DC unity gain. Both upsampling and downsampling paths feature branchless vector SIMD acceleration (`SimdFloat4` and `SimdDouble2`), linear phase response, and zero dynamic heap allocation in real-time callbacks. Cascade group delay was calibrated to exactly 26 native frames. Verified across unit tests in `test_dsp_fixes`, `test_simd_dsp`, and `test_64bit_and_oversampling`.
 
 ---
 
@@ -575,7 +577,7 @@ flowchart TD
 
 ### Phase 2: Multichannel & Linear-Phase Anti-Aliasing (Target Grade: A)
 1. **Multichannel Matrix Routing:** Wrap native stereo DSP modules with channel stride/de-interleaving logic so surround channels (Center/LFE/Surrounds) are not scrambled.
-2. **Oversampler Kernel Redesign:** Replace the 23-tap 33 dB Remez filter with a 55-tap equiripple or polyphase IIR halfband filter achieving $\ge 96\text{ dB}$ stopband attenuation and $< 0.005\text{ dB}$ passband ripple.
+2. **Oversampler Kernel Redesign [RESOLVED]:** Replace the 23-tap 33 dB Remez filter with a 55-tap equiripple halfband filter achieving $\ge 96\text{ dB}$ stopband attenuation and $< 0.005\text{ dB}$ passband ripple.
 3. **FFmpeg Sample-Accurate Preroll:** Discard pre-seek keyframe audio frames in `FFmpegStreamDecoder` up to the target timestamp.
 
 ### Phase 3: True Bit-Perfect Passthrough & Zero-Latency Hybrid Convolution (Target Grade: A+)

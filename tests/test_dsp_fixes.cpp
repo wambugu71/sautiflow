@@ -498,10 +498,10 @@ static void test_oversampled_saturation()
         char msgL[128], msgR[128], msgDelay[128];
         std::snprintf(msgL, sizeof(msgL), "Oversampler DC gain L=%.4f (want ~1.0)", sumL);
         std::snprintf(msgR, sizeof(msgR), "Oversampler DC gain R=%.4f (want ~0.5)", sumR);
-        std::snprintf(msgDelay, sizeof(msgDelay), "Oversampler cascade group delay = %d frames (want 30)", peakIdxL);
+        std::snprintf(msgDelay, sizeof(msgDelay), "Oversampler cascade group delay = %d frames (want 46)", peakIdxL);
         CHECK(nearlyEqual((float)sumL, 1.0f, 0.02f), msgL);
         CHECK(nearlyEqual((float)sumR, 0.5f, 0.02f), msgR);
-        CHECK(peakIdxL == 30, msgDelay);
+        CHECK(peakIdxL == 46, msgDelay);
     }
 
     // 2. AnalogWarmthDSP oversampled processing with zero drive (transparency)
