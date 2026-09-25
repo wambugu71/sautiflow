@@ -59,6 +59,8 @@ dependencies:
 
 dependency_overrides:
   uuid: ^4.5.1
+  audio_service:
+    path: ../dependencies/audio_service
 
 dev_dependencies:
   flutter_test:

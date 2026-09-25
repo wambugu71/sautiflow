@@ -18,7 +18,7 @@ class MiniAudioSystemAudioConfig {
     this.androidNotificationChannelName = 'Audio Playback',
     this.androidNotificationOngoing = true,
     this.androidStopForegroundOnPause = true,
-    this.androidNotificationIcon = 'mipmap/ic_launcher',
+    this.androidNotificationIcon = 'drawable/ic_notification',
   });
 
   final bool enableDucking;
@@ -45,6 +45,7 @@ class MiniAudioSystemAudioController {
     required FutureOr<void> Function(Duration position) onSeek,
     required void Function(double gain) onSetGain,
     double Function()? onGetGain,
+    FutureOr<void> Function()? onToggleFavorite,
   })  : _statusStream = statusStream,
         _telemetryStream = telemetryStream,
         _onPlay = onPlay,
@@ -54,7 +55,8 @@ class MiniAudioSystemAudioController {
         _onPrevious = onPrevious,
         _onSeek = onSeek,
         _onSetGain = onSetGain,
-        _onGetGain = onGetGain;
+        _onGetGain = onGetGain,
+        _onToggleFavorite = onToggleFavorite;
 
   final Stream<PlayerStatus> _statusStream;
   final Stream<StreamTelemetry>? _telemetryStream;
@@ -66,6 +68,7 @@ class MiniAudioSystemAudioController {
   final FutureOr<void> Function(Duration position) _onSeek;
   final void Function(double gain) _onSetGain;
   final double Function()? _onGetGain;
+  final FutureOr<void> Function()? _onToggleFavorite;
 
   AudioHandler? _handler;
   _MiniAudioHandler? _typedHandler;
@@ -111,6 +114,7 @@ class MiniAudioSystemAudioController {
             onNext: _onNext,
             onPrevious: _onPrevious,
             onSeek: _onSeek,
+            onToggleFavorite: _onToggleFavorite,
           ),
           config: AudioServiceConfig(
             androidNotificationChannelId: config.androidNotificationChannelId,
@@ -233,6 +237,10 @@ class MiniAudioSystemAudioController {
     }
   }
 
+  void setFavorite(bool isFavorite) {
+    _typedHandler?.setFavorite(isFavorite);
+  }
+
   Future<void> updateNowPlaying({
     required String title,
     String? artist,
@@ -240,9 +248,14 @@ class MiniAudioSystemAudioController {
     String? id,
     Duration? duration,
     Uri? artUri,
+    bool? isFavorite,
   }) async {
     final h = _typedHandler;
     if (h == null) return;
+
+    if (isFavorite != null) {
+      h.setFavorite(isFavorite);
+    }
 
     h.mediaItem.add(
       MediaItem(
@@ -266,31 +279,56 @@ class _MiniAudioHandler extends BaseAudioHandler
     required FutureOr<void> Function() onNext,
     required FutureOr<void> Function() onPrevious,
     required FutureOr<void> Function(Duration position) onSeek,
+    FutureOr<void> Function()? onToggleFavorite,
   })  : _onPlay = onPlay,
         _onPause = onPause,
         _onStop = onStop,
         _onNext = onNext,
         _onPrevious = onPrevious,
-        _onSeek = onSeek {
+        _onSeek = onSeek,
+        _onToggleFavorite = onToggleFavorite {
     playbackState.add(
       PlaybackState(
         controls: [
           MediaControl.skipToPrevious,
           MediaControl.play,
           MediaControl.pause,
-          MediaControl.stop,
           MediaControl.skipToNext,
+          MediaControl.favoriteBorder,
+          MediaControl.stop,
         ],
         systemActions: {
           MediaAction.seek,
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
-        androidCompactActionIndices: [0, 1, 4],
+        androidCompactActionIndices: [0, 1, 3],
         processingState: AudioProcessingState.ready,
         playing: false,
       ),
     );
+  }
+
+  final FutureOr<void> Function()? _onToggleFavorite;
+  bool _isFavorite = false;
+  PlayerStatus? _lastStatus;
+  StreamTelemetry? _lastTelemetry;
+
+  void setFavorite(bool isFavorite) {
+    if (_isFavorite == isFavorite) return;
+    _isFavorite = isFavorite;
+    if (_lastStatus != null) {
+      updateFromPlayerStatus(_lastStatus!, telemetry: _lastTelemetry);
+    }
+  }
+
+  @override
+  Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'favorite' || name == 'toggleFavorite') {
+      await _onToggleFavorite?.call();
+      return null;
+    }
+    return super.customAction(name, extras);
   }
 
   final FutureOr<void> Function() _onPlay;
@@ -331,26 +369,31 @@ class _MiniAudioHandler extends BaseAudioHandler
   }
 
   void updateFromPlayerStatus(PlayerStatus status, {StreamTelemetry? telemetry}) {
+    _lastStatus = status;
+    _lastTelemetry = telemetry;
     final currentPositionMs = (status.positionSeconds * 1000).round();
     final bufferAheadMs = (telemetry != null && telemetry.bufferedDuration > Duration.zero)
         ? telemetry.bufferedDuration.inMilliseconds
         : 0;
     final bufferedMs = currentPositionMs + bufferAheadMs;
 
+    final favoriteControl = _isFavorite ? MediaControl.favorite : MediaControl.favoriteBorder;
+
     playbackState.add(
       PlaybackState(
         controls: [
           MediaControl.skipToPrevious,
           status.isPlaying ? MediaControl.pause : MediaControl.play,
-          MediaControl.stop,
           MediaControl.skipToNext,
+          favoriteControl,
+          MediaControl.stop,
         ],
         systemActions: const {
           MediaAction.seek,
           MediaAction.seekForward,
           MediaAction.seekBackward,
         },
-        androidCompactActionIndices: const [0, 1, 3],
+        androidCompactActionIndices: const [0, 1, 2],
         processingState: AudioProcessingState.ready,
         playing: status.isPlaying,
         updatePosition: Duration(

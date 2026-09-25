@@ -58,6 +58,7 @@ class IsolateAudioPlayer {
 
   MiniAudioSystemAudioController? _systemAudio;
   DesktopSystemAudioController? _desktopAudio;
+  FutureOr<void> Function()? onToggleFavorite;
 
   int _nextRequestId = 0;
   final Map<int, Completer<dynamic>> _pendingRequests = {};
@@ -93,10 +94,11 @@ class IsolateAudioPlayer {
           onPrevious: previous,
           onSeek: (pos) => seekTo(pos),
           onSetGain: setGain,
+          onToggleFavorite: () => onToggleFavorite?.call(),
         );
         await _systemAudio!.enable(
           config: const MiniAudioSystemAudioConfig(
-            androidNotificationIcon: 'mipmap/launcher_icon',
+            androidNotificationIcon: 'drawable/ic_notification',
           ),
         );
       } else if (!kIsWeb &&
@@ -1389,6 +1391,7 @@ class IsolateAudioPlayer {
     required Duration duration,
     String? album,
     String? artUri,
+    bool? isFavorite,
   }) async {
     if (_desktopAudio != null) {
       await _desktopAudio!.updateNowPlaying(
@@ -1413,11 +1416,16 @@ class IsolateAudioPlayer {
           duration: duration,
           album: album,
           artUri: parsedUri,
+          isFavorite: isFavorite,
         );
       } catch (e) {
         _logController.add('[now-playing] system audio update error: $e');
       }
     }
+  }
+
+  void setFavorite(bool isFavorite) {
+    _systemAudio?.setFavorite(isFavorite);
   }
 
   void setLoopMode(LoopMode mode) =>

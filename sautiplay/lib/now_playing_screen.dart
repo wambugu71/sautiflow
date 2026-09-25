@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -2158,20 +2159,49 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Scaffold(
             body: Stack(
               children: [
-                // Ambient Dynamic Background Glow Layer
+                // Immersive Dynamic Background Layer (Album art blurred background or ambient glow)
                 Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          primaryColor.withValues(alpha: 0.18),
-                          bgColor,
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.memory(
+                              widget.albumArt!,
+                              fit: BoxFit.cover,
+                            ),
+                            ClipRect(
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.black.withValues(alpha: 0.55),
+                                        bgColor.withValues(alpha: 0.82),
+                                        bgColor.withValues(alpha: 0.98),
+                                      ],
+                                      stops: const [0.0, 0.55, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                primaryColor.withValues(alpha: 0.18),
+                                bgColor,
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
                 PageView(
                   controller: _pageController,

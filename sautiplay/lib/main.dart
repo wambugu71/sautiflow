@@ -37,6 +37,7 @@ import 'recently_played_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
+import 'services/liked_songs_service.dart';
 import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
@@ -343,6 +344,8 @@ class _PlayerShellState extends State<PlayerShell> {
     super.initState();
     // Initialize the engine with defaults
     _player.init(enableSystemAudio: true);
+    _player.onToggleFavorite = _handleNotificationToggleFavorite;
+    LikedSongsService.instance.likedSongsNotifier.addListener(_syncNotificationFavoriteStatus);
 
     // Initialize the multiband EQ (safe to call even if unnecessary, but good practice)
     _player.initMultibandEq(_eqFrequencies);
@@ -694,6 +697,7 @@ class _PlayerShellState extends State<PlayerShell> {
     _hardwareSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
+    LikedSongsService.instance.likedSongsNotifier.removeListener(_syncNotificationFavoriteStatus);
     DlnaRendererService.instance.stopInternal();
     _status.dispose();
     _player.dispose();
@@ -776,6 +780,15 @@ class _PlayerShellState extends State<PlayerShell> {
 
       final finalArtist = _metadata.value.artist;
 
+      String currentTrackId = title;
+      if (_onlineTrackMetadata.containsKey(source.uri)) {
+        currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
+      } else if (source.uri.scheme == 'file') {
+        final path = _safeFilePathFromUri(source.uri);
+        if (path != null) currentTrackId = path;
+      }
+      final isCurrentLiked = await LikedSongsService.instance.isLiked(currentTrackId);
+
       unawaited(
         _player.updateNowPlaying(
           id: 'track_$idx',
@@ -783,6 +796,7 @@ class _PlayerShellState extends State<PlayerShell> {
           artist: finalArtist,
           duration: Duration(milliseconds: finalDurationSecs * 1000),
           artUri: artUri,
+          isFavorite: isCurrentLiked,
         ),
       );
 
@@ -824,6 +838,70 @@ class _PlayerShellState extends State<PlayerShell> {
         ),
       );
     });
+  }
+
+  Future<void> _syncNotificationFavoriteStatus() async {
+    final idx = _status.value.currentIndex;
+    if (idx < 0 || idx >= _playlist.length) return;
+    final source = _playlist[idx];
+    String currentTrackId = '';
+    if (_onlineTrackMetadata.containsKey(source.uri)) {
+      currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
+    } else if (source.uri.scheme == 'file') {
+      final path = _safeFilePathFromUri(source.uri);
+      if (path != null) currentTrackId = path;
+    }
+    if (currentTrackId.isEmpty) return;
+    final isLiked = await LikedSongsService.instance.isLiked(currentTrackId);
+    _player.setFavorite(isLiked);
+  }
+
+  Future<void> _handleNotificationToggleFavorite() async {
+    final idx = _status.value.currentIndex;
+    if (idx < 0 || idx >= _playlist.length) return;
+    final source = _playlist[idx];
+    String trackId = '';
+    String title = _nameFromSource(source);
+    String artist = _metadata.value.artist;
+    String? artistId;
+    String? thumbUrl;
+
+    if (_onlineTrackMetadata.containsKey(source.uri)) {
+      final info = _onlineTrackMetadata[source.uri]!;
+      trackId = info.videoId;
+      title = info.title;
+      artist = info.artist;
+      artistId = info.artistId;
+      thumbUrl = info.thumbnailUrl;
+    } else if (source.uri.scheme == 'file') {
+      final path = _safeFilePathFromUri(source.uri);
+      if (path != null) {
+        trackId = path;
+      }
+    } else {
+      trackId = source.uri.toString();
+    }
+
+    if (trackId.isEmpty) return;
+
+    final isLiked = await LikedSongsService.instance.isLiked(trackId);
+    if (isLiked) {
+      await LikedSongsService.instance.removeLikedSong(trackId);
+      _player.setFavorite(false);
+    } else {
+      await LikedSongsService.instance.addLikedSong(
+        LikedSong(
+          videoId: trackId,
+          title: title,
+          artist: artist,
+          artistId: artistId,
+          thumbnailUrl: thumbUrl,
+          durationSeconds: _status.value.durationSeconds.round(),
+          likedAt: DateTime.now(),
+        ),
+      );
+      _player.setFavorite(true);
+    }
   }
 
   Future<String?> _resolveNowPlayingArtUri(
