@@ -351,6 +351,72 @@ static void test_tape_drift()
         }
         CHECK(finite, "64-bit double processing produces valid, non-NaN output");
     }
+
+    // 7. Multichannel acoustic timing synchronization verification (P1.7)
+    {
+        tape.reset();
+        tape.setEnabled(true);
+        // Zero modulations so nominal delay is exactly 0.015 * 48000 = 720 samples
+        tape.setParams(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 22000.0f);
+
+        const size_t frames = 1500;
+        const int ch51 = 6;
+        std::vector<float> buf51(frames * ch51, 0.0f);
+        // Place single impulse at sample 10 on all 6 channels
+        for (int c = 0; c < ch51; ++c) {
+            buf51[10 * ch51 + c] = 1.0f;
+        }
+
+        tape.process(buf51.data(), frames, ch51);
+
+        // Find peak arrival index on each channel
+        std::vector<size_t> arrival(ch51, 0);
+        for (int c = 0; c < ch51; ++c) {
+            float maxVal = 0.0f;
+            for (size_t i = 0; i < frames; ++i) {
+                float val = std::abs(buf51[i * ch51 + c]);
+                if (val > maxVal) {
+                    maxVal = val;
+                    arrival[c] = i;
+                }
+            }
+        }
+
+        // Expected arrival: 10 + 720 = 730 samples
+        CHECK(arrival[0] == 730, "Front Left delayed by nominal 15 ms (720 samples)");
+        CHECK(arrival[1] == 730, "Front Right delayed by nominal 15 ms (720 samples)");
+        CHECK(arrival[2] == 730, "Center channel delayed by nominal 15 ms (in sync with L/R)");
+        CHECK(arrival[3] == 730, "LFE channel delayed by nominal 15 ms (in sync with L/R)");
+        CHECK(arrival[4] == 730, "Surround Left delayed by nominal 15 ms (in sync with L/R)");
+        CHECK(arrival[5] == 730, "Surround Right delayed by nominal 15 ms (in sync with L/R)");
+
+        // Specifically verify Center is not 15ms ahead of Front Left
+        int centerDelta = static_cast<int>(arrival[2]) - static_cast<int>(arrival[0]);
+        CHECK(centerDelta == 0, "Center vocal timing perfectly synchronized with front stereo stage (delta == 0)");
+
+        // 7b. 7.1 surround 8-channel double precision verification
+        tape.reset();
+        const int ch71 = 8;
+        std::vector<double> buf71(frames * ch71, 0.0);
+        for (int c = 0; c < ch71; ++c) {
+            buf71[10 * ch71 + c] = 1.0;
+        }
+        tape.process(buf71.data(), frames, ch71);
+        bool all8Synced = true;
+        for (int c = 0; c < ch71; ++c) {
+            double maxVal = 0.0;
+            size_t peakIdx = 0;
+            for (size_t i = 0; i < frames; ++i) {
+                double val = std::abs(buf71[i * ch71 + c]);
+                if (val > maxVal) {
+                    maxVal = val;
+                    peakIdx = i;
+                }
+            }
+            if (peakIdx != 730) all8Synced = false;
+        }
+        CHECK(all8Synced, "All 8 surround channels (7.1) delayed in lockstep at 64-bit precision");
+    }
 }
 
 int main()

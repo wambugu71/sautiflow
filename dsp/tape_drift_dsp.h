@@ -40,9 +40,11 @@ class TapeDriftDSP {
 public:
     static constexpr size_t kBufferSize = 16384;
     static constexpr size_t kBufferMask = kBufferSize - 1;
-    static constexpr size_t kMaxChannels = 2;
+    static constexpr size_t kMaxChannels = 8;
 
     TapeDriftDSP() {
+        buffer_.assign(kMaxChannels * kBufferSize, 0.0);
+        hf_state_.fill(0.0);
         setSampleRate(48000.0f);
         setPreset(TapeDriftPreset::SubtleHiFi);
         reset();
@@ -150,10 +152,12 @@ public:
     }
 
     void reset() {
-        for (size_t c = 0; c < kMaxChannels; ++c) {
-            buffer_[c].fill(0.0);
-            hf_state_[c] = 0.0;
+        if (buffer_.size() != kMaxChannels * kBufferSize) {
+            buffer_.assign(kMaxChannels * kBufferSize, 0.0);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0);
         }
+        hf_state_.fill(0.0);
         write_pos_ = 0;
         wow_phase_ = 0.0;
         flutter_phase_ = 0.0;
@@ -196,12 +200,20 @@ public:
 
             // 2. Write input samples to circular buffer
             for (size_t c = 0; c < ch; ++c) {
-                buffer_[c][write_pos_] = static_cast<double>(buffer[i * (size_t)channels + c]);
+                buffer_[c * kBufferSize + write_pos_] = static_cast<double>(buffer[i * (size_t)channels + c]);
             }
 
             // 3. Read interpolated delayed samples per channel
             for (size_t c = 0; c < ch; ++c) {
-                const double ch_phase_offset = (c == 1) ? phase_offset : 0.0;
+                double ch_phase_offset = 0.0;
+                if (c == 1 || c == 5 || c == 7) {
+                    ch_phase_offset = phase_offset;
+                } else if (c == 2 || c == 3) {
+                    ch_phase_offset = phase_offset * 0.5;
+                } else {
+                    ch_phase_offset = 0.0;
+                }
+
                 const double wow_mod = std::sin(wow_phase_ + ch_phase_offset) * wow_amp;
                 const double flutter_mod = std::sin(flutter_phase_ + ch_phase_offset * 1.5) * flutter_amp;
                 const double drift_mod = drift_val_ * drift_amp;
@@ -219,10 +231,10 @@ public:
                 const size_t idx_p1 = static_cast<size_t>(i_read + 1) & kBufferMask;
                 const size_t idx_p2 = static_cast<size_t>(i_read + 2) & kBufferMask;
 
-                const double ym1 = buffer_[c][idx_m1];
-                const double y0  = buffer_[c][idx_0];
-                const double y1  = buffer_[c][idx_p1];
-                const double y2  = buffer_[c][idx_p2];
+                const double ym1 = buffer_[c * kBufferSize + idx_m1];
+                const double y0  = buffer_[c * kBufferSize + idx_0];
+                const double y1  = buffer_[c * kBufferSize + idx_p1];
+                const double y2  = buffer_[c * kBufferSize + idx_p2];
 
                 double delayed = hermite4(ym1, y0, y1, y2, frac);
 
@@ -269,11 +281,19 @@ public:
             drift_val_ += 0.0005 * (drift_target_ - drift_val_);
 
             for (size_t c = 0; c < ch; ++c) {
-                buffer_[c][write_pos_] = buffer[i * (size_t)channels + c];
+                buffer_[c * kBufferSize + write_pos_] = buffer[i * (size_t)channels + c];
             }
 
             for (size_t c = 0; c < ch; ++c) {
-                const double ch_phase_offset = (c == 1) ? phase_offset : 0.0;
+                double ch_phase_offset = 0.0;
+                if (c == 1 || c == 5 || c == 7) {
+                    ch_phase_offset = phase_offset;
+                } else if (c == 2 || c == 3) {
+                    ch_phase_offset = phase_offset * 0.5;
+                } else {
+                    ch_phase_offset = 0.0;
+                }
+
                 const double wow_mod = std::sin(wow_phase_ + ch_phase_offset) * wow_amp;
                 const double flutter_mod = std::sin(flutter_phase_ + ch_phase_offset * 1.5) * flutter_amp;
                 const double drift_mod = drift_val_ * drift_amp;
@@ -290,10 +310,10 @@ public:
                 const size_t idx_p1 = static_cast<size_t>(i_read + 1) & kBufferMask;
                 const size_t idx_p2 = static_cast<size_t>(i_read + 2) & kBufferMask;
 
-                const double ym1 = buffer_[c][idx_m1];
-                const double y0  = buffer_[c][idx_0];
-                const double y1  = buffer_[c][idx_p1];
-                const double y2  = buffer_[c][idx_p2];
+                const double ym1 = buffer_[c * kBufferSize + idx_m1];
+                const double y0  = buffer_[c * kBufferSize + idx_0];
+                const double y1  = buffer_[c * kBufferSize + idx_p1];
+                const double y2  = buffer_[c * kBufferSize + idx_p2];
 
                 double delayed = hermite4(ym1, y0, y1, y2, frac);
 
@@ -357,11 +377,11 @@ private:
     uint32_t drift_update_interval_ = 4800;
 
     double hf_alpha_ = 1.0;
-    std::array<double, kMaxChannels> hf_state_{0.0, 0.0};
+    std::array<double, kMaxChannels> hf_state_{};
 
-    // Circular delay buffer
+    // Circular delay buffer (stored linearly in heap to maintain small stack footprint)
     size_t write_pos_ = 0;
-    std::array<std::array<double, kBufferSize>, kMaxChannels> buffer_{};
+    std::vector<double> buffer_;
 };
 
 } // namespace sauti::dsp
