@@ -14,6 +14,7 @@
 
 #include "audio_engine.h"
 #include "ffmpeg_stream_decoder.h"
+#include "miniaudio.h"
 
 #include <atomic>
 #include <chrono>
@@ -577,6 +578,134 @@ static void test_sample_rate_switch_position_continuity_p14()
     std::remove(wavPath);
 }
 
+static void test_device_resampler_input_estimation_p15()
+{
+    std::printf("\n== Device Resampler Input Estimation & Dropout Prevention ([C] P1.5) ==\n");
+
+    const char *wavPath = "device_resampler_p15_test.wav";
+    const int sampleRate = 44100;
+    CHECK(write_test_wav(wavPath, sampleRate, 3, 0.5f), "test WAV generated (44.1 kHz, 3s)");
+
+    // Create engine with 48000 Hz device rate
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created at 48.0 kHz");
+    if (!e)
+    {
+        std::remove(wavPath);
+        return;
+    }
+
+    // Set engine output processing rate to 44.1 kHz, forcing device SRC (44.1k -> 48k)
+    ae_set_output_sample_rate(e, 44100);
+    ae_set_engine_resample_algorithm(e, 11); // r8brain 24-bit linear phase
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started");
+
+    // Let playback run for 500ms under active device SRC
+    const auto deadline = Clock::now() + std::chrono::milliseconds(500);
+    while (Clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    const PlayerStatus st = ae_get_status(e);
+    CHECK(st.is_playing == 1, "playback is actively running with device SRC");
+    CHECK(st.position_seconds >= 0.25, "playback position advancing smoothly");
+
+    const AEQualityTelemetry telem = ae_get_quality_telemetry(e);
+    // Before fix, false underruns incremented ~41 frames every block because produced (at 44.1k)
+    // was compared directly against frameCount (at 48k).
+    CHECK(telem.underrun_count == 0, "zero underruns reported during device SRC (no false starvation)");
+
+    const AEResamplingPolicyInfo policy = ae_get_resampling_policy_info(e);
+    CHECK(policy.engine_sample_rate == 44100, "policy engine rate is 44100 Hz");
+    CHECK(policy.device_sample_rate == 48000, "policy device rate is 48000 Hz");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
+static void test_filter_state_retention_equalizer_adjustment_p16()
+{
+    std::printf("\n== Filter State Retention & Equalizer Zipper Crackle Elimination ([C] P1.6) ==\n");
+
+    // 1. Direct miniaudio biquad state retention vs wipe verification
+    ma_peak2_config cfg1 = ma_peak2_config_init(ma_format_f32, 2, 48000, 6.0f, 1.0f, 1000.0f);
+    ma_peak2 filter{};
+    ma_result res = ma_peak2_init(&cfg1, nullptr, &filter);
+    CHECK(res == MA_SUCCESS, "ma_peak2 initialized successfully");
+
+    // Feed a short signal with an impulse to populate internal delay-line registers (pR1, pR2)
+    float inBuf[4] = { 1.0f, 0.5f, 0.0f, 0.0f };
+    float outBuf[4] = { 0 };
+    ma_peak2_process_pcm_frames(&filter, outBuf, inBuf, 1);
+
+    const bool hasState = (filter.bq.pR1 != nullptr) &&
+                          (std::abs(filter.bq.pR1[0].f32) > 1e-6f || std::abs(filter.bq.pR2[0].f32) > 1e-6f);
+    CHECK(hasState, "filter internal state registers (pR1/pR2) populated with audio history");
+
+    // Calling ma_peak2_init zeroes history registers: this was the bug!
+    ma_peak2_config cfg2 = ma_peak2_config_init(ma_format_f32, 2, 48000, 8.0f, 1.0f, 1000.0f);
+    ma_peak2_init(&cfg2, nullptr, &filter);
+    const bool stateWiped = (filter.bq.pR1 != nullptr && filter.bq.pR1[0].f32 == 0.0f && filter.bq.pR2[0].f32 == 0.0f);
+    CHECK(stateWiped, "ma_peak2_init wipes filter history registers to zero (proves root cause of slider zipper clicks)");
+
+    // Re-charge filter state registers
+    ma_peak2_process_pcm_frames(&filter, outBuf, inBuf, 1);
+    const float savedR1 = filter.bq.pR1[0].f32;
+    const float savedR2 = filter.bq.pR2[0].f32;
+    CHECK(std::abs(savedR1) > 1e-6f, "filter history registers repopulated");
+
+    // Calling ma_peak2_reinit updates coefficients in-place while preserving internal delay history
+    ma_peak2_config cfg3 = ma_peak2_config_init(ma_format_f32, 2, 48000, 4.0f, 1.0f, 1000.0f);
+    res = ma_peak2_reinit(&cfg3, &filter);
+    CHECK(res == MA_SUCCESS, "ma_peak2_reinit succeeded");
+    const bool stateRetained = (filter.bq.pR1[0].f32 == savedR1 && filter.bq.pR2[0].f32 == savedR2);
+    CHECK(stateRetained, "ma_peak2_reinit retains delay-line registers (eliminates zipper crackle)");
+    ma_peak2_uninit(&filter, nullptr);
+
+    // 2. Full engine multiband FX dynamic adjustment during active playback
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created at 48 kHz stereo");
+    if (!e) return;
+
+    const char *wavPath = "filter_state_p16_test.wav";
+    CHECK(write_test_wav(wavPath, 48000, 2, 0.5f), "test WAV generated (48 kHz, 2s)");
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started");
+
+    int types[5] = { AE_EQ_BAND_LOWSHELF, AE_EQ_BAND_PEAK, AE_EQ_BAND_PEAK, AE_EQ_BAND_PEAK, AE_EQ_BAND_HIGHSHELF };
+    float freqs[5] = { 100.0f, 500.0f, 1000.0f, 4000.0f, 10000.0f };
+    float gains[5] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    float qs[5] = { 0.7f, 1.0f, 1.0f, 1.0f, 0.7f };
+    int enabled[5] = { 1, 1, 1, 1, 1 };
+    ae_set_multiband_fx_bands(e, 5, types, freqs, gains, qs, nullptr, enabled);
+    ae_set_multiband_fx_enabled(e, 1);
+
+    // Rapid continuous slider movements during active playback (simulates user dragging GUI equalizer sliders)
+    for (int iter = 0; iter < 50; ++iter)
+    {
+        gains[0] = std::sin(iter * 0.2f) * 6.0f;
+        gains[1] = std::cos(iter * 0.25f) * 4.0f;
+        gains[2] = std::sin(iter * 0.15f) * -5.0f;
+        freqs[2] = 1000.0f + std::sin(iter * 0.3f) * 200.0f;
+        ae_set_multiband_fx_bands(e, 5, types, freqs, gains, qs, nullptr, enabled);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    const PlayerStatus st = ae_get_status(e);
+    CHECK(st.is_playing == 1, "playback remained uninterrupted during continuous slider sweeps");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -593,6 +722,8 @@ int main()
     test_crossfade_sample_rate_mismatch_p08();
     test_ffmpeg_seek_preroll_p13();
     test_sample_rate_switch_position_continuity_p14();
+    test_device_resampler_input_estimation_p15();
+    test_filter_state_retention_equalizer_adjustment_p16();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

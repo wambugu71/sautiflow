@@ -792,7 +792,12 @@ namespace
         }
         else
         {
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio);
+            ma_uint64 inReq = (ma_uint64)std::ceil((double)outputFrameCount / (double)backend->ratio);
+            if (backend->ratio < 1.0f)
+            {
+                inReq += 1;
+            }
+            *pInputFrameCount = inReq;
         }
         return MA_SUCCESS;
     }
@@ -951,6 +956,30 @@ namespace
         R8brainRingBuffer outputRing;
     };
 
+    static void r8b_prime_filter(R8brainBackend *backend)
+    {
+        if (!backend || backend->resamplers.empty() || !backend->resamplers[0])
+            return;
+        int latIn = backend->resamplers[0]->getInLenBeforeOutPos(0);
+        if (latIn <= 0)
+            return;
+        const int ch = backend->channels;
+        int remaining = latIn;
+        while (remaining > 0)
+        {
+            int chunk = std::min(remaining, backend->maxInLen);
+            for (int c = 0; c < ch; ++c)
+            {
+                std::fill(backend->inBufs[c].begin(), backend->inBufs[c].begin() + chunk, 0.0);
+                double *dummy = nullptr;
+                backend->resamplers[c]->process(backend->inBufs[c].data(), chunk, dummy);
+            }
+            remaining -= chunk;
+        }
+        backend->outputRing.reset();
+        backend->flushZeroFed = 0;
+    }
+
     static ma_result r8b_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
     {
         if (!pHeapSizeInBytes)
@@ -1001,6 +1030,7 @@ namespace
             size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
             size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
             backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
+            r8b_prime_filter(backend);
         }
         catch (...)
         {
@@ -1193,6 +1223,7 @@ namespace
         size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
         backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
         backend->flushZeroFed = 0; // fresh filter state: tail flush is armed again
+        r8b_prime_filter(backend);
         return MA_SUCCESS;
     }
 
@@ -1222,11 +1253,26 @@ namespace
         if (!backend || backend->ratio <= 0.0)
         {
             *pInputFrameCount = outputFrameCount;
+            return MA_SUCCESS;
         }
-        else
+
+        size_t bufferedFrames = (backend->channels > 0)
+            ? (backend->outputRing.available_read() / (size_t)backend->channels)
+            : 0;
+
+        if (outputFrameCount <= (ma_uint64)bufferedFrames)
         {
-            *pInputFrameCount = (ma_uint64)std::ceil((double)outputFrameCount / backend->ratio);
+            *pInputFrameCount = 0;
+            return MA_SUCCESS;
         }
+
+        ma_uint64 neededOut = outputFrameCount - (ma_uint64)bufferedFrames;
+        ma_uint64 inReq = (ma_uint64)std::ceil((double)neededOut / backend->ratio);
+        if (backend->ratio < 1.0)
+        {
+            inReq += 1;
+        }
+        *pInputFrameCount = inReq;
         return MA_SUCCESS;
     }
 
@@ -1238,11 +1284,13 @@ namespace
         if (!backend || backend->ratio <= 0.0)
         {
             *pOutputFrameCount = inputFrameCount;
+            return MA_SUCCESS;
         }
-        else
-        {
-            *pOutputFrameCount = (ma_uint64)std::floor((double)inputFrameCount * backend->ratio);
-        }
+
+        size_t bufferedFrames = (backend->channels > 0)
+            ? (backend->outputRing.available_read() / (size_t)backend->channels)
+            : 0;
+        *pOutputFrameCount = (ma_uint64)bufferedFrames + (ma_uint64)std::floor((double)inputFrameCount * backend->ratio);
         return MA_SUCCESS;
     }
 
@@ -1257,6 +1305,7 @@ namespace
             }
             backend->outputRing.reset();
             backend->flushZeroFed = 0;
+            r8b_prime_filter(backend);
         }
         return MA_SUCCESS;
     }
@@ -3574,10 +3623,69 @@ struct AudioEngineHandle
         FxBiquad superCutStages[4]{};
         FxBiquad superPassStages[4]{};
         FxBiquad superStopStages[3]{};
+
+        void uninit()
+        {
+            ma_peak2_uninit(&peak, nullptr);
+            ma_bpf2_uninit(&bandpass, nullptr);
+            ma_notch2_uninit(&notch, nullptr);
+            ma_loshelf2_uninit(&lowshelf, nullptr);
+            ma_hishelf2_uninit(&highshelf, nullptr);
+            ma_lpf2_uninit(&lowpass, nullptr);
+            ma_hpf2_uninit(&highpass, nullptr);
+            ma_loshelf2_uninit(&tiltLow, nullptr);
+            ma_hishelf2_uninit(&tiltHigh, nullptr);
+            peak = {};
+            bandpass = {};
+            notch = {};
+            lowshelf = {};
+            highshelf = {};
+            lowpass = {};
+            highpass = {};
+            tiltLow = {};
+            tiltHigh = {};
+            allpass.reset();
+            bandreject.reset();
+            for (int s = 0; s < 4; ++s) superCutStages[s].reset();
+            for (int s = 0; s < 4; ++s) superPassStages[s].reset();
+            for (int s = 0; s < 3; ++s) superStopStages[s].reset();
+        }
     };
+
+    template <typename Filter, typename Config, typename InitFn, typename ReinitFn, typename UninitFn>
+    static inline void update_filter_smooth(
+        Filter &filter,
+        const Config &config,
+        ma_uint32 channels,
+        InitFn init_fn,
+        ReinitFn reinit_fn,
+        UninitFn uninit_fn)
+    {
+        if (filter.bq.channels == channels && filter.bq.format == ma_format_f32 && filter.bq.pR1 != nullptr)
+        {
+            if (reinit_fn(&config, &filter) == MA_SUCCESS)
+            {
+                return;
+            }
+        }
+        uninit_fn(&filter, nullptr);
+        (void)init_fn(&config, nullptr, &filter);
+    }
 
     bool multibandFxEnabled = false;
     std::vector<FxBand> multibandFxBands;
+
+    ~AudioEngineHandle()
+    {
+        for (auto &band : multibandFxBands)
+        {
+            band.uninit();
+        }
+        for (auto &f : eqFilters)
+        {
+            ma_peak2_uninit(&f, nullptr);
+        }
+    }
 
     // Native Clean-Room Audio DSP Suite
     sauti::dsp::AudioClarityDSP clarityDsp;
@@ -3628,9 +3736,20 @@ struct AudioEngineHandle
     {
         if (eqBandCount <= 0)
         {
+            for (auto &f : eqFilters)
+            {
+                ma_peak2_uninit(&f, nullptr);
+            }
             eqFilters.clear();
             eqFilters64.clear();
             return;
+        }
+        if (eqFilters.size() > (size_t)eqBandCount)
+        {
+            for (size_t i = (size_t)eqBandCount; i < eqFilters.size(); ++i)
+            {
+                ma_peak2_uninit(&eqFilters[i], nullptr);
+            }
         }
         eqFilters.resize(eqBandCount);
         eqFilters64.resize(eqBandCount);
@@ -3652,7 +3771,7 @@ struct AudioEngineHandle
                 eqGains[i],
                 eqQ[i],
                 eqFrequencies[i]);
-            ma_peak2_init(&config, nullptr, &eqFilters[i]);
+            update_filter_smooth(eqFilters[i], config, (ma_uint32)ch, ma_peak2_init, ma_peak2_reinit, ma_peak2_uninit);
             eqFilters64[i].initPeak((double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
         }
     }
@@ -3717,7 +3836,7 @@ struct AudioEngineHandle
                     sampleRateU32,
                     frequencyHz,
                     q);
-                (void)ma_bpf2_init(&config, nullptr, &band.bandpass);
+                update_filter_smooth(band.bandpass, config, channelsU32, ma_bpf2_init, ma_bpf2_reinit, ma_bpf2_uninit);
                 break;
             }
             case AE_EQ_BAND_NOTCH:
@@ -3728,7 +3847,7 @@ struct AudioEngineHandle
                     sampleRateU32,
                     q,
                     frequencyHz);
-                (void)ma_notch2_init(&config, nullptr, &band.notch);
+                update_filter_smooth(band.notch, config, channelsU32, ma_notch2_init, ma_notch2_reinit, ma_notch2_uninit);
                 break;
             }
             case AE_EQ_BAND_LOWSHELF:
@@ -3740,7 +3859,7 @@ struct AudioEngineHandle
                     gainDb,
                     slope,
                     frequencyHz);
-                (void)ma_loshelf2_init(&config, nullptr, &band.lowshelf);
+                update_filter_smooth(band.lowshelf, config, channelsU32, ma_loshelf2_init, ma_loshelf2_reinit, ma_loshelf2_uninit);
                 break;
             }
             case AE_EQ_BAND_HIGHSHELF:
@@ -3752,7 +3871,7 @@ struct AudioEngineHandle
                     gainDb,
                     slope,
                     frequencyHz);
-                (void)ma_hishelf2_init(&config, nullptr, &band.highshelf);
+                update_filter_smooth(band.highshelf, config, channelsU32, ma_hishelf2_init, ma_hishelf2_reinit, ma_hishelf2_uninit);
                 break;
             }
             case AE_EQ_BAND_LOWPASS:
@@ -3763,7 +3882,7 @@ struct AudioEngineHandle
                     sampleRateU32,
                     frequencyHz,
                     q);
-                (void)ma_lpf2_init(&config, nullptr, &band.lowpass);
+                update_filter_smooth(band.lowpass, config, channelsU32, ma_lpf2_init, ma_lpf2_reinit, ma_lpf2_uninit);
                 break;
             }
             case AE_EQ_BAND_HIGHPASS:
@@ -3774,7 +3893,7 @@ struct AudioEngineHandle
                     sampleRateU32,
                     frequencyHz,
                     q);
-                (void)ma_hpf2_init(&config, nullptr, &band.highpass);
+                update_filter_smooth(band.highpass, config, channelsU32, ma_hpf2_init, ma_hpf2_reinit, ma_hpf2_uninit);
                 break;
             }
             case AE_EQ_BAND_TILT:
@@ -3787,7 +3906,7 @@ struct AudioEngineHandle
                     -halfGain,
                     slope,
                     frequencyHz);
-                (void)ma_loshelf2_init(&lowConfig, nullptr, &band.tiltLow);
+                update_filter_smooth(band.tiltLow, lowConfig, channelsU32, ma_loshelf2_init, ma_loshelf2_reinit, ma_loshelf2_uninit);
 
                 ma_hishelf2_config highConfig = ma_hishelf2_config_init(
                     ma_format_f32,
@@ -3796,12 +3915,11 @@ struct AudioEngineHandle
                     halfGain,
                     slope,
                     frequencyHz);
-                (void)ma_hishelf2_init(&highConfig, nullptr, &band.tiltHigh);
+                update_filter_smooth(band.tiltHigh, highConfig, channelsU32, ma_hishelf2_init, ma_hishelf2_reinit, ma_hishelf2_uninit);
                 break;
             }
             case AE_EQ_BAND_ALLPASS:
             {
-                band.allpass.reset();
                 constexpr double PI = 3.14159265358979323846;
                 const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
                 const double cosW0 = std::cos(w0);
@@ -3818,7 +3936,6 @@ struct AudioEngineHandle
             }
             case AE_EQ_BAND_BANDREJECT:
             {
-                band.bandreject.reset();
                 constexpr double PI = 3.14159265358979323846;
                 const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
                 const double cosW0 = std::cos(w0);
@@ -3843,7 +3960,6 @@ struct AudioEngineHandle
                 const double K2 = K * K;
                 for (int s = 0; s < 4; ++s)
                 {
-                    band.superCutStages[s].reset();
                     const double qButter = 1.0 / (2.0 * std::sin((2.0 * (double)s + 1.0) * PI / 16.0));
                     const double norm = 1.0 / (1.0 + K / qButter + K2);
                     const double b0 = K2 * norm;
@@ -3877,8 +3993,6 @@ struct AudioEngineHandle
 
                 for (int s = 0; s < 2; ++s)
                 {
-                    // Stages 0, 1: Highpass at fLow
-                    band.superPassStages[s].reset();
                     const double normHp = 1.0 / (1.0 + Khp / q4[s] + Khp2);
                     const double b0hp = normHp;
                     const double b1hp = -2.0 * b0hp;
@@ -3887,8 +4001,6 @@ struct AudioEngineHandle
                     const double a2hp = (1.0 - Khp / q4[s] + Khp2) * normHp;
                     band.superPassStages[s].setCoefficients(b0hp, b1hp, b2hp, 1.0, a1hp, a2hp);
 
-                    // Stages 2, 3: Lowpass at fHigh
-                    band.superPassStages[s + 2].reset();
                     const double normLp = 1.0 / (1.0 + Klp / q4[s] + Klp2);
                     const double b0lp = Klp2 * normLp;
                     const double b1lp = 2.0 * b0lp;
@@ -3911,7 +4023,6 @@ struct AudioEngineHandle
 
                 for (int s = 0; s < 3; ++s)
                 {
-                    band.superStopStages[s].reset();
                     const double alpha = sinW0 / (2.0 * qFactors[s]);
                     const double b0 = 1.0;
                     const double b1 = -2.0 * cosW0;
@@ -3935,7 +4046,7 @@ struct AudioEngineHandle
                     gainDb,
                     q,
                     frequencyHz);
-                (void)ma_peak2_init(&config, nullptr, &band.peak);
+                update_filter_smooth(band.peak, config, channelsU32, ma_peak2_init, ma_peak2_reinit, ma_peak2_uninit);
                 break;
             }
             }
@@ -6325,6 +6436,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
                        e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                        (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
     double *buf64 = nullptr;
+    ma_uint64 inNeeded = (ma_uint64)frameCount;
+
+    // Synchronize device resampler lifecycle: resampler re-creation (rate plan change)
+    // holds this mutex on the worker thread. On contention, emit silence for this block
+    // instead of risking priority inversion. Re-creation only happens during rate
+    // transitions, which already output silence.
+    std::unique_lock<std::mutex> deviceResamplerLock;
+    if (needsDeviceSRC)
+    {
+        deviceResamplerLock = std::unique_lock<std::mutex>(e->deviceResamplerMutex, std::try_to_lock);
+        if (!deviceResamplerLock.owns_lock())
+        {
+            const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+            std::memset(pOutput, 0, outBytes);
+            return;
+        }
+    }
 
     if (!e->ringBufferFlushing.load(std::memory_order_relaxed))
     {
@@ -6341,15 +6469,31 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         else
         {
-            // Explicit Engine-to-Device SRC Stage: Calculate input frames at engineSampleRate needed for frameCount frames at deviceSampleRate
-            ma_uint64 inNeeded = (ma_uint64)std::ceil((double)frameCount * (double)e->engineSampleRate / (double)e->deviceSampleRate);
+            // Explicit Engine-to-Device SRC Stage: Query required input frames from the resampler backend
+            ma_uint64 queryInNeeded = 0;
+            ma_result res = e->deviceResamplerInit
+                ? ma_resampler_get_required_input_frame_count(&e->deviceResampler, frameCount, &queryInNeeded)
+                : MA_INVALID_ARGS;
+            if (res == MA_SUCCESS)
+            {
+                inNeeded = queryInNeeded;
+            }
+            else
+            {
+                inNeeded = (ma_uint64)std::ceil((double)frameCount * (double)e->engineSampleRate / (double)e->deviceSampleRate);
+            }
+
             size_t engineSamplesNeeded = (size_t)inNeeded * (size_t)e->channels;
             if (e->engineProcessBuffer.size() < engineSamplesNeeded)
             {
                 engineSamplesNeeded = e->engineProcessBuffer.size();
             }
 
-            size_t samplesRead = e->pcmRingBuffer.read(e->engineProcessBuffer.data(), engineSamplesNeeded);
+            size_t samplesRead = 0;
+            if (engineSamplesNeeded > 0)
+            {
+                samplesRead = e->pcmRingBuffer.read(e->engineProcessBuffer.data(), engineSamplesNeeded);
+            }
             produced = (ma_uint32)(samplesRead / (size_t)e->channels);
 
             if (samplesRead < engineSamplesNeeded)
@@ -6372,9 +6516,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                         : (ma_uint64)std::round((double)produced * (double)curRate);
         e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
         // Telemetry: count realtime starvation honestly.
-        if (produced < frameCount)
+        const ma_uint64 expectedFrames = needsDeviceSRC ? inNeeded : (ma_uint64)frameCount;
+        if ((ma_uint64)produced < expectedFrames)
         {
-            e->underrunCount.fetch_add(frameCount - produced, std::memory_order_relaxed);
+            e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
         }
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
@@ -7154,55 +7299,38 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
         }
 
-        // Never block the audio thread on the control thread: resampler
-        // re-creation (rate plan change) holds this mutex on the worker
-        // thread. On contention, emit silence for this block instead of
-        // risking priority inversion. Re-creation only happens during rate
-        // transitions, which already output silence.
-        std::unique_lock<std::mutex> rLock(e->deviceResamplerMutex, std::try_to_lock);
-        if (rLock.owns_lock())
+        if (e->deviceResamplerInit)
         {
-            if (e->deviceResamplerInit)
+            // Loop until the output block is full or resampler backend makes no progress.
+            // A single non-looped call can leave output shortfall when r8brain
+            // backend consumes at most maxInLen (4096) frames per call or has
+            // buffered frames in outputRing to drain.
+            const int srcCh = (e->channels > 0) ? e->channels : 2;
+            const float *inPtr = processBuffer;
+            float *outPtr = finalDstBuffer;
+            ma_uint64 inRemaining = (ma_uint64)produced;
+            ma_uint64 outRemaining = (ma_uint64)frameCount;
+            while (outRemaining > 0)
             {
-                // Loop until the output block is full or input is exhausted.
-                // A single non-looped call silently drops input: the r8brain
-                // backend consumes at most maxInLen (4096) frames per call,
-                // and any filter-warmup output shortfall would persist as a
-                // timing deficit.
-                const int srcCh = (e->channels > 0) ? e->channels : 2;
-                const float *inPtr = processBuffer;
-                float *outPtr = finalDstBuffer;
-                ma_uint64 inRemaining = (ma_uint64)produced;
-                ma_uint64 outRemaining = (ma_uint64)frameCount;
-                while (outRemaining > 0 && inRemaining > 0)
-                {
-                    ma_uint64 inFrames = inRemaining;
-                    ma_uint64 outFrames = outRemaining;
-                    ma_resampler_process_pcm_frames(&e->deviceResampler, inPtr, &inFrames, outPtr, &outFrames);
-                    if (inFrames == 0 && outFrames == 0)
-                        break; // Backend made no progress (warmup); avoid spinning.
-                    inPtr += (size_t)inFrames * (size_t)srcCh;
-                    inRemaining -= inFrames;
-                    outPtr += (size_t)outFrames * (size_t)srcCh;
-                    outRemaining -= outFrames;
-                }
-                if (outRemaining > 0)
-                {
-                    // Filter-latency or input-starvation shortfall: explicit
-                    // silence instead of relying on pre-silenced buffers.
-                    std::memset(outPtr, 0, (size_t)outRemaining * (size_t)srcCh * sizeof(float));
-                }
+                ma_uint64 inFrames = inRemaining;
+                ma_uint64 outFrames = outRemaining;
+                ma_resampler_process_pcm_frames(&e->deviceResampler, inPtr, &inFrames, outPtr, &outFrames);
+                if (inFrames == 0 && outFrames == 0)
+                    break; // Backend made no progress; avoid spinning.
+                inPtr += (size_t)inFrames * (size_t)srcCh;
+                inRemaining -= inFrames;
+                outPtr += (size_t)outFrames * (size_t)srcCh;
+                outRemaining -= outFrames;
             }
-            else
+            if (outRemaining > 0)
             {
-                std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+                // Starvation shortfall: explicit silence for any unfilled frames.
+                std::memset(outPtr, 0, (size_t)outRemaining * (size_t)srcCh * sizeof(float));
             }
         }
         else
         {
-            const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            std::memset(pOutput, 0, outBytes);
-            return;
+            std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
         }
     }
     else
@@ -11063,27 +11191,35 @@ extern "C"
             return;
 
         std::lock_guard<std::mutex> lk(engine->eqMutex);
-        engine->multibandFxBands.clear();
-        engine->multibandFxBands.reserve((size_t)band_count);
+        if (engine->multibandFxBands.size() != (size_t)band_count)
+        {
+            for (size_t i = (size_t)band_count; i < engine->multibandFxBands.size(); ++i)
+            {
+                engine->multibandFxBands[i].uninit();
+            }
+            engine->multibandFxBands.resize((size_t)band_count);
+        }
 
         for (int i = 0; i < band_count; ++i)
         {
-            AudioEngineHandle::FxBand band{};
-
+            auto &band = engine->multibandFxBands[i];
             int type = types[i];
             if (type < AE_EQ_BAND_PEAK || type > AE_EQ_BAND_ASUPERCUT)
             {
                 type = AE_EQ_BAND_PEAK;
             }
 
-            band.type = type;
+            if (band.type != type)
+            {
+                band.uninit();
+                band.type = type;
+            }
+
             band.enabled = (enabled_flags == nullptr) ? true : (enabled_flags[i] != 0);
             band.frequencyHz = frequencies[i];
             band.q = (q_factors == nullptr) ? 1.0f : q_factors[i];
             band.gainDb = (gains_db == nullptr) ? 0.0f : gains_db[i];
             band.slope = (slopes == nullptr) ? 1.0f : slopes[i];
-
-            engine->multibandFxBands.push_back(band);
         }
 
         engine->update_multiband_fx_filters();
@@ -11094,6 +11230,10 @@ extern "C"
         if (!engine)
             return;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
+        for (auto &band : engine->multibandFxBands)
+        {
+            band.uninit();
+        }
         engine->multibandFxBands.clear();
         engine->multibandFxEnabled = false;
     }
@@ -11113,6 +11253,10 @@ extern "C"
         }
 
         std::lock_guard<std::mutex> lk(engine->eqMutex);
+        for (auto &band : engine->multibandFxBands)
+        {
+            band.uninit();
+        }
         engine->multibandFxBands.clear();
         engine->multibandFxBands.reserve(profile.bands.size());
 
@@ -11148,6 +11292,10 @@ extern "C"
         }
 
         std::lock_guard<std::mutex> lk(engine->eqMutex);
+        for (auto &band : engine->multibandFxBands)
+        {
+            band.uninit();
+        }
         engine->multibandFxBands.clear();
         engine->multibandFxBands.reserve(profile.bands.size());
 
@@ -13792,15 +13940,18 @@ extern "C"
 
             double latencyMs = 0.0;
             {
-                // Serialize with device-resampler re-creation (worker thread).
-                std::lock_guard<std::mutex> rLock(engine->deviceResamplerMutex);
-                const bool deviceSrcActiveLocked =
-                    engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
-                if (deviceSrcActiveLocked && engine->engineSampleRate > 0)
+                // Serialize with device-resampler re-creation (worker thread) without blocking audio thread.
+                std::unique_lock<std::mutex> rLock(engine->deviceResamplerMutex, std::try_to_lock);
+                if (rLock.owns_lock())
                 {
-                    // Input latency is expressed in ENGINE-rate frames (the
-                    // resampler's input domain), so convert with the engine rate.
-                    latencyMs += (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->engineSampleRate * 1000.0;
+                    const bool deviceSrcActiveLocked =
+                        engine->deviceResamplerInit && (info.engine_sample_rate != info.device_sample_rate);
+                    if (deviceSrcActiveLocked && engine->engineSampleRate > 0)
+                    {
+                        // Input latency is expressed in ENGINE-rate frames (the
+                        // resampler's input domain), so convert with the engine rate.
+                        latencyMs += (double)ma_resampler_get_input_latency(&engine->deviceResampler) / (double)engine->engineSampleRate * 1000.0;
+                    }
                 }
             }
             if (decoderSrcActive && engine->currentDecoder != nullptr && engine->engineSampleRate > 0)

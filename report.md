@@ -287,32 +287,45 @@ flowchart TD
 
 ---
 
-### P1.5 Periodic Silence Injection / Dropouts from Ad-Hoc Resampler Input Frame Estimation
+### P1.5 [RESOLVED] Periodic Silence Injection / Dropouts from Ad-Hoc Resampler Input Frame Estimation
 - **Location:** [`audio_engine.cpp:5937-5949`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5937-L5949) vs [`L6685-6704`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6685-L6704)
-- **Mechanism:** In `data_callback`, the engine calculates input frames needed for device resampling using:
+- **Status:** **RESOLVED** via `ma_resampler_get_required_input_frame_count`, iterative output block drain, and honest starvation thresholding.
+- **Mechanism:** In `data_callback`, the engine formerly calculated input frames needed for device resampling using:
   ```cpp
   ma_uint64 inNeeded = (ma_uint64)std::ceil((double)frameCount * (double)e->engineSampleRate / (double)e->deviceSampleRate);
   ```
-  without querying the resampler backend (`ma_resampler_get_required_input_frame_count`).
-- **Consequence:** When r8brain holds back fractional filter latency frames, `outRemaining > 0` occurs in line 6699. Line 6703 then zeroes the remaining samples:
-  ```cpp
-  std::memset(outPtr, 0, (size_t)outRemaining * (size_t)srcCh * sizeof(float));
-  ```
-  This injects 1–2 samples of silence into the audio buffer, creating periodic single-sample clicks/dropouts.
+  without querying the resampler backend (`ma_resampler_get_required_input_frame_count`). When r8brain or filterbanks held back fractional filter latency frames, `outRemaining > 0` occurred, causing the loop to zero remaining samples (`memset(..., 0, ...)`). This injected periodic 1–2 sample silence holes into active output buffers, heard as audible dropouts and false starvation alarms.
+- **Resolution:**
+  1. **Accurate Resampler Frame Query:** Replaced ad-hoc ceiling math with `ma_resampler_get_required_input_frame_count(&e->deviceResampler, frameCount, &queryInNeeded)`, obtaining the exact input requirement from the active backend.
+  2. **Iterative Drain Loop:** Implemented a while loop (`while (outRemaining > 0 && safetyAttempts-- > 0)`) that pumps additional input frames until the device output block is fully populated, eliminating silence injection.
+  3. **Honest Underrun Detection:** Compared `produced` frames against `inNeeded` (`expectedFrames`) rather than `frameCount`, eliminating false starvation counts when downsampling or upsampling between engine and device rates.
+  4. **Lock-Free Latency Calculation:** Guarded `deviceResamplerMutex` in latency calculations with `std::try_to_lock` to eliminate priority inversion risks on audio threads.
+  5. **Verification:** Added `test_device_resampler_input_estimation_p15()` in `tests/test_engine_api.cpp` verifying continuous position advancement, steady audio output, and zero false underruns during active $44.1\text{ kHz} \to 48.0\text{ kHz}$ device resampling.
 
 ---
 
-### P1.6 Filter State Wiping & Loud Zipper Crackle in UI Equalizer Adjustment
-- **Location:** [`audio_engine.cpp:3580-3825`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L3580-L3825)
-- **Mechanism:** In `update_multiband_fx_filters()`, moving any EQ frequency or gain slider calls `ma_peak2_init`, `ma_loshelf2_init`, or `ma_hishelf2_init` for that band.
-- **Consequence:** In miniaudio, calling `_init()` resets the filter's internal history registers ($x1, x2, y1, y2$) to zero. Slamming the state registers to zero during active playback introduces immediate waveform step discontinuities, heard as loud **zippering clicks, pops, and crackles** while dragging sliders.
+### P1.6 [RESOLVED] Filter State Wiping & Loud Zipper Crackle in UI Equalizer Adjustment
+- **Location:** [`audio_engine.cpp:3580-3825`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L3580-L3825), [`audio_engine.cpp:11180-11295`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L11180-L11295)
+- **Status:** **RESOLVED** via in-place biquad re-initialization (`ma_*_reinit`), heap-safe `FxBand` lifecycle, and in-place vector mutation.
+- **Mechanism:** In `update_multiband_fx_filters()`, moving any EQ frequency or gain slider formerly called `ma_peak2_init`, `ma_loshelf2_init`, or `ma_hishelf2_init` for that band. In miniaudio, calling `_init()` zeroes the biquad's internal history registers (`pR1`, `pR2`). Slamming state registers to zero during active playback introduced immediate waveform step discontinuities, heard as loud **zippering clicks, pops, and crackles** while dragging sliders. Furthermore, calling `multibandBands.clear()` wiped active filter instances and leaked heap allocations.
+- **Resolution:**
+  1. **Delay Register Preservation:** Created `update_filter_smooth()` template helper that checks whether format and channels match; if so, it invokes `ma_*_reinit()` which recomputes filter coefficients in-place while preserving internal delay-line registers (`pR1`, `pR2`).
+  2. **In-Place Vector Mutation:** Updated `ae_set_multiband_fx_bands()` to update existing `FxBand` instances in-place rather than clearing the vector, preventing state resets during slider adjustments.
+  3. **Safe Filter Deallocation:** Implemented `FxBand::uninit()` to explicitly invoke `ma_peak2_uninit`, `ma_loshelf2_uninit`, `ma_hishelf2_uninit`, and `ma_biquad_uninit`, freeing memory safely in `ae_clear_multiband_fx`, `ae_load_autoeq_profile`, and `~AudioEngineHandle`.
+  4. **Verification:** Added `test_filter_state_retention_equalizer_adjustment_p16()` in `tests/test_engine_api.cpp` proving that `ma_peak2_init` wipes history registers to zero whereas `ma_peak2_reinit` retains history, and verifying that 50 rapid slider sweeps during active playback execute with zero audio disruption.
 
 ---
 
-### P1.7 Multichannel Acoustic Timing De-synchronization in `TapeDriftDSP`
+### P1.7 [RESOLVED] Multichannel Acoustic Timing De-synchronization in `TapeDriftDSP`
 - **Location:** [`dsp/tape_drift_dsp.h:43, 203-236`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/tape_drift_dsp.h#L43)
-- **Mechanism:** `TapeDriftDSP` hardcodes `kMaxChannels = 2` and delays channels 0 and 1 by $15\text{ ms}$ (`nominal_delay_samples = 0.015 * sampleRate`).
-- **Consequence:** In a 5.1 multichannel audio stream, the Left and Right channels are delayed by 15 ms, while the Center (dialog) and Surround channels are passed un-delayed. Center vocals play **15 ms ahead** of the front stereo stage, causing severe acoustic comb filtering and soundstage collapse.
+- **Status:** **RESOLVED** via dynamic 8-channel synchronized delay lines and decorrelated surround modulation.
+- **Mechanism:** `TapeDriftDSP` previously hardcoded `kMaxChannels = 2` and only delayed channels 0 and 1 by $15\text{ ms}$ (`nominal_delay_samples = 0.015 * sampleRate`). In a 5.1 or 7.1 multichannel stream, channels 2 through 7 (Center, LFE, Surrounds) were passed completely un-delayed, causing Center dialog and surround effects to lead the front stereo stage by $15\text{ ms}$ with severe comb filtering and soundstage collapse.
+- **Resolution:**
+  1. **8-Channel Surround Expansion:** Expanded `kMaxChannels = 8`, adding full support for mono, stereo, 5.1, and 7.1 surround layouts.
+  2. **Heap Delay Buffer Allocation:** Replaced the large 2D fixed array with a linearized `std::vector<double> buffer_` (`kMaxChannels * kBufferSize`) on the heap, eliminating stack overflow risks and maintaining cache locality.
+  3. **Synchronized Nominal Delay Across All Channels:** Routed all active channels ($0 \le c < \text{channels}$) through the circular delay buffer with identical $15\text{ ms}$ nominal delay, ensuring exact time alignment across all speakers.
+  4. **Decorrelated Surround Modulation:** Preserved Front Left/Right stereo modulation while assigning smooth phase offsets to surround channels (0.5x for Center/LFE, 1.0x for surrounds) to avoid synthetic phase cancellation.
+  5. **Verification:** Added multichannel tests to `tests/test_tier3_dsp.cpp` verifying that in 5.1 surround, an impulse placed on all 6 channels emerges at sample 730 with $\Delta = 0$ between Center and Front Left, and that 7.1 8-channel 64-bit processing maintains lockstep alignment.
 
 ---
 
