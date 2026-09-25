@@ -8,7 +8,8 @@ import 'package:dart_ytmusic_api/dart_ytmusic_api.dart'; // Added
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/migration_helper.dart';
+import 'database/preferences_store.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
@@ -20,6 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'services/app_theme_service.dart';
 import 'services/artwork_theme_service.dart';
+import 'services/file_deletion_helper.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'services/app_locale_service.dart';
 import 'l10n/app_strings.dart';
@@ -53,8 +55,10 @@ import 'services/audio_hardware_inspector.dart';
 import 'services/app_update_service.dart';
 import 'streaming_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await DatabaseMigrationHelper.migrateIfNeeded();
+  await LikedSongsService.instance.init();
   // Metadata God removed in favor of audiotags
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
@@ -236,7 +240,7 @@ class PlayerShell extends StatefulWidget {
   State<PlayerShell> createState() => _PlayerShellState();
 }
 
-class _PlayerShellState extends State<PlayerShell> {
+class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   final IsolateAudioPlayer _player = IsolateAudioPlayer();
 
   final ValueNotifier<PlayerStatus> _status = ValueNotifier(
@@ -259,6 +263,8 @@ class _PlayerShellState extends State<PlayerShell> {
   final List<String> _logs = <String>[];
   final ValueNotifier<int> _logUpdateCounter = ValueNotifier(0);
   int _tabIndex = 0;
+  int _lastSavedIndex = -1;
+  bool _lastPlayingState = false;
 
   // Metadata mapping for online tracks stored in local temporary files
   final Map<Uri, TrackInfo> _onlineTrackMetadata = {};
@@ -372,7 +378,7 @@ class _PlayerShellState extends State<PlayerShell> {
   BuildContext? _showcaseContext;
 
   Future<void> _checkAndShowOnboarding({bool force = false}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final done = prefs.getBool('showcase_completed') ?? false;
     if ((!done || force) && _showcaseContext != null) {
       if (mounted) {
@@ -389,7 +395,7 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Future<void> _checkAppUpdateOnLaunch() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final showcaseDone = prefs.getBool('showcase_completed') ?? false;
     // Allow cold-start UI animations and audio hardware detection to settle smoothly
     await Future.delayed(Duration(milliseconds: showcaseDone ? 2500 : 8000));
@@ -400,6 +406,9 @@ class _PlayerShellState extends State<PlayerShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _tabIndex = PreferencesStore.instance.getInt('app_main_tab_index', defaultValue: 0)!;
+
     // Initialize the engine with defaults
     _player.init(enableSystemAudio: true);
     _player.onToggleFavorite = _handleNotificationToggleFavorite;
@@ -419,10 +428,16 @@ class _PlayerShellState extends State<PlayerShell> {
       _logs.insert(0, '[init] $initErr');
     }
     _statusSubscription = _player.statusStream.listen((s) {
-      // Save position periodically (every ~5s)
+      // Save position periodically (every ~3s) or immediately on state/track change
       final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (s.isPlaying && (nowMs - _lastQueueSaveTimeMs >= 5000)) {
+      final songChanged = s.currentIndex != _lastSavedIndex;
+      final playStateChanged = s.isPlaying != _lastPlayingState;
+      final intervalElapsed = s.isPlaying && (nowMs - _lastQueueSaveTimeMs >= 3000);
+
+      if (songChanged || playStateChanged || intervalElapsed) {
         _lastQueueSaveTimeMs = nowMs;
+        _lastSavedIndex = s.currentIndex;
+        _lastPlayingState = s.isPlaying;
         AppStateService.instance.saveQueue(
           tracks: _currentUiQueue.map((t) => t.toJson()).toList(),
           index: s.currentIndex,
@@ -525,7 +540,7 @@ class _PlayerShellState extends State<PlayerShell> {
     await DlnaRendererService.instance.restoreName();
     await DlnaRendererService.instance
         .configure(bridge: _SautiRendererBridge(this));
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     if (prefs.getBool('dlna_receiver_enabled') == true) {
       final ok = await DlnaRendererService.instance.start();
       if (ok) {
@@ -766,7 +781,18 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _saveQueue();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _saveQueue();
     _statusSubscription?.cancel();
     _logSubscription?.cancel();
     _replayGainSubscription?.cancel();
@@ -2406,10 +2432,11 @@ class _PlayerShellState extends State<PlayerShell> {
   }
 
   Future<void> _handleDeletedTrack(String filePath) async {
+    final normTarget = FileDeletionHelper.normalizeFilePath(filePath);
     final currentIdx = _status.value.currentIndex;
     final isCurrentPlaying = currentIdx >= 0 &&
         currentIdx < _currentUiQueue.length &&
-        _currentUiQueue[currentIdx].videoId == filePath;
+        FileDeletionHelper.normalizeFilePath(_currentUiQueue[currentIdx].videoId) == normTarget;
 
     if (isCurrentPlaying) {
       if (_currentUiQueue.length > 1) {
@@ -2420,11 +2447,12 @@ class _PlayerShellState extends State<PlayerShell> {
     }
 
     setState(() {
-      _currentUiQueue.removeWhere((t) => t.videoId == filePath);
+      _currentUiQueue.removeWhere(
+          (t) => FileDeletionHelper.normalizeFilePath(t.videoId) == normTarget);
       _playlist.removeWhere((src) {
         if (src.uri.scheme == 'file') {
           final p = _safeFilePathFromUri(src.uri);
-          return p != null && p == filePath;
+          return p != null && FileDeletionHelper.normalizeFilePath(p) == normTarget;
         }
         return false;
       });
@@ -2927,17 +2955,22 @@ void _showNowPlayingScreen() {
       onStart: (index, key) {
         if (key == _homeTabKey) {
           setState(() => _tabIndex = 0);
+          PreferencesStore.instance.setInt('app_main_tab_index', 0);
         } else if (key == _libraryTabKey) {
           setState(() => _tabIndex = 1);
+          PreferencesStore.instance.setInt('app_main_tab_index', 1);
         } else if (key == _effectsTabKey || key == _effectsKnobKey) {
           setState(() => _tabIndex = 2);
+          PreferencesStore.instance.setInt('app_main_tab_index', 2);
         } else if (key == _settingsTabKey) {
           setState(() => _tabIndex = 3);
+          PreferencesStore.instance.setInt('app_main_tab_index', 3);
         }
       },
       onComplete: (index, key) {
         if (mounted) {
           setState(() => _tabIndex = 0);
+          PreferencesStore.instance.setInt('app_main_tab_index', 0);
         }
       },
       builder: (showContext) {
@@ -3171,7 +3204,10 @@ void _showNowPlayingScreen() {
                 ),
                 M3ENavigationBar(
                 selectedIndex: _tabIndex,
-                onDestinationSelected: (i) => setState(() => _tabIndex = i),
+                onDestinationSelected: (i) {
+                  setState(() => _tabIndex = i);
+                  PreferencesStore.instance.setInt('app_main_tab_index', i);
+                },
                 indicatorStyle: M3ENavBarIndicatorStyle.pill,
                 labelBehavior: M3ENavBarLabelBehavior.alwaysShow,
                 backgroundColor: context.bgDark,

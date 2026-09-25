@@ -7,7 +7,9 @@ import android.bluetooth.BluetoothCodecConfig
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -16,6 +18,9 @@ import android.hardware.usb.UsbManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.provider.MediaStore
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
@@ -147,6 +152,14 @@ class MainActivity : AudioServiceActivity() {
                         } catch (e: Exception) {
                             result.error("INSTALL_ERROR", e.message, null)
                         }
+                    } else {
+                        result.error("INVALID_ARGS", "filePath is required", null)
+                    }
+                }
+                "deleteMediaFile" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (!filePath.isNullOrBlank()) {
+                        deleteMediaTrack(filePath, result)
                     } else {
                         result.error("INVALID_ARGS", "filePath is required", null)
                     }
@@ -685,6 +698,224 @@ class MainActivity : AudioServiceActivity() {
             ) == PackageManager.PERMISSION_GRANTED
         } else {
             true
+        }
+    }
+
+    // ── Media Deletion (Scoped Storage & MediaStore compliant) ──────────────────
+    private var pendingDeleteResult: MethodChannel.Result? = null
+    private var pendingDeletePath: String? = null
+    private val REQUEST_CODE_DELETE_MEDIA = 7750
+
+    private fun deleteMediaTrack(filePath: String, result: MethodChannel.Result) {
+        Thread {
+            try {
+                val file = java.io.File(filePath)
+                val canonicalPath = try { file.canonicalPath } catch (e: Exception) { file.absolutePath }
+                val targetFile = java.io.File(canonicalPath)
+
+                if (!targetFile.exists()) {
+                    val uri = getMediaUriFromPath(canonicalPath)
+                    if (uri != null) {
+                        try {
+                            contentResolver.delete(uri, null, null)
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post {
+                        result.success(mapOf("success" to true, "deleted" to true))
+                    }
+                    return@Thread
+                }
+
+                // Strategy 1: Direct file deletion attempt (works for app-owned files, cache, or if MANAGE_EXTERNAL_STORAGE is active)
+                var directDeleted = false
+                try {
+                    directDeleted = targetFile.delete()
+                } catch (_: Exception) {
+                    directDeleted = false
+                }
+
+                if (directDeleted) {
+                    MediaScannerConnection.scanFile(
+                        this@MainActivity,
+                        arrayOf(canonicalPath),
+                        null,
+                        null
+                    )
+                    mainHandler.post {
+                        result.success(mapOf("success" to true, "deleted" to true))
+                    }
+                    return@Thread
+                }
+
+                // Strategy 2: MediaStore delete request (Scoped Storage compliant on Android 10+)
+                val mediaUri = getMediaUriFromPath(canonicalPath)
+                if (mediaUri != null) {
+                    mainHandler.post {
+                        performMediaStoreDelete(mediaUri, canonicalPath, result)
+                    }
+                } else {
+                    // Try indexing with MediaScanner first, then delete
+                    MediaScannerConnection.scanFile(
+                        this@MainActivity,
+                        arrayOf(canonicalPath),
+                        null
+                    ) { _, scannedUri ->
+                        mainHandler.post {
+                            if (scannedUri != null) {
+                                performMediaStoreDelete(scannedUri, canonicalPath, result)
+                            } else {
+                                if (targetFile.delete()) {
+                                    result.success(mapOf("success" to true, "deleted" to true))
+                                } else {
+                                    result.error(
+                                        "PERMISSION_DENIED",
+                                        "Android denied permission to delete this file. Please ensure 'All files access' is granted in App Info > Permissions.",
+                                        null
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                mainHandler.post {
+                    result.error("DELETE_ERROR", "Error during media deletion: ${e.message}", null)
+                }
+            }
+        }.start()
+    }
+
+    private fun getMediaUriFromPath(canonicalPath: String): Uri? {
+        try {
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+            val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DATA)
+
+            contentResolver.query(
+                collection,
+                projection,
+                "${MediaStore.Audio.Media.DATA} = ?",
+                arrayOf(canonicalPath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                    return ContentUris.withAppendedId(collection, id)
+                }
+            }
+
+            // Fallback: Check MediaStore.Files in case it was indexed as generic media/download file
+            val filesCollection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Files.getContentUri("external")
+            }
+            contentResolver.query(
+                filesCollection,
+                arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.DATA),
+                "${MediaStore.Files.FileColumns.DATA} = ?",
+                arrayOf(canonicalPath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+                    return ContentUris.withAppendedId(filesCollection, id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "getMediaUriFromPath error: ${e.message}")
+        }
+        return null
+    }
+
+    private fun performMediaStoreDelete(mediaUri: Uri, canonicalPath: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ (API 30+)
+            try {
+                val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri))
+                pendingDeleteResult = result
+                pendingDeletePath = canonicalPath
+                startIntentSenderForResult(
+                    pendingIntent.intentSender,
+                    REQUEST_CODE_DELETE_MEDIA,
+                    null,
+                    0,
+                    0,
+                    0
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "createDeleteRequest failed", e)
+                result.error("DELETE_FAILED", "Failed to request media deletion: ${e.message}", null)
+            }
+        } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            // Android 10 (API 29)
+            try {
+                val rows = contentResolver.delete(mediaUri, null, null)
+                if (rows > 0) {
+                    result.success(mapOf("success" to true, "deleted" to true))
+                } else {
+                    result.error("DELETE_FAILED", "Could not delete media row", null)
+                }
+            } catch (recoverable: Exception) {
+                val intentSender = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && recoverable is android.app.RecoverableSecurityException) {
+                    recoverable.userAction.actionIntent.intentSender
+                } else null
+
+                if (intentSender != null) {
+                    pendingDeleteResult = result
+                    pendingDeletePath = canonicalPath
+                    try {
+                        startIntentSenderForResult(
+                            intentSender,
+                            REQUEST_CODE_DELETE_MEDIA,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    } catch (e: Exception) {
+                        result.error("DELETE_FAILED", "User action intent failed: ${e.message}", null)
+                    }
+                } else {
+                    result.error("DELETE_FAILED", "Failed to delete: ${recoverable.message}", null)
+                }
+            }
+        } else {
+            // Android 9 and below
+            try {
+                contentResolver.delete(mediaUri, null, null)
+                val f = java.io.File(canonicalPath)
+                if (f.exists()) f.delete()
+                result.success(mapOf("success" to true, "deleted" to true))
+            } catch (e: Exception) {
+                result.error("DELETE_FAILED", "Failed to delete file: ${e.message}", null)
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_DELETE_MEDIA) {
+            val res = pendingDeleteResult
+            val path = pendingDeletePath
+            pendingDeleteResult = null
+            pendingDeletePath = null
+
+            if (resultCode == Activity.RESULT_OK) {
+                if (path != null) {
+                    try {
+                        val f = java.io.File(path)
+                        if (f.exists()) f.delete()
+                        MediaScannerConnection.scanFile(this@MainActivity, arrayOf(path), null, null)
+                    } catch (_: Exception) {}
+                }
+                res?.success(mapOf("success" to true, "deleted" to true))
+            } else {
+                res?.success(mapOf("success" to false, "cancelled" to true, "message" to "Deletion was cancelled by user."))
+            }
         }
     }
 }

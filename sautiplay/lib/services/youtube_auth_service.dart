@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Service managing seamless 1-click Google/YouTube OAuth sign-in via Browser Loopback,
@@ -41,7 +41,7 @@ class YouTubeAuthService {
     _isInitialized = true;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final accessToken = prefs.getString(_kAccessTokenKey);
       final cookie = prefs.getString(_kCookieAuthKey);
       final accountName = prefs.getString(_kUserAccountNameKey);
@@ -73,7 +73,7 @@ class YouTubeAuthService {
       final port = server.port;
       final redirectUri = 'http://127.0.0.1:$port/callback';
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final clientId = prefs.getString(_kCustomClientIdKey)?.trim().isNotEmpty == true
           ? prefs.getString(_kCustomClientIdKey)!.trim()
           : _defaultClientId;
@@ -268,7 +268,7 @@ class YouTubeAuthService {
 
   /// Saves session cookie / SAPISID token directly.
   Future<void> saveCookieAuth(String cookieString) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kCookieAuthKey, cookieString.trim());
     await prefs.setString(_kUserAccountNameKey, 'YouTube User (Cookie)');
     isAuthenticatedNotifier.value = true;
@@ -280,7 +280,7 @@ class YouTubeAuthService {
     required String clientId,
     String? clientSecret,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kCustomClientIdKey, clientId.trim());
     if (clientSecret != null) {
       await prefs.setString(_kCustomClientSecretKey, clientSecret.trim());
@@ -290,7 +290,7 @@ class YouTubeAuthService {
   /// Loads custom credentials.
   Future<({String clientId, String clientSecret})>
       loadCustomClientCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       clientId: prefs.getString(_kCustomClientIdKey) ?? '',
       clientSecret: prefs.getString(_kCustomClientSecretKey) ?? '',
@@ -300,7 +300,7 @@ class YouTubeAuthService {
   /// Disconnects account and clears tokens.
   Future<void> signOut() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       await prefs.remove(_kAccessTokenKey);
       await prefs.remove(_kRefreshTokenKey);
       await prefs.remove(_kTokenExpiryKey);
@@ -317,7 +317,7 @@ class YouTubeAuthService {
   /// Retrieves active Bearer token or Cookie headers.
   Future<Map<String, String>> getAuthHeaders() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final token = prefs.getString(_kAccessTokenKey);
       if (token != null && token.isNotEmpty) {
         return {'Authorization': 'Bearer $token'};
@@ -335,7 +335,7 @@ class YouTubeAuthService {
     String? refreshToken,
     required int expiresInSeconds,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kAccessTokenKey, accessToken);
     if (refreshToken != null) {
       await prefs.setString(_kRefreshTokenKey, refreshToken);

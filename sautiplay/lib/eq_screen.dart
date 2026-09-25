@@ -9,7 +9,7 @@ import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/preferences_store.dart';
 
 import 'isolate_player.dart';
 import 'services/app_state_service.dart';
@@ -2034,7 +2034,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final hideBanner = prefs.getBool('hide_eq_warning') ?? false;
     setState(() {
       _vectorscopeLive = prefs.getBool('eq_vectorscope_live') ?? true;
@@ -2498,7 +2498,7 @@ class _EqScreenState extends State<EqScreen>
   Future<void> _syncAutoEqStateFromEngine() async {
     final eqBands = await AppStateService.instance.loadEqBands();
     final pEq = await AppStateService.instance.loadParametricEq();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final pPreset = prefs.getString('sp_active_parametric_preset') ?? 'Custom';
 
     if (mounted) {
@@ -2967,7 +2967,7 @@ class _EqScreenState extends State<EqScreen>
 
   /// Saves all current EQ and Sauti DSP state to persistent storage.
   void _saveEqState() {
-    SharedPreferences.getInstance().then((p) {
+    PreferencesStore.getInstance().then((p) {
       p.setBool('eq_vectorscope_live', _vectorscopeLive);
     });
     AppStateService.instance.saveEqBands(
@@ -3167,14 +3167,14 @@ class _EqScreenState extends State<EqScreen>
               })
           .toList(),
     );
-    SharedPreferences.getInstance().then((prefs) {
+    PreferencesStore.getInstance().then((prefs) {
       prefs.setString(_kActiveParametricPresetKey, _parametricPreset);
     });
     _subScreenSetState?.call(() {});
   }
 
   void _dismissWarningBanner() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool('hide_eq_warning', true);
     setState(() {
       _showWarningBanner = false;
@@ -6389,7 +6389,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Future<void> _loadUserParametricProfiles() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final rawJson = prefs.getString(_kUserParametricProfilesKey);
     if (rawJson != null && rawJson.isNotEmpty) {
       try {
@@ -6429,7 +6429,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Future<void> _saveUserParametricProfile(String name) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     _userParametricProfiles[name] = List<EqBandConfig>.from(_parametricBands);
     final mapToSave = <String, dynamic>{};
     _userParametricProfiles.forEach((pName, bands) {
@@ -6453,7 +6453,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Future<void> _deleteUserParametricProfile(String name) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     _userParametricProfiles.remove(name);
     final mapToSave = <String, dynamic>{};
     _userParametricProfiles.forEach((pName, bands) {

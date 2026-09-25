@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import '../streaming_service.dart';
 
@@ -57,7 +57,7 @@ class AppStateService {
     required int index,
     required int positionMs,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final encoded = tracks.map((t) => jsonEncode(t)).toList();
     await prefs.setStringList(_kQueueJson, encoded);
     await prefs.setInt(_kQueueIndex, index);
@@ -66,7 +66,7 @@ class AppStateService {
 
   Future<({List<Map<String, dynamic>> tracks, int index, int positionMs})>
       loadQueue() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final raw = prefs.getStringList(_kQueueJson) ?? [];
     final tracks = raw
         .map<Map<String, dynamic>>((s) {
@@ -84,7 +84,7 @@ class AppStateService {
   }
 
   Future<void> clearQueue() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.remove(_kQueueJson);
     await prefs.remove(_kQueueIndex);
     await prefs.remove(_kQueuePositionMs);
@@ -104,7 +104,7 @@ class AppStateService {
     required double preampDb,
     required int bandCount,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final prevBandCount = prefs.getInt(_kEqBandCount);
 
     await prefs.setBool(_kEqEnabled, enabled);
@@ -127,7 +127,7 @@ class AppStateService {
         double preampDb,
         int bandCount
       })> loadEqBands() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final enabled = prefs.getBool(_kEqEnabled) ?? true;
     final preset = prefs.getString(_kEqPreset) ?? 'Flat';
     final bandCount = prefs.getInt(_kEqBandCount) ?? 10;
@@ -160,7 +160,7 @@ class AppStateService {
     required double roomSize,
     required double echo,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kSpatialEnabled, enabled);
     await prefs.setDouble(_kReverbMix, reverbMix);
     await prefs.setDouble(_kRoomSize, roomSize);
@@ -169,7 +169,7 @@ class AppStateService {
 
   Future<({bool enabled, double reverbMix, double roomSize, double echo})>
       loadSpatialAudio() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kSpatialEnabled) ?? false,
       reverbMix: prefs.getDouble(_kReverbMix) ?? 0.25,
@@ -205,7 +205,7 @@ class AppStateService {
     required double feedback,
     required double time,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kDelayEnabled, enabled);
     await prefs.setDouble(_kDelayMix, mix);
     await prefs.setDouble(_kDelayFeedback, feedback);
@@ -214,7 +214,7 @@ class AppStateService {
 
   Future<({bool enabled, double mix, double feedback, double time})>
       loadDelay() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kDelayEnabled) ?? false,
       mix: prefs.getDouble(_kDelayMix) ?? 0.3,
@@ -231,7 +231,7 @@ class AppStateService {
     double monoBelowHz = 150.0,
     double airBoostDb = 1.5,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kStereoWidenEnabled, enabled);
     await prefs.setDouble(_kStereoWidenWidth, width);
     await prefs.setDouble(_kStereoWidenDelayMs, delayMs);
@@ -249,7 +249,7 @@ class AppStateService {
         double monoBelowHz,
         double airBoostDb
       })> loadStereoWiden() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kStereoWidenEnabled) ?? false,
       width: prefs.getDouble(_kStereoWidenWidth) ?? 1.2,
@@ -268,13 +268,13 @@ class AppStateService {
     required bool enabled,
     required double mix,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kStereoEnhancementEnabled, enabled);
     await prefs.setDouble(_kStereoEnhancementMix, mix);
   }
 
   Future<({bool enabled, double mix})> loadStereoEnhancement() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kStereoEnhancementEnabled) ?? false,
       mix: prefs.getDouble(_kStereoEnhancementMix) ?? 0.5,
@@ -301,7 +301,7 @@ class AppStateService {
     required double preDelayMs,
     required double width,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kReverbExEnabled, enabled);
     await prefs.setString(_kReverbExPreset, preset);
     await prefs.setDouble(_kReverbExWet, wet);
@@ -323,7 +323,7 @@ class AppStateService {
         double preDelayMs,
         double width
       })> loadReverb() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kReverbExEnabled) ?? false,
       preset: prefs.getString(_kReverbExPreset) ?? 'Custom',
@@ -358,7 +358,7 @@ class AppStateService {
     double cutoffHz = 700.0,
     bool outputCompensation = true,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kCrossfeedEnabled, enabled);
     await prefs.setInt(_kCrossfeedPreset, preset);
     await prefs.setInt(_kCrossfeedAlgo, algoIndex);
@@ -378,7 +378,7 @@ class AppStateService {
         double cutoffHz,
         bool outputCompensation
       })> loadCrossfeed() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kCrossfeedEnabled) ?? false,
       preset: prefs.getInt(_kCrossfeedPreset) ?? 1,
@@ -395,14 +395,14 @@ class AppStateService {
     required double alpha,
     required double lpfHz,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setDouble(_kRaceDelayMs, delayMs);
     await prefs.setDouble(_kRaceAlpha, alpha);
     await prefs.setDouble(_kRaceLpfHz, lpfHz);
   }
 
   Future<({double delayMs, double alpha, double lpfHz})> loadRaceParams() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       delayMs: prefs.getDouble(_kRaceDelayMs) ?? 0.166,
       alpha: prefs.getDouble(_kRaceAlpha) ?? 0.55,
@@ -414,13 +414,13 @@ class AppStateService {
     required double angle,
     required double gainDb,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setDouble(_kOpenStageAngle, angle);
     await prefs.setDouble(_kOpenStageGainDb, gainDb);
   }
 
   Future<({double angle, double gainDb})> loadOpenStageParams() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       angle: prefs.getDouble(_kOpenStageAngle) ?? 60.0,
       gainDb: prefs.getDouble(_kOpenStageGainDb) ?? -1.0,
@@ -432,14 +432,14 @@ class AppStateService {
     required int preset,
     required double gain,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kDynamicBassEnabled, enabled);
     await prefs.setInt(_kDynamicBassPreset, preset);
     await prefs.setDouble(_kDynamicBassGain, gain);
   }
 
   Future<({bool enabled, int preset, double gain})> loadDynamicBass() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kDynamicBassEnabled) ?? false,
       preset: prefs.getInt(_kDynamicBassPreset) ?? 18,
@@ -459,7 +459,7 @@ class AppStateService {
     required bool highShelfEnabled,
     required double highShelfGainDb,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kCrystalizerEnabled, enabled);
     await prefs.setDouble(_kCrystalizerIntensity, intensity);
     await prefs.setBool(_kCrystalizerHighShelf, highShelfEnabled);
@@ -473,7 +473,7 @@ class AppStateService {
         bool highShelfEnabled,
         double highShelfGainDb
       })> loadCrystalizer() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kCrystalizerEnabled) ?? false,
       intensity: prefs.getDouble(_kCrystalizerIntensity) ?? 0.5,
@@ -494,7 +494,7 @@ class AppStateService {
     required double mid,
     required double high,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kAudioTuningEnabled, enabled);
     await prefs.setDouble(_kTuneLow, low);
     await prefs.setDouble(_kTuneMid, mid);
@@ -503,7 +503,7 @@ class AppStateService {
 
   Future<({bool enabled, double low, double mid, double high})>
       loadAudioTuning() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kAudioTuningEnabled) ?? false,
       low: prefs.getDouble(_kTuneLow) ?? 1.0,
@@ -524,7 +524,7 @@ class AppStateService {
     required double y,
     required double z,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kTrue3dEnabled, enabled);
     await prefs.setDouble(_kSpatX, x);
     await prefs.setDouble(_kSpatY, y);
@@ -532,7 +532,7 @@ class AppStateService {
   }
 
   Future<({bool enabled, double x, double y, double z})> loadTrue3d() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kTrue3dEnabled) ?? false,
       x: prefs.getDouble(_kSpatX) ?? 0.0,
@@ -549,13 +549,13 @@ class AppStateService {
     required bool enabled,
     required double cutoff,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLpfEnabled, enabled);
     await prefs.setDouble(_kLpfCutoff, cutoff);
   }
 
   Future<({bool enabled, double cutoff})> loadCustomLpf() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kLpfEnabled) ?? false,
       cutoff: prefs.getDouble(_kLpfCutoff) ?? 500.0,
@@ -570,13 +570,13 @@ class AppStateService {
     required bool enabled,
     required double cutoff,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kHpfEnabled, enabled);
     await prefs.setDouble(_kHpfCutoff, cutoff);
   }
 
   Future<({bool enabled, double cutoff})> loadCustomHpf() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kHpfEnabled) ?? false,
       cutoff: prefs.getDouble(_kHpfCutoff) ?? 120.0,
@@ -595,7 +595,7 @@ class AppStateService {
     required double attackMs,
     required double releaseMs,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLimiterEnabled, enabled);
     await prefs.setDouble(_kLimiterThreshold, threshold);
     await prefs.setDouble(_kLimiterAttack, attackMs);
@@ -604,7 +604,7 @@ class AppStateService {
 
   Future<({bool enabled, double threshold, double attackMs, double releaseMs})>
       loadLimiter() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kLimiterEnabled) ?? false,
       threshold: prefs.getDouble(_kLimiterThreshold) ?? 0.95,
@@ -639,7 +639,7 @@ class AppStateService {
     required bool autoMakeup,
     required double mix,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kCompressorEnabled, enabled);
     await prefs.setDouble(_kCompressorThreshold, thresholdDb);
     await prefs.setDouble(_kCompressorRatio, ratio);
@@ -667,7 +667,7 @@ class AppStateService {
         bool autoMakeup,
         double mix,
       })> loadCompressor() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kCompressorEnabled) ?? false,
       thresholdDb: prefs.getDouble(_kCompressorThreshold) ?? -20.0,
@@ -693,7 +693,7 @@ class AppStateService {
     required bool enabled,
     required List<Map<String, dynamic>> bands,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kParametricEqEnabled, enabled);
     await prefs.setStringList(
       _kParametricEqBands,
@@ -703,7 +703,7 @@ class AppStateService {
 
   Future<({bool enabled, List<Map<String, dynamic>> bands})>
       loadParametricEq() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final enabled = prefs.getBool(_kParametricEqEnabled) ?? false;
     final raw = prefs.getStringList(_kParametricEqBands);
     final bands = raw != null
@@ -739,7 +739,7 @@ class AppStateService {
     required double a1,
     required double a2,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kBiquadEnabled, enabled);
     await prefs.setDouble(_kBiquadB0, b0);
     await prefs.setDouble(_kBiquadB1, b1);
@@ -759,7 +759,7 @@ class AppStateService {
         double a1,
         double a2
       })> loadCustomBiquad() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kBiquadEnabled) ?? false,
       b0: prefs.getDouble(_kBiquadB0) ?? 1.0,
@@ -807,7 +807,7 @@ class AppStateService {
     required bool analyzerLogScale,
     required String spectrumStyle,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
     await prefs.setInt(_kSampleRate, sampleRate);
     await prefs.setInt(_kChannels, channels);
@@ -830,7 +830,7 @@ class AppStateService {
   /// Saves only the loudness-aware crossfade flag without touching other engine
   /// settings. Used by the Settings UI toggle which doesn't own the full state.
   Future<void> saveLoudnessCrossfadeEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLoudnessCrossfadeEnabled, enabled);
     audioProcessingSettingsChanged.add(null);
   }
@@ -854,7 +854,7 @@ class AppStateService {
         bool analyzerLogScale,
         String spectrumStyle
       })> loadEngineSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       outputFormatIndex: prefs.getInt(_kOutputFormat) ?? 0, // 0 = f32
       sampleRate: prefs.getInt(_kSampleRate) ?? 0,
@@ -891,7 +891,7 @@ class AppStateService {
     required int resampleAlgorithm,
     required int ditherMode,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kStreamingQuality, streamingQuality);
     await prefs.setBool(_kGaplessPlayback, gaplessPlayback);
     await prefs.setBool(_kNormalizeVolume, normalizeVolume);
@@ -910,7 +910,7 @@ class AppStateService {
         int resampleAlgorithm,
         int ditherMode,
       })> loadUiSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     int savedAlgo = prefs.getInt(_kResampleAlgorithm) ?? 12;
     // Transparently migrate legacy SoX algorithms (7..10) to r8brain equivalents
     if (savedAlgo == 8) {
@@ -935,28 +935,28 @@ class AppStateService {
   static const _kUseWavySlider = 'sp_use_wavy_slider';
 
   Future<void> saveUseWaveformSeekBar(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kUseWaveformSeekBar, enabled);
     useWaveformSeekBarNotifier.value = enabled;
     useWaveformSeekBarChanged.add(enabled);
   }
 
   Future<bool> loadUseWaveformSeekBar() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final val = prefs.getBool(_kUseWaveformSeekBar) ?? false;
     useWaveformSeekBarNotifier.value = val;
     return val;
   }
 
   Future<void> saveUseWavySlider(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kUseWavySlider, enabled);
     useWavySliderNotifier.value = enabled;
     useWavySliderChanged.add(enabled);
   }
 
   Future<bool> loadUseWavySlider() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final val = prefs.getBool(_kUseWavySlider) ?? true;
     useWavySliderNotifier.value = val;
     return val;
@@ -967,12 +967,12 @@ class AppStateService {
   static const _kViperFxState = 'sp_viper_fx_state'; // Legacy fallback key
 
   Future<void> saveSautiDspState(Map<String, dynamic> state) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kSautiDspState, jsonEncode(state));
   }
 
   Future<Map<String, dynamic>> loadSautiDspState() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final str = prefs.getString(_kSautiDspState) ?? prefs.getString(_kViperFxState);
     if (str != null && str.isNotEmpty) {
       try {
@@ -986,13 +986,13 @@ class AppStateService {
   static const _kDspOversampling = 'sp_dsp_oversampling';
 
   Future<void> saveDspOversampling(int factor) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setInt(_kDspOversampling, factor);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<int> loadDspOversampling() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getInt(_kDspOversampling) ?? 1;
   }
 
@@ -1004,14 +1004,14 @@ class AppStateService {
     required ReplayGainMode mode,
     required double preamp,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setInt(_kReplayGainMode, mode.index);
     await prefs.setDouble(_kReplayGainPreamp, preamp);
     replayGainChanged.add(null);
   }
 
   Future<({ReplayGainMode mode, double preamp})> loadReplayGainSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final modeIndex = prefs.getInt(_kReplayGainMode) ?? 0;
     final mode = ReplayGainMode.values.elementAtOrNull(modeIndex) ?? ReplayGainMode.none;
     final preamp = prefs.getDouble(_kReplayGainPreamp) ?? 0.0;
@@ -1024,32 +1024,32 @@ class AppStateService {
   static const _kPitchCorrection = 'sp_pitch_correction';
 
   Future<void> savePlaybackRate(double rate) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setDouble(_kPlaybackRate, rate);
   }
 
   Future<double> loadPlaybackRate() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getDouble(_kPlaybackRate) ?? 1.0;
   }
 
   Future<void> savePlaybackPitch(double pitch) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setDouble(_kPlaybackPitch, pitch);
   }
 
   Future<double> loadPlaybackPitch() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getDouble(_kPlaybackPitch) ?? 1.0;
   }
 
   Future<void> savePitchCorrection(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kPitchCorrection, enabled);
   }
 
   Future<bool> loadPitchCorrection() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_kPitchCorrection) ?? true;
   }
 
@@ -1075,7 +1075,7 @@ class AppStateService {
     required double limiterThreshold,
     required double safetyAttenuationDb,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kSpeakerProtectionEnabled, enabled);
     await prefs.setDouble(_kSubsonicCutoff, subsonicCutoffHz);
     await prefs.setDouble(_kUltrasonicCutoff, ultrasonicCutoffHz);
@@ -1091,7 +1091,7 @@ class AppStateService {
     double limiterThreshold,
     double safetyAttenuationDb,
   })> loadSpeakerProtection() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kSpeakerProtectionEnabled) ?? true,
       subsonicCutoffHz: prefs.getDouble(_kSubsonicCutoff) ?? 25.0,
@@ -1109,14 +1109,14 @@ class AppStateService {
     required bool invertLeft,
     required bool invertRight,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kPhaseInvertLeft, invertLeft);
     await prefs.setBool(_kPhaseInvertRight, invertRight);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<({bool invertLeft, bool invertRight})> loadPhaseInversion() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       invertLeft: prefs.getBool(_kPhaseInvertLeft) ?? false,
       invertRight: prefs.getBool(_kPhaseInvertRight) ?? false,
@@ -1129,13 +1129,13 @@ class AppStateService {
   static const _kChannelGainRightDb = 'sp_channel_gain_right_db';
 
   Future<void> saveLrSwap(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLrSwapEnabled, enabled);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<bool> loadLrSwap() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_kLrSwapEnabled) ?? false;
   }
 
@@ -1143,14 +1143,14 @@ class AppStateService {
     required double leftDb,
     required double rightDb,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setDouble(_kChannelGainLeftDb, leftDb);
     await prefs.setDouble(_kChannelGainRightDb, rightDb);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<({double leftDb, double rightDb})> loadChannelGains() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       leftDb: prefs.getDouble(_kChannelGainLeftDb) ?? 0.0,
       rightDb: prefs.getDouble(_kChannelGainRightDb) ?? 0.0,
@@ -1162,24 +1162,24 @@ class AppStateService {
   static const _kAutoBitPerfectEnabled = 'sp_auto_bit_perfect_enabled';
 
   Future<void> save64BitProcessingEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_k64BitProcessingEnabled, enabled);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<bool> load64BitProcessingEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_k64BitProcessingEnabled) ?? false;
   }
 
   Future<void> saveAutoBitPerfectEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kAutoBitPerfectEnabled, enabled);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<bool> loadAutoBitPerfectEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_kAutoBitPerfectEnabled) ?? true;
   }
 
@@ -1191,14 +1191,14 @@ class AppStateService {
     required int periodFrames,
     required int periodCount,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setInt(_kOutputBufferFrames, periodFrames);
     await prefs.setInt(_kOutputBufferPeriods, periodCount);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<({int periodFrames, int periodCount})> loadOutputBuffer() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       periodFrames: prefs.getInt(_kOutputBufferFrames) ?? 0,
       periodCount: prefs.getInt(_kOutputBufferPeriods) ?? 0,
@@ -1215,14 +1215,14 @@ class AppStateService {
     required bool enabled,
     required double targetLUFS,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLoudnessNormalizerEnabled, enabled);
     await prefs.setDouble(_kLoudnessNormalizerTarget, targetLUFS);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<({bool enabled, double targetLUFS})> loadLoudnessNormalizer() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kLoudnessNormalizerEnabled) ?? true,
       targetLUFS: prefs.getDouble(_kLoudnessNormalizerTarget) ?? -14.0,
@@ -1233,14 +1233,14 @@ class AppStateService {
     required bool enabled,
     required double ceilingDBTP,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLookaheadLimiterEnabled, enabled);
     await prefs.setDouble(_kLookaheadLimiterCeiling, ceilingDBTP);
     audioProcessingSettingsChanged.add(null);
   }
 
   Future<({bool enabled, double ceilingDBTP})> loadLookaheadLimiter() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kLookaheadLimiterEnabled) ?? true,
       ceilingDBTP: prefs.getDouble(_kLookaheadLimiterCeiling) ?? -1.0,
@@ -1256,13 +1256,13 @@ class AppStateService {
       StreamController<void>.broadcast();
 
   Future<void> saveStreamingQualityPreset(AudioQualityPreset quality) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kStreamingQualityPreset, quality.name);
     streamingSettingsChanged.add(null);
   }
 
   Future<AudioQualityPreset> loadStreamingQualityPreset() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final name = prefs.getString(_kStreamingQualityPreset);
     if (name == null) return AudioQualityPreset.audiophile;
     return AudioQualityPreset.values.firstWhere(
@@ -1272,24 +1272,24 @@ class AppStateService {
   }
 
   Future<void> savePreferNativeAac(bool prefer) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kPreferNativeAac, prefer);
     streamingSettingsChanged.add(null);
   }
 
   Future<bool> loadPreferNativeAac() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_kPreferNativeAac) ?? false;
   }
 
   Future<void> saveEnableHostedFallback(bool enable) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kEnableHostedFallback, enable);
     streamingSettingsChanged.add(null);
   }
 
   Future<bool> loadEnableHostedFallback() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getBool(_kEnableHostedFallback) ?? true;
   }
 
@@ -1315,7 +1315,7 @@ class AppStateService {
       StreamController<AudioFocusSettings>.broadcast();
 
   Future<void> saveAudioFocusSettings(AudioFocusSettings settings) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kAudioFocusEnableDucking, settings.enableDucking);
     await prefs.setDouble(_kAudioFocusDuckGain, settings.duckGain);
     await prefs.setBool(
@@ -1336,7 +1336,7 @@ class AppStateService {
   }
 
   Future<AudioFocusSettings> loadAudioFocusSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return AudioFocusSettings(
       enableDucking: prefs.getBool(_kAudioFocusEnableDucking) ?? true,
       duckGain: prefs.getDouble(_kAudioFocusDuckGain) ?? 0.25,

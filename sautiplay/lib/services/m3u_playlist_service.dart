@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import '../models/local_song_item.dart';
 
@@ -56,13 +56,13 @@ class M3uPlaylistService {
   static const String _kM3uPlaylistsKey = 'sp_m3u_playlists_json';
 
   Future<void> savePlaylists(List<SavedM3uPlaylist> playlists) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final jsonList = playlists.map((p) => jsonEncode(p.toJson())).toList();
     await prefs.setStringList(_kM3uPlaylistsKey, jsonList);
   }
 
   Future<List<SavedM3uPlaylist>> loadPlaylists() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final raw = prefs.getStringList(_kM3uPlaylistsKey) ?? [];
     final playlists = <SavedM3uPlaylist>[];
 

@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/app_update_dialog.dart';
@@ -361,7 +361,7 @@ class AppUpdateService extends ChangeNotifier {
     _checkedOnLaunch = true;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final autoCheck = prefs.getBool('auto_check_updates') ?? true;
       if (!autoCheck) return;
 

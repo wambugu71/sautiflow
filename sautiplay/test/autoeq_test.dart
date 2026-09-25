@@ -7,7 +7,7 @@ import 'package:sautiplay/models/autoeq_profile.dart';
 import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/autoeq_parser.dart';
 import 'package:sautiplay/services/autoeq_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sautiplay/database/preferences_store.dart';
 
 class FakePlayerForAutoEq extends Fake implements IsolateAudioPlayer {
   double gain = 0.0;
@@ -211,7 +211,7 @@ GraphicEQ: 20 0.2; 25 -0.5; 31.5 -1.2; 40 -1.8; 50 -2.5; 63 -3.2; 80 -4.0; 100 -
 
   group('AutoEqService Profile Reset & Bypass', () {
     test('clearActiveProfile resets preamp gain, PEQ, GEQ, and AppStateService to flat/off', () async {
-      SharedPreferences.setMockInitialValues({
+      PreferencesStore.instance.setMockValues({
         'sp_active_autoeq_profile_id_v2': 'test_active_profile',
         'sp_parametric_eq_enabled': true,
         'sp_active_parametric_preset': 'HD 600',
@@ -245,7 +245,7 @@ GraphicEQ: 20 0.2; 25 -0.5; 31.5 -1.2; 40 -1.8; 50 -2.5; 63 -3.2; 80 -4.0; 100 -
       expect(geq.gains.every((g) => g == 0.0), isTrue);
       expect(geq.preampDb, 0.0);
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       expect(prefs.containsKey('sp_active_autoeq_profile_id_v2'), isFalse);
       expect(prefs.containsKey('sp_active_parametric_preset'), isFalse);
     });

@@ -1,12 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sautiplay/database/preferences_store.dart';
 import 'package:sautiplay/services/audio_profile_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.instance.setMockValues({});
   });
 
   test('AudioProfileService returns all redefined factory profiles', () async {

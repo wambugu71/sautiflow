@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:sautiflow/sautiflow.dart';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/preferences_store.dart';
 
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
@@ -54,7 +54,17 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    final initialTab = PreferencesStore.instance
+        .getInt('network_sources_tab_index', defaultValue: 0)!
+        .clamp(0, 1);
+    _tabController =
+        TabController(length: 2, vsync: this, initialIndex: initialTab);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        PreferencesStore.instance
+            .setInt('network_sources_tab_index', _tabController.index);
+      }
+    });
     _loadFtpConfigs();
     DlnaService.instance.addListener(_onDlnaStateChanged);
   }
@@ -539,7 +549,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       value: renderer.isRunning,
                       activeThumbColor: _primary,
                       onChanged: (v) async {
-                        final prefs = await SharedPreferences.getInstance();
+                        final prefs = PreferencesStore.instance;
                         await prefs.setBool('dlna_receiver_enabled', v);
                         if (v) {
                           await DlnaRendererService.instance.start();

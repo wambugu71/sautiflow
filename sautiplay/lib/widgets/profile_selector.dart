@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 import '../isolate_player.dart';
 import '../models/audio_profile.dart';
 import '../services/audio_profile_service.dart';
@@ -52,7 +52,7 @@ class AudioProfileSelector extends StatefulWidget {
     final limiter = await AppStateService.instance.loadLimiter();
     final dspMap = await AppStateService.instance.loadSautiDspState();
     final parametricEq = await AppStateService.instance.loadParametricEq();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final activeParametricPreset =
         prefs.getString('sp_active_parametric_preset') ?? 'Custom';
 

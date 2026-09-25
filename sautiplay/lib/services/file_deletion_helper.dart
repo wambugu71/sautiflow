@@ -1,23 +1,60 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import '../isolate_player.dart';
 import 'app_theme_service.dart';
 
 class DeletionResult {
   final bool success;
+  final bool cancelled;
   final String? errorMessage;
 
-  const DeletionResult({required this.success, this.errorMessage});
+  const DeletionResult({
+    required this.success,
+    this.cancelled = false,
+    this.errorMessage,
+  });
 
   factory DeletionResult.ok() => const DeletionResult(success: true);
+  factory DeletionResult.cancelled([String? msg]) => DeletionResult(
+        success: false,
+        cancelled: true,
+        errorMessage: msg ?? 'Deletion was cancelled.',
+      );
   factory DeletionResult.failed(String msg) =>
       DeletionResult(success: false, errorMessage: msg);
 }
 
 class FileDeletionHelper {
   FileDeletionHelper._();
+
+  /// Cleans and normalizes a file path or file URI into a standard canonical filesystem path.
+  static String normalizeFilePath(String rawPath) {
+    var path = rawPath.trim();
+    if (path.startsWith('"') && path.endsWith('"') && path.length >= 2) {
+      path = path.substring(1, path.length - 1).trim();
+    }
+    if (path.startsWith('file://')) {
+      try {
+        final uri = Uri.parse(path);
+        path = uri.toFilePath();
+      } catch (_) {
+        path = path.replaceFirst('file://', '');
+      }
+    }
+    try {
+      if (path.contains('%')) {
+        path = Uri.decodeFull(path);
+      }
+    } catch (_) {}
+    if (path.startsWith('/') && !path.contains(':')) {
+      return p.posix.normalize(path);
+    }
+    return p.normalize(path);
+  }
 
   /// Requests the necessary storage permissions to delete files from disk.
   /// On Android 11+ (API 30+), [Permission.manageExternalStorage] is required
@@ -74,16 +111,62 @@ class FileDeletionHelper {
   /// Safely deletes an audio file from local disk.
   ///
   /// - Handles player cleanup before delete so file handles are released.
+  /// - On Android, uses Scoped Storage / MediaStore native channel first, falling back to direct delete.
   /// - On Windows, removes read-only attributes (errno = 5) and retries on sharing violations (errno = 32).
-  /// - On Android, verifies permissions first.
   static Future<DeletionResult> safeDeleteTrackFile(
-    String filePath, {
+    String rawFilePath, {
     BuildContext? context,
     IsolateAudioPlayer? player,
     Future<void> Function(String path)? onBeforeDelete,
   }) async {
-    // 1. Ensure permissions on Android
+    final filePath = normalizeFilePath(rawFilePath);
+
+    // 1. Pre-delete hook (e.g. notify player/queue to release lock)
+    if (onBeforeDelete != null) {
+      try {
+        await onBeforeDelete(filePath);
+      } catch (e) {
+        debugPrint('[FileDeletionHelper] onBeforeDelete hook error: $e');
+      }
+      // Allow audio decoder isolate/thread to drain garbage queue and close handles
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+
+    // 2. On Android, use native MediaStore / Scoped Storage deletion first
     if (Platform.isAndroid) {
+      try {
+        const channel = MethodChannel('com.wambugu.sautiflow/hardware');
+        final res = await channel.invokeMethod<Map>('deleteMediaFile', {
+          'filePath': filePath,
+        });
+        if (res != null) {
+          final isSuccess = res['success'] == true;
+          final isCancelled = res['cancelled'] == true;
+          if (isSuccess) {
+            return DeletionResult.ok();
+          }
+          if (isCancelled) {
+            return DeletionResult.cancelled(res['message'] as String?);
+          }
+        }
+      } catch (e) {
+        debugPrint(
+            '[FileDeletionHelper] Native Android delete error: $e. Falling back to direct deletion.');
+      }
+    }
+
+    // 3. Fallback / Direct file deletion (for Desktop, iOS, or Android fallback)
+    final file = File(filePath);
+    if (!await file.exists()) {
+      // Already absent from disk
+      return DeletionResult.ok();
+    }
+
+    // Ensure permissions on Android if direct deletion is attempted
+    if (Platform.isAndroid) {
+      if (context != null && !context.mounted) {
+        return DeletionResult.failed('Permission check cancelled.');
+      }
       final hasPermission = await ensureDeletePermission(context);
       if (!hasPermission) {
         return DeletionResult.failed(
@@ -92,24 +175,7 @@ class FileDeletionHelper {
       }
     }
 
-    final file = File(filePath);
-    if (!await file.exists()) {
-      // Already absent from disk
-      return DeletionResult.ok();
-    }
-
-    // 2. Pre-delete hook (e.g. notify player/queue to release lock)
-    if (onBeforeDelete != null) {
-      try {
-        await onBeforeDelete(filePath);
-      } catch (e) {
-        debugPrint('[FileDeletionHelper] onBeforeDelete hook error: $e');
-      }
-      // Allow audio decoder isolate/thread to drain garbage queue and close handles
-      await Future.delayed(const Duration(milliseconds: 120));
-    }
-
-    // 3. Retry loop for resilient deletion
+    // Retry loop for resilient deletion
     const maxAttempts = 3;
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -130,22 +196,23 @@ class FileDeletionHelper {
           }
         }
 
-        // Windows errno 32: Sharing violation -> file still locked by player/inspection
-        if (Platform.isWindows && errorCode == 32 && attempt < maxAttempts - 1) {
-          debugPrint('[FileDeletionHelper] File locked (errno 32), waiting for release...');
-          await Future.delayed(const Duration(milliseconds: 200));
+        // Windows errno 32: Sharing violation / Android errno 16: EBUSY -> file still locked
+        if ((errorCode == 32 || errorCode == 16) && attempt < maxAttempts - 1) {
+          debugPrint(
+              '[FileDeletionHelper] File locked (errno $errorCode), waiting for release...');
+          await Future.delayed(const Duration(milliseconds: 300));
           continue;
         }
 
-        // Android errno 13: Permission denied
-        if (Platform.isAndroid && errorCode == 13) {
+        // Android errno 13: Permission denied / errno 1: Operation not permitted
+        if (Platform.isAndroid && (errorCode == 13 || errorCode == 1)) {
           return DeletionResult.failed(
             'Android denied permission to delete this file. Please ensure "All files access" is granted in App Info > Permissions.',
           );
         }
 
         if (attempt == maxAttempts - 1) {
-          if (errorCode == 32) {
+          if (errorCode == 32 || errorCode == 16) {
             return DeletionResult.failed(
               'Cannot delete file because it is currently in use by the audio engine or another program.',
             );

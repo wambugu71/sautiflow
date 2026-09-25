@@ -12,7 +12,7 @@ import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/preferences_store.dart';
 
 import 'package:sautiflow/sautiflow.dart';
 import 'services/m3u_playlist_service.dart';
@@ -216,15 +216,41 @@ class LibraryScreenState extends State<LibraryScreen>
       });
     }
 
-    if (widget.initialTabIndex == 1 || widget.initialTabIndex == 0) {
-      _selectedCategory = LibraryCategory.tracks;
-    } else if (widget.initialTabIndex == 2) {
+    final savedCatName =
+        PreferencesStore.instance.getString('library_selected_category');
+    if (widget.initialTabIndex == 2) {
       _selectedCategory = LibraryCategory.artists;
     } else if (widget.initialTabIndex == 3) {
       _selectedCategory = LibraryCategory.albums;
-    } else {
+    } else if (widget.initialTabIndex >= 4) {
       _selectedCategory = LibraryCategory.playlists;
+    } else if (savedCatName != null) {
+      _selectedCategory = LibraryCategory.values.firstWhere(
+        (c) => c.name == savedCatName,
+        orElse: () => LibraryCategory.tracks,
+      );
+    } else {
+      _selectedCategory = LibraryCategory.tracks;
     }
+
+    final savedSort = PreferencesStore.instance.getString('library_current_sort');
+    if (savedSort != null && _sortOptions.contains(savedSort)) {
+      _currentSort = savedSort;
+    }
+
+    final savedViewMode = PreferencesStore.instance.getString('library_track_view_mode');
+    if (savedViewMode != null) {
+      _trackViewMode = TrackViewMode.values.firstWhere(
+        (v) => v.name == savedViewMode,
+        orElse: () => TrackViewMode.list,
+      );
+    }
+
+    final savedGroupBy = PreferencesStore.instance.getString('library_group_by_option');
+    if (savedGroupBy != null && _groupByOptions.contains(savedGroupBy)) {
+      _groupByOption = savedGroupBy;
+    }
+
     _loadSavedFolders();
     _loadSavedM3uPlaylists();
     CachedStreamService.instance.init();
@@ -1053,6 +1079,7 @@ class LibraryScreenState extends State<LibraryScreen>
               label: 'View',
               onPressed: () {
                 setState(() => _selectedCategory = LibraryCategory.playlists);
+                PreferencesStore.instance.setString('library_selected_category', LibraryCategory.playlists.name);
               },
             ),
           ),
@@ -1063,7 +1090,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _loadSavedFolders() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final savedData = prefs.getStringList(_prefsKey) ?? [];
 
       final loadedFolders = savedData
@@ -1097,7 +1124,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _saveCachedSongs() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final strList = _allSongs.map((s) => jsonEncode(s.toJson())).toList();
       await prefs.setStringList(_cachedSongsKey, strList);
     } catch (e) {
@@ -1344,7 +1371,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _saveFolders() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final strList = _folders.map((f) => jsonEncode(f)).toList();
       await prefs.setStringList(_prefsKey, strList);
     } catch (e) {
@@ -1885,6 +1912,7 @@ class LibraryScreenState extends State<LibraryScreen>
     );
 
     if (confirm != true) return;
+    if (!mounted) return;
 
     final result = await FileDeletionHelper.safeDeleteTrackFile(
       song.path,
@@ -1900,9 +1928,12 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
 
     if (result.success) {
+      final normTarget = FileDeletionHelper.normalizeFilePath(song.path);
       setState(() {
-        _allSongs.removeWhere((s) => s.path == song.path);
-        _filteredSongs.removeWhere((s) => s.path == song.path);
+        _allSongs.removeWhere((s) =>
+            FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+        _filteredSongs.removeWhere((s) =>
+            FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
       });
       await _saveCachedSongs();
 
@@ -1912,6 +1943,8 @@ class LibraryScreenState extends State<LibraryScreen>
           duration: const Duration(seconds: 2),
         ),
       );
+    } else if (result.cancelled) {
+      // User cancelled system deletion prompt
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1921,6 +1954,17 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       );
     }
+  }
+
+  void _onSongDeletedFromChild(LocalSongItem song) {
+    final normTarget = FileDeletionHelper.normalizeFilePath(song.path);
+    setState(() {
+      _allSongs.removeWhere(
+          (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+      _filteredSongs.removeWhere(
+          (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+    });
+    _saveCachedSongs();
   }
 
   @override
@@ -2192,6 +2236,7 @@ class LibraryScreenState extends State<LibraryScreen>
                                                 setState(() {
                                                   _selectedCategory = cat;
                                                 });
+                                                PreferencesStore.instance.setString('library_selected_category', cat.name);
                                               },
                                             ),
                                           );
@@ -2499,6 +2544,7 @@ class LibraryScreenState extends State<LibraryScreen>
         break;
       case 2:
         setState(() => _selectedCategory = LibraryCategory.playlists);
+        PreferencesStore.instance.setString('library_selected_category', LibraryCategory.playlists.name);
         break;
       case 3:
         _navigateToNetworkSources();
@@ -2668,6 +2714,7 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
       onTap: () {
         setState(() => _selectedCategory = LibraryCategory.playlists);
+        PreferencesStore.instance.setString('library_selected_category', LibraryCategory.playlists.name);
       },
       isDesktop: isDesktop,
     );
@@ -2772,6 +2819,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       _currentSort = choice;
                       _applySearchAndSort();
                     });
+                    PreferencesStore.instance.setString('library_current_sort', choice);
                   },
                 );
               }).toList(),
@@ -2808,6 +2856,7 @@ class LibraryScreenState extends State<LibraryScreen>
                     setState(() {
                       _trackViewMode = mode;
                     });
+                    PreferencesStore.instance.setString('library_track_view_mode', mode.name);
                   },
                 );
               }).toList(),
@@ -3238,10 +3287,8 @@ class LibraryScreenState extends State<LibraryScreen>
                         onPlayFolder: widget.onPlayFolder,
                         onPlayTracks: widget.onPlayTracks,
                         onQueueTrack: widget.onQueueTrack,
-                        onDeleteTrack: (path) {
-                          widget.onDeleteTrack?.call(path);
-                          _updateAllSongs();
-                        },
+                        onDeleteTrack: widget.onDeleteTrack,
+                        onSongDeleted: _onSongDeletedFromChild,
                         player: widget.player,
                       ),
                     ),
@@ -3871,10 +3918,8 @@ class LibraryScreenState extends State<LibraryScreen>
                       onPlayFolder: widget.onPlayFolder,
                       onPlayTracks: widget.onPlayTracks,
                       onQueueTrack: widget.onQueueTrack,
-                      onDeleteTrack: (path) {
-                        widget.onDeleteTrack?.call(path);
-                        _updateAllSongs();
-                      },
+                      onDeleteTrack: widget.onDeleteTrack,
+                      onSongDeleted: _onSongDeletedFromChild,
                       player: widget.player,
                     ),
                   ),
@@ -3963,10 +4008,8 @@ class LibraryScreenState extends State<LibraryScreen>
                       onPlayFolder: widget.onPlayFolder,
                       onPlayTracks: widget.onPlayTracks,
                       onQueueTrack: widget.onQueueTrack,
-                      onDeleteTrack: (path) {
-                        widget.onDeleteTrack?.call(path);
-                        _updateAllSongs();
-                      },
+                      onDeleteTrack: widget.onDeleteTrack,
+                      onSongDeleted: _onSongDeletedFromChild,
                       player: widget.player,
                     ),
                   ),
@@ -4164,6 +4207,7 @@ class LocalGroupDetailScreen extends StatefulWidget {
       onPlayTracks;
   final Function(TrackInfo track)? onQueueTrack;
   final Function(String filePath)? onDeleteTrack;
+  final void Function(LocalSongItem song)? onSongDeleted;
   final IsolateAudioPlayer? player;
 
   const LocalGroupDetailScreen({
@@ -4175,6 +4219,7 @@ class LocalGroupDetailScreen extends StatefulWidget {
     this.onPlayTracks,
     this.onQueueTrack,
     this.onDeleteTrack,
+    this.onSongDeleted,
     this.player,
   });
 
@@ -4565,6 +4610,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           ),
         );
         if (confirm == true) {
+          if (!mounted) break;
           final result = await FileDeletionHelper.safeDeleteTrackFile(
             song.path,
             context: context,
@@ -4575,12 +4621,17 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           );
           if (!mounted) return;
           if (result.success) {
+            final normPath = FileDeletionHelper.normalizeFilePath(song.path);
             setState(() {
-              _groupSongs.removeWhere((s) => s.path == song.path);
+              _groupSongs.removeWhere((s) =>
+                  FileDeletionHelper.normalizeFilePath(s.path) == normPath);
             });
+            widget.onSongDeleted?.call(song);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Deleted "${song.title}" permanently.')),
             );
+          } else if (result.cancelled) {
+            // User cancelled; no error banner
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -4893,6 +4944,7 @@ class LocalArtistDetailScreen extends LocalGroupDetailScreen {
     super.onPlayTracks,
     super.onQueueTrack,
     super.onDeleteTrack,
+    super.onSongDeleted,
   }) : super(
           groupTitle: artistName,
           groupType: 'Artist',

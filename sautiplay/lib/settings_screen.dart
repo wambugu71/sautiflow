@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sautiflow/sautiflow.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
@@ -357,7 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       versionStr = 'v${info.version}';
     } catch (_) {}
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final autoCheck = prefs.getBool('auto_check_updates') ?? true;
 
     if (!mounted) return;
@@ -3656,7 +3656,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   secondary: _buildLeadingIcon(Icons.update_rounded),
                   value: _autoCheckUpdates,
                   onChanged: (val) async {
-                    final prefs = await SharedPreferences.getInstance();
+                    final prefs = PreferencesStore.instance;
                     await prefs.setBool('auto_check_updates', val);
                     setSubState(() => _autoCheckUpdates = val);
                     setState(() => _autoCheckUpdates = val);

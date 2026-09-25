@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:material_3_expressive/components/floating_action_buttons/enums/m3e_fab.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'database/preferences_store.dart';
 
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
@@ -70,6 +70,11 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    final savedFilter =
+        PreferencesStore.instance.getString('search_selected_filter');
+    if (savedFilter != null && _filters.contains(savedFilter)) {
+      _selectedFilter = savedFilter;
+    }
     _ytMusic.initialize();
     _loadRecentSearches();
     _scrollController.addListener(_onScroll);
@@ -194,7 +199,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _loadRecentSearches() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       if (mounted) {
         setState(() => _recentSearches = prefs.getStringList(_recentKey) ?? []);
       }
@@ -211,7 +216,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     });
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       await prefs.setStringList(_recentKey, _recentSearches);
     } catch (_) {}
   }
@@ -219,7 +224,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _clearRecentSearches() async {
     setState(() => _recentSearches = []);
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       await prefs.setStringList(_recentKey, []);
     } catch (_) {}
   }
@@ -522,7 +527,11 @@ class _SearchScreenState extends State<SearchScreen> {
               label: _getLocalizedFilter(filter),
               type: M3EChipType.filter,
               selected: isSelected,
-              onPressed: () => setState(() => _selectedFilter = filter),
+              onPressed: () {
+                setState(() => _selectedFilter = filter);
+                PreferencesStore.instance
+                    .setString('search_selected_filter', filter);
+              },
             ),
           );
         }).toList(),

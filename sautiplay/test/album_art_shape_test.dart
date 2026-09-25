@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sautiplay/database/preferences_store.dart';
 import 'package:sautiplay/services/app_theme_service.dart';
 
 void main() {
@@ -9,7 +9,7 @@ void main() {
 
   group('Album Art Shape & M3E Container Settings Tests', () {
     setUp(() {
-      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.instance.setMockValues({});
     });
 
     test('default useM3EAlbumArtShape is false (default square restored)', () {

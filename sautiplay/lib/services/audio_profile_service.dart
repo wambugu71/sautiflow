@@ -5,7 +5,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:sautiflow/sautiflow.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import '../eq_screen.dart';
 import '../isolate_player.dart';
@@ -189,7 +189,7 @@ class AudioProfileService {
 
       final parametricPreset = eq['parametricPreset'] as String?;
       if (parametricPreset != null && parametricPreset.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
+        final prefs = PreferencesStore.instance;
         await prefs.setString('sp_active_parametric_preset', parametricPreset);
       }
     } else {
@@ -484,7 +484,7 @@ class AudioProfileService {
     await EqScreen.applySavedStateToEngine(player);
 
     // 4. Save active profile ID & notify listeners
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kActiveProfileIdKey, profile.id);
     _activeProfileController.add(profile);
     AppStateService.instance.eqSettingsChanged.add(null);
@@ -528,7 +528,7 @@ class AudioProfileService {
 
   /// Saves or updates a custom AudioProfile.
   Future<void> saveProfile(AudioProfile profile) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final customProfiles = await _getCustomProfiles();
     final index = customProfiles.indexWhere((p) => p.id == profile.id);
 
@@ -546,7 +546,7 @@ class AudioProfileService {
   Future<bool> deleteProfile(String profileId) async {
     if (profileId.startsWith('builtin_')) return false;
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final customProfiles = await _getCustomProfiles();
     final initialLength = customProfiles.length;
     customProfiles.removeWhere((p) => p.id == profileId);
@@ -561,7 +561,7 @@ class AudioProfileService {
   }
 
   Future<List<AudioProfile>> _getCustomProfiles() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final rawJson = prefs.getString(_kCustomProfilesKey);
     if (rawJson == null || rawJson.isEmpty) return [];
 
@@ -588,7 +588,7 @@ class AudioProfileService {
 
   /// Gets the currently active profile ID, defaulting to 'builtin_flat'.
   Future<String> getActiveProfileId() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     return prefs.getString(_kActiveProfileIdKey) ?? 'builtin_flat';
   }
 

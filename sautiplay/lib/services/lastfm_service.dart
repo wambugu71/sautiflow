@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Service for Last.fm authentication, real-time "Now Playing" updates,
@@ -64,7 +64,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> init() async {
     if (_isInitialized) return;
     WidgetsBinding.instance.addObserver(this);
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     _sessionKey = prefs.getString(_kSessionKey);
     _username = prefs.getString(_kUsername);
     _pendingToken = prefs.getString(_kPendingToken);
@@ -125,7 +125,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
   /// Sets scrobbling toggle
   Future<void> setScrobbleEnabled(bool enabled) async {
     _scrobbleEnabled = enabled;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kScrobbleEnabled, enabled);
     _log('[LastFm] Scrobbling enabled: $enabled');
     notifyListeners();
@@ -134,7 +134,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
   /// Sets Now Playing toggle
   Future<void> setNowPlayingEnabled(bool enabled) async {
     _nowPlayingEnabled = enabled;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setBool(_kNowPlayingEnabled, enabled);
     _log('[LastFm] Now Playing updates enabled: $enabled');
     notifyListeners();
@@ -166,7 +166,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
         final token = data['token'] as String?;
         if (token != null) {
           _pendingToken = token;
-          final prefs = await SharedPreferences.getInstance();
+          final prefs = PreferencesStore.instance;
           await prefs.setString(_kPendingToken, token);
           _startAuthPolling(token);
           notifyListeners();
@@ -208,7 +208,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
     _stopAuthPolling();
     if (_pendingToken == null) return;
     _pendingToken = null;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.remove(_kPendingToken);
     _log('[LastFm] Authentication cancelled');
     notifyListeners();
@@ -246,7 +246,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
           _pendingToken = null;
           _stopAuthPolling();
 
-          final prefs = await SharedPreferences.getInstance();
+          final prefs = PreferencesStore.instance;
           if (_sessionKey != null) await prefs.setString(_kSessionKey, _sessionKey!);
           if (_username != null) await prefs.setString(_kUsername, _username!);
           await prefs.remove(_kPendingToken);
@@ -275,7 +275,7 @@ class LastFmService extends ChangeNotifier with WidgetsBindingObserver {
     _sessionKey = null;
     _username = null;
     _pendingToken = null;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.remove(_kSessionKey);
     await prefs.remove(_kUsername);
     await prefs.remove(_kPendingToken);

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
+import 'database/preferences_store.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'models/audio_profile.dart';
@@ -87,8 +88,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
   @override
   void initState() {
     super.initState();
-    _currentAnalyzerType = widget.analyzerType;
-    _currentSpectrumStyle = widget.spectrumStyle;
+    _currentAnalyzerType = PreferencesStore.instance
+        .getString('analyzer_type', defaultValue: widget.analyzerType)!;
+    _currentSpectrumStyle = PreferencesStore.instance
+        .getString('spectrum_style', defaultValue: widget.spectrumStyle)!;
     _isPlaying = widget.player.isPlaying;
 
     _hardwareSpecs = AudioHardwareInspector.currentSpecs;
@@ -522,6 +525,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                                 _currentAnalyzerType =
                                                     'vectorscope';
                                               });
+                                              PreferencesStore.instance.setString('analyzer_type', 'vectorscope');
                                             },
                                           ),
                                           M3EMenuEntry(
@@ -537,6 +541,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                               setState(() {
                                                 _currentAnalyzerType = 'area';
                                               });
+                                              PreferencesStore.instance.setString('analyzer_type', 'area');
                                             },
                                           ),
                                           M3EMenuEntry(
@@ -552,6 +557,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                               setState(() {
                                                 _currentAnalyzerType = 'bar';
                                               });
+                                              PreferencesStore.instance.setString('analyzer_type', 'bar');
                                             },
                                           ),
                                         ],
@@ -578,6 +584,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                                           _currentSpectrumStyle =
                                                               theme.name;
                                                         });
+                                                        PreferencesStore.instance.setString('spectrum_style', theme.name);
                                                       },
                                                     ),
                                                   )
@@ -598,6 +605,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                                           _currentSpectrumStyle =
                                                               theme.name;
                                                         });
+                                                        PreferencesStore.instance.setString('spectrum_style', theme.name);
                                                       },
                                                     ),
                                                   ))
@@ -621,6 +629,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                                     _currentAnalyzerType =
                                                         s.name;
                                                   });
+                                                  PreferencesStore.instance.setString('analyzer_type', s.name);
                                                 },
                                               ),
                                             )

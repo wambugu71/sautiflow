@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import '../models/cached_stream_item.dart';
 import '../streaming_service.dart';
@@ -334,7 +334,7 @@ class CachedStreamService {
   /// Scans the cache folder and persisted records, pruning non-existent files.
   Future<List<CachedStreamItem>> refreshCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final rawList = prefs.getStringList(_storageKey) ?? [];
 
       final loadedItems = <CachedStreamItem>[];
@@ -561,7 +561,7 @@ class CachedStreamService {
 
   Future<void> _persist(List<CachedStreamItem> items) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final stringList = items.map((e) => e.toJson()).toList();
       await prefs.setStringList(_storageKey, stringList);
     } catch (e) {

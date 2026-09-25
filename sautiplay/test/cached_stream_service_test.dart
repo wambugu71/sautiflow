@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:sautiplay/database/preferences_store.dart';
 import 'package:sautiplay/services/cached_stream_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.instance.setMockValues({});
   });
 
   group('CachedStreamService Tests', () {

@@ -13,6 +13,7 @@ import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 
+import 'database/preferences_store.dart';
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'artist_profile_screen.dart';
 import 'isolate_player.dart';
@@ -182,6 +183,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   @override
   void initState() {
     super.initState();
+    _showLyrics = PreferencesStore.instance
+        .getBool('now_playing_show_lyrics', defaultValue: false)!;
+    _showLyricsOverlayOnAlbumArt = PreferencesStore.instance
+        .getBool('now_playing_show_lyrics_overlay', defaultValue: false)!;
     _pageController = PageController(initialPage: 0);
     _pageController.addListener(_handlePageScroll);
     _isAnalyzerEnabled = widget.analyzerEnabled;
@@ -817,6 +822,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _showLyricsOverlayOnAlbumArt = true;
             _showLyrics = true;
           });
+          PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', true);
+          PreferencesStore.instance.setBool('now_playing_show_lyrics', true);
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -862,6 +869,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _showLyricsOverlayOnAlbumArt = false;
       _lyricsRaw = null;
     });
+    PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', false);
     _fetchLyrics();
   }
 
@@ -1227,6 +1235,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       () => _showLyricsOverlayOnAlbumArt = val);
                                   setState(
                                       () => _showLyricsOverlayOnAlbumArt = val);
+                                  PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', val);
                                 },
                         ),
                         if (_isCustomLyricsLoaded)
@@ -1479,6 +1488,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             size: 18, color: Colors.white70),
                         onPressed: () {
                           setState(() => _showLyricsOverlayOnAlbumArt = false);
+                          PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', false);
                         },
                         tooltip: 'Hide Lyrics Overlay',
                       ),
@@ -2745,6 +2755,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     setState(() => _showLyrics =
                                                         !_showLyrics);
+                                                    PreferencesStore.instance.setBool('now_playing_show_lyrics', _showLyrics);
                                                   },
                                                 ),
                                                 M3EToolbarWidget(
@@ -3286,6 +3297,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           _showLyrics =
                                                               _showLyricsOverlayOnAlbumArt;
                                                         });
+                                                        PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', _showLyricsOverlayOnAlbumArt);
+                                                        PreferencesStore.instance.setBool('now_playing_show_lyrics', _showLyrics);
                                                       },
                                                     ),
                                                     const SizedBox(width: 8),

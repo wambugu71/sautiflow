@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 /// Configuration profile for an FTP server connection.
 class FtpConfig {
@@ -259,7 +259,7 @@ class FtpService {
 
   /// Retrieves saved FTP configurations from local storage.
   static Future<List<FtpConfig>> getSavedConfigs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final rawJson = prefs.getString(_prefsKey);
     if (rawJson == null || rawJson.isEmpty) return [];
 
@@ -283,7 +283,7 @@ class FtpService {
       configs.add(config);
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final jsonStr = jsonEncode(configs.map((c) => c.toJson()).toList());
     await prefs.setString(_prefsKey, jsonStr);
   }
@@ -293,7 +293,7 @@ class FtpService {
     final configs = await getSavedConfigs();
     configs.removeWhere((c) => c.id == id);
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final jsonStr = jsonEncode(configs.map((c) => c.toJson()).toList());
     await prefs.setString(_prefsKey, jsonStr);
   }

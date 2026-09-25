@@ -5,7 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 import 'local_media_server.dart';
 
 /// Bridge between the DLNA renderer and the app's player engine.
@@ -83,21 +83,21 @@ class DlnaRendererService extends ChangeNotifier {
 
   Future<void> configure({required DlnaRendererBridge bridge}) async {
     this.bridge = bridge;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     _uuid = prefs.getString('dlna_renderer_uuid') ?? _generateUuid();
     await prefs.setString('dlna_renderer_uuid', _uuid);
   }
 
   Future<void> setFriendlyName(String name) async {
     friendlyName = name.trim().isEmpty ? 'SautiPlay' : name.trim();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString('dlna_renderer_friendly_name', friendlyName);
     notifyListeners();
   }
 
   /// Restarts with the persisted friendly name (call once at app boot).
   Future<void> restoreName() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     friendlyName = prefs.getString('dlna_renderer_friendly_name') ?? 'SautiPlay';
   }
 

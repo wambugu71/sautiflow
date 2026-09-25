@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
+import 'database/preferences_store.dart';
 import 'home_screen.dart';
 import 'isolate_player.dart';
 import 'library_screen.dart';
@@ -56,7 +57,17 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    final initialTab = PreferencesStore.instance
+        .getInt('combined_home_tab_index', defaultValue: 0)!
+        .clamp(0, 1);
+    _tabController =
+        TabController(length: 2, vsync: this, initialIndex: initialTab);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        PreferencesStore.instance
+            .setInt('combined_home_tab_index', _tabController.index);
+      }
+    });
   }
 
   @override

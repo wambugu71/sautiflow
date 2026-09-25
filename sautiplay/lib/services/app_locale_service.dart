@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../database/preferences_store.dart';
 
 enum AppLanguage {
   system(null, 'System Default', 'Mfumo Chaguomsingi', 'የስርዓቱ መደበኛ'),
@@ -44,11 +45,10 @@ class AppLocaleService {
 
   AppLanguage get currentLanguage => AppLanguage.fromLocale(_currentLocale);
 
-  /// Loads the persisted language selection from SharedPreferences.
+  /// Loads the persisted language selection from PreferencesStore.
   Future<void> loadLocale() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final code = prefs.getString(_kLocaleKey);
+      final code = PreferencesStore.instance.getString(_kLocaleKey);
       if (code == null || code.isEmpty || code == 'system') {
         _currentLocale = null;
       } else {
@@ -66,11 +66,10 @@ class AppLocaleService {
     localeChanged.add(_currentLocale);
 
     try {
-      final prefs = await SharedPreferences.getInstance();
       if (locale == null) {
-        await prefs.remove(_kLocaleKey);
+        await PreferencesStore.instance.remove(_kLocaleKey);
       } else {
-        await prefs.setString(_kLocaleKey, locale.languageCode);
+        await PreferencesStore.instance.setString(_kLocaleKey, locale.languageCode);
       }
     } catch (_) {
       // Ignored

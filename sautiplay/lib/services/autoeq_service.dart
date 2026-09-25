@@ -5,7 +5,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:sautiflow/sautiflow.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import '../isolate_player.dart';
 import '../models/autoeq_profile.dart';
@@ -100,7 +100,7 @@ class AutoEqService {
 
   Future<void> _loadCustomProfiles() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final rawList = prefs.getStringList(_kCustomProfilesKey) ?? [];
       _customProfiles.clear();
       for (final jsonStr in rawList) {
@@ -114,7 +114,7 @@ class AutoEqService {
 
   Future<void> _loadActiveProfile() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PreferencesStore.instance;
       final activeId = prefs.getString(_kActiveProfileIdKey);
       if (activeId != null && activeId.isNotEmpty) {
         _activeProfile = allProfiles.cast<AutoEqProfileModel?>().firstWhere(
@@ -126,7 +126,7 @@ class AutoEqService {
   }
 
   Future<void> _saveCustomProfiles() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final list = _customProfiles.map((p) => jsonEncode(p.toJson())).toList();
     await prefs.setStringList(_kCustomProfilesKey, list);
   }
@@ -181,7 +181,7 @@ class AutoEqService {
         await clearActiveProfile(player);
       } else {
         _activeProfile = null;
-        final prefs = await SharedPreferences.getInstance();
+        final prefs = PreferencesStore.instance;
         await prefs.remove(_kActiveProfileIdKey);
         activeProfileChanged.add(null);
       }
@@ -192,7 +192,7 @@ class AutoEqService {
   /// and resets both Parametric EQ and Graphic EQ engines and their persisted state to Flat/Off.
   Future<void> clearActiveProfile(IsolateAudioPlayer player) async {
     _activeProfile = null;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.remove(_kActiveProfileIdKey);
 
     // 1. Reset Master Preamp Gain headroom back to 1.0 (0.0 dB)
@@ -233,7 +233,7 @@ class AutoEqService {
     List<double>? customGraphicFrequencies,
   }) async {
     _activeProfile = profile;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     await prefs.setString(_kActiveProfileIdKey, profile.id);
 
     // 1. Preamp Adjustment

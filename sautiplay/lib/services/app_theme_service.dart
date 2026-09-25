@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:material_3_expressive/components/navigation_bar/styles/m3e_navigation_bar_theme.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../database/preferences_store.dart';
 
 import 'artwork_theme_service.dart';
 
@@ -374,7 +374,7 @@ class AppThemeService {
   }
 
   Future<void> loadTheme() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PreferencesStore.instance;
     final saved = prefs.getString(_kAppThemeKey);
     if (saved != null) {
       final match = AppThemeId.values.where((e) => e.name == saved);
@@ -393,22 +393,19 @@ class AppThemeService {
 
   Future<void> saveTheme(AppThemeId id) async {
     _current = id;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kAppThemeKey, id.name);
+    await PreferencesStore.instance.setString(_kAppThemeKey, id.name);
     themeChanged.add(id);
   }
 
   Future<void> saveAlbumArtShape(Shapes shape) async {
     _albumArtShape = shape;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kAlbumArtShapeKey, shape.name);
+    await PreferencesStore.instance.setString(_kAlbumArtShapeKey, shape.name);
     albumArtShapeChanged.add(shape);
   }
 
   Future<void> saveUseM3EAlbumArtShape(bool enabled) async {
     _useM3EAlbumArtShape = enabled;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kUseM3EAlbumArtShapeKey, enabled);
+    await PreferencesStore.instance.setBool(_kUseM3EAlbumArtShapeKey, enabled);
     useM3EAlbumArtShapeChanged.add(enabled);
   }
 
