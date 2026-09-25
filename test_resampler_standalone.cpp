@@ -110,6 +110,103 @@ static ma_resampling_backend_vtable g_customResamplerVTable = {
 };
 
 // r8brain Backend
+struct R8brainRingBuffer
+{
+    std::vector<float> buffer;
+    size_t writePos = 0;
+    size_t readPos = 0;
+    size_t count = 0; // count of samples (floats)
+
+    void init(size_t sampleCapacity)
+    {
+        buffer.assign(sampleCapacity, 0.0f);
+        writePos = 0;
+        readPos = 0;
+        count = 0;
+    }
+
+    void reset()
+    {
+        writePos = 0;
+        readPos = 0;
+        count = 0;
+    }
+
+    bool empty() const
+    {
+        return count == 0;
+    }
+
+    size_t available_read() const
+    {
+        return count;
+    }
+
+    size_t available_write() const
+    {
+        return buffer.size() > count ? (buffer.size() - count) : 0;
+    }
+
+    size_t writeFromDeinterleaved(double * const *channelPtrs, size_t frameOffset, size_t frameCount, int channels)
+    {
+        if (!channelPtrs || frameCount == 0 || channels <= 0 || buffer.empty())
+            return 0;
+
+        size_t samplesWanted = frameCount * (size_t)channels;
+        size_t samplesAvail = available_write();
+        if (samplesWanted > samplesAvail)
+        {
+            frameCount = samplesAvail / (size_t)channels;
+            samplesWanted = frameCount * (size_t)channels;
+        }
+        if (samplesWanted == 0)
+            return 0;
+
+        const size_t bufSize = buffer.size();
+        size_t wp = writePos;
+        for (size_t i = 0; i < frameCount; ++i)
+        {
+            for (int c = 0; c < channels; ++c)
+            {
+                buffer[wp] = static_cast<float>(channelPtrs[c][frameOffset + i]);
+                if (++wp == bufSize)
+                    wp = 0;
+            }
+        }
+        writePos = wp;
+        count += samplesWanted;
+        return frameCount;
+    }
+
+    size_t readInterleaved(float *dst, size_t frameCount, int channels)
+    {
+        if (frameCount == 0 || channels <= 0 || buffer.empty())
+            return 0;
+
+        size_t samplesWanted = frameCount * (size_t)channels;
+        size_t samplesToRead = std::min(samplesWanted, count);
+        if (samplesToRead == 0)
+            return 0;
+
+        size_t firstChunk = std::min(samplesToRead, buffer.size() - readPos);
+        if (dst != nullptr)
+        {
+            std::memcpy(dst, buffer.data() + readPos, firstChunk * sizeof(float));
+        }
+        size_t secondChunk = samplesToRead - firstChunk;
+        if (secondChunk > 0)
+        {
+            if (dst != nullptr)
+            {
+                std::memcpy(dst + firstChunk, buffer.data(), secondChunk * sizeof(float));
+            }
+        }
+        readPos = (readPos + samplesToRead) % buffer.size();
+        count -= samplesToRead;
+        return samplesToRead / (size_t)channels;
+    }
+};
+
 struct R8brainBackend
 {
     double ratio = 1.0;
@@ -121,8 +218,7 @@ struct R8brainBackend
     std::vector<r8b::CDSPResampler *> resamplers;
     std::vector<std::vector<double>> inBufs;
     std::vector<double *> outPtrs;
-    std::vector<float> outputFifo;
-    size_t fifoReadPos = 0;
+    R8brainRingBuffer outputRing;
 };
 
 static ma_result r8b_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
@@ -167,6 +263,11 @@ static ma_result r8b_onInit(void *pUserData, const ma_resampler_config *pConfig,
         );
     }
 
+    double maxRatio = std::max(1.0, backend->ratio);
+    size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
+    size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
+    backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
+
     *ppBackend = (ma_resampling_backend *)backend;
     return MA_SUCCESS;
 }
@@ -193,7 +294,7 @@ static ma_result r8b_onProcess(void *pUserData, ma_resampling_backend *pBackend,
     const int ch = backend->channels;
     if (ch <= 0) return MA_ERROR;
 
-    if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr && backend->outputFifo.empty())
+    if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr && backend->outputRing.empty())
     {
         ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
         std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
@@ -207,26 +308,12 @@ static ma_result r8b_onProcess(void *pUserData, ma_resampling_backend *pBackend,
     ma_uint64 outTarget = *pFrameCountOut;
     ma_uint64 outProduced = 0;
 
-    if (!backend->outputFifo.empty())
+    if (!backend->outputRing.empty())
     {
-        size_t fifoFrames = (backend->outputFifo.size() - backend->fifoReadPos) / (size_t)ch;
-        size_t toDrain = std::min<size_t>(fifoFrames, (size_t)(outTarget - outProduced));
-        if (toDrain > 0)
-        {
-            if (outDst != nullptr)
-            {
-                std::memcpy(outDst + outProduced * (size_t)ch,
-                            backend->outputFifo.data() + backend->fifoReadPos,
-                            toDrain * (size_t)ch * sizeof(float));
-            }
-            backend->fifoReadPos += toDrain * (size_t)ch;
-            outProduced += toDrain;
-            if (backend->fifoReadPos >= backend->outputFifo.size())
-            {
-                backend->outputFifo.clear();
-                backend->fifoReadPos = 0;
-            }
-        }
+        size_t framesWanted = (size_t)(outTarget - outProduced);
+        float *dst = (outDst != nullptr) ? (outDst + outProduced * (size_t)ch) : nullptr;
+        size_t drained = backend->outputRing.readInterleaved(dst, framesWanted, ch);
+        outProduced += drained;
     }
 
     if (outProduced >= outTarget || !pFramesIn || *pFrameCountIn == 0)
@@ -268,19 +355,15 @@ static ma_result r8b_onProcess(void *pUserData, ma_resampling_backend *pBackend,
             }
             outProduced += directCopy;
         }
+        else if (directCopy > 0)
+        {
+            outProduced += directCopy;
+        }
 
         if ((size_t)genFrames > directCopy)
         {
             size_t excess = (size_t)genFrames - directCopy;
-            size_t oldSize = backend->outputFifo.size();
-            backend->outputFifo.resize(oldSize + excess * (size_t)ch);
-            for (size_t i = 0; i < excess; ++i)
-            {
-                for (int c = 0; c < ch; ++c)
-                {
-                    backend->outputFifo[oldSize + i * (size_t)ch + (size_t)c] = (float)backend->outPtrs[c][directCopy + i];
-                }
-            }
+            backend->outputRing.writeFromDeinterleaved(backend->outPtrs.data(), directCopy, excess, ch);
         }
     }
 
@@ -314,8 +397,12 @@ static ma_result r8b_onSetRate(void *pUserData, ma_resampling_backend *pBackend,
             phase
         );
     }
-    backend->outputFifo.clear();
-    backend->fifoReadPos = 0;
+
+    double maxRatio = std::max(1.0, backend->ratio);
+    size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
+    size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
+    backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
+
     return MA_SUCCESS;
 }
 

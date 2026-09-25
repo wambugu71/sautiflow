@@ -195,25 +195,11 @@ flowchart TD
 
 ---
 
-### P0.7 Unbounded Heap Allocation & Memory Leak in `R8brainBackend::outputFifo`
-- **Location:** [`audio_engine.cpp:960-977`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L960-L977) and [`L1064-1073`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L1064-L1073)
-- **Mechanism:**
-  ```cpp
-  // audio_engine.cpp:1064-1065
-  size_t oldSize = backend->outputFifo.size();
-  backend->outputFifo.resize(oldSize + excess * (size_t)ch);
-  ```
-  When draining frames:
-  ```cpp
-  // audio_engine.cpp:971-977
-  backend->fifoReadPos += toDrain * (size_t)ch;
-  if (backend->fifoReadPos >= backend->outputFifo.size()) {
-      backend->outputFifo.clear();
-      backend->fifoReadPos = 0;
-  }
-  ```
-  `outputFifo` is a linear `std::vector<float>` rather than a circular ring buffer. Read elements are not reclaimed; `fifoReadPos` merely increments.
-- **Consequence:** If the resampler produces excess frames on successive callbacks, `fifoReadPos` may never equal or exceed `outputFifo.size()`. The vector continuously expands, invoking `malloc`/`realloc` inside the real-time audio thread and causing an **unbounded memory leak**.
+### P0.7 [RESOLVED] Real-Time Allocation Risk in `R8brainBackend::outputFifo`
+- **Location:** [`audio_engine.cpp:842-1080`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L842-L1080)
+- **Status:** **RESOLVED** via `R8brainRingBuffer` (pre-allocated circular ring buffer).
+- **Mechanism:** Formerly, `outputFifo` was a `std::vector<float>` that resized inside `r8b_onProcess`. Analysis proved the memory growth was bounded to a single chunk ($\approx 35\text{ KB}$), but dynamic resizing on the real-time audio thread posed priority inversion and audio glitch hazards.
+- **Resolution:** Replaced `std::vector<float> outputFifo` with a pre-allocated `R8brainRingBuffer` initialized during `r8b_onInit` and `r8b_onSetRate`. Writes use `writeFromDeinterleaved` directly from `r8brain` buffers, and reads use `readInterleaved`. Zero heap allocations now occur during processing callbacks.
 
 ---
 
