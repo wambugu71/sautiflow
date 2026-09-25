@@ -32,6 +32,7 @@
 #include "dsp/subsonic_filter.h"
 #include "dsp/denormals.h"
 #include "dsp/scaletempo_dsp.h"
+#include "dsp/fft_convolver_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -1123,6 +1124,111 @@ static void test_scaletempo_dsp()
     CHECK(ok, "ScaleTempoDSP output with ZNCC correlation is finite and contains no NaN/Inf");
 }
 
+// -----------------------------------------------------------------------------
+// [C] P0.5 FFTConvolverDSP Dry Path Latency Compensation & Comb Filtering Elimination
+// -----------------------------------------------------------------------------
+static void test_fft_convolver_latency_compensation()
+{
+    std::printf("\n== [C] P0.5 FFTConvolverDSP Dry Path Latency Compensation ==\n");
+
+    sauti::dsp::FFTConvolverDSP convolver;
+    convolver.setSampleRate(48000.0f);
+    convolver.setEnabled(true);
+
+    // 1. Load an identity Dirac impulse IR (512 samples, h[0] = 1.0, h[1..511] = 0.0)
+    constexpr size_t kIRLen = 512;
+    std::vector<float> ir(kIRLen, 0.0f);
+    ir[0] = 1.0f;
+    bool load_ok = convolver.loadImpulseResponse(ir.data(), static_cast<uint32_t>(kIRLen), 1);
+    CHECK(load_ok, "FFTConvolverDSP loaded identity IR");
+
+    convolver.setDryLevel(0.5f);
+    convolver.setWetLevel(0.5f);
+
+    // Warm up convolver past the 20ms anti-pop crossfade (960 samples @ 48kHz)
+    constexpr uint32_t kWarmupFrames = 1024;
+    std::vector<float> warmup(kWarmupFrames * 2, 0.0f);
+    convolver.process(warmup.data(), kWarmupFrames);
+
+    // 2. Dirac impulse alignment verification
+    // Feed a single Dirac impulse at sample 0 in block 0
+    constexpr uint32_t kBlockSize = 512;
+    std::vector<float> block0(kBlockSize * 2, 0.0f);
+    block0[0] = 1.0f; // Left channel impulse
+    block0[1] = 1.0f; // Right channel impulse
+
+    convolver.process(block0.data(), kBlockSize);
+
+    // During block 0, the impulse enters the dry delay buffer and the FFT partition.
+    // Because both wet and dry paths are delayed by BLOCK_SIZE (512 samples),
+    // block 0 output must be strictly 0 (no early dry bleed causing time split).
+    float block0_max_l = 0.0f;
+    for (size_t i = 0; i < kBlockSize; ++i) {
+        block0_max_l = std::max(block0_max_l, std::fabs(block0[2 * i]));
+    }
+    CHECK(block0_max_l < 1e-5f, "block 0 output is silence (dry signal correctly delayed by BLOCK_SIZE)");
+
+    // Process block 1: both delayed dry (0.5 * 1.0) and convolved wet (0.5 * 1.0)
+    // exit simultaneously at frame 0 of block 1 (sample 512 overall).
+    std::vector<float> block1(kBlockSize * 2, 0.0f);
+    convolver.process(block1.data(), kBlockSize);
+
+    float peak_sample0_l = block1[0];
+    float peak_sample0_r = block1[1];
+    CHECK(std::fabs(peak_sample0_l - 1.0f) < 1e-4f, "sample 512 Left impulse reconstructed to exactly 1.0 (0.5 dry + 0.5 wet)");
+    CHECK(std::fabs(peak_sample0_r - 1.0f) < 1e-4f, "sample 512 Right impulse reconstructed to exactly 1.0 (0.5 dry + 0.5 wet)");
+
+    // Remaining samples in block 1 must be 0
+    float tail_max_l = 0.0f;
+    for (size_t i = 1; i < kBlockSize; ++i) {
+        tail_max_l = std::max(tail_max_l, std::fabs(block1[2 * i]));
+    }
+    CHECK(tail_max_l < 1e-4f, "subsequent samples in block 1 are zero (no smeared echoes or ghost taps)");
+
+    // 3. Comb filtering elimination verification at notch frequencies:
+    // Without latency compensation, f0 = 48000 / 1024 = 46.875 Hz experiences 180-degree
+    // destructive cancellation between un-delayed dry and 512-sample delayed wet, causing
+    // the output to collapse to 0.0 (-inf dB).
+    // With latency compensation, dry and wet are phase-aligned, producing unity gain (1.0).
+    const float f_notch = 46.875f;
+    const uint32_t kSineFrames = 4800; // 100 ms of audio
+    std::vector<float> sine_buf(kSineFrames * 2);
+    for (uint32_t i = 0; i < kSineFrames; ++i) {
+        float val = std::sin(2.0f * float(M_PI) * f_notch * static_cast<float>(i) / 48000.0f);
+        sine_buf[2 * i] = val;
+        sine_buf[2 * i + 1] = val;
+    }
+
+    convolver.process(sine_buf.data(), kSineFrames);
+
+    // Measure peak amplitude in the steady-state portion (frames 1024 to kSineFrames)
+    float steady_peak_l = 0.0f;
+    for (uint32_t i = 1024; i < kSineFrames; ++i) {
+        steady_peak_l = std::max(steady_peak_l, std::fabs(sine_buf[2 * i]));
+    }
+    char notch_msg[128];
+    std::snprintf(notch_msg, sizeof(notch_msg), "comb filtering eliminated at 46.875 Hz notch (peak %.4f >= 0.99, not collapsed)", steady_peak_l);
+    CHECK(steady_peak_l >= 0.99f && steady_peak_l <= 1.01f, notch_msg);
+
+    // Also test second notch frequency f1 = 3 * 46.875 = 140.625 Hz
+    const float f_notch2 = 140.625f;
+    for (uint32_t i = 0; i < kSineFrames; ++i) {
+        float val = std::sin(2.0f * float(M_PI) * f_notch2 * static_cast<float>(i) / 48000.0f);
+        sine_buf[2 * i] = val;
+        sine_buf[2 * i + 1] = val;
+    }
+    convolver.process(sine_buf.data(), kSineFrames);
+    float steady_peak2_l = 0.0f;
+    for (uint32_t i = 1024; i < kSineFrames; ++i) {
+        steady_peak2_l = std::max(steady_peak2_l, std::fabs(sine_buf[2 * i]));
+    }
+    std::snprintf(notch_msg, sizeof(notch_msg), "comb filtering eliminated at 140.625 Hz notch (peak %.4f >= 0.99, not collapsed)", steady_peak2_l);
+    CHECK(steady_peak2_l >= 0.99f && steady_peak2_l <= 1.01f, notch_msg);
+
+    // 4. Latency query API verification
+    CHECK(convolver.getLatencySamples() == 512, "getLatencySamples() accurately reports BLOCK_SIZE (512)");
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -1130,7 +1236,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -1148,6 +1254,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "subsonic") test_subsonic_filter_and_denormals();
     if (only.empty() || only == "dialog") test_dialog_enhancer_dsp();
     if (only.empty() || only == "scaletempo") test_scaletempo_dsp();
+    if (only.empty() || only == "convolver") test_fft_convolver_latency_compensation();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

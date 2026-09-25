@@ -171,6 +171,7 @@ flowchart TD
   `dry_in_l` is the incoming real-time sample arriving at time $t$.  
   `wet_l` is read from `out_buf_l_`, which contains the convolved output of the **previous** 512-sample block.
 - **Consequence:** The wet signal has an uncompensated 512-sample delay ($\approx 10.7\text{ ms}$ at $48\text{ kHz}$, $11.6\text{ ms}$ at $44.1\text{ kHz}$). When a user blends wet and dry signals ($0 < \text{dry} < 1$, $0 < \text{wet} < 1$, e.g. for room simulation or speaker modeling), summing the real-time dry signal with the delayed wet signal produces severe **comb filtering** with spectral notches every $\Delta f \approx 93.75\text{ Hz}$.
+- **Remediation:** Introduce a 512-sample circular delay line for the dry path (`dry_delay_l_`, `dry_delay_r_`) within `FFTConvolverDSP`. When the convolver is active, blend the 512-sample delayed dry signal with the 512-sample delayed wet signal to guarantee perfect phase coherence. Maintain smooth anti-pop crossfading between real-time dry and latency-compensated wet/dry mix during activation and deactivation.
 
 ---
 
@@ -544,6 +545,34 @@ flowchart TD
 +            }
              chosenLufs = targetLufs - trackGain;
              foundLoudness = true;
+```
+
+### Fix 8: Compensate FFTConvolverDSP Dry Path Latency (Fixes P0.5)
+```diff
+--- a/dsp/fft_convolver_dsp.h
++++ b/dsp/fft_convolver_dsp.h
+@@ -216,4 +216,9 @@ public:
+                 float dry_in_l = interleaved_samples[in_idx];
+                 float dry_in_r = interleaved_samples[in_idx + 1];
+ 
++                // Delay dry signal by BLOCK_SIZE to align with partitioned overlap-add wet latency
++                float dry_delayed_l = dry_delay_l_[in_pos_ + i];
++                float dry_delayed_r = dry_delay_r_[in_pos_ + i];
++                dry_delay_l_[in_pos_ + i] = dry_in_l;
++                dry_delay_r_[in_pos_ + i] = dry_in_r;
++
+                 in_buf_l_[in_pos_ + i] = dry_in_l;
+@@ -268,4 +273,6 @@ public:
+                 const float fade = fade_progress_;
+-                const float eff_dry = (1.0f - fade) + (current_dry_level_ * fade);
++                const float dry_mix_l = (1.0f - fade) * dry_in_l + (current_dry_level_ * fade) * dry_delayed_l;
++                const float dry_mix_r = (1.0f - fade) * dry_in_r + (current_dry_level_ * fade) * dry_delayed_r;
+                 const float eff_wet = current_wet_level_ * fade * swap_gain;
+ 
+-                interleaved_samples[in_idx]     = (dry_in_l * eff_dry) + (wet_l * eff_wet);
+-                interleaved_samples[in_idx + 1] = (dry_in_r * eff_dry) + (wet_r * eff_wet);
++                interleaved_samples[in_idx]     = dry_mix_l + (wet_l * eff_wet);
++                interleaved_samples[in_idx + 1] = dry_mix_r + (wet_r * eff_wet);
 ```
 
 ---

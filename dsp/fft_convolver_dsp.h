@@ -14,7 +14,7 @@ namespace sauti::dsp {
 
 // =============================================================================
 // FFTConvolverDSP: Clean, High-Performance Partitioned Overlap-Add Convolver
-// with Zero-Latency Seamless Dry/Wet Crossfading and Automatic Gain Normalization
+// with Latency-Compensated Seamless Dry/Wet Crossfading and Automatic Gain Normalization
 // =============================================================================
 class FFTConvolverDSP {
 public:
@@ -187,6 +187,7 @@ public:
 
     bool hasImpulseResponse() const { return has_ir_; }
     size_t getKernelLength() const { return segments_count_ * BLOCK_SIZE; }
+    size_t getLatencySamples() const { return BLOCK_SIZE; }
 
     void reset() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
@@ -215,6 +216,13 @@ public:
                 uint32_t in_idx = (processed_frames + i) * 2;
                 float dry_in_l = interleaved_samples[in_idx];
                 float dry_in_r = interleaved_samples[in_idx + 1];
+
+                // Dry delay compensation buffer (BLOCK_SIZE = 512 samples)
+                // Aligns dry path with partitioned overlap-add wet latency to prevent comb filtering
+                float dry_delayed_l = dry_delay_l_[in_pos_ + i];
+                float dry_delayed_r = dry_delay_r_[in_pos_ + i];
+                dry_delay_l_[in_pos_ + i] = dry_in_l;
+                dry_delay_r_[in_pos_ + i] = dry_in_r;
 
                 in_buf_l_[in_pos_ + i] = dry_in_l;
                 in_buf_r_[in_pos_ + i] = dry_in_r;
@@ -264,13 +272,15 @@ public:
                     }
                 }
 
-                // Seamless blend: 100% dry when fade == 0, full convolver mix when fade == 1
+                // Seamless blend: 100% real-time dry when fade == 0,
+                // latency-compensated convolver mix (delayed dry + wet) when fade == 1.
                 const float fade = fade_progress_;
-                const float eff_dry = (1.0f - fade) + (current_dry_level_ * fade);
+                const float dry_mix_l = (1.0f - fade) * dry_in_l + (current_dry_level_ * fade) * dry_delayed_l;
+                const float dry_mix_r = (1.0f - fade) * dry_in_r + (current_dry_level_ * fade) * dry_delayed_r;
                 const float eff_wet = current_wet_level_ * fade * swap_gain;
 
-                interleaved_samples[in_idx]     = (dry_in_l * eff_dry) + (wet_l * eff_wet);
-                interleaved_samples[in_idx + 1] = (dry_in_r * eff_dry) + (wet_r * eff_wet);
+                interleaved_samples[in_idx]     = dry_mix_l + (wet_l * eff_wet);
+                interleaved_samples[in_idx + 1] = dry_mix_r + (wet_r * eff_wet);
             }
 
             in_pos_ += frames_to_copy;
@@ -319,11 +329,13 @@ private:
     std::vector<std::complex<float>> fdl_r_;
     size_t fdl_head_{0};
 
-    // Time-domain overlap buffers
+    // Time-domain overlap and latency compensation buffers
     float in_buf_l_[BLOCK_SIZE]{};
     float in_buf_r_[BLOCK_SIZE]{};
     float out_buf_l_[FFT_SIZE]{};
     float out_buf_r_[FFT_SIZE]{};
+    float dry_delay_l_[BLOCK_SIZE]{};
+    float dry_delay_r_[BLOCK_SIZE]{};
     size_t in_pos_{0};
 
     // Scratch buffers for zero-allocation realtime FFT
@@ -363,6 +375,8 @@ private:
         std::memset(in_buf_r_, 0, sizeof(in_buf_r_));
         std::memset(out_buf_l_, 0, sizeof(out_buf_l_));
         std::memset(out_buf_r_, 0, sizeof(out_buf_r_));
+        std::memset(dry_delay_l_, 0, sizeof(dry_delay_l_));
+        std::memset(dry_delay_r_, 0, sizeof(dry_delay_r_));
         in_pos_ = 0;
         if (!fdl_l_.empty()) std::fill(fdl_l_.begin(), fdl_l_.end(), std::complex<float>(0.0f, 0.0f));
         if (!fdl_r_.empty()) std::fill(fdl_r_.begin(), fdl_r_.end(), std::complex<float>(0.0f, 0.0f));
