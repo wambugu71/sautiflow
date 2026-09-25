@@ -81,9 +81,11 @@ class DemoApp extends StatefulWidget {
   State<DemoApp> createState() => _DemoAppState();
 }
 
-class _DemoAppState extends State<DemoApp> {
-  AppThemeData _themeData =
-      AppThemeService.themes.first; // default until loaded
+class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
+  late final AnimationController _themeAnimController;
+  AppThemeData _currentThemeData = AppThemeService.themes.first;
+  AppThemeData _fromThemeData = AppThemeService.themes.first;
+  AppThemeData _toThemeData = AppThemeService.themes.first;
   Shapes _albumArtShape = Shapes.slanted;
   bool _useM3EAlbumArtShape = false;
   Locale? _locale;
@@ -95,13 +97,30 @@ class _DemoAppState extends State<DemoApp> {
   @override
   void initState() {
     super.initState();
+    _themeAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    )..addListener(() {
+        final t = Curves.easeInOutCubic.transform(_themeAnimController.value);
+        setState(() {
+          _currentThemeData =
+              AppThemeData.lerp(_fromThemeData, _toThemeData, t);
+        });
+      });
+
     _loadTheme();
     _loadLocale();
     _themeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
       if (mounted) {
-        setState(() {
-          _themeData = AppThemeService.instance.currentData;
-        });
+        final target = AppThemeService.instance.currentData;
+        if (target.primary == _toThemeData.primary &&
+            target.bgDark == _toThemeData.bgDark &&
+            target.cardDark == _toThemeData.cardDark) {
+          return;
+        }
+        _fromThemeData = _currentThemeData;
+        _toThemeData = target;
+        _themeAnimController.forward(from: 0.0);
       }
     });
     _shapeSub =
@@ -133,7 +152,9 @@ class _DemoAppState extends State<DemoApp> {
     await AppThemeService.instance.loadTheme();
     if (mounted) {
       setState(() {
-        _themeData = AppThemeService.instance.currentData;
+        _toThemeData = AppThemeService.instance.currentData;
+        _fromThemeData = _toThemeData;
+        _currentThemeData = _toThemeData;
         _albumArtShape = AppThemeService.instance.albumArtShape;
         _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
       });
@@ -151,6 +172,7 @@ class _DemoAppState extends State<DemoApp> {
 
   @override
   void dispose() {
+    _themeAnimController.dispose();
     _themeSub?.cancel();
     _shapeSub?.cancel();
     _useM3EShapeSub?.cancel();
@@ -161,16 +183,17 @@ class _DemoAppState extends State<DemoApp> {
   @override
   Widget build(BuildContext context) {
     return AppThemeProvider(
-      themeData: _themeData,
+      themeData: _currentThemeData,
       albumArtShape: _albumArtShape,
       useM3EAlbumArtShape: _useM3EAlbumArtShape,
       child: M3EMaterialApp(
         title: 'SautiPlay',
-        data: _themeData.toM3EThemeData(),
+        data: _currentThemeData.toM3EThemeData(),
         autoTheming: false,
         dynamicColoring: false,
         drawUnderSystemBars: false,
-        theme: _themeData.toThemeData(),
+        theme: _currentThemeData.toThemeData(),
+        themeAnimationDuration: Duration.zero,
         locale: _locale,
         supportedLocales: const [
           Locale('en'),
@@ -512,12 +535,24 @@ class _PlayerShellState extends State<PlayerShell> {
     }
   }
 
+  String _getTrackArtCacheKey(Uint8List? art, Uri? uri) {
+    if (art != null && art.isNotEmpty) {
+      final len = art.length;
+      final f = art.first;
+      final l = art.last;
+      final m = art[len ~/ 2];
+      return 'art_${len}_${f}_${m}_$l';
+    }
+    return 'uri_${uri?.toString() ?? "none"}';
+  }
+
   void _extractArtworkTheme() {
     final meta = _metadata.value;
-    final artHash = (meta.albumArt != null && meta.albumArt!.isNotEmpty)
-        ? (meta.albumArt!.length ^ meta.albumArt!.first)
-        : 0;
-    final trackKey = 'track_${_status.value.currentIndex}_$artHash';
+    final source = (_status.value.currentIndex >= 0 &&
+            _status.value.currentIndex < _playlist.length)
+        ? _playlist[_status.value.currentIndex]
+        : null;
+    final trackKey = _getTrackArtCacheKey(meta.albumArt, source?.uri);
     ArtworkThemeService.instance.extractAndEmit(
       trackKey: trackKey,
       artBytes: meta.albumArt,
@@ -813,8 +848,8 @@ class _PlayerShellState extends State<PlayerShell> {
       // Lookahead: ensure immediate next track in the queue is resolved and ready in the engine
       _ensureLookaheadForActiveTrack(source);
 
-      // Pre-fetch next track's ReplayGain for loudness-aware crossfade
-      _prefetchNextTrackReplayGain(idx);
+      // Pre-fetch next track's ReplayGain and Dynamic Theme artwork
+      _prefetchNextTrack(idx);
 
       final artUri = await _resolveNowPlayingArtUri(
         source,
@@ -1094,6 +1129,44 @@ class _PlayerShellState extends State<PlayerShell> {
     _player.setNextReplayGain(rgDb);
   }
 
+  /// Lookahead pre-fetch pipeline: pre-reads ReplayGain for loudness crossfade
+  /// and pre-extracts the next track's dynamic theme palette while current track plays.
+  Future<void> _prefetchNextTrack(int currentIndex) async {
+    await _prefetchNextTrackReplayGain(currentIndex);
+
+    if (AppThemeService.instance.current == AppThemeId.dynamicAlbumArt) {
+      final nextIndex = currentIndex + 1;
+      if (nextIndex < _playlist.length) {
+        final nextSource = _playlist[nextIndex];
+        try {
+          Uint8List? nextArt;
+          if (_onlineTrackMetadata.containsKey(nextSource.uri)) {
+            final thumbUrl = _onlineTrackMetadata[nextSource.uri]?.thumbnailUrl;
+            if (thumbUrl != null && _thumbnailCache.containsKey(thumbUrl)) {
+              nextArt = _thumbnailCache[thumbUrl];
+            }
+          } else if (nextSource.uri.scheme == 'file') {
+            final path = _safeFilePathFromUri(nextSource.uri);
+            if (path != null) {
+              final meta =
+                  await _readLocalTrackMetadataOffload(path, getImage: true);
+              nextArt = meta.albumArt;
+            }
+          }
+
+          if (nextArt != null && nextArt.isNotEmpty) {
+            final nextKey = _getTrackArtCacheKey(nextArt, nextSource.uri);
+            unawaited(ArtworkThemeService.instance.prefetch(
+              trackKey: nextKey,
+              artBytes: nextArt,
+              isDark: true,
+            ));
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
   Future<void> _updateMetadata(AudioSource source) async {
     if (_lastMetadataSource == source) return;
     _lastMetadataSource = source;
@@ -1155,28 +1228,36 @@ class _PlayerShellState extends State<PlayerShell> {
 
         if (filePath != null) {
           try {
-            final tags = await _player.readFileTags(filePath);
-            if (tags != null) {
-              final artStr = tags['artist'] as String?;
-              if (artStr != null && artStr.isNotEmpty) artist = artStr;
-              final tGain = (tags['trackGain'] as num?)?.toDouble();
-              if (tGain != null && tGain != 0.0) rgTrack = tGain;
-              final aGain = (tags['albumGain'] as num?)?.toDouble();
-              if (aGain != null && aGain != 0.0) rgAlbum = aGain;
-            }
-          } catch (_) {}
-
-          try {
             final meta =
                 await _readLocalTrackMetadataOffload(filePath, getImage: true);
-            if ((artist.isEmpty || artist == _subtitleFromSource(source)) &&
-                meta.artist != null &&
-                meta.artist!.isNotEmpty) {
+            if (meta.artist != null && meta.artist!.isNotEmpty) {
               artist = meta.artist!;
             }
             albumArt = meta.albumArt;
-            rgTrack ??= meta.rgTrack;
-            rgAlbum ??= meta.rgAlbum;
+            rgTrack = meta.rgTrack;
+            rgAlbum = meta.rgAlbum;
+
+            // Fallback only if offload was unable to retrieve artist or replaygain
+            if (artist.isEmpty ||
+                artist == _subtitleFromSource(source) ||
+                (rgTrack == null && rgAlbum == null)) {
+              try {
+                final tags = await _player.readFileTags(filePath);
+                if (tags != null) {
+                  final artStr = tags['artist'] as String?;
+                  if (artStr != null &&
+                      artStr.isNotEmpty &&
+                      (artist.isEmpty || artist == _subtitleFromSource(source))) {
+                    artist = artStr;
+                  }
+                  final tGain = (tags['trackGain'] as num?)?.toDouble();
+                  if (tGain != null && tGain != 0.0) rgTrack ??= tGain;
+                  final aGain = (tags['albumGain'] as num?)?.toDouble();
+                  if (aGain != null && aGain != 0.0) rgAlbum ??= aGain;
+                }
+              } catch (_) {}
+            }
+
             if (albumArt == null) {
               // Fallback to directory images
               final dir = File(filePath).parent;

@@ -39,6 +39,20 @@ class AppThemeData {
     required this.icon,
   });
 
+  /// High-refresh-rate 60Hz/120Hz frame-by-frame color interpolator
+  static AppThemeData lerp(AppThemeData a, AppThemeData b, double t) {
+    if (identical(a, b)) return a;
+    return AppThemeData(
+      id: t < 0.5 ? a.id : b.id,
+      displayName: t < 0.5 ? a.displayName : b.displayName,
+      bgDark: Color.lerp(a.bgDark, b.bgDark, t) ?? b.bgDark,
+      cardDark: Color.lerp(a.cardDark, b.cardDark, t) ?? b.cardDark,
+      primary: Color.lerp(a.primary, b.primary, t) ?? b.primary,
+      textDark: Color.lerp(a.textDark, b.textDark, t) ?? b.textDark,
+      icon: t < 0.5 ? a.icon : b.icon,
+    );
+  }
+
   /// Builds a full M3EThemeData from this palette for Material 3 Expressive components.
   M3EThemeData toM3EThemeData() {
     final isDark = bgDark.computeLuminance() < 0.15;
