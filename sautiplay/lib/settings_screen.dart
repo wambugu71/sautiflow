@@ -18,6 +18,8 @@ import 'widgets/app_m3e_widgets.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'services/app_locale_service.dart';
+import 'l10n/app_strings.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'streaming_service.dart';
@@ -525,10 +527,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     backgroundColor: _bgDark.withAlpha(230),
                     floating: true,
                     pinned: true,
-                    title: const Text(
-                      'Settings',
+                    title: Text(
+                      context.strings.settings,
                       style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+                          const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
                     ),
                     centerTitle: true,
                   ),
@@ -547,9 +549,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         AppCardContainer(
                           children: [
                             _buildCategoryCard(
-                              title: 'Appearance',
+                              title: context.strings.appearance,
                               subtitle:
-                                  '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_useWaveformSeekBar ? "Waveform" : "Classic slider"}',
+                                  '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_getLanguageSubtitle()}',
                               icon: Icons.palette_outlined,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
@@ -1209,6 +1211,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader(context.strings.language.toUpperCase()),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                AppSettingsTile(
+                  title: context.strings.language,
+                  subtitle: _getLanguageSubtitle(),
+                  leading: _buildLeadingIcon(Icons.language_rounded),
+                  trailing: Icon(Icons.arrow_forward_ios_rounded,
+                      size: 14, color: _textDark),
+                  onTap: () =>
+                      _showLanguageDialog(onDone: () => setSubState(() {})),
                 ),
               ],
             ),
@@ -4231,6 +4249,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- Modal Dialog Helpers ---
+
+  String _getLanguageSubtitle() {
+    final lang = AppLocaleService.instance.currentLanguage;
+    switch (lang) {
+      case AppLanguage.system:
+        return 'System Default • Auto';
+      case AppLanguage.english:
+        return 'English';
+      case AppLanguage.swahili:
+        return 'Kiswahili';
+      case AppLanguage.amharic:
+        return 'አማርኛ (Amharic)';
+    }
+  }
+
+  void _showLanguageDialog({VoidCallback? onDone}) {
+    final languages = [
+      {
+        'lang': AppLanguage.system,
+        'title': context.strings.systemDefault,
+        'subtitle': 'Follow device operating system language',
+        'badge': 'AUTO',
+      },
+      {
+        'lang': AppLanguage.english,
+        'title': 'English',
+        'subtitle': 'English (US / UK / Global)',
+        'badge': 'EN',
+      },
+      {
+        'lang': AppLanguage.swahili,
+        'title': 'Kiswahili',
+        'subtitle': 'Lugha ya Kiswahili (Afrika Mashariki)',
+        'badge': 'SW',
+      },
+      {
+        'lang': AppLanguage.amharic,
+        'title': 'አማርኛ',
+        'subtitle': 'የአማርኛ ቋንቋ (ኢትዮጵያ / Ethiopia)',
+        'badge': 'AM',
+      },
+    ];
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: context.strings.selectLanguage,
+          subtitle: 'English • Kiswahili • አማርኛ',
+          height: MediaQuery.of(context).size.height * 0.55,
+          child: M3ECardList.builder(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: languages.length,
+            onTap: (i) async {
+              final selectedLang = languages[i]['lang'] as AppLanguage;
+              await AppLocaleService.instance.setLocale(selectedLang.locale);
+              if (mounted) {
+                setState(() {});
+              }
+              onDone?.call();
+              if (ctx.mounted) {
+                Navigator.pop(ctx);
+              }
+            },
+            itemBuilder: (context, i) {
+              final item = languages[i];
+              final lang = item['lang'] as AppLanguage;
+              final isSelected =
+                  lang == AppLocaleService.instance.currentLanguage;
+              return M3EListItem(
+                headline: item['title'] as String,
+                supportingText: item['subtitle'] as String,
+                selected: isSelected,
+                leading: Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isSelected ? _primary.withAlpha(50) : _cardDark,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? _primary : context.outlineColor,
+                    ),
+                  ),
+                  child: Text(
+                    item['badge'] as String,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? _primary : _textDark,
+                    ),
+                  ),
+                ),
+                trailing: isSelected
+                    ? Icon(Icons.check_circle_rounded, color: _primary)
+                    : null,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   String _getResampleAlgorithmName(int index) {
     switch (index) {

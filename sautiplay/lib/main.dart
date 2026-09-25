@@ -20,6 +20,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'services/app_theme_service.dart';
 import 'services/artwork_theme_service.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'services/app_locale_service.dart';
+import 'l10n/app_strings.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'effects_screen.dart';
@@ -83,14 +86,17 @@ class _DemoAppState extends State<DemoApp> {
       AppThemeService.themes.first; // default until loaded
   Shapes _albumArtShape = Shapes.slanted;
   bool _useM3EAlbumArtShape = false;
+  Locale? _locale;
   StreamSubscription<AppThemeId>? _themeSub;
   StreamSubscription<Shapes>? _shapeSub;
   StreamSubscription<bool>? _useM3EShapeSub;
+  StreamSubscription<Locale?>? _localeSub;
 
   @override
   void initState() {
     super.initState();
     _loadTheme();
+    _loadLocale();
     _themeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
       if (mounted) {
         setState(() {
@@ -114,6 +120,13 @@ class _DemoAppState extends State<DemoApp> {
         });
       }
     });
+    _localeSub = AppLocaleService.instance.localeChanged.stream.listen((loc) {
+      if (mounted) {
+        setState(() {
+          _locale = loc;
+        });
+      }
+    });
   }
 
   Future<void> _loadTheme() async {
@@ -127,11 +140,21 @@ class _DemoAppState extends State<DemoApp> {
     }
   }
 
+  Future<void> _loadLocale() async {
+    await AppLocaleService.instance.loadLocale();
+    if (mounted) {
+      setState(() {
+        _locale = AppLocaleService.instance.currentLocale;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _themeSub?.cancel();
     _shapeSub?.cancel();
     _useM3EShapeSub?.cancel();
+    _localeSub?.cancel();
     super.dispose();
   }
 
@@ -148,6 +171,17 @@ class _DemoAppState extends State<DemoApp> {
         dynamicColoring: false,
         drawUnderSystemBars: false,
         theme: _themeData.toThemeData(),
+        locale: _locale,
+        supportedLocales: const [
+          Locale('en'),
+          Locale('sw'),
+          Locale('am'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: const PlayerShell(),
       ),
     );
@@ -3070,7 +3104,7 @@ void _showNowPlayingScreen() {
                       totalSteps: 5,
                       child: const Icon(Icons.home_rounded),
                     ),
-                    label: 'Home',
+                    label: context.strings.navHome,
                   ),
                   M3ENavigationBarDestination(
                     icon: AppShowcase(
@@ -3082,7 +3116,7 @@ void _showNowPlayingScreen() {
                       totalSteps: 5,
                       child: const Icon(Icons.library_music_rounded),
                     ),
-                    label: 'Library',
+                    label: context.strings.navLibrary,
                   ),
                   M3ENavigationBarDestination(
                     icon: AppShowcase(
@@ -3094,7 +3128,7 @@ void _showNowPlayingScreen() {
                       totalSteps: 5,
                       child: const Icon(Icons.tune),
                     ),
-                    label: 'Effects',
+                    label: context.strings.navEffects,
                   ),
                   M3ENavigationBarDestination(
                     icon: AppShowcase(
@@ -3106,7 +3140,7 @@ void _showNowPlayingScreen() {
                       totalSteps: 5,
                       child: const Icon(Icons.settings),
                     ),
-                    label: 'Settings',
+                    label: context.strings.navSettings,
                   ),
                 ],
               ),

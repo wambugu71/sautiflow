@@ -150,6 +150,7 @@ class AppThemeData {
           );
 
     return base.copyWith(
+      fontFamilyFallback: const ['Noto Sans Ethiopic', 'Nyala', 'Ebrima'],
       brightness: isDark ? Brightness.dark : Brightness.light,
       scaffoldBackgroundColor: bgDark,
       colorScheme: colorScheme,
