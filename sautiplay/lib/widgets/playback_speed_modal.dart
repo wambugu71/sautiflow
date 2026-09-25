@@ -80,24 +80,53 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
     _pitchCorrection = widget.initialPitchCorrection;
   }
 
-  void _updateRate(double newRate) {
+  int _lastRateMsgTime = 0;
+  int _lastPitchMsgTime = 0;
+
+  void _updateRate(double newRate, {bool persist = false}) {
     final clamped = newRate.clamp(0.25, 3.0);
     setState(() {
       _rate = clamped;
     });
-    widget.player.setRate(clamped);
-    AppStateService.instance.savePlaybackRate(clamped);
-    widget.onRateChanged?.call(clamped);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (persist || now - _lastRateMsgTime >= 40) {
+      _lastRateMsgTime = now;
+      widget.player.setRate(clamped);
+      widget.onRateChanged?.call(clamped);
+    }
+    if (persist) {
+      AppStateService.instance.savePlaybackRate(clamped);
+    }
   }
 
-  void _updatePitch(double newPitch) {
+  void _commitRate(double newRate) {
+    final clamped = newRate.clamp(0.25, 3.0);
+    widget.player.setRate(clamped);
+    widget.onRateChanged?.call(clamped);
+    AppStateService.instance.savePlaybackRate(clamped);
+  }
+
+  void _updatePitch(double newPitch, {bool persist = false}) {
     final clamped = newPitch.clamp(0.5, 1.5);
     setState(() {
       _pitch = clamped;
     });
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (persist || now - _lastPitchMsgTime >= 40) {
+      _lastPitchMsgTime = now;
+      widget.player.setPitch(clamped);
+      widget.onPitchChanged?.call(clamped);
+    }
+    if (persist) {
+      AppStateService.instance.savePlaybackPitch(clamped);
+    }
+  }
+
+  void _commitPitch(double newPitch) {
+    final clamped = newPitch.clamp(0.5, 1.5);
     widget.player.setPitch(clamped);
-    AppStateService.instance.savePlaybackPitch(clamped);
     widget.onPitchChanged?.call(clamped);
+    AppStateService.instance.savePlaybackPitch(clamped);
   }
 
   void _updatePitchCorrection(bool enabled) {
@@ -111,7 +140,7 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
 
   void _setPitchSemitones(int semitones) {
     final newPitch = math.pow(2.0, semitones / 12.0).toDouble();
-    _updatePitch(newPitch);
+    _updatePitch(newPitch, persist: true);
   }
 
   int get _currentSemitones {
@@ -120,8 +149,8 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
   }
 
   void _resetAll() {
-    _updateRate(1.0);
-    _updatePitch(1.0);
+    _updateRate(1.0, persist: true);
+    _updatePitch(1.0, persist: true);
     _updatePitchCorrection(true);
   }
 
@@ -273,7 +302,7 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
                   final preset = _speedPresets[index];
                   final isSelected = (_rate - preset).abs() < 0.02;
                   return GestureDetector(
-                    onTap: () => _updateRate(preset),
+                    onTap: () => _updateRate(preset, persist: true),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -321,6 +350,7 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
               max: 3.0,
               divisions: 55, // 0.05 step
               onChanged: _updateRate,
+              onChangeEnd: _commitRate,
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -522,6 +552,7 @@ class _PlaybackSpeedSheetState extends State<_PlaybackSpeedSheet> {
               max: 1.5,
               divisions: 40,
               onChanged: _updatePitch,
+              onChangeEnd: _commitPitch,
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

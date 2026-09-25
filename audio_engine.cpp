@@ -5187,8 +5187,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
         const size_t targetChunkFrames = 1024;
         const size_t targetChunkSamples = targetChunkFrames * ch;
+        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
 
-        if (e->pcmRingBuffer.available_write() < targetChunkSamples)
+        // Maintain ~350 ms of pre-buffered audio in pcmRingBuffer.
+        // Keeping ~350 ms provides rock-solid immunity against underruns across all platforms,
+        // while allowing tempo and pitch changes (ScaleTempo WSOLA & resampler) to apply
+        // with responsive immediacy (~0.35 s delay instead of ~3.0 s) without skipping or seeking.
+        const size_t targetHeadroomSamples = std::max<size_t>(targetChunkSamples * 4, (size_t)((double)sr * 0.35) * ch);
+
+        if (e->pcmRingBuffer.available_write() < targetChunkSamples ||
+            e->pcmRingBuffer.available_read() >= targetHeadroomSamples)
         {
             std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
             e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(5));
