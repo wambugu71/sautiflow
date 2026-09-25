@@ -3,10 +3,78 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../album_detail_screen.dart';
 import '../database/preferences_store.dart';
 
 import '../models/cached_stream_item.dart';
 import '../streaming_service.dart';
+
+enum AlbumBatchState {
+  idle,
+  downloading,
+  completed,
+  failed,
+  cancelled,
+}
+
+/// Represents the reactive progress state of an album batch download.
+class AlbumDownloadProgress {
+  final String albumKey;
+  final String albumTitle;
+  final String? albumArtist;
+  final String? albumArtUrl;
+  final int totalTracks;
+  final int completedTracks;
+  final int failedTracks;
+  final String? currentTrackTitle;
+  final AlbumBatchState state;
+  final String? errorMessage;
+
+  const AlbumDownloadProgress({
+    required this.albumKey,
+    required this.albumTitle,
+    this.albumArtist,
+    this.albumArtUrl,
+    required this.totalTracks,
+    this.completedTracks = 0,
+    this.failedTracks = 0,
+    this.currentTrackTitle,
+    this.state = AlbumBatchState.downloading,
+    this.errorMessage,
+  });
+
+  double get progress => totalTracks > 0 ? (completedTracks / totalTracks) : 0.0;
+  bool get isRunning => state == AlbumBatchState.downloading;
+  bool get isCompleted => state == AlbumBatchState.completed;
+  bool get isFailed => state == AlbumBatchState.failed;
+  bool get isCancelled => state == AlbumBatchState.cancelled;
+
+  AlbumDownloadProgress copyWith({
+    String? albumKey,
+    String? albumTitle,
+    String? albumArtist,
+    String? albumArtUrl,
+    int? totalTracks,
+    int? completedTracks,
+    int? failedTracks,
+    String? currentTrackTitle,
+    AlbumBatchState? state,
+    String? errorMessage,
+  }) {
+    return AlbumDownloadProgress(
+      albumKey: albumKey ?? this.albumKey,
+      albumTitle: albumTitle ?? this.albumTitle,
+      albumArtist: albumArtist ?? this.albumArtist,
+      albumArtUrl: albumArtUrl ?? this.albumArtUrl,
+      totalTracks: totalTracks ?? this.totalTracks,
+      completedTracks: completedTracks ?? this.completedTracks,
+      failedTracks: failedTracks ?? this.failedTracks,
+      currentTrackTitle: currentTrackTitle ?? this.currentTrackTitle,
+      state: state ?? this.state,
+      errorMessage: errorMessage ?? this.errorMessage,
+    );
+  }
+}
 
 /// Service managing offline cached online audio streams and their metadata.
 class CachedStreamService {
@@ -26,7 +94,32 @@ class CachedStreamService {
   final ValueNotifier<Set<String>> activeDownloadsNotifier =
       ValueNotifier<Set<String>>(<String>{});
 
+  final Map<String, AlbumDownloadProgress> _albumDownloads = {};
+
+  final ValueNotifier<Map<String, AlbumDownloadProgress>> albumDownloadsNotifier =
+      ValueNotifier<Map<String, AlbumDownloadProgress>>({});
+
+  final Set<String> _cancelledAlbumKeys = {};
+
   bool isDownloading(String videoId) => _activeDownloads.contains(videoId);
+
+  AlbumDownloadProgress? getAlbumDownloadProgress(String albumKey) =>
+      _albumDownloads[albumKey];
+
+  bool isAlbumDownloading(String albumKey) =>
+      _albumDownloads[albumKey]?.isRunning ?? false;
+
+  void cancelAlbumDownload(String albumKey) {
+    _cancelledAlbumKeys.add(albumKey);
+    final current = _albumDownloads[albumKey];
+    if (current != null) {
+      _albumDownloads[albumKey] = current.copyWith(
+        state: AlbumBatchState.cancelled,
+        errorMessage: 'Download cancelled by user',
+      );
+      albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+    }
+  }
 
   bool _isInitialized = false;
 
@@ -79,7 +172,9 @@ class CachedStreamService {
     if (filePath.isEmpty) return false;
     final lower = filePath.toLowerCase();
     if (!lower.contains('miniaudiodart_stream_cache') &&
-        !lower.contains('sautiplay_downloads')) return false;
+        !lower.contains('sautiplay_downloads')) {
+      return false;
+    }
     return File(filePath).existsSync();
   }
 
@@ -169,6 +264,10 @@ class CachedStreamService {
     String? thumbnailUrl,
     int? durationSeconds,
     bool isUserDownload = false,
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
   }) async {
     if (videoId.isEmpty) return false;
     if (_activeDownloads.contains(videoId)) return false;
@@ -195,37 +294,49 @@ class CachedStreamService {
           streamUrl: streamUrl,
           fileSizeBytes: existingInTarget.lengthSync(),
           isUserDownload: isUserDownload,
+          album: album,
+          albumId: albumId,
+          albumArtist: albumArtist,
+          trackNumber: trackNumber,
         );
         return true;
       }
 
-      // Optimization: If user requested download and song was already in stream cache,
-      // promote it instantly to Documents dir without re-downloading!
-      if (isUserDownload) {
-        final existingInTemp = _findFileInDir(streamCacheDirectory, videoId);
-        if (existingInTemp != null &&
-            existingInTemp.existsSync() &&
-            existingInTemp.lengthSync() > 1024) {
-          final ext = p.extension(existingInTemp.path);
+      // Also check the other directory if already downloaded or cached locally
+      final otherDir =
+          isUserDownload ? streamCacheDirectory : downloadsDirectory;
+      final existingInOther = _findFileInDir(otherDir, videoId);
+      if (existingInOther != null &&
+          existingInOther.existsSync() &&
+          existingInOther.lengthSync() > 1024) {
+        File finalFile = existingInOther;
+        if (isUserDownload) {
+          final ext = p.extension(existingInOther.path);
           final destFile = File(
             '${targetDir.path}${Platform.pathSeparator}stream_$videoId$ext',
           );
-          existingInTemp.copySync(destFile.path);
-          await registerCachedStream(
-            videoId: videoId,
-            title: title,
-            artist: artist,
-            thumbnailUrl: thumbnailUrl,
-            durationSeconds: durationSeconds,
-            filePath: destFile.path,
-            streamUrl: streamUrl,
-            fileSizeBytes: destFile.lengthSync(),
-            isUserDownload: true,
-          );
+          existingInOther.copySync(destFile.path);
+          finalFile = destFile;
           debugPrint(
               '[CachedStreamService] Promoted stream cache to permanent download: $title');
-          return true;
         }
+        await registerCachedStream(
+          videoId: videoId,
+          title: title,
+          artist: artist,
+          thumbnailUrl: thumbnailUrl,
+          durationSeconds: durationSeconds,
+          filePath: finalFile.path,
+          streamUrl: streamUrl,
+          fileSizeBytes: finalFile.lengthSync(),
+          isUserDownload: isUserDownload ||
+              finalFile.path.toLowerCase().contains('sautiplay_downloads'),
+          album: album,
+          albumId: albumId,
+          albumArtist: albumArtist,
+          trackNumber: trackNumber,
+        );
+        return true;
       }
 
       final tempFile = File(
@@ -289,6 +400,10 @@ class CachedStreamService {
           streamUrl: streamUrl,
           fileSizeBytes: targetFile.lengthSync(),
           isUserDownload: isUserDownload,
+          album: album,
+          albumId: albumId,
+          albumArtist: albumArtist,
+          trackNumber: trackNumber,
         );
         debugPrint(
             '[CachedStreamService] Successfully saved ${isUserDownload ? "permanent download" : "stream cache"}: $title (${formatBytes(targetFile.lengthSync())})');
@@ -378,6 +493,10 @@ class CachedStreamService {
                   fileSizeBytes: item.fileSizeBytes,
                   cachedAt: item.cachedAt,
                   isUserDownload: isDownload,
+                  album: item.album,
+                  albumId: item.albumId,
+                  albumArtist: item.albumArtist,
+                  trackNumber: item.trackNumber,
                 );
 
           loadedItems.add(effectiveItem);
@@ -455,6 +574,10 @@ class CachedStreamService {
     String? streamUrl,
     int? fileSizeBytes,
     bool? isUserDownload,
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
   }) async {
     try {
       final file = File(filePath);
@@ -484,6 +607,10 @@ class CachedStreamService {
         fileSizeBytes: actualSize,
         cachedAt: DateTime.now(),
         isUserDownload: isDownload,
+        album: album,
+        albumId: albumId,
+        albumArtist: albumArtist,
+        trackNumber: trackNumber,
       );
 
       current.insert(0, newItem);
@@ -494,6 +621,206 @@ class CachedStreamService {
     } catch (e) {
       debugPrint('[CachedStreamService] Error registering cached stream: $e');
     }
+  }
+
+  /// Downloads all tracks in an album sequentially and stores full album metadata.
+  /// Skips tracks already present in offline cache, manages bandwidth gracefully,
+  /// handles network disconnection with clear status updates, and supports cancellation.
+  Future<bool> downloadAlbum({
+    required String albumTitle,
+    String? albumId,
+    String? albumArtist,
+    String? albumArtUrl,
+    required List<TrackInfo> tracks,
+  }) async {
+    if (tracks.isEmpty) return false;
+    final albumKey = (albumId != null && albumId.isNotEmpty)
+        ? albumId
+        : albumTitle.trim().toLowerCase();
+
+    if (isAlbumDownloading(albumKey)) return false;
+    _cancelledAlbumKeys.remove(albumKey);
+
+    // Initial scan: count tracks already cached
+    int completedCount = 0;
+    final remainingTracks = <TrackInfo>[];
+    for (final track in tracks) {
+      if (getCachedItem(track.videoId) != null) {
+        completedCount++;
+      } else {
+        remainingTracks.add(track);
+      }
+    }
+
+    if (remainingTracks.isEmpty) {
+      final prog = AlbumDownloadProgress(
+        albumKey: albumKey,
+        albumTitle: albumTitle,
+        albumArtist: albumArtist,
+        albumArtUrl: albumArtUrl,
+        totalTracks: tracks.length,
+        completedTracks: tracks.length,
+        failedTracks: 0,
+        state: AlbumBatchState.completed,
+      );
+      _albumDownloads[albumKey] = prog;
+      albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+      return true;
+    }
+
+    var prog = AlbumDownloadProgress(
+      albumKey: albumKey,
+      albumTitle: albumTitle,
+      albumArtist: albumArtist,
+      albumArtUrl: albumArtUrl,
+      totalTracks: tracks.length,
+      completedTracks: completedCount,
+      failedTracks: 0,
+      state: AlbumBatchState.downloading,
+      currentTrackTitle: remainingTracks.first.title,
+    );
+    _albumDownloads[albumKey] = prog;
+    albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+
+    int failedCount = 0;
+    int consecutiveNetworkErrors = 0;
+
+    for (int i = 0; i < remainingTracks.length; i++) {
+      if (_cancelledAlbumKeys.contains(albumKey)) {
+        prog = prog.copyWith(
+          state: AlbumBatchState.cancelled,
+          errorMessage: 'Download cancelled by user',
+        );
+        _albumDownloads[albumKey] = prog;
+        albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+        _cancelledAlbumKeys.remove(albumKey);
+        return false;
+      }
+
+      final track = remainingTracks[i];
+      prog = prog.copyWith(
+        currentTrackTitle: track.title,
+        completedTracks: completedCount,
+        failedTracks: failedCount,
+        state: AlbumBatchState.downloading,
+      );
+      _albumDownloads[albumKey] = prog;
+      albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+
+      final trackNum = track.trackNumber ?? (tracks.indexOf(track) + 1);
+
+      bool success = false;
+      try {
+        success = await cacheStreamInBackground(
+          videoId: track.videoId,
+          streamUrl: '',
+          title: track.title,
+          artist: track.artist,
+          thumbnailUrl: track.thumbnailUrl ?? albumArtUrl,
+          durationSeconds: track.durationSeconds,
+          isUserDownload: true,
+          album: albumTitle,
+          albumId: albumId,
+          albumArtist: albumArtist,
+          trackNumber: trackNum,
+        );
+
+        if (success) {
+          completedCount++;
+          consecutiveNetworkErrors = 0;
+        } else {
+          failedCount++;
+          consecutiveNetworkErrors++;
+        }
+      } catch (e) {
+        failedCount++;
+        consecutiveNetworkErrors++;
+        debugPrint('[CachedStreamService] Error caching track ${track.title} in album $albumTitle: $e');
+      }
+
+      if (consecutiveNetworkErrors >= 3) {
+        prog = prog.copyWith(
+          completedTracks: completedCount,
+          failedTracks: failedCount,
+          state: AlbumBatchState.failed,
+          errorMessage: 'Network connection lost. Tap to resume download.',
+        );
+        _albumDownloads[albumKey] = prog;
+        albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+        return false;
+      }
+
+      prog = prog.copyWith(
+        completedTracks: completedCount,
+        failedTracks: failedCount,
+      );
+      _albumDownloads[albumKey] = prog;
+      albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+    }
+
+    final isAllDone = completedCount >= tracks.length;
+    prog = prog.copyWith(
+      completedTracks: completedCount,
+      failedTracks: failedCount,
+      currentTrackTitle: null,
+      state: isAllDone
+          ? AlbumBatchState.completed
+          : (failedCount > 0 ? AlbumBatchState.failed : AlbumBatchState.completed),
+      errorMessage: isAllDone
+          ? null
+          : (failedCount > 0 ? '$failedCount tracks could not be downloaded.' : null),
+    );
+    _albumDownloads[albumKey] = prog;
+    albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
+
+    return isAllDone;
+  }
+
+  /// Retrieves all cached tracks belonging to an album, ordered by track number.
+  List<CachedStreamItem> getTracksForAlbum(String albumTitle, {String? albumId}) {
+    final cleanTitle = albumTitle.trim().toLowerCase();
+    final items = cachedStreamsNotifier.value.where((item) {
+      if (albumId != null && albumId.isNotEmpty && item.albumId == albumId) {
+        return true;
+      }
+      return (item.album != null && item.album!.trim().toLowerCase() == cleanTitle);
+    }).toList();
+
+    items.sort((a, b) {
+      if (a.trackNumber != null && b.trackNumber != null) {
+        return a.trackNumber!.compareTo(b.trackNumber!);
+      }
+      return a.cachedAt.compareTo(b.cachedAt);
+    });
+    return items;
+  }
+
+  /// Checks if all tracks of an album are saved offline.
+  bool isAlbumFullyCached(String albumTitle, {String? albumId, int? totalTracks}) {
+    final tracks = getTracksForAlbum(albumTitle, albumId: albumId);
+    if (tracks.isEmpty) return false;
+    if (totalTracks != null && totalTracks > 0) {
+      return tracks.length >= totalTracks;
+    }
+    return true;
+  }
+
+  /// Gets the count of currently cached tracks for an album.
+  int getAlbumCachedCount(String albumTitle, {String? albumId}) {
+    return getTracksForAlbum(albumTitle, albumId: albumId).length;
+  }
+
+  /// Removes all cached files and metadata for an entire album.
+  Future<void> removeAlbumFromCache(String albumTitle, {String? albumId}) async {
+    final tracks = getTracksForAlbum(albumTitle, albumId: albumId);
+    for (final track in tracks) {
+      await removeCachedStream(track.filePath);
+    }
+    final albumKey = (albumId != null && albumId.isNotEmpty)
+        ? albumId
+        : albumTitle.trim().toLowerCase();
+    _albumDownloads.remove(albumKey);
+    albumDownloadsNotifier.value = Map.unmodifiable(_albumDownloads);
   }
 
   /// Deletes a cached stream file from disk and removes its metadata.

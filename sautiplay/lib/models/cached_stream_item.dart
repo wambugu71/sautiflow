@@ -14,6 +14,11 @@ class CachedStreamItem {
   final DateTime cachedAt;
   final bool isUserDownload;
 
+  final String? album; // Album title (e.g. "Abbey Road", "Midnights")
+  final String? albumId; // Unique album identifier
+  final String? albumArtist; // Album artist
+  final int? trackNumber; // Track position in album (1-based index)
+
   CachedStreamItem({
     required this.videoId,
     required this.title,
@@ -25,7 +30,45 @@ class CachedStreamItem {
     required this.fileSizeBytes,
     required this.cachedAt,
     this.isUserDownload = false,
+    this.album,
+    this.albumId,
+    this.albumArtist,
+    this.trackNumber,
   });
+
+  CachedStreamItem copyWith({
+    String? videoId,
+    String? title,
+    String? artist,
+    String? thumbnailUrl,
+    int? durationSeconds,
+    String? filePath,
+    String? streamUrl,
+    int? fileSizeBytes,
+    DateTime? cachedAt,
+    bool? isUserDownload,
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
+  }) {
+    return CachedStreamItem(
+      videoId: videoId ?? this.videoId,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      filePath: filePath ?? this.filePath,
+      streamUrl: streamUrl ?? this.streamUrl,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      cachedAt: cachedAt ?? this.cachedAt,
+      isUserDownload: isUserDownload ?? this.isUserDownload,
+      album: album ?? this.album,
+      albumId: albumId ?? this.albumId,
+      albumArtist: albumArtist ?? this.albumArtist,
+      trackNumber: trackNumber ?? this.trackNumber,
+    );
+  }
 
   /// Check if the cached file actually exists on the filesystem.
   bool get exists => File(filePath).existsSync();
@@ -61,6 +104,10 @@ class CachedStreamItem {
       'fileSizeBytes': fileSizeBytes,
       'cachedAt': cachedAt.toIso8601String(),
       'isUserDownload': isUserDownload,
+      if (album != null) 'album': album,
+      if (albumId != null) 'albumId': albumId,
+      if (albumArtist != null) 'albumArtist': albumArtist,
+      if (trackNumber != null) 'trackNumber': trackNumber,
     };
   }
 
@@ -82,6 +129,10 @@ class CachedStreamItem {
           ? DateTime.tryParse(map['cachedAt'] as String) ?? DateTime.now()
           : DateTime.now(),
       isUserDownload: isDownload,
+      album: map['album'] as String?,
+      albumId: map['albumId'] as String?,
+      albumArtist: map['albumArtist'] as String?,
+      trackNumber: map['trackNumber'] as int?,
     );
   }
 

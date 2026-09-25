@@ -25,6 +25,35 @@ enum TrackViewMode {
   final IconData icon;
 }
 
+enum CachedStreamsTab {
+  tracks('Tracks', Icons.music_note_rounded),
+  albums('Albums', Icons.album_rounded);
+
+  const CachedStreamsTab(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
+
+class CachedAlbum {
+  final String title;
+  final String? albumId;
+  final String artist;
+  final String? thumbnailUrl;
+  final List<CachedStreamItem> tracks;
+  final int totalSizeBytes;
+  final DateTime lastModified;
+
+  CachedAlbum({
+    required this.title,
+    this.albumId,
+    required this.artist,
+    this.thumbnailUrl,
+    required this.tracks,
+    required this.totalSizeBytes,
+    required this.lastModified,
+  });
+}
+
 class CachedStreamsScreen extends StatefulWidget {
   final Future<void> Function(List<CachedStreamItem> tracks, {int initialIndex})
       onPlayTracks;
@@ -46,6 +75,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   String _searchQuery = '';
   String _sortBy = 'Date Added'; // 'Date Added', 'Name (A-Z)', 'Size (Largest)'
   TrackViewMode _trackViewMode = TrackViewMode.list;
+  CachedStreamsTab _activeTab = CachedStreamsTab.tracks;
 
   Color get _bgDark => context.bgDark;
   Color get _surfaceColor => context.cardDark;
@@ -129,10 +159,11 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               Navigator.of(ctx).pop();
               await CachedStreamService.instance.clearAllCache();
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   const SnackBar(content: Text('Stream cache cleared.')),
                 );
               }
@@ -379,23 +410,33 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                         valueListenable:
                             CachedStreamService.instance.cachedStreamsNotifier,
                         builder: (context, rawItems, _) {
-                          final items = _filterAndSort(rawItems);
-
                           if (rawItems.isEmpty) {
                             return _buildEmptyState(isDesktop);
                           }
 
-                          if (items.isEmpty && _searchQuery.isNotEmpty) {
-                            return Center(
-                              child: Text(
-                                'No cached streams matching "$_searchQuery"',
-                                style:
-                                    TextStyle(color: _textDark, fontSize: 15),
-                              ),
-                            );
-                          }
+                          final items = _filterAndSort(rawItems);
 
-                          return _buildListContent(items, rawItems, isDesktop);
+                          return Column(
+                            children: [
+                              _buildViewTabs(isDesktop, rawItems),
+                              Expanded(
+                                child: _activeTab == CachedStreamsTab.tracks
+                                    ? (items.isEmpty && _searchQuery.isNotEmpty
+                                        ? Center(
+                                            child: Text(
+                                              'No cached streams matching "$_searchQuery"',
+                                              style: TextStyle(
+                                                  color: _textDark,
+                                                  fontSize: 15),
+                                            ),
+                                          )
+                                        : _buildListContent(
+                                            items, rawItems, isDesktop))
+                                    : _buildAlbumsContent(
+                                        rawItems, isDesktop),
+                              ),
+                            ],
+                          );
                         },
                       ),
                     ),
@@ -584,7 +625,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         autofocus: true,
         style: TextStyle(color: _textPrimary, fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Search cached songs or artists...',
+          hintText: _activeTab == CachedStreamsTab.tracks
+              ? 'Search cached songs or artists...'
+              : 'Search cached albums or artists...',
           hintStyle: TextStyle(color: _textDark.withValues(alpha: 0.7)),
           prefixIcon: Icon(Icons.search_rounded, color: _primary, size: 20),
           filled: true,
@@ -599,6 +642,703 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         onChanged: (val) {
           setState(() => _searchQuery = val.trim());
         },
+      ),
+    );
+  }
+
+  Widget _buildViewTabs(bool isDesktop, List<CachedStreamItem> rawItems) {
+    final albums = _getCachedAlbums(rawItems);
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 32 : 16,
+        vertical: 6,
+      ),
+      child: Row(
+        children: [
+          _buildTabChip(
+            label: 'Tracks (${rawItems.length})',
+            icon: Icons.music_note_rounded,
+            isSelected: _activeTab == CachedStreamsTab.tracks,
+            onTap: () => setState(() => _activeTab = CachedStreamsTab.tracks),
+          ),
+          const SizedBox(width: 8),
+          _buildTabChip(
+            label: 'Albums (${albums.length})',
+            icon: Icons.album_rounded,
+            isSelected: _activeTab == CachedStreamsTab.albums,
+            onTap: () => setState(() => _activeTab = CachedStreamsTab.albums),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabChip({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: isSelected ? _primary.withValues(alpha: 0.16) : _surfaceColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? _primary : _outline.withValues(alpha: 0.15),
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? _primary : _textDark,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? _primary : _textDark,
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<CachedAlbum> _getCachedAlbums(List<CachedStreamItem> items) {
+    final Map<String, List<CachedStreamItem>> groups = {};
+    for (final item in items) {
+      final key = (item.album != null && item.album!.trim().isNotEmpty)
+          ? item.album!.trim()
+          : (item.albumArtist != null && item.albumArtist!.trim().isNotEmpty
+              ? '${item.albumArtist} - Singles'
+              : 'Singles & Loose Streams');
+      groups.putIfAbsent(key, () => []).add(item);
+    }
+
+    final albums = <CachedAlbum>[];
+    for (final entry in groups.entries) {
+      final albumTracks = List<CachedStreamItem>.from(entry.value);
+      albumTracks.sort((a, b) {
+        if (a.trackNumber != null && b.trackNumber != null) {
+          return a.trackNumber!.compareTo(b.trackNumber!);
+        }
+        return a.title.compareTo(b.title);
+      });
+
+      final firstWithThumb = albumTracks.firstWhere(
+        (t) => t.thumbnailUrl != null && t.thumbnailUrl!.isNotEmpty,
+        orElse: () => albumTracks.first,
+      );
+
+      final totalSize =
+          albumTracks.fold<int>(0, (sum, t) => sum + t.fileSizeBytes);
+      final latestDate = albumTracks.map((t) => t.cachedAt).reduce(
+            (a, b) => a.isAfter(b) ? a : b,
+          );
+
+      albums.add(CachedAlbum(
+        title: entry.key,
+        albumId: albumTracks.first.albumId,
+        artist: albumTracks.first.albumArtist ?? albumTracks.first.artist,
+        thumbnailUrl: firstWithThumb.thumbnailUrl,
+        tracks: albumTracks,
+        totalSizeBytes: totalSize,
+        lastModified: latestDate,
+      ));
+    }
+
+    return albums;
+  }
+
+  List<CachedAlbum> _filterAndSortAlbums(List<CachedAlbum> albums) {
+    var filtered = albums.where((album) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return album.title.toLowerCase().contains(q) ||
+          album.artist.toLowerCase().contains(q) ||
+          album.tracks.any((t) => t.title.toLowerCase().contains(q));
+    }).toList();
+
+    switch (_sortBy) {
+      case 'Name (A-Z)':
+        filtered.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+      case 'Name (Z-A)':
+        filtered.sort(
+            (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+        break;
+      case 'Size (Largest)':
+        filtered.sort((a, b) => b.totalSizeBytes.compareTo(a.totalSizeBytes));
+        break;
+      case 'Size (Smallest)':
+        filtered.sort((a, b) => a.totalSizeBytes.compareTo(b.totalSizeBytes));
+        break;
+      case 'Date Added':
+      default:
+        filtered.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+        break;
+    }
+    return filtered;
+  }
+
+  Widget _buildAlbumsContent(
+      List<CachedStreamItem> rawItems, bool isDesktop) {
+    final allAlbums = _getCachedAlbums(rawItems);
+    final albums = _filterAndSortAlbums(allAlbums);
+
+    if (albums.isEmpty) {
+      if (_searchQuery.isNotEmpty) {
+        return Center(
+          child: Text(
+            'No cached albums matching "$_searchQuery"',
+            style: TextStyle(color: _textDark, fontSize: 15),
+          ),
+        );
+      }
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.album_rounded,
+                  size: 64, color: _textDark.withValues(alpha: 0.3)),
+              const SizedBox(height: 16),
+              Text(
+                'No Cached Albums',
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Download an album using "Download All" on any album screen to access it offline here.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _textDark, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 32 : 16,
+        vertical: 8,
+      ).copyWith(bottom: 140),
+      itemCount: 1 + albums.length,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return _buildAlbumSummaryCard(albums, isDesktop);
+        }
+        final albumIdx = index - 1;
+        final album = albums[albumIdx];
+        final isFirst = albumIdx == 0;
+        final isLast = albumIdx == albums.length - 1;
+
+        return _buildAlbumCard(
+          album,
+          isDesktop: isDesktop,
+          isFirst: isFirst,
+          isLast: isLast,
+        );
+      },
+    );
+  }
+
+  Widget _buildAlbumSummaryCard(List<CachedAlbum> albums, bool isDesktop) {
+    final totalTracks =
+        albums.fold<int>(0, (sum, a) => sum + a.tracks.length);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0, bottom: 12.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.black,
+                padding: EdgeInsets.symmetric(vertical: isDesktop ? 16 : 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.play_arrow_rounded, size: 22),
+              label: Text(
+                'Play Random Album',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              onPressed: () {
+                if (albums.isEmpty) return;
+                final randAlbum = (List<CachedAlbum>.from(albums)..shuffle()).first;
+                _playAndPop(randAlbum.tracks, initialIndex: 0);
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: _outline.withValues(alpha: 0.3)),
+                padding: EdgeInsets.symmetric(vertical: isDesktop ? 16 : 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: Icon(Icons.album_rounded, color: _textPrimary, size: 18),
+              label: Text(
+                '${albums.length} Albums • $totalTracks Tracks',
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onPressed: null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAlbumCard(
+    CachedAlbum album, {
+    required bool isDesktop,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    final borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(isFirst ? 20 : 6),
+      topRight: Radius.circular(isFirst ? 20 : 6),
+      bottomLeft: Radius.circular(isLast ? 20 : 6),
+      bottomRight: Radius.circular(isLast ? 20 : 6),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3.0),
+      child: Material(
+        color: _surfaceColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(color: _outline.withValues(alpha: 0.12)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _showAlbumDetailSheet(album, isDesktop),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                _buildAlbumArt(album, isDesktop ? 56 : 48, isDesktop),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        album.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: isDesktop ? 16 : 14.5,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${album.artist} • ${album.tracks.length} ${album.tracks.length == 1 ? "Track" : "Tracks"} • ${CachedStreamService.formatBytes(album.totalSizeBytes)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _textDark,
+                          fontSize: isDesktop ? 13 : 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(Icons.play_circle_fill_rounded,
+                      color: _primary, size: isDesktop ? 34 : 30),
+                  tooltip: 'Play Album',
+                  onPressed: () => _playAndPop(album.tracks, initialIndex: 0),
+                ),
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert_rounded,
+                      color: _textDark, size: isDesktop ? 22 : 20),
+                  color: _surfaceColor,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  onSelected: (val) {
+                    if (val == 'play') {
+                      _playAndPop(album.tracks, initialIndex: 0);
+                    } else if (val == 'shuffle') {
+                      final shuffled = List<CachedStreamItem>.from(album.tracks)..shuffle();
+                      _playAndPop(shuffled, initialIndex: 0);
+                    } else if (val == 'view') {
+                      _showAlbumDetailSheet(album, isDesktop);
+                    } else if (val == 'delete') {
+                      _confirmDeleteAlbum(album);
+                    }
+                  },
+                  itemBuilder: (ctx) => [
+                    PopupMenuItem(
+                      value: 'play',
+                      child: Row(
+                        children: [
+                          Icon(Icons.play_arrow_rounded, color: _primary, size: 20),
+                          const SizedBox(width: 10),
+                          const Text('Play Album'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'shuffle',
+                      child: Row(
+                        children: [
+                          Icon(Icons.shuffle_rounded, color: _textPrimary, size: 20),
+                          const SizedBox(width: 10),
+                          const Text('Shuffle Album'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'view',
+                      child: Row(
+                        children: [
+                          Icon(Icons.list_rounded, color: _textPrimary, size: 20),
+                          const SizedBox(width: 10),
+                          const Text('View Tracks'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: const [
+                          Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 20),
+                          SizedBox(width: 10),
+                          Text('Delete Album', style: TextStyle(color: Colors.redAccent)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlbumArt(CachedAlbum album, double size, bool isDesktop) {
+    if (album.thumbnailUrl != null && album.thumbnailUrl!.isNotEmpty) {
+      return SizedBox(
+        width: size,
+        height: size,
+        child: M3EContainer(
+          Shapes.pill,
+          color: _bgDark,
+          clipBehavior: Clip.antiAlias,
+          child: CachedNetworkImage(
+            imageUrl: album.thumbnailUrl!,
+            fit: BoxFit.cover,
+            memCacheWidth: 160,
+            memCacheHeight: 160,
+            errorWidget: (_, __, ___) => _buildAlbumFallbackArt(album, size),
+          ),
+        ),
+      );
+    }
+    return _buildAlbumFallbackArt(album, size);
+  }
+
+  Widget _buildAlbumFallbackArt(CachedAlbum album, double size) {
+    final firstPath = album.tracks.isNotEmpty ? album.tracks.first.filePath : null;
+    if (firstPath != null && File(firstPath).existsSync()) {
+      return LocalAlbumArt(
+        path: firstPath,
+        size: size,
+        shape: Shapes.pill,
+        useM3Shape: true,
+      );
+    }
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: _surfaceColor,
+        borderRadius: BorderRadius.circular(size * 0.3),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.album_rounded,
+          color: _textDark.withValues(alpha: 0.5),
+          size: size * 0.55,
+        ),
+      ),
+    );
+  }
+
+  void _showAlbumDetailSheet(CachedAlbum album, bool isDesktop) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          maxChildSize: 0.95,
+          minChildSize: 0.45,
+          expand: false,
+          builder: (dCtx, scrollController) {
+            return SafeArea(
+              child: Column(
+                children: [
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 12),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: _textDark.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                    child: Row(
+                      children: [
+                        _buildAlbumArt(album, isDesktop ? 72 : 64, isDesktop),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                album.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: _textPrimary,
+                                  fontSize: isDesktop ? 20 : 17,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${album.artist} • ${album.tracks.length} Tracks',
+                                style: TextStyle(
+                                  color: _textDark,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Text(
+                                CachedStreamService.formatBytes(album.totalSizeBytes),
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _primary,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                            label: const Text(
+                              'Play Album',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _playAndPop(album.tracks, initialIndex: 0);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton.tonalIcon(
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: const Icon(Icons.shuffle_rounded, size: 18),
+                          label: const Text('Shuffle'),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            final shuffled = List<CachedStreamItem>.from(album.tracks)..shuffle();
+                            _playAndPop(shuffled, initialIndex: 0);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded,
+                              color: Colors.redAccent),
+                          tooltip: 'Delete Album',
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _confirmDeleteAlbum(album);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, thickness: 0.5),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      itemCount: album.tracks.length,
+                      itemBuilder: (tCtx, tIndex) {
+                        final t = album.tracks[tIndex];
+                        return ListTile(
+                          leading: SizedBox(
+                            width: 28,
+                            child: Text(
+                              '${t.trackNumber ?? (tIndex + 1)}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _textDark,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            t.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${t.formattedDuration} • ${t.formattedSize}',
+                            style: TextStyle(color: _textDark, fontSize: 12),
+                          ),
+                          trailing: IconButton(
+                            icon: Icon(Icons.play_circle_outline_rounded,
+                                color: _primary),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _playAndPop(album.tracks, initialIndex: tIndex);
+                            },
+                          ),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _playAndPop(album.tracks, initialIndex: tIndex);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteAlbum(CachedAlbum album) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Delete "${album.title}"?',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'This will remove all ${album.tracks.length} tracks of this album (${CachedStreamService.formatBytes(album.totalSizeBytes)}) from your offline cache.',
+          style: TextStyle(color: _textDark, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Cancel', style: TextStyle(color: _textDark)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await CachedStreamService.instance
+                  .removeAlbumFromCache(album.title, albumId: album.albumId);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Deleted "${album.title}" from cache.'),
+                  ),
+                );
+              }
+            },
+            child: const Text('Delete All'),
+          ),
+        ],
       ),
     );
   }

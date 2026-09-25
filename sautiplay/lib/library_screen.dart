@@ -3937,91 +3937,250 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildAlbumsTabSliver(Color primaryColor, Color textDark,
       {bool isDesktop = false}) {
-    final Map<String, List<LocalSongItem>> albumMap = {};
-    for (final song in _allSongs) {
-      if (_hasValidAlbum(song.album)) {
-        albumMap.putIfAbsent(song.album.trim(), () => []).add(song);
-      }
-    }
+    return ValueListenableBuilder<List<CachedStreamItem>>(
+      valueListenable: CachedStreamService.instance.cachedStreamsNotifier,
+      builder: (context, cachedItems, _) {
+        final Map<String, List<LocalSongItem>> localAlbumMap = {};
+        for (final song in _allSongs) {
+          if (_hasValidAlbum(song.album)) {
+            localAlbumMap.putIfAbsent(song.album.trim(), () => []).add(song);
+          }
+        }
 
-    final query = _searchController.text.trim().toLowerCase();
-    final albumKeys = albumMap.keys.where((a) {
-      if (query.isEmpty) return true;
-      return a.toLowerCase().contains(query);
-    }).toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        final Map<String, List<CachedStreamItem>> cachedAlbumMap = {};
+        for (final item in cachedItems) {
+          if (item.album != null && item.album!.trim().isNotEmpty) {
+            cachedAlbumMap.putIfAbsent(item.album!.trim(), () => []).add(item);
+          }
+        }
 
-    if (albumKeys.isEmpty && !_isLoading) {
-      return SliverFillRemaining(
-        hasScrollBody: false,
-        child: _buildEmptyState(
-          textDark,
-          message: 'No albums found',
-          subMessage: _searchController.text.isNotEmpty
-              ? 'No matches for "${_searchController.text}".'
-              : 'Add local folders using the (+) menu to view albums here.',
-          isDesktop: isDesktop,
-        ),
-      );
-    }
+        final List<_LibraryAlbumEntry> albumEntries = [];
 
-    return SliverPadding(
-      padding: EdgeInsets.symmetric(
-        horizontal: isDesktop ? 32 : 16,
-        vertical: 8,
-      ),
-      sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final albumName = albumKeys[index];
-            final songs = albumMap[albumName] ?? [];
-            final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
-            final artistName =
-                songs.isNotEmpty && _hasValidArtist(songs.first.artist)
-                    ? songs.first.artist
-                    : '';
-            final isFirst = index == 0;
-            final isLast = index == albumKeys.length - 1;
+        // Add cached albums
+        cachedAlbumMap.forEach((albumName, tracks) {
+          final sortedTracks = List<CachedStreamItem>.from(tracks)
+            ..sort((a, b) {
+              final aNum = a.trackNumber ?? 0;
+              final bNum = b.trackNumber ?? 0;
+              if (aNum != bNum && aNum > 0 && bNum > 0) {
+                return aNum.compareTo(bNum);
+              }
+              return a.cachedAt.compareTo(b.cachedAt);
+            });
 
-            return _buildLibraryItem(
-              title: albumName,
-              subtitle: artistName.isNotEmpty
-                  ? '${songs.length} Song${songs.length == 1 ? '' : 's'} • $artistName'
-                  : '${songs.length} Song${songs.length == 1 ? '' : 's'}',
-              iconData: Icons.album_rounded,
-              isFirst: isFirst,
-              isLast: isLast,
-              customIcon: sampleSongPath != null
-                  ? LocalAlbumArt(
-                      path: sampleSongPath,
-                      size: isDesktop ? 60 : 48,
-                      shape: Shapes.pill,
-                    )
-                  : null,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => LocalGroupDetailScreen(
-                      groupTitle: albumName,
-                      groupType: 'Album',
-                      songs: songs,
-                      onPlayFolder: widget.onPlayFolder,
-                      onPlayTracks: widget.onPlayTracks,
-                      onQueueTrack: widget.onQueueTrack,
-                      onDeleteTrack: widget.onDeleteTrack,
-                      onSongDeleted: _onSongDeletedFromChild,
-                      player: widget.player,
-                    ),
+          final firstTrack = sortedTracks.first;
+          final artistName = (firstTrack.albumArtist != null &&
+                  firstTrack.albumArtist!.trim().isNotEmpty)
+              ? firstTrack.albumArtist!.trim()
+              : firstTrack.artist.trim();
+          final totalSize =
+              sortedTracks.fold<int>(0, (sum, t) => sum + t.fileSizeBytes);
+          final thumb = sortedTracks
+              .firstWhere(
+                (t) => t.thumbnailUrl != null && t.thumbnailUrl!.isNotEmpty,
+                orElse: () => firstTrack,
+              )
+              .thumbnailUrl;
+
+          final localSongs = sortedTracks
+              .map((t) => LocalSongItem(
+                    path: t.filePath,
+                    title: t.title,
+                    artist: (t.albumArtist != null &&
+                            t.albumArtist!.trim().isNotEmpty)
+                        ? t.albumArtist!
+                        : t.artist,
+                    album: t.album ?? albumName,
+                    genre: 'Cached Stream',
+                    sizeBytes: t.fileSizeBytes,
+                    lastModified: t.cachedAt,
+                  ))
+              .toList();
+
+          albumEntries.add(_LibraryAlbumEntry(
+            title: albumName,
+            artist: artistName,
+            trackCount: sortedTracks.length,
+            isCached: true,
+            cachedTracks: sortedTracks,
+            localSongs: localSongs,
+            artworkUrl: thumb,
+            totalSizeBytes: totalSize,
+          ));
+        });
+
+        // Add local albums
+        localAlbumMap.forEach((albumName, songs) {
+          final alreadyInCached = cachedAlbumMap.containsKey(albumName);
+          final artistName =
+              songs.isNotEmpty && _hasValidArtist(songs.first.artist)
+                  ? songs.first.artist
+                  : '';
+          albumEntries.add(_LibraryAlbumEntry(
+            title: alreadyInCached ? '$albumName (Local)' : albumName,
+            artist: artistName,
+            trackCount: songs.length,
+            isCached: false,
+            localSongs: songs,
+            samplePath: songs.isNotEmpty ? songs.first.path : null,
+          ));
+        });
+
+        final query = _searchController.text.trim().toLowerCase();
+        final filteredAlbums = albumEntries.where((a) {
+          if (query.isEmpty) return true;
+          return a.title.toLowerCase().contains(query) ||
+              a.artist.toLowerCase().contains(query);
+        }).toList()
+          ..sort((a, b) =>
+              a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
+        if (filteredAlbums.isEmpty && !_isLoading) {
+          return SliverFillRemaining(
+            hasScrollBody: false,
+            child: _buildEmptyState(
+              textDark,
+              message: 'No albums found',
+              subMessage: _searchController.text.isNotEmpty
+                  ? 'No matches for "${_searchController.text}".'
+                  : 'Download albums from online streams or add local folders to view albums here.',
+              isDesktop: isDesktop,
+            ),
+          );
+        }
+
+        return SliverPadding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 32 : 16,
+            vertical: 8,
+          ),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final entry = filteredAlbums[index];
+                final isFirst = index == 0;
+                final isLast = index == filteredAlbums.length - 1;
+
+                final subtitle = entry.isCached
+                    ? (entry.artist.isNotEmpty
+                        ? '${entry.trackCount} Song${entry.trackCount == 1 ? '' : 's'} • ${entry.artist} • Cached'
+                        : '${entry.trackCount} Song${entry.trackCount == 1 ? '' : 's'} • ${CachedStreamService.formatBytes(entry.totalSizeBytes ?? 0)} • Cached')
+                    : (entry.artist.isNotEmpty
+                        ? '${entry.trackCount} Song${entry.trackCount == 1 ? '' : 's'} • ${entry.artist}'
+                        : '${entry.trackCount} Song${entry.trackCount == 1 ? '' : 's'}');
+
+                final Widget? leadingArt = entry.isCached && entry.artworkUrl != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(isDesktop ? 12 : 10),
+                        child: Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            Image.network(
+                              entry.artworkUrl!,
+                              width: isDesktop ? 60 : 48,
+                              height: isDesktop ? 60 : 48,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: isDesktop ? 60 : 48,
+                                height: isDesktop ? 60 : 48,
+                                color: primaryColor.withValues(alpha: 0.15),
+                                child: Icon(Icons.album_rounded,
+                                    color: primaryColor,
+                                    size: isDesktop ? 30 : 24),
+                              ),
+                            ),
+                            Container(
+                              margin: const EdgeInsets.all(2),
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black87,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.cloud_done_rounded,
+                                size: 11,
+                                color: Color(0xFF00BFA5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : (entry.samplePath != null
+                        ? LocalAlbumArt(
+                            path: entry.samplePath!,
+                            size: isDesktop ? 60 : 48,
+                            shape: Shapes.pill,
+                          )
+                        : null);
+
+                return _buildLibraryItem(
+                  title: entry.title,
+                  subtitle: subtitle,
+                  iconData: Icons.album_rounded,
+                  isFirst: isFirst,
+                  isLast: isLast,
+                  customIcon: leadingArt,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.play_circle_filled_rounded,
+                          color: primaryColor,
+                          size: isDesktop ? 30 : 26,
+                        ),
+                        tooltip: 'Play Album',
+                        onPressed: () {
+                          if (entry.isCached &&
+                              entry.cachedTracks != null &&
+                              entry.cachedTracks!.isNotEmpty &&
+                              widget.onPlayCachedStreams != null) {
+                            widget.onPlayCachedStreams!(entry.cachedTracks!,
+                                initialIndex: 0);
+                          } else if (entry.localSongs != null &&
+                              entry.localSongs!.isNotEmpty) {
+                            final paths =
+                                entry.localSongs!.map((e) => e.path).toList();
+                            widget.onPlayFolder(paths, initialIndex: 0);
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: const Color(0xFF64748B),
+                        size: isDesktop ? 20 : 18,
+                      ),
+                    ],
                   ),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => LocalGroupDetailScreen(
+                          groupTitle: entry.title,
+                          groupType: 'Album',
+                          songs: entry.localSongs ?? [],
+                          cachedTracks: entry.cachedTracks,
+                          onPlayCachedStreams: widget.onPlayCachedStreams,
+                          onPlayFolder: widget.onPlayFolder,
+                          onPlayTracks: widget.onPlayTracks,
+                          onQueueTrack: widget.onQueueTrack,
+                          onDeleteTrack: widget.onDeleteTrack,
+                          onSongDeleted: _onSongDeletedFromChild,
+                          player: widget.player,
+                        ),
+                      ),
+                    );
+                  },
+                  context: context,
+                  isDesktop: isDesktop,
                 );
               },
-              context: context,
-              isDesktop: isDesktop,
-            );
-          },
-          childCount: albumKeys.length,
-        ),
-      ),
+              childCount: filteredAlbums.length,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -4064,6 +4223,7 @@ class LibraryScreenState extends State<LibraryScreen>
     required BuildContext context,
     IconData? iconData,
     Widget? customIcon,
+    Widget? trailing,
     Gradient? iconGradient,
     VoidCallback? onTap,
     VoidCallback? onLongPress,
@@ -4177,7 +4337,9 @@ class LibraryScreenState extends State<LibraryScreen>
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (!isSelectionMode && onOptionSelected != null)
+                if (trailing != null)
+                  trailing
+                else if (!isSelectionMode && onOptionSelected != null)
                   SongOptionsMenuButton(
                     iconSize: isDesktop ? 22 : 18,
                     onOptionSelected: onOptionSelected,
@@ -4197,10 +4359,37 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 }
 
+class _LibraryAlbumEntry {
+  final String title;
+  final String artist;
+  final int trackCount;
+  final bool isCached;
+  final List<LocalSongItem>? localSongs;
+  final List<CachedStreamItem>? cachedTracks;
+  final String? samplePath;
+  final String? artworkUrl;
+  final int? totalSizeBytes;
+
+  const _LibraryAlbumEntry({
+    required this.title,
+    required this.artist,
+    required this.trackCount,
+    this.isCached = false,
+    this.localSongs,
+    this.cachedTracks,
+    this.samplePath,
+    this.artworkUrl,
+    this.totalSizeBytes,
+  });
+}
+
 class LocalGroupDetailScreen extends StatefulWidget {
   final String groupTitle;
   final String groupType; // 'Artist', 'Album', 'Folder'
   final List<LocalSongItem> songs;
+  final List<CachedStreamItem>? cachedTracks;
+  final Future<void> Function(List<CachedStreamItem> tracks, {int initialIndex})?
+      onPlayCachedStreams;
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
       onPlayFolder;
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -4215,6 +4404,8 @@ class LocalGroupDetailScreen extends StatefulWidget {
     required this.groupTitle,
     this.groupType = 'Group',
     required this.songs,
+    this.cachedTracks,
+    this.onPlayCachedStreams,
     required this.onPlayFolder,
     this.onPlayTracks,
     this.onQueueTrack,
@@ -4296,22 +4487,37 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                           : BorderRadius.circular(12),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: _groupSongs.isNotEmpty
-                        ? LocalAlbumArt(
-                            path: _groupSongs.first.path,
-                            size: 64,
-                            shape: widget.groupType == 'Artist'
-                                ? Shapes.circle
-                                : Shapes.pill,
+                    child: (widget.cachedTracks != null &&
+                            widget.cachedTracks!.isNotEmpty &&
+                            widget.cachedTracks!.first.thumbnailUrl != null &&
+                            widget.cachedTracks!.first.thumbnailUrl!.isNotEmpty)
+                        ? Image.network(
+                            widget.cachedTracks!.first.thumbnailUrl!,
+                            width: 64,
+                            height: 64,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Icon(
+                              Icons.album_rounded,
+                              color: primaryColor,
+                              size: 36,
+                            ),
                           )
-                        : Icon(
-                            widget.groupType == 'Artist'
-                                ? Icons.person
-                                : (widget.groupType == 'Album'
-                                    ? Icons.album
-                                    : Icons.folder),
-                            color: primaryColor,
-                            size: 36),
+                        : (_groupSongs.isNotEmpty
+                            ? LocalAlbumArt(
+                                path: _groupSongs.first.path,
+                                size: 64,
+                                shape: widget.groupType == 'Artist'
+                                    ? Shapes.circle
+                                    : Shapes.pill,
+                              )
+                            : Icon(
+                                widget.groupType == 'Artist'
+                                    ? Icons.person
+                                    : (widget.groupType == 'Album'
+                                        ? Icons.album
+                                        : Icons.folder),
+                                color: primaryColor,
+                                size: 36)),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -4340,6 +4546,13 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                   ElevatedButton.icon(
                     onPressed: () {
                       if (_groupSongs.isEmpty) return;
+                      if (widget.cachedTracks != null &&
+                          widget.cachedTracks!.isNotEmpty &&
+                          widget.onPlayCachedStreams != null) {
+                        widget.onPlayCachedStreams!(widget.cachedTracks!,
+                            initialIndex: 0);
+                        return;
+                      }
                       final paths = _groupSongs.map((e) => e.path).toList();
                       widget.onPlayFolder(paths, initialIndex: 0);
                     },
@@ -4382,6 +4595,11 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                           bottomRight: Radius.circular(isLast ? 20 : 6),
                         );
 
+                        final cachedItem = (widget.cachedTracks != null &&
+                                index < widget.cachedTracks!.length)
+                            ? widget.cachedTracks![index]
+                            : null;
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 3.0),
                           child: Material(
@@ -4396,6 +4614,15 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                             clipBehavior: Clip.antiAlias,
                             child: InkWell(
                               onTap: () {
+                                if (widget.cachedTracks != null &&
+                                    widget.cachedTracks!.isNotEmpty &&
+                                    index < widget.cachedTracks!.length &&
+                                    widget.onPlayCachedStreams != null) {
+                                  widget.onPlayCachedStreams!(
+                                      widget.cachedTracks!,
+                                      initialIndex: index);
+                                  return;
+                                }
                                 final paths =
                                     _groupSongs.map((e) => e.path).toList();
                                 widget.onPlayFolder(paths, initialIndex: index);
@@ -4405,11 +4632,30 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                                     horizontal: 14, vertical: 10),
                                 child: Row(
                                   children: [
-                                    LocalAlbumArt(
-                                      path: song.path,
-                                      size: 48,
-                                      shape: Shapes.pill,
-                                    ),
+                                    (cachedItem != null &&
+                                            cachedItem.thumbnailUrl != null &&
+                                            cachedItem.thumbnailUrl!.isNotEmpty)
+                                        ? ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            child: Image.network(
+                                              cachedItem.thumbnailUrl!,
+                                              width: 48,
+                                              height: 48,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  LocalAlbumArt(
+                                                path: song.path,
+                                                size: 48,
+                                                shape: Shapes.pill,
+                                              ),
+                                            ),
+                                          )
+                                        : LocalAlbumArt(
+                                            path: song.path,
+                                            size: 48,
+                                            shape: Shapes.pill,
+                                          ),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
@@ -4626,6 +4872,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
               _groupSongs.removeWhere((s) =>
                   FileDeletionHelper.normalizeFilePath(s.path) == normPath);
             });
+            if (widget.cachedTracks != null) {
+              CachedStreamService.instance.removeCachedStream(song.path);
+            }
             widget.onSongDeleted?.call(song);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Deleted "${song.title}" permanently.')),

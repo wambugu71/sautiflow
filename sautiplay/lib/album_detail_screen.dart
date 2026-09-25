@@ -7,6 +7,7 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'artist_profile_screen.dart';
 import 'models/liked_song.dart';
 import 'services/app_theme_service.dart';
+import 'services/cached_stream_service.dart';
 import 'services/liked_songs_service.dart';
 import 'l10n/app_strings.dart';
 
@@ -18,6 +19,10 @@ class TrackInfo {
   final String? artistId;
   final String? thumbnailUrl;
   final int? durationSeconds;
+  final String? album;
+  final String? albumId;
+  final String? albumArtist;
+  final int? trackNumber;
 
   TrackInfo({
     required this.videoId,
@@ -26,7 +31,37 @@ class TrackInfo {
     this.artistId,
     this.thumbnailUrl,
     this.durationSeconds,
+    this.album,
+    this.albumId,
+    this.albumArtist,
+    this.trackNumber,
   });
+
+  TrackInfo copyWith({
+    String? videoId,
+    String? title,
+    String? artist,
+    String? artistId,
+    String? thumbnailUrl,
+    int? durationSeconds,
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
+  }) {
+    return TrackInfo(
+      videoId: videoId ?? this.videoId,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      artistId: artistId ?? this.artistId,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      album: album ?? this.album,
+      albumId: albumId ?? this.albumId,
+      albumArtist: albumArtist ?? this.albumArtist,
+      trackNumber: trackNumber ?? this.trackNumber,
+    );
+  }
 
   /// From JSON for persistence
   factory TrackInfo.fromJson(Map<String, dynamic> json) {
@@ -37,6 +72,10 @@ class TrackInfo {
       artistId: json['artistId'] as String?,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       durationSeconds: json['durationSeconds'] as int?,
+      album: json['album'] as String?,
+      albumId: json['albumId'] as String?,
+      albumArtist: json['albumArtist'] as String?,
+      trackNumber: json['trackNumber'] as int?,
     );
   }
 
@@ -49,11 +88,21 @@ class TrackInfo {
       if (artistId != null) 'artistId': artistId,
       if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
       if (durationSeconds != null) 'durationSeconds': durationSeconds,
+      if (album != null) 'album': album,
+      if (albumId != null) 'albumId': albumId,
+      if (albumArtist != null) 'albumArtist': albumArtist,
+      if (trackNumber != null) 'trackNumber': trackNumber,
     };
   }
 
   /// From dart_ytmusic_api SongDetailed
-  factory TrackInfo.fromSongDetailed(SongDetailed song) {
+  factory TrackInfo.fromSongDetailed(
+    SongDetailed song, {
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
+  }) {
     String? thumb;
     if (song.thumbnails.isNotEmpty) {
       final sorted = List<ThumbnailFull>.from(song.thumbnails)
@@ -67,11 +116,21 @@ class TrackInfo {
       artistId: song.artist.artistId,
       thumbnailUrl: thumb,
       durationSeconds: song.duration,
+      album: album,
+      albumId: albumId,
+      albumArtist: albumArtist,
+      trackNumber: trackNumber,
     );
   }
 
   /// From dart_ytmusic_api VideoDetailed
-  factory TrackInfo.fromVideoDetailed(VideoDetailed video) {
+  factory TrackInfo.fromVideoDetailed(
+    VideoDetailed video, {
+    String? album,
+    String? albumId,
+    String? albumArtist,
+    int? trackNumber,
+  }) {
     String? thumb;
     if (video.thumbnails.isNotEmpty) {
       final sorted = List<ThumbnailFull>.from(video.thumbnails)
@@ -85,6 +144,10 @@ class TrackInfo {
       artistId: video.artist.artistId,
       thumbnailUrl: thumb,
       durationSeconds: video.duration,
+      album: album,
+      albumId: albumId,
+      albumArtist: albumArtist,
+      trackNumber: trackNumber,
     );
   }
 }
@@ -174,9 +237,20 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             final album = await _ytMusic.getAlbum(item.albumId);
             if (mounted) {
               setState(() {
-                _tracks = album.songs
-                    .map((s) => TrackInfo.fromSongDetailed(s))
-                    .toList();
+                _tracks = album.songs.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final s = entry.value;
+                  final baseTrack = TrackInfo.fromSongDetailed(
+                    s,
+                    album: _title,
+                    albumId: item.albumId,
+                    albumArtist: _artist,
+                    trackNumber: idx + 1,
+                  );
+                  return baseTrack.copyWith(
+                    thumbnailUrl: baseTrack.thumbnailUrl ?? _thumbnailUrl,
+                  );
+                }).toList();
                 _loading = false;
                 if (album.year != null) _year = album.year.toString();
               });
@@ -195,9 +269,20 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           final playlistVideos = await _ytMusic.getPlaylistVideos(pid);
           if (mounted) {
             setState(() {
-              _tracks = playlistVideos
-                  .map((v) => TrackInfo.fromVideoDetailed(v))
-                  .toList();
+              _tracks = playlistVideos.asMap().entries.map((entry) {
+                final idx = entry.key;
+                final v = entry.value;
+                final baseTrack = TrackInfo.fromVideoDetailed(
+                  v,
+                  album: _title,
+                  albumId: pid,
+                  albumArtist: _artist,
+                  trackNumber: idx + 1,
+                );
+                return baseTrack.copyWith(
+                  thumbnailUrl: baseTrack.thumbnailUrl ?? _thumbnailUrl,
+                );
+              }).toList();
               _loading = false;
               _error = null;
             });
@@ -217,20 +302,34 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         final String videoId =
             item is SongDetailed ? item.videoId : (item as VideoDetailed).videoId;
         final TrackInfo mainTrack = item is SongDetailed
-            ? TrackInfo.fromSongDetailed(item)
-            : TrackInfo.fromVideoDetailed(item as VideoDetailed);
+            ? TrackInfo.fromSongDetailed(
+                item,
+                album: _title,
+                albumArtist: _artist,
+                trackNumber: 1,
+              ).copyWith(thumbnailUrl: _thumbnailUrl)
+            : TrackInfo.fromVideoDetailed(
+                item as VideoDetailed,
+                album: _title,
+                albumArtist: _artist,
+                trackNumber: 1,
+              ).copyWith(thumbnailUrl: _thumbnailUrl);
         final List<TrackInfo> trackList = [mainTrack];
         try {
           final upNexts = await _ytMusic.getUpNexts(videoId);
-          for (final next in upNexts) {
+          for (int i = 0; i < upNexts.length; i++) {
+            final next = upNexts[i];
             trackList.add(TrackInfo(
               videoId: next.videoId,
               title: next.title,
               artist: next.artists.name,
               artistId: next.artists.artistId,
               thumbnailUrl:
-                  next.thumbnails.isNotEmpty ? next.thumbnails.first.url : null,
+                  next.thumbnails.isNotEmpty ? next.thumbnails.first.url : _thumbnailUrl,
               durationSeconds: next.duration,
+              album: _title,
+              albumArtist: _artist,
+              trackNumber: i + 2,
             ));
           }
         } catch (e) {
@@ -589,6 +688,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       ),
       const SizedBox(width: 10),
       _buildLikeButton(isDesktop: isDesktop),
+      const SizedBox(width: 10),
+      _buildDownloadAllButton(isDesktop: isDesktop),
     ];
 
     if (centered) {
@@ -596,6 +697,398 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           mainAxisAlignment: MainAxisAlignment.center, children: children);
     }
     return Row(children: children);
+  }
+
+  String get _albumKey {
+    final item = widget.item;
+    if (item is AlbumDetailed && item.albumId.isNotEmpty) {
+      return item.albumId;
+    }
+    if (item is PlaylistDetailed && item.playlistId.isNotEmpty) {
+      return item.playlistId;
+    }
+    return _title.trim().toLowerCase();
+  }
+
+  Widget _buildDownloadAllButton({bool isDesktop = false}) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        CachedStreamService.instance.cachedStreamsNotifier,
+        CachedStreamService.instance.activeDownloadsNotifier,
+        CachedStreamService.instance.albumDownloadsNotifier,
+      ]),
+      builder: (context, _) {
+        if (_loading || _tracks.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final albumKey = _albumKey;
+        final albumProgress =
+            CachedStreamService.instance.getAlbumDownloadProgress(albumKey);
+        final isBatchDownloading =
+            albumProgress != null && albumProgress.isRunning;
+
+        int cachedCount = 0;
+        int totalBytes = 0;
+        for (final t in _tracks) {
+          final item =
+              CachedStreamService.instance.getCachedItem(t.videoId);
+          if (item != null) {
+            cachedCount++;
+            totalBytes += item.fileSizeBytes;
+          }
+        }
+        final isAllCached = cachedCount == _tracks.length;
+
+        if (isBatchDownloading) {
+          return M3EButton.tonal(
+            onPressed: () => _showDownloadStatusSheet(albumProgress),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Center(
+                    child: M3EProgressIndicator.circular(
+                      size: 14,
+                      strokeWidth: 2,
+                      color: _primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isDesktop
+                      ? 'Downloading (${albumProgress.completedTracks}/${albumProgress.totalTracks})'
+                      : '${albumProgress.completedTracks}/${albumProgress.totalTracks}',
+                  style: TextStyle(
+                    color: _primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: isDesktop ? 14 : 12.5,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (isAllCached) {
+          if (isDesktop) {
+            return M3EButton.tonal(
+              onPressed: () => _showDownloadedAlbumOptions(totalBytes),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.download_done_rounded, color: _primary, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Downloaded',
+                    style: TextStyle(
+                      color: _primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return M3EIconButton(
+            icon: Icon(Icons.download_done_rounded,
+                color: _primary, size: isDesktop ? 22 : 20),
+            variant: M3EIconButtonVariant.tonal,
+            onPressed: () => _showDownloadedAlbumOptions(totalBytes),
+          );
+        }
+
+        final label = cachedCount > 0
+            ? (isDesktop
+                ? 'Download All ($cachedCount/${_tracks.length})'
+                : '($cachedCount/${_tracks.length})')
+            : 'Download All';
+
+        if (isDesktop) {
+          return M3EButton.tonal(
+            onPressed: _startDownloadAll,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.download_rounded, size: 18),
+                const SizedBox(width: 6),
+                Text(label),
+              ],
+            ),
+          );
+        }
+
+        return M3EIconButton(
+          icon: Icon(Icons.download_rounded,
+              color: _textPrimary, size: isDesktop ? 22 : 20),
+          variant: M3EIconButtonVariant.tonal,
+          onPressed: _startDownloadAll,
+        );
+      },
+    );
+  }
+
+  void _startDownloadAll() {
+    if (_tracks.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.cloud_download_rounded,
+                color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Downloading "$_title" (${_tracks.length} tracks) to offline cache...',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+
+    CachedStreamService.instance
+        .downloadAlbum(
+      albumTitle: _title,
+      albumId: _albumKey,
+      albumArtist: _artist,
+      albumArtUrl: _thumbnailUrl,
+      tracks: _tracks,
+    )
+        .then((success) {
+      if (!mounted) return;
+      if (success) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded,
+                    color: Colors.greenAccent, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'All tracks for "$_title" downloaded and cached offline!',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    });
+  }
+
+  void _showDownloadStatusSheet(AlbumDownloadProgress progress) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _surfaceDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: M3EProgressIndicator.circular(
+                        size: 20,
+                        strokeWidth: 2.4,
+                        color: _primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Downloading Album',
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Caching "${progress.albumTitle}" (${progress.completedTracks}/${progress.totalTracks} songs ready)',
+                  style: TextStyle(color: _textMuted, fontSize: 14),
+                ),
+                if (progress.currentTrackTitle != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Currently downloading: "${progress.currentTrackTitle}"',
+                    style: TextStyle(
+                      color: _primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 16),
+                LinearProgressIndicator(
+                  value: progress.progress,
+                  backgroundColor: _primary.withValues(alpha: 0.15),
+                  valueColor: AlwaysStoppedAnimation<Color>(_primary),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text('Hide', style: TextStyle(color: _textMuted)),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.redAccent.withValues(alpha: 0.8),
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () {
+                        CachedStreamService.instance
+                            .cancelAlbumDownload(_albumKey);
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Album download cancelled.')),
+                        );
+                      },
+                      child: const Text('Cancel Download'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showDownloadedAlbumOptions(int totalBytes) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _surfaceDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.download_done_rounded, color: _primary, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Saved offline • ${_tracks.length} tracks • ${CachedStreamService.formatBytes(totalBytes)}',
+                            style: TextStyle(color: _textMuted, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 28, thickness: 0.5),
+                ListTile(
+                  leading: const Icon(Icons.play_circle_fill_rounded, size: 28),
+                  title: const Text('Play Offline Album'),
+                  subtitle: const Text('Play cached songs directly from disk'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _playAll();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_sweep_rounded,
+                      color: Colors.redAccent, size: 26),
+                  title: const Text('Remove Album from Cache',
+                      style: TextStyle(color: Colors.redAccent)),
+                  subtitle: const Text(
+                      'Deletes all cached songs for this album from disk'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (dCtx) => AlertDialog(
+                        backgroundColor: _surfaceDark,
+                        title: const Text('Remove Album from Cache?'),
+                        content: Text(
+                            'Are you sure you want to delete all ${_tracks.length} tracks of "$_title" from your offline cache?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dCtx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                                backgroundColor: Colors.redAccent),
+                            onPressed: () => Navigator.pop(dCtx, true),
+                            child: const Text('Remove'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true && mounted) {
+                      await CachedStreamService.instance
+                          .removeAlbumFromCache(_title, albumId: _albumKey);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Removed all tracks for "$_title" from cache.'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _metaDot() {
@@ -822,12 +1315,91 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                       fontSize: isDesktop ? 13 : 11.5,
                     ),
                   ),
+                  _buildTrackDownloadIcon(track, isDesktop: isDesktop),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTrackDownloadIcon(TrackInfo track, {bool isDesktop = false}) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        CachedStreamService.instance.cachedStreamsNotifier,
+        CachedStreamService.instance.activeDownloadsNotifier,
+      ]),
+      builder: (context, _) {
+        final isCached =
+            CachedStreamService.instance.getCachedItem(track.videoId) != null;
+        final isDownloading =
+            CachedStreamService.instance.isDownloading(track.videoId);
+
+        if (isDownloading) {
+          return Padding(
+            padding: const EdgeInsets.only(left: 8.0),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: Center(
+                child: M3EProgressIndicator.circular(
+                  size: 14,
+                  strokeWidth: 2,
+                  color: _primary,
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (isCached) {
+          return Padding(
+            padding: const EdgeInsets.only(left: 8.0),
+            child: Icon(
+              Icons.check_circle_rounded,
+              color: _primary,
+              size: isDesktop ? 18 : 16,
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(left: 4.0),
+          child: IconButton(
+            icon: Icon(
+              Icons.download_rounded,
+              color: _textMuted.withValues(alpha: 0.6),
+              size: isDesktop ? 18 : 16,
+            ),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            splashRadius: 16,
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Downloading "${track.title}" to offline cache...'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+              CachedStreamService.instance.cacheStreamInBackground(
+                videoId: track.videoId,
+                streamUrl: '',
+                title: track.title,
+                artist: track.artist,
+                thumbnailUrl: track.thumbnailUrl ?? _thumbnailUrl,
+                durationSeconds: track.durationSeconds,
+                isUserDownload: true,
+                album: _title,
+                albumId: _albumKey,
+                albumArtist: _artist,
+                trackNumber: track.trackNumber,
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
