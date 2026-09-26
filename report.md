@@ -254,10 +254,18 @@ flowchart TD
 
 ---
 
-### P1.3 Inaccurate Seeking in FFmpeg Decoder Without Keyframe Preroll Discard
-- **Location:** [`ffmpeg_stream_decoder.cpp:1033-1044`](file:///c:/Users/wambugukinyua/miniaudiodart/ffmpeg_stream_decoder.cpp#L1033-L1044)
-- **Mechanism:** `av_seek_frame` with `AVSEEK_FLAG_BACKWARD` rewinds to the preceding keyframe, and `m_cursor` is immediately set to `frameIndex` without decoding and discarding priming frames up to `targetPts`.
-- **Consequence:** The decoder returns audio starting from the earlier keyframe packet, playing back audio from before the seek position and corrupting playback position synchronization.
+### P1.3 [RESOLVED] Inaccurate Seeking in FFmpeg Decoder Without Keyframe Preroll Discard
+- **Location:** [`ffmpeg_stream_decoder.cpp:1033-1180`](file:///c:/Users/wambugukinyua/miniaudiodart/ffmpeg_stream_decoder.cpp#L1033-L1180)
+- **Status:** **RESOLVED** via keyframe preroll discard loop and exact residual buffer alignment.
+- **Mechanism:** Formerly, `FFmpegLocalFileSource::seek` called `av_seek_frame(m_fmtCtx, m_audioStreamIndex, targetPts, AVSEEK_FLAG_BACKWARD)` and immediately set `m_cursor = frameIndex` without decoding and discarding priming frames prior to the seek point. Because `AVSEEK_FLAG_BACKWARD` seeks to the preceding keyframe packet, audio playback started prematurely from the preceding packet (often thousands of samples earlier), corrupting playback position synchronization.
+- **Resolution:**
+  1. **Codec Packet Timebase Configuration:** Set `m_codecCtx->pkt_timebase = audioStream->time_base` in both `FFmpegLocalFileSource::open()` and `FFmpegNetworkStreamSource` prior to `avcodec_open2`, guaranteeing accurate `best_effort_timestamp` generation by libavcodec.
+  2. **Preroll Window Calculation:** In `seek(frameIndex)`, calculate required seek preroll from `st->codecpar->seek_preroll`, `m_codecCtx->seek_preroll`, or `2 * m_codecCtx->frame_size` for transform codecs (e.g. AAC/MP3 MDCT filterbank warmup).
+  3. **Backward Demuxer Seek & Flush:** Rewind the demuxer to `seekFrame = frameIndex - prerollSamples` using `av_seek_frame` with `AVSEEK_FLAG_BACKWARD` (falling back to `avformat_seek_file`). Flushed codec history via `avcodec_flush_buffers` and reinitialized the resampler with `swr_init`.
+  4. **Priming Frame Decoding & Discard:** Iterated through demuxed packets: frames with `frameEndSample <= frameIndex` are decoded to update filterbank state and discarded.
+  5. **Overlapping Frame Alignment & Residual Buffer:** When decoding reaches the frame overlapping `frameIndex`, samples prior to `frameIndex` are discarded (`discardFrames = frameIndex - frameStartSample`), and remaining samples are placed into `m_residualBuffer` with `m_residualOffset = 0`. If seeking before stream start, silence padding is prepended to maintain timing alignment.
+  6. **Cursor Synchronization:** Synchronized `m_cursor = frameIndex` so subsequent `read_pcm` calls immediately produce the exact requested audio frame.
+  7. **Comprehensive Unit Verification:** Added `test_ffmpeg_seek_preroll_p13()` to `tests/test_engine_api.cpp`. Confirmed bit-exact sample accuracy (`maxDiff = 0.000000e+00`) between uninterrupted sequential decoding and seek decoding on non-periodic chirp audio across keyframe/block boundaries. All 70 engine API tests pass cleanly with 0 failures.
 
 ---
 

@@ -13,6 +13,7 @@
 // =============================================================================
 
 #include "audio_engine.h"
+#include "ffmpeg_stream_decoder.h"
 
 #include <atomic>
 #include <chrono>
@@ -384,6 +385,138 @@ static void test_crossfade_sample_rate_mismatch_p08()
     std::remove(wav48k);
 }
 
+static void test_ffmpeg_seek_preroll_p13()
+{
+    std::printf("\n== FFmpeg Seek Preroll Discard Verification ([C] P1.3) ==\n");
+
+    const char *wavPath = "seek_preroll_test.wav";
+    const int sampleRate = 48000;
+    const int totalSeconds = 3;
+    const int totalFrames = sampleRate * totalSeconds;
+
+    // Generate a chirp where every sample is unique across time
+    std::vector<int16_t> pcm((size_t)totalFrames * 2);
+    for (int i = 0; i < totalFrames; ++i)
+    {
+        double t = (double)i / sampleRate;
+        double phase = 2.0 * 3.14159265358979323846 * (100.0 * t + 200.0 * t * t);
+        float s = 0.8f * (float)std::sin(phase);
+        int16_t v = (int16_t)std::lround(s * 32767.0f);
+        pcm[(size_t)2 * i] = v;
+        pcm[(size_t)2 * i + 1] = v;
+    }
+
+#pragma pack(push, 1)
+    struct WavHeader
+    {
+        char riff[4];
+        uint32_t riffSize;
+        char wave[4];
+        char fmtId[4];
+        uint32_t fmtSize;
+        uint16_t audioFormat;
+        uint16_t channels;
+        uint32_t sampleRate;
+        uint32_t byteRate;
+        uint16_t blockAlign;
+        uint16_t bitsPerSample;
+        char dataId[4];
+        uint32_t dataBytes;
+    };
+#pragma pack(pop)
+
+    uint32_t dataBytes = (uint32_t)pcm.size() * sizeof(int16_t);
+    WavHeader h{};
+    std::memcpy(h.riff, "RIFF", 4);
+    h.riffSize = 36 + dataBytes;
+    std::memcpy(h.wave, "WAVE", 4);
+    std::memcpy(h.fmtId, "fmt ", 4);
+    h.fmtSize = 16;
+    h.audioFormat = 1;
+    h.channels = 2;
+    h.sampleRate = (uint32_t)sampleRate;
+    h.byteRate = (uint32_t)sampleRate * 2 * sizeof(int16_t);
+    h.blockAlign = 2 * sizeof(int16_t);
+    h.bitsPerSample = 16;
+    std::memcpy(h.dataId, "data", 4);
+    h.dataBytes = dataBytes;
+
+    FILE *f = std::fopen(wavPath, "wb");
+    if (f)
+    {
+        std::fwrite(&h, sizeof(h), 1, f);
+        std::fwrite(pcm.data(), 1, dataBytes, f);
+        std::fclose(f);
+    }
+
+    // Also convert to FLAC using ffmpeg CLI to test seeking across block boundaries with keyframe preroll
+    const char *flacPath = "seek_preroll_test.flac";
+    char cmd[256];
+    std::snprintf(cmd, sizeof(cmd), "ffmpeg -y -v quiet -i %s -c:a flac %s", wavPath, flacPath);
+    (void)std::system(cmd);
+
+    const char *testFiles[] = { wavPath, flacPath };
+    for (const char *filePath : testFiles)
+    {
+        FILE *check = std::fopen(filePath, "rb");
+        if (!check) continue;
+        std::fclose(check);
+
+        sautiflow::FFmpegLocalFileSource srcSeq;
+        CHECK(srcSeq.open(filePath), "sequential decoder opened");
+
+        sautiflow::FFmpegLocalFileSource srcSeek;
+        CHECK(srcSeek.open(filePath), "seek decoder opened");
+
+        const ma_uint64 targetSeekFrame = 48500; // middle of stream (~1.01 sec)
+        const size_t testFrames = 2048;
+
+        // Sequentially decode up to targetSeekFrame + testFrames
+        std::vector<float> discardBuf(targetSeekFrame * srcSeq.get_channels());
+        size_t readPrefix = srcSeq.read_pcm(discardBuf.data(), targetSeekFrame);
+        CHECK(readPrefix == targetSeekFrame, "sequential decoder read prefix frames");
+
+        std::vector<float> seqAudio(testFrames * srcSeq.get_channels());
+        size_t readSeq = srcSeq.read_pcm(seqAudio.data(), testFrames);
+        CHECK(readSeq == testFrames, "sequential decoder read target window");
+
+        // Now seek directly to targetSeekFrame
+        CHECK(srcSeek.seek(targetSeekFrame), "seek to target frame succeeded");
+        CHECK(srcSeek.get_cursor() == targetSeekFrame, "cursor matches target frame index");
+
+        std::vector<float> seekAudio(testFrames * srcSeek.get_channels());
+        size_t readSeek = srcSeek.read_pcm(seekAudio.data(), testFrames);
+        CHECK(readSeek == testFrames, "seek decoder read target window");
+        CHECK(srcSeek.get_cursor() == targetSeekFrame + testFrames, "cursor advanced correctly after seek read");
+
+        // Verify sample-accurate alignment (max error < 1e-4)
+        float maxDiff = 0.0f;
+        for (size_t i = 0; i < testFrames * srcSeq.get_channels(); ++i)
+        {
+            float diff = std::abs(seqAudio[i] - seekAudio[i]);
+            if (diff > maxDiff) maxDiff = diff;
+        }
+
+        char passMsg[128];
+        std::snprintf(passMsg, sizeof(passMsg), "%s seek output matches sequential decode (maxDiff=%e)", filePath, maxDiff);
+        CHECK(maxDiff < 1e-4f, passMsg);
+
+        // Test seek to 0
+        CHECK(srcSeek.seek(0), "seek to frame 0 succeeded");
+        CHECK(srcSeek.get_cursor() == 0, "cursor is 0 after seek(0)");
+
+        // Test seek past end
+        CHECK(srcSeek.seek(srcSeek.get_total_frames() + 1000), "seek past end handled gracefully");
+        CHECK(srcSeek.is_ended(), "stream marked ended after seek past end");
+
+        srcSeq.close();
+        srcSeek.close();
+    }
+
+    std::remove(wavPath);
+    std::remove(flacPath);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -398,6 +531,7 @@ int main()
     test_telemetry_fields();
     test_compressor_gain_reduction();
     test_crossfade_sample_rate_mismatch_p08();
+    test_ffmpeg_seek_preroll_p13();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

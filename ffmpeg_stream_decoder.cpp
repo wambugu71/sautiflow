@@ -510,6 +510,8 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         return;
     }
 
+    m_codecCtx->pkt_timebase = audioStream->time_base;
+
     if (avcodec_open2(m_codecCtx, decoder, nullptr) < 0) {
         SF_LOGE("[ffmpeg] Step 3/5 FAILED: avcodec_open2 failed for codec %s\n", decoder->name);
         set_error(StreamErrorCode::CodecOpenFailed, "Failed to open audio codec");
@@ -876,6 +878,8 @@ bool FFmpegLocalFileSource::open(const std::string& filePath) {
         return false;
     }
 
+    m_codecCtx->pkt_timebase = audioStream->time_base;
+
     if (avcodec_open2(m_codecCtx, decoder, nullptr) < 0) {
         close();
         return false;
@@ -1029,17 +1033,144 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
         return false;
     }
 
-    AVStream* st = m_fmtCtx->streams[m_audioStreamIndex];
-    int64_t targetPts = av_rescale_q(static_cast<int64_t>(frameIndex), AVRational{1, m_sampleRate}, st->time_base);
+    if (m_totalFrames > 0 && frameIndex >= m_totalFrames) {
+        m_residualBuffer.clear();
+        m_residualOffset = 0;
+        m_isEnded = true;
+        m_cursor = m_totalFrames;
+        return true;
+    }
 
-    if (av_seek_frame(m_fmtCtx, m_audioStreamIndex, targetPts, AVSEEK_FLAG_BACKWARD) < 0) {
-        return false;
+    AVStream* st = m_fmtCtx->streams[m_audioStreamIndex];
+    int64_t basePts = (st->start_time != AV_NOPTS_VALUE) ? st->start_time : 0;
+
+    int64_t prerollSamples = 0;
+    if (st->codecpar->seek_preroll > 0) {
+        prerollSamples = st->codecpar->seek_preroll;
+    } else if (m_codecCtx->seek_preroll > 0) {
+        prerollSamples = m_codecCtx->seek_preroll;
+    } else if (m_codecCtx->frame_size > 0) {
+        // Transform codecs (AAC, MP3, etc.) require at least 1-2 frames of filterbank warmup
+        prerollSamples = static_cast<int64_t>(m_codecCtx->frame_size) * 2;
+    }
+
+    int64_t seekFrame = (static_cast<int64_t>(frameIndex) > prerollSamples) ? (static_cast<int64_t>(frameIndex) - prerollSamples) : 0;
+    int64_t seekPts = basePts + av_rescale_q(seekFrame, AVRational{1, m_sampleRate}, st->time_base);
+
+    // Seek backward to preceding keyframe packet
+    int seekRes = av_seek_frame(m_fmtCtx, m_audioStreamIndex, seekPts, AVSEEK_FLAG_BACKWARD);
+    if (seekRes < 0) {
+        seekRes = avformat_seek_file(m_fmtCtx, m_audioStreamIndex, INT64_MIN, seekPts, seekPts, 0);
+        if (seekRes < 0) {
+            return false;
+        }
     }
 
     avcodec_flush_buffers(m_codecCtx);
+    if (m_swrCtx) {
+        swr_init(m_swrCtx);
+    }
     m_residualBuffer.clear();
     m_residualOffset = 0;
     m_isEnded = false;
+
+    // Decode and discard priming / preroll frames up to frameIndex
+    int64_t currentTrackSample = -1;
+    bool reachedTarget = false;
+
+    while (!reachedTarget && !m_isEnded) {
+        int recvRes = avcodec_receive_frame(m_codecCtx, m_frame);
+        if (recvRes == 0) {
+            int inSamples = m_frame->nb_samples;
+            if (inSamples <= 0) continue;
+
+            // Determine presentation timestamp of decoded frame
+            int64_t framePts = m_frame->best_effort_timestamp;
+            if (framePts == AV_NOPTS_VALUE) {
+                framePts = m_frame->pts;
+            }
+
+            int64_t frameStartSample = 0;
+            if (framePts != AV_NOPTS_VALUE) {
+                frameStartSample = av_rescale_q(framePts - basePts, st->time_base, AVRational{1, m_sampleRate});
+                currentTrackSample = frameStartSample;
+            } else if (currentTrackSample >= 0) {
+                frameStartSample = currentTrackSample;
+            } else {
+                frameStartSample = seekFrame;
+            }
+
+            int64_t frameEndSample = frameStartSample + inSamples;
+            currentTrackSample = frameEndSample;
+
+            if (frameEndSample <= static_cast<int64_t>(frameIndex)) {
+                // Entire frame lies before target: discard preroll frame
+                continue;
+            }
+
+            // Frame reaches or overlaps target: convert to float PCM
+            int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);
+            if (outMaxSamples <= 0) outMaxSamples = inSamples;
+
+            std::vector<float> converted(outMaxSamples * m_channels);
+            uint8_t* outPtr = reinterpret_cast<uint8_t*>(converted.data());
+
+            int outSamples = swr_convert(
+                m_swrCtx,
+                &outPtr,
+                outMaxSamples,
+                const_cast<const uint8_t**>(m_frame->extended_data),
+                inSamples
+            );
+
+            if (outSamples > 0) {
+                if (frameStartSample < static_cast<int64_t>(frameIndex)) {
+                    int64_t discardFrames = static_cast<int64_t>(frameIndex) - frameStartSample;
+                    if (discardFrames > outSamples) {
+                        discardFrames = outSamples;
+                    }
+                    size_t keepFrames = static_cast<size_t>(outSamples - discardFrames);
+                    if (keepFrames > 0) {
+                        m_residualBuffer.assign(
+                            converted.data() + (discardFrames * m_channels),
+                            converted.data() + (outSamples * m_channels)
+                        );
+                        m_residualOffset = 0;
+                    }
+                } else {
+                    size_t padFrames = 0;
+                    if (frameStartSample > static_cast<int64_t>(frameIndex)) {
+                        int64_t diff = frameStartSample - static_cast<int64_t>(frameIndex);
+                        if (diff < static_cast<int64_t>(m_sampleRate * 2)) {
+                            padFrames = static_cast<size_t>(diff);
+                        }
+                    }
+                    m_residualBuffer.assign(padFrames * m_channels, 0.0f);
+                    m_residualBuffer.insert(
+                        m_residualBuffer.end(),
+                        converted.data(),
+                        converted.data() + (outSamples * m_channels)
+                    );
+                    m_residualOffset = 0;
+                }
+            }
+
+            reachedTarget = true;
+            break;
+        } else if (recvRes == AVERROR(EAGAIN)) {
+            if (!read_and_decode_next_packet()) {
+                // End of input stream: flush decoder
+                avcodec_send_packet(m_codecCtx, nullptr);
+            }
+        } else if (recvRes == AVERROR_EOF) {
+            m_isEnded = true;
+            break;
+        } else {
+            // Unrecoverable decoding error
+            break;
+        }
+    }
+
     m_cursor = frameIndex;
     return true;
 }
