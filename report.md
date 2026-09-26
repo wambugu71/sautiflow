@@ -269,10 +269,21 @@ flowchart TD
 
 ---
 
-### P1.4 Audible ~350ms Forward Jump on Sample Rate Change / Device Restart
-- **Location:** [`audio_engine.cpp:9697, 9748-9755`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L9697)
-- **Mechanism:** On sample rate change, `resumeFrame` is obtained via `ma_decoder_get_cursor_in_pcm_frames()`. Because the producer thread decodes ~350 ms ahead into `e->decodeRing`, the cursor is 350 ms ahead of what the DAC actually played.
-- **Consequence:** When the new decoder seeks to `resumeFrame`, the ~350 ms of unplayed audio in the ring buffer is discarded, causing the audio to audibly skip forward by ~350 ms.
+### P1.4 [RESOLVED] Audible ~350ms Forward Jump on Sample Rate Change / Device Restart
+- **Location:** [`audio_engine.cpp:10226-10255`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L10226)
+- **Status:** **RESOLVED** via audible playback position tracking (`seekBasePcmFrame + playedPcmFrames`).
+- **Mechanism:** In Sautiflow, `decode_producer_loop` decodes audio ahead into `e->pcmRingBuffer` maintaining up to $\sim 350\text{ ms}$ of headroom (`targetHeadroomSamples = 0.35 * sr * ch`) to provide rock-solid underrun immunity. Formerly, on a hardware sample rate switch, channel change, or device restart in `restart_and_apply_config`, `resumeFrame` was queried directly from the decoder:
+  ```cpp
+  (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &resumeFrame);
+  ```
+  Because the decoder read pointer was $350\text{ ms}$ ahead of what the DAC had actually rendered to the listener, and the old-rate ring buffer was subsequently wiped (`pcmRingBuffer.reset()`), the newly created decoder sought forward to `resumeFrame`, permanently discarding the $\sim 350\text{ ms}$ of unrendered audio and causing an audible skip/forward jump.
+- **Resolution:**
+  1. **Audible DAC Position Tracking:** Replaced the forward-looking decoder cursor query with the actual audible position consumed by the DAC:
+     $$\text{audiblePos} = \text{seekBasePcmFrame} + \text{playedPcmFrames}$$
+     Clamped to `currentLengthFrames` to prevent overshoot at track end.
+  2. **Ring Buffer Headroom Correlation:** Cross-validated against `decCursor - unplayedRingFrames` to ensure accurate stream synchronization across all playback backends and custom decode loops.
+  3. **Sample-Exact Rate Plan Translation:** Scaled `resumeFrame` through the old sample rate to seconds, then mapped to `decRate` in the new decoder (`targetFrame = posSec * decRate`), ensuring bit-perfect continuity across hardware rate changes.
+  4. **Comprehensive Unit Verification:** Added `test_sample_rate_switch_position_continuity_p14()` to `tests/test_engine_api.cpp`. Verified that during active playback across a sample rate switch from $44.1\text{ kHz}$ to $48.0\text{ kHz}$ with a pre-filled decode ring, position delta is exactly $0.000\text{ s}$ (`before = 0.360s`, `after = 0.360s`, $\text{delta} < 0.15\text{ s}$) with uninterrupted playback. All 77 engine API tests pass with 0 failures.
 
 ---
 

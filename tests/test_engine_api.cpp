@@ -517,6 +517,66 @@ static void test_ffmpeg_seek_preroll_p13()
     std::remove(flacPath);
 }
 
+static void test_sample_rate_switch_position_continuity_p14()
+{
+    std::printf("\n== Sample Rate Switch Position Continuity Verification ([C] P1.4) ==\n");
+
+    const char *wavPath = "sr_switch_continuity_test.wav";
+    const int sampleRate = 44100;
+    // 5 seconds of audio so there's plenty of playback headroom
+    CHECK(write_test_wav(wavPath, sampleRate, 5, 0.5f), "test WAV generated (44.1 kHz, 5s)");
+
+    AudioEngineHandle *e = ae_create_engine(44100, 2);
+    CHECK(e != nullptr, "engine created at 44.1 kHz");
+    if (!e)
+    {
+        std::remove(wavPath);
+        return;
+    }
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started");
+
+    // Wait until track has played for at least 0.35s so the producer thread
+    // has filled ~350ms of audio into pcmRingBuffer ahead of the DAC.
+    bool playing = false;
+    double posBefore = 0.0;
+    const auto deadline = Clock::now() + std::chrono::seconds(5);
+    while (Clock::now() < deadline)
+    {
+        const PlayerStatus st = ae_get_status(e);
+        if (st.is_playing && st.position_seconds >= 0.35)
+        {
+            playing = true;
+            posBefore = st.position_seconds;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(playing, "playback reached >= 0.35s with filled decode ring buffer");
+
+    // Switch output sample rate from 44.1 kHz to 48.0 kHz.
+    // This triggers restart_and_apply_config(e), wiping old-rate ring buffer audio.
+    ae_set_output_sample_rate(e, 48000);
+
+    const PlayerStatus stAfter = ae_get_status(e);
+    const double posAfter = stAfter.position_seconds;
+    const double delta = posAfter - posBefore;
+
+    char msg[128];
+    std::snprintf(msg, sizeof(msg), "position preserved seamlessly across rate switch (delta=%.3fs, before=%.3fs, after=%.3fs)",
+                  delta, posBefore, posAfter);
+    // Before fix, delta was ~+0.35s (jumping forward by ~350ms).
+    // With fix, position should be within 0.12s of posBefore (no ~350ms forward skip).
+    CHECK(delta < 0.15 && delta >= -0.05, msg);
+    CHECK(stAfter.is_playing == 1, "playback continues seamlessly after rate switch");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -532,6 +592,7 @@ int main()
     test_compressor_gain_reduction();
     test_crossfade_sample_rate_mismatch_p08();
     test_ffmpeg_seek_preroll_p13();
+    test_sample_rate_switch_position_continuity_p14();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

@@ -10223,8 +10223,35 @@ extern "C"
                 {
                     hadDecoder = true;
                     resumeIndex = e->currentIndex;
-                    (void)ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &resumeFrame);
-                    engine_log("OLD DECODER DESTROY");
+
+                    // P1.4 Fix: In Sautiflow, decode_producer_loop decodes ~350 ms ahead into pcmRingBuffer.
+                    // Calling ma_decoder_get_cursor_in_pcm_frames() returns the producer's read cursor,
+                    // which is ~350 ms ahead of what the DAC actually played. When the old-rate ring buffer
+                    // is wiped below (pcmRingBuffer.reset()), seeking the new decoder to that raw cursor causes
+                    // an audible ~350 ms forward jump.
+                    // Instead, calculate the exact audible position played by the DAC:
+                    const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
+                    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                    ma_uint64 audiblePos = baseFrame + played;
+                    if (e->currentLengthFrames > 0 && audiblePos > e->currentLengthFrames)
+                    {
+                        audiblePos = e->currentLengthFrames;
+                    }
+
+                    ma_uint64 decCursor = 0;
+                    if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &decCursor) == MA_SUCCESS)
+                    {
+                        const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+                        const size_t unplayedFrames = e->pcmRingBuffer.available_read() / ch;
+                        const ma_uint64 cursorMinusRing = (decCursor >= unplayedFrames) ? (decCursor - unplayedFrames) : 0;
+                        resumeFrame = (audiblePos > 0) ? audiblePos : cursorMinusRing;
+                    }
+                    else
+                    {
+                        resumeFrame = audiblePos;
+                    }
+
+                    engine_log("OLD DECODER DESTROY (resumeFrame=%llu audiblePos=%llu)", (unsigned long long)resumeFrame, (unsigned long long)audiblePos);
                     uninit_decoder_slot(
                         e,
                         e->currentDecoder
