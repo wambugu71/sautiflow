@@ -1034,6 +1034,18 @@ class MiniAudioPlayer {
   void setLoudnessNormalizerTarget(double targetLUFS) =>
       _engine.setLoudnessNormalizerTarget(targetLUFS);
 
+  /// Returns true if the live loudness normalizer is currently enabled.
+  bool getLoudnessNormalizerEnabled() =>
+      _engine.getLoudnessNormalizerEnabled();
+
+  /// Returns the loudness normalizer target in LUFS (default -14.0).
+  double getLoudnessNormalizerTarget() =>
+      _engine.getLoudnessNormalizerTarget();
+
+  /// Returns the currently applied normalizer gain in dB.
+  double getLoudnessNormalizerGainDb() =>
+      _engine.getLoudnessNormalizerGainDb();
+
   /// Fetch 4x oversampled True-Peak metrics in dBTP.
   AETruePeakMetrics getTruePeak() => _engine.getTruePeak();
 

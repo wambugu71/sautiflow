@@ -330,6 +330,20 @@ class _AudioEngineDiagnosticPanelState
       limiterDisplay = 'ON (Anti-Clipping)';
     }
 
+    final bool normOn = t['loudnessNormalizerEnabled'] == true;
+    final double normTarget =
+        (t['loudnessNormalizerTarget'] as num?)?.toDouble() ?? -14.0;
+    final double normGainDb =
+        (t['loudnessNormalizerGainDb'] as num?)?.toDouble() ?? 0.0;
+    final bool isAntiClipActive =
+        normOn && (normTarget - (-12.0)).abs() < 0.5 && lookaheadOn;
+    String normDisplay = 'OFF';
+    if (normOn) {
+      final sign = normGainDb >= 0.0 ? '+' : '';
+      normDisplay =
+          'ON (${normTarget.toStringAsFixed(1)} LUFS, $sign${normGainDb.toStringAsFixed(1)} dB)';
+    }
+
     final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
     final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
 
@@ -385,18 +399,6 @@ class _AudioEngineDiagnosticPanelState
             nodeLatencies, totalEndToEndLatencyMs, sumDspSamples),
 
         const SizedBox(height: 16),
-
-        // 2b. Clipping / Distortion Protection Banner
-        if (clippedCount > 0 || truePeakDBTP > -0.1) ...[
-          _buildClippingProtectionBanner(
-            context,
-            clippedCount,
-            truePeakDBTP,
-            lookaheadOn,
-            simpleLimiterOn,
-          ),
-          const SizedBox(height: 16),
-        ],
 
         // 3. Terminal Matrix Display Box (DSP & Telemetry Details)
         Container(
@@ -506,6 +508,40 @@ class _AudioEngineDiagnosticPanelState
                           -0.5),
               _buildTelemetryRow('Loudness (LUFS)',
                   'Mom: ${((t['momentaryLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} / Int: ${((t['integratedLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)}'),
+              _buildTelemetryRow(
+                'Normalizer',
+                normDisplay,
+                isValueActive: normOn,
+                trailing: InkWell(
+                  onTap: () => _toggleNormalizer(normOn, normTarget),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: normOn
+                          ? Colors.cyanAccent.withValues(alpha: 0.15)
+                          : Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: normOn
+                            ? Colors.cyanAccent.withValues(alpha: 0.4)
+                            : Colors.white.withValues(alpha: 0.2),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      normOn ? 'TOGGLE' : 'ENABLE',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: normOn ? Colors.cyanAccent : Colors.white70,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               _buildTelemetryRow('Limiter GR',
                   '${((t['limiterGainReductionDB'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(1)} dB',
                   isValueActive:
@@ -524,7 +560,8 @@ class _AudioEngineDiagnosticPanelState
                 isValueActive: limiterOn,
                 trailing: InkWell(
                   onTap: () => _showLimiterSelectionSheet(
-                      context, lookaheadOn, simpleLimiterOn),
+                      context, lookaheadOn, simpleLimiterOn,
+                      isAntiClipActive: isAntiClipActive),
                   borderRadius: BorderRadius.circular(6),
                   child: Container(
                     padding:
@@ -552,6 +589,41 @@ class _AudioEngineDiagnosticPanelState
                     ),
                   ),
                 ),
+              ),
+              _buildTelemetryRow(
+                'Anti-Clip Guard',
+                isAntiClipActive
+                    ? 'ACTIVE (-12 dB + Look-Ahead)'
+                    : (clippedCount > 0 ? 'RECOMMENDED' : 'INACTIVE'),
+                isValueActive: isAntiClipActive,
+                isWarning: !isAntiClipActive && clippedCount > 0,
+                trailing: !isAntiClipActive
+                    ? InkWell(
+                        onTap: () => _applyAntiClippingNormalizerAndLimiter(),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.amberAccent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.amberAccent.withValues(alpha: 0.4),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: const Text(
+                            'APPLY -12dB',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: Colors.amberAccent,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
               ),
               _buildTelemetryRow(
                 'Clipping',
@@ -593,6 +665,35 @@ class _AudioEngineDiagnosticPanelState
                 '$underrunCount',
                 isValueActive: underrunCount > 0,
                 isWarning: underrunCount > 0,
+              ),
+              const SizedBox(height: 12),
+              const Divider(color: Color(0xFF1B2336), height: 1),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: isAntiClipActive
+                        ? Colors.cyanAccent
+                        : (clippedCount > 0
+                            ? Colors.amberAccent
+                            : Colors.white54),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tip: Enabling Loudness Normalizer at -12 dB + Look-Ahead Limiter guarantees safe dynamic headroom, prevents digital saturation, and eliminates inter-sample clipping.',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: Colors.white.withValues(alpha: 0.65),
+                        fontSize: 10.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1064,6 +1165,64 @@ class _AudioEngineDiagnosticPanelState
     }
   }
 
+  void _applyAntiClippingNormalizerAndLimiter() {
+    widget.player.setLoudnessNormalizerEnabled(true);
+    widget.player.setLoudnessNormalizerTarget(-12.0);
+    AppStateService.instance.saveLoudnessNormalizer(
+      enabled: true,
+      targetLUFS: -12.0,
+    );
+
+    widget.player.setLookaheadLimiterEnabled(true);
+    widget.player.setLookaheadLimiterParams(ceilingDBTP: -1.0);
+    AppStateService.instance.saveLookaheadLimiter(
+      enabled: true,
+      ceilingDBTP: -1.0,
+    );
+
+    widget.player.resetClippedSamplesCount();
+    _fetchTelemetry();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Anti-Clip Guard active: Normalizer @ -12 dB + Look-Ahead Limiter (-1.0 dBTP)',
+          ),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF1E2840),
+        ),
+      );
+    }
+  }
+
+  void _toggleNormalizer(bool currentNormOn, double currentTarget) {
+    final nextState = !currentNormOn;
+    widget.player.setLoudnessNormalizerEnabled(nextState);
+    final target = (currentTarget < -24.0 || currentTarget > -6.0)
+        ? -12.0
+        : currentTarget;
+    widget.player.setLoudnessNormalizerTarget(target);
+    AppStateService.instance.saveLoudnessNormalizer(
+      enabled: nextState,
+      targetLUFS: target,
+    );
+    _fetchTelemetry();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            nextState
+                ? 'Loudness Normalizer enabled (${target.toStringAsFixed(1)} LUFS)'
+                : 'Loudness Normalizer disabled',
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: const Color(0xFF1E2840),
+        ),
+      );
+    }
+  }
+
   void _disableLimiters() {
     widget.player.setLookaheadLimiterEnabled(false);
     widget.player.setLimiterEnabled(false);
@@ -1075,7 +1234,8 @@ class _AudioEngineDiagnosticPanelState
   }
 
   void _showLimiterSelectionSheet(
-      BuildContext context, bool lookaheadOn, bool simpleLimiterOn) {
+      BuildContext context, bool lookaheadOn, bool simpleLimiterOn,
+      {bool isAntiClipActive = false}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F121A),
@@ -1113,6 +1273,39 @@ class _AudioEngineDiagnosticPanelState
                   ],
                 ),
                 const SizedBox(height: 16),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isAntiClipActive
+                          ? Colors.cyanAccent
+                          : const Color(0xFF1E2840),
+                      width: isAntiClipActive ? 1.5 : 1.0,
+                    ),
+                  ),
+                  tileColor: isAntiClipActive
+                      ? Colors.cyanAccent.withValues(alpha: 0.08)
+                      : null,
+                  leading: const Icon(Icons.security_rounded,
+                      color: Colors.cyanAccent),
+                  title: const Text('Anti-Clip Guard (-12 dB + Look-Ahead)',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text(
+                      'Normalizer @ -12 dB LUFS + Look-Ahead Limiter (-1.0 dBTP). Provides 12 dB headroom and catches inter-sample peaks.',
+                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  trailing: isAntiClipActive
+                      ? const Icon(Icons.check_circle_rounded,
+                          color: Colors.cyanAccent)
+                      : null,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _applyAntiClippingNormalizerAndLimiter();
+                  },
+                ),
+                const SizedBox(height: 10),
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -1197,165 +1390,6 @@ class _AudioEngineDiagnosticPanelState
           ),
         );
       },
-    );
-  }
-
-  Widget _buildClippingProtectionBanner(
-    BuildContext context,
-    int clippedCount,
-    double truePeakDBTP,
-    bool lookaheadOn,
-    bool simpleLimiterOn,
-  ) {
-    final bool isSevere = clippedCount > 50 || truePeakDBTP > 0.5;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isSevere
-            ? const Color(0xFF280B0F).withValues(alpha: 0.92)
-            : const Color(0xFF231B0A).withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSevere
-              ? Colors.redAccent.withValues(alpha: 0.6)
-              : Colors.amberAccent.withValues(alpha: 0.6),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: (isSevere ? Colors.redAccent : Colors.amberAccent)
-                .withValues(alpha: 0.15),
-            blurRadius: 16,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: (isSevere ? Colors.redAccent : Colors.amberAccent)
-                      .withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: isSevere ? Colors.redAccent : Colors.amberAccent,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Clipping & Distortion Detected',
-                      style: TextStyle(
-                        color: isSevere ? Colors.redAccent : Colors.amberAccent,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$clippedCount clipped samples' +
-                          (truePeakDBTP > -90.0
-                              ? ' · True-Peak: ${truePeakDBTP.toStringAsFixed(1)} dBTP'
-                              : ''),
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                tooltip: 'Clear clipping count',
-                color: Colors.white70,
-                onPressed: () {
-                  widget.player.resetClippedSamplesCount();
-                  _fetchTelemetry();
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'The audio signal exceeded full-scale digital ceiling (0 dBFS / ±1.0). Engage a safety limiter to cap peaks and eliminate harsh harmonic distortion.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.7),
-              fontSize: 11,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: () => _enableLookaheadLimiter(),
-                icon: const Icon(Icons.speed_rounded, size: 15),
-                label: Text(
-                  lookaheadOn
-                      ? 'Look-Ahead Limiter (Active)'
-                      : 'Limit with Look-Ahead',
-                  style: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: lookaheadOn
-                      ? Colors.cyanAccent.withValues(alpha: 0.25)
-                      : Colors.cyanAccent,
-                  foregroundColor:
-                      lookaheadOn ? Colors.cyanAccent : Colors.black,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: lookaheadOn
-                        ? const BorderSide(color: Colors.cyanAccent)
-                        : BorderSide.none,
-                  ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _enableAntiClippingLimiter(),
-                icon: const Icon(Icons.compress_rounded, size: 15),
-                label: Text(
-                  simpleLimiterOn
-                      ? 'Anti-Clipping (Active)'
-                      : 'Limit with Anti-Clipping',
-                  style: const TextStyle(fontSize: 11),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(
-                    color: simpleLimiterOn
-                        ? Colors.greenAccent
-                        : Colors.white.withValues(alpha: 0.3),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 

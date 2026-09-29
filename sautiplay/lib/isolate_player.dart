@@ -2367,6 +2367,10 @@ void _isolateEntry(_IsolateInitData initData) {
               'limiterGainReductionDB': qt.limiterGainReductionDB,
               'crestFactorDB': qt.crestFactorDB,
               'underrunCount': qt.underrunCount,
+              'loudnessNormalizerEnabled':
+                  player.getLoudnessNormalizerEnabled(),
+              'loudnessNormalizerTarget': player.getLoudnessNormalizerTarget(),
+              'loudnessNormalizerGainDb': player.getLoudnessNormalizerGainDb(),
               'streamState': st.state.name,
               'streamBufferedDurationMs': st.bufferedDuration.inMilliseconds,
               'streamTotalDurationMs': st.totalDuration.inMilliseconds,
