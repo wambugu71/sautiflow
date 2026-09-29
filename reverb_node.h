@@ -94,7 +94,7 @@ public:
 
     void setWidth(float w)
     {
-        targetWidth = std::max(0.0f, std::min(w, 1.0f));
+        targetWidth = std::max(0.0f, std::min(w, 2.0f));
     }
 
     float getWet() const { return targetWet; }
@@ -184,11 +184,11 @@ public:
         const float lfoInc1 = (float)(2.0 * M_PI * 0.73 / sampleRate);
         const float lfoInc2 = (float)(2.0 * M_PI * 0.91 / sampleRate);
 
-        // Pre-filter coefficients (Abbey Road: 160 Hz HPF + 7.5 kHz LPF)
-        const float wHp = (float)(2.0 * M_PI * 160.0 / sampleRate);
+        // Pre-filter coefficients (80 Hz HPF + 15 kHz LPF to cut subsonic rumble & ultrasonic digital glare without choking presence)
+        const float wHp = (float)(2.0 * M_PI * 80.0 / sampleRate);
         const float alphaHp = 1.0f / (1.0f + wHp);
 
-        const float wLp = (float)(2.0 * M_PI * 7500.0 / sampleRate);
+        const float wLp = (float)(2.0 * M_PI * 15000.0 / sampleRate);
         const float alphaLp = wLp / (1.0f + wLp);
 
         // Modulated allpass excursion in samples scaled by sample rate
@@ -204,15 +204,24 @@ public:
             currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
             currentWidth += alphaSmooth * (targetWidth - currentWidth);
 
-            // Decay calculation from room size (RT60 mapped from 0.5s to 16s)
-            const float decay = 0.35f + currentRoomSize * 0.63f; // 0.35 .. 0.98
+            // Perceptually smooth mapping of Room Size (0.0 .. 1.0) to physically accurate RT60 (0.35s .. 14.0s)
+            // RoomSize 0.0 -> 0.35s (tight vocal/studio booth)
+            // RoomSize 0.3 -> ~0.95s (small live room / club)
+            // RoomSize 0.5 -> ~2.2s (concert hall / studio plate)
+            // RoomSize 0.7 -> ~4.6s (spacious cathedral)
+            // RoomSize 1.0 -> 14.0s (infinite ambient wash)
+            const float targetRT60 = 0.35f * std::pow(40.0f, currentRoomSize);
+            // Dattorro figure-8 tank loop delay T_loop is ~0.7254s. In one round-trip, gain is decay^2.
+            // RT60 = -60 dB (gain drops to 0.001) -> decay = 10^(-1.0881 / RT60)
+            const float decay = std::min(0.985f, std::pow(10.0f, -1.0881f / targetRT60));
 
             // Frequency-dependent damping filter cutoff:
-            // 0.0 damping -> ~16.0 kHz cutoff (airy, bright)
-            // 0.5 damping -> ~4.9 kHz cutoff (natural acoustic room)
-            // 1.0 damping -> ~1.5 kHz cutoff (warm, plush, dark hall)
-            const float dampHz = 16000.0f * std::pow(0.09375f, currentDamping);
-            const float wDamp = std::min(1.5f, (float)(2.0 * M_PI * dampHz / sampleRate));
+            // 0.0 damping -> ~18.0 kHz cutoff (crystal-clear airy shimmer)
+            // 0.5 damping -> ~4.5 kHz cutoff (natural acoustic room absorption)
+            // 1.0 damping -> ~1.2 kHz cutoff (warm, plush, dark space)
+            const float dampHz = 18000.0f * std::pow(0.0667f, currentDamping);
+            const float nyquistSafe = (float)(M_PI * 0.95);
+            const float wDamp = std::min(nyquistSafe, (float)(2.0 * M_PI * dampHz / sampleRate));
             const float dampCoeff = 1.0f - std::exp(-wDamp);
 
             const size_t base = (size_t)i * (size_t)channels;
@@ -335,7 +344,7 @@ public:
             // 6. Stereo Width Processing (Mid/Side Matrix)
             const float mid = (outL + outR) * 0.5f;
             const float side = (outL - outR) * 0.5f;
-            const float sideGain = currentWidth * 1.35f;
+            const float sideGain = currentWidth; // 1.0 = true neutral stereo; 0.0 = mono; > 1.0 = widened
 
             const float wetL = mid + side * sideGain;
             const float wetR = mid - side * sideGain;
@@ -417,9 +426,10 @@ private:
     class AllpassFilter
     {
     public:
-        void init(size_t delayLen, float feedbackGain)
+        void init(size_t delayLen, float feedbackGain, size_t maxModExcursion = 0)
         {
-            delay.resize(delayLen);
+            nominalDelay = (float)delayLen;
+            delay.resize(delayLen + maxModExcursion + 4);
             gain = feedbackGain;
         }
 
@@ -443,8 +453,9 @@ private:
 
         float processModulated(float input, float modSamples)
         {
-            const float nominalDelay = (float)(delay.size() - 1);
-            const float readPos = std::max(0.0f, std::min(nominalDelay + modSamples, nominalDelay));
+            // Smooth symmetric bidirectional modulation around nominal center delay D_nom
+            const float maxDelay = (float)(delay.size() - 2);
+            const float readPos = std::max(1.0f, std::min(nominalDelay + modSamples, maxDelay));
             const float bufOut = delay.readInterpolated(readPos);
             const float output = -gain * input + bufOut;
             delay.write(flushDenormal(input + gain * output));
@@ -453,6 +464,7 @@ private:
 
     private:
         DelayLine delay;
+        float nominalDelay = 0.0f;
         float gain = 0.5f;
     };
 
@@ -487,14 +499,15 @@ private:
         diffusers[1][3].init(scaleSamples(283.0f, rate), 0.625f);
 
         // 3. Tank 1 (Modulated AP 672, Delay 4453, AP 1800, Delay 3720)
-        // Extra margin added to modulated allpass for LFO excursion
-        tank1_modAp.init(scaleSamples(672.0f + 24.0f, rate), 0.70f);
+        // Extra margin allocated to modulated allpass for symmetric LFO excursion
+        const size_t maxExcursion = scaleSamples(32.0f, rate);
+        tank1_modAp.init(scaleSamples(672.0f, rate), 0.70f, maxExcursion);
         tank1_del1.resize(scaleSamples(4453.0f, rate));
         tank1_ap2.init(scaleSamples(1800.0f, rate), 0.50f);
         tank1_del2.resize(scaleSamples(3720.0f, rate));
 
         // 4. Tank 2 (Modulated AP 908, Delay 4217, AP 2656, Delay 3163)
-        tank2_modAp.init(scaleSamples(908.0f + 24.0f, rate), 0.70f);
+        tank2_modAp.init(scaleSamples(908.0f, rate), 0.70f, maxExcursion);
         tank2_del1.resize(scaleSamples(4217.0f, rate));
         tank2_ap2.init(scaleSamples(2656.0f, rate), 0.50f);
         tank2_del2.resize(scaleSamples(3163.0f, rate));

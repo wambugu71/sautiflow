@@ -944,55 +944,55 @@ class _EqScreenState extends State<EqScreen>
       name: 'Small Room',
       wet: 0.16,
       dry: 1.0,
-      roomSize: 0.30,
+      roomSize: 0.20,
       damping: 0.55,
-      preDelayMs: 4.0,
-      width: 0.85
+      preDelayMs: 6.0,
+      width: 0.90
     ),
     (
       name: 'Live Club',
-      wet: 0.20,
-      dry: 0.98,
-      roomSize: 0.45,
+      wet: 0.18,
+      dry: 1.0,
+      roomSize: 0.36,
       damping: 0.45,
-      preDelayMs: 8.0,
+      preDelayMs: 12.0,
       width: 0.95
-    ),
-    (
-      name: 'Concert Hall',
-      wet: 0.22,
-      dry: 0.95,
-      roomSize: 0.70,
-      damping: 0.35,
-      preDelayMs: 14.0,
-      width: 1.0
-    ),
-    (
-      name: 'Cathedral',
-      wet: 0.26,
-      dry: 0.92,
-      roomSize: 0.88,
-      damping: 0.25,
-      preDelayMs: 20.0,
-      width: 1.0
     ),
     (
       name: 'Studio Plate',
       wet: 0.20,
       dry: 1.0,
-      roomSize: 0.55,
-      damping: 0.15,
+      roomSize: 0.48,
+      damping: 0.12,
       preDelayMs: 2.0,
+      width: 1.0
+    ),
+    (
+      name: 'Concert Hall',
+      wet: 0.22,
+      dry: 0.95,
+      roomSize: 0.60,
+      damping: 0.35,
+      preDelayMs: 20.0,
+      width: 1.0
+    ),
+    (
+      name: 'Cathedral',
+      wet: 0.25,
+      dry: 0.90,
+      roomSize: 0.80,
+      damping: 0.22,
+      preDelayMs: 35.0,
       width: 1.0
     ),
     (
       name: 'Ambient Drift',
       wet: 0.30,
       dry: 0.85,
-      roomSize: 0.92,
-      damping: 0.12,
-      preDelayMs: 25.0,
-      width: 1.0
+      roomSize: 0.94,
+      damping: 0.08,
+      preDelayMs: 40.0,
+      width: 1.15
     ),
   ];
 
