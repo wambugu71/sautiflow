@@ -1037,6 +1037,20 @@ class MiniAudioPlayer {
   /// Fetch 4x oversampled True-Peak metrics in dBTP.
   AETruePeakMetrics getTruePeak() => _engine.getTruePeak();
 
+  /// Enable or disable BS.1770 live loudness metering.
+  void setLoudnessMeterEnabled(bool enabled) =>
+      _engine.setLoudnessMeterEnabled(enabled);
+
+  /// Whether BS.1770 live loudness metering is enabled.
+  bool getLoudnessMeterEnabled() => _engine.getLoudnessMeterEnabled();
+
+  /// Enable or disable True-Peak inter-sample peak metering.
+  void setTruePeakMeterEnabled(bool enabled) =>
+      _engine.setTruePeakMeterEnabled(enabled);
+
+  /// Whether True-Peak inter-sample peak metering is enabled.
+  bool getTruePeakMeterEnabled() => _engine.getTruePeakMeterEnabled();
+
   /// Whether the Look-Ahead True-Peak Limiter is currently enabled.
   bool get isLookaheadLimiterEnabled => _engine.isLookaheadLimiterEnabled;
 

@@ -3551,7 +3551,7 @@ struct AudioEngineHandle
     // Dynamic Range Compressor
     bool compressorEnabled = false;
     CompressorState compressor;
-    std::atomic<bool> clippingDetectionEnabled{false};
+    std::atomic<bool> clippingDetectionEnabled{true};
     std::atomic<uint64_t> clippedSamplesCount{0};
     // Realtime callback starvation counter (previously hardcoded to 0).
     std::atomic<uint64_t> underrunCount{0};
@@ -7834,7 +7834,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 for (size_t i = 0; i < numSamplesCheck; ++i)
                 {
-                    if (buf64[i] > 1.0 || buf64[i] < -1.0)
+                    if (buf64[i] >= 1.0 || buf64[i] <= -1.0)
                     {
                         clippedCountLocal++;
                     }
@@ -7844,7 +7844,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 for (size_t i = 0; i < numSamplesCheck; ++i)
                 {
-                    if (processBuffer[i] > 1.0f || processBuffer[i] < -1.0f)
+                    if (processBuffer[i] >= 1.0f || processBuffer[i] <= -1.0f)
                     {
                         clippedCountLocal++;
                     }

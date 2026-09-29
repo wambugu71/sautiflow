@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:material_3_expressive/components/progress_indicators/m3e_progress_indicators.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/isolate_player.dart';
+import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
@@ -63,6 +64,10 @@ class _AudioEngineDiagnosticPanelState
       }
     });
 
+    widget.player.setClippingDetectionEnabled(true);
+    widget.player.setTruePeakMeterEnabled(true);
+    widget.player.setLoudnessMeterEnabled(true);
+
     _fetchTelemetry();
     _telemetryTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       _fetchTelemetry();
@@ -73,6 +78,8 @@ class _AudioEngineDiagnosticPanelState
   void dispose() {
     _telemetryTimer?.cancel();
     _hardwareSub?.cancel();
+    widget.player.setTruePeakMeterEnabled(false);
+    widget.player.setLoudnessMeterEnabled(false);
     super.dispose();
   }
 
@@ -310,7 +317,19 @@ class _AudioEngineDiagnosticPanelState
     final String crossfeedAlgo =
         _formatCrossfeedAlgo(t['crossfeedAlgo']?.toString(), crossfeedMix);
     final bool sautiDspOn = t['sautiDspEnabled'] == true;
-    final bool limiterOn = t['limiterEnabled'] == true;
+    final bool lookaheadOn = t['lookaheadLimiterEnabled'] == true;
+    final bool simpleLimiterOn = t['simpleLimiterEnabled'] == true ||
+        (t['limiterEnabled'] == true && !lookaheadOn);
+    final bool limiterOn = lookaheadOn || simpleLimiterOn;
+    String limiterDisplay = 'OFF';
+    if (lookaheadOn && simpleLimiterOn) {
+      limiterDisplay = 'ON (Dual Limiter)';
+    } else if (lookaheadOn) {
+      limiterDisplay = 'ON (Look-Ahead)';
+    } else if (simpleLimiterOn) {
+      limiterDisplay = 'ON (Anti-Clipping)';
+    }
+
     final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
     final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
 
@@ -345,6 +364,9 @@ class _AudioEngineDiagnosticPanelState
         (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs;
     final double totalEndToEndLatencyMs = hwLatencyMs + sumDspMs;
     final int clippedCount = t['clippedCount'] as int? ?? 0;
+    final int underrunCount = t['underrunCount'] as int? ?? 0;
+    final double truePeakDBTP =
+        (t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0;
 
     final bool isSrcActive = (srcRate != dacRate);
     final String resamplerAlgo =
@@ -363,6 +385,18 @@ class _AudioEngineDiagnosticPanelState
             nodeLatencies, totalEndToEndLatencyMs, sumDspSamples),
 
         const SizedBox(height: 16),
+
+        // 2b. Clipping / Distortion Protection Banner
+        if (clippedCount > 0 || truePeakDBTP > -0.1) ...[
+          _buildClippingProtectionBanner(
+            context,
+            clippedCount,
+            truePeakDBTP,
+            lookaheadOn,
+            simpleLimiterOn,
+          ),
+          const SizedBox(height: 16),
+        ],
 
         // 3. Terminal Matrix Display Box (DSP & Telemetry Details)
         Container(
@@ -484,11 +518,82 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive: crossfeedAlgo != 'OFF'),
               _buildTelemetryRow('Sauti DSP', sautiDspOn ? 'ON' : 'OFF',
                   isValueActive: sautiDspOn),
-              _buildTelemetryRow('Limiter', limiterOn ? 'ON' : 'OFF',
-                  isValueActive: limiterOn),
-              _buildTelemetryRow('Clipping', '$clippedCount samples',
-                  isWarning: clippedCount > 0),
-              _buildTelemetryRow('Underruns', '0', isValueActive: false),
+              _buildTelemetryRow(
+                'Limiter',
+                limiterDisplay,
+                isValueActive: limiterOn,
+                trailing: InkWell(
+                  onTap: () => _showLimiterSelectionSheet(
+                      context, lookaheadOn, simpleLimiterOn),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: limiterOn
+                          ? Colors.cyanAccent.withValues(alpha: 0.15)
+                          : Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: limiterOn
+                            ? Colors.cyanAccent.withValues(alpha: 0.4)
+                            : Colors.white.withValues(alpha: 0.2),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      limiterOn ? 'CONFIG' : 'ENABLE',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: limiterOn ? Colors.cyanAccent : Colors.white70,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              _buildTelemetryRow(
+                'Clipping',
+                '$clippedCount samples',
+                isWarning: clippedCount > 0,
+                trailing: clippedCount > 0
+                    ? InkWell(
+                        onTap: () {
+                          widget.player.resetClippedSamplesCount();
+                          _fetchTelemetry();
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.redAccent.withValues(alpha: 0.5),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: const Text(
+                            'RESET',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: Colors.redAccent,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+              _buildTelemetryRow(
+                'Underruns',
+                '$underrunCount',
+                isValueActive: underrunCount > 0,
+                isWarning: underrunCount > 0,
+              ),
             ],
           ),
         ),
@@ -865,8 +970,13 @@ class _AudioEngineDiagnosticPanelState
     );
   }
 
-  Widget _buildTelemetryRow(String label, String value,
-      {bool isValueActive = false, bool isWarning = false}) {
+  Widget _buildTelemetryRow(
+    String label,
+    String value, {
+    bool isValueActive = false,
+    bool isWarning = false,
+    Widget? trailing,
+  }) {
     Color valColor = Colors.white;
     if (isWarning) {
       valColor = Colors.redAccent;
@@ -888,16 +998,361 @@ class _AudioEngineDiagnosticPanelState
             ),
           ),
           Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                color: valColor,
-                fontWeight: isValueActive ? FontWeight.bold : FontWeight.normal,
-                fontSize: 12,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      color: valColor,
+                      fontWeight:
+                          isValueActive ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 8),
+                  trailing,
+                ],
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _enableLookaheadLimiter() {
+    widget.player.setLookaheadLimiterEnabled(true);
+    widget.player.setLookaheadLimiterParams(ceilingDBTP: -1.0);
+    AppStateService.instance
+        .saveLookaheadLimiter(enabled: true, ceilingDBTP: -1.0);
+    widget.player.resetClippedSamplesCount();
+    _fetchTelemetry();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Look-Ahead True-Peak Limiter (-1.0 dBTP) activated'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF1E2840),
+        ),
+      );
+    }
+  }
+
+  void _enableAntiClippingLimiter() {
+    widget.player.setLimiterEnabled(true);
+    widget.player
+        .setLimiterParams(threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
+    AppStateService.instance.saveLimiter(
+        enabled: true, threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
+    widget.player.resetClippedSamplesCount();
+    _fetchTelemetry();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anti-Clipping Limiter (95% ceiling) activated'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF1E2840),
+        ),
+      );
+    }
+  }
+
+  void _disableLimiters() {
+    widget.player.setLookaheadLimiterEnabled(false);
+    widget.player.setLimiterEnabled(false);
+    AppStateService.instance
+        .saveLookaheadLimiter(enabled: false, ceilingDBTP: -1.0);
+    AppStateService.instance.saveLimiter(
+        enabled: false, threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
+    _fetchTelemetry();
+  }
+
+  void _showLimiterSelectionSheet(
+      BuildContext context, bool lookaheadOn, bool simpleLimiterOn) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F121A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.cyanAccent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.shield_rounded,
+                          color: Colors.cyanAccent, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Limiter & Anti-Clipping Setup',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: lookaheadOn
+                          ? Colors.cyanAccent
+                          : const Color(0xFF1E2840),
+                    ),
+                  ),
+                  leading:
+                      const Icon(Icons.speed_rounded, color: Colors.cyanAccent),
+                  title: const Text('Look-Ahead True-Peak Limiter',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text(
+                      'True-peak brickwall limiting at -1.0 dBTP. Eliminates inter-sample clipping.',
+                      style: TextStyle(color: Colors.white60, fontSize: 12)),
+                  trailing: lookaheadOn
+                      ? const Icon(Icons.check_circle_rounded,
+                          color: Colors.cyanAccent)
+                      : null,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _enableLookaheadLimiter();
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: simpleLimiterOn
+                          ? Colors.greenAccent
+                          : const Color(0xFF1E2840),
+                    ),
+                  ),
+                  leading:
+                      const Icon(Icons.compress_rounded, color: Colors.greenAccent),
+                  title: const Text('Anti-Clipping Limiter',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text(
+                      'Fast dynamic peak suppression at 95% threshold (2ms attack / 50ms release).',
+                      style: TextStyle(color: Colors.white60, fontSize: 12)),
+                  trailing: simpleLimiterOn
+                      ? const Icon(Icons.check_circle_rounded,
+                          color: Colors.greenAccent)
+                      : null,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _enableAntiClippingLimiter();
+                  },
+                ),
+                if (lookaheadOn || simpleLimiterOn) ...[
+                  const SizedBox(height: 10),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Color(0xFF2A1515)),
+                    ),
+                    leading: const Icon(Icons.power_settings_new_rounded,
+                        color: Colors.redAccent),
+                    title: const Text('Disable All Limiters',
+                        style: TextStyle(color: Colors.redAccent)),
+                    subtitle: const Text(
+                        'Unprotected output. High volumes or EQ boosts can cause digital clipping.',
+                        style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _disableLimiters();
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildClippingProtectionBanner(
+    BuildContext context,
+    int clippedCount,
+    double truePeakDBTP,
+    bool lookaheadOn,
+    bool simpleLimiterOn,
+  ) {
+    final bool isSevere = clippedCount > 50 || truePeakDBTP > 0.5;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isSevere
+            ? const Color(0xFF280B0F).withValues(alpha: 0.92)
+            : const Color(0xFF231B0A).withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isSevere
+              ? Colors.redAccent.withValues(alpha: 0.6)
+              : Colors.amberAccent.withValues(alpha: 0.6),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (isSevere ? Colors.redAccent : Colors.amberAccent)
+                .withValues(alpha: 0.15),
+            blurRadius: 16,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (isSevere ? Colors.redAccent : Colors.amberAccent)
+                      .withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: isSevere ? Colors.redAccent : Colors.amberAccent,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Clipping & Distortion Detected',
+                      style: TextStyle(
+                        color: isSevere ? Colors.redAccent : Colors.amberAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$clippedCount clipped samples' +
+                          (truePeakDBTP > -90.0
+                              ? ' · True-Peak: ${truePeakDBTP.toStringAsFixed(1)} dBTP'
+                              : ''),
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                tooltip: 'Clear clipping count',
+                color: Colors.white70,
+                onPressed: () {
+                  widget.player.resetClippedSamplesCount();
+                  _fetchTelemetry();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'The audio signal exceeded full-scale digital ceiling (0 dBFS / ±1.0). Engage a safety limiter to cap peaks and eliminate harsh harmonic distortion.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _enableLookaheadLimiter(),
+                icon: const Icon(Icons.speed_rounded, size: 15),
+                label: Text(
+                  lookaheadOn
+                      ? 'Look-Ahead Limiter (Active)'
+                      : 'Limit with Look-Ahead',
+                  style: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: lookaheadOn
+                      ? Colors.cyanAccent.withValues(alpha: 0.25)
+                      : Colors.cyanAccent,
+                  foregroundColor:
+                      lookaheadOn ? Colors.cyanAccent : Colors.black,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: lookaheadOn
+                        ? const BorderSide(color: Colors.cyanAccent)
+                        : BorderSide.none,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _enableAntiClippingLimiter(),
+                icon: const Icon(Icons.compress_rounded, size: 15),
+                label: Text(
+                  simpleLimiterOn
+                      ? 'Anti-Clipping (Active)'
+                      : 'Limit with Anti-Clipping',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(
+                    color: simpleLimiterOn
+                        ? Colors.greenAccent
+                        : Colors.white.withValues(alpha: 0.3),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

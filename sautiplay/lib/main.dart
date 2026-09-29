@@ -661,6 +661,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _player.setLoudnessNormalizerTarget(loudnessSaved.targetLUFS);
     _player.setLookaheadLimiterEnabled(lookaheadSaved.enabled);
     _player.setLookaheadLimiterParams(ceilingDBTP: lookaheadSaved.ceilingDBTP);
+    _player.setClippingDetectionEnabled(true);
     _player.setPhaseInversion(
       invertLeft: phaseSaved.invertLeft,
       invertRight: phaseSaved.invertRight,

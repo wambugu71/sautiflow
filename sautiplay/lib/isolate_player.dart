@@ -558,6 +558,12 @@ class IsolateAudioPlayer {
 
   void resetLoudnessMeter() => _send({'cmd': 'resetLoudnessMeter'});
 
+  void setLoudnessMeterEnabled(bool enabled) =>
+      _send({'cmd': 'setLoudnessMeterEnabled', 'enabled': enabled});
+
+  void setTruePeakMeterEnabled(bool enabled) =>
+      _send({'cmd': 'setTruePeakMeterEnabled', 'enabled': enabled});
+
   void setLookaheadLimiterEnabled(bool enabled) =>
       _send({'cmd': 'setLookaheadLimiterEnabled', 'enabled': enabled});
 
@@ -2128,6 +2134,12 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'resetLoudnessMeter':
           player.resetLoudnessMeter();
           break;
+        case 'setLoudnessMeterEnabled':
+          player.setLoudnessMeterEnabled(message['enabled'] == true);
+          break;
+        case 'setTruePeakMeterEnabled':
+          player.setTruePeakMeterEnabled(message['enabled'] == true);
+          break;
         case 'setLookaheadLimiterEnabled':
           player.setLookaheadLimiterEnabled(message['enabled'] == true);
           break;
@@ -2321,7 +2333,9 @@ void _isolateEntry(_IsolateInitData initData) {
               'outputChannels': ps.outputChannels,
               'eqEnabled': ps.eqEnabled,
               'reverbEnabled': ps.reverbEnabled,
-              'limiterEnabled': ps.limiterEnabled,
+              'limiterEnabled': ps.limiterEnabled || player.isLookaheadLimiterEnabled,
+              'lookaheadLimiterEnabled': player.isLookaheadLimiterEnabled,
+              'simpleLimiterEnabled': ps.limiterEnabled,
               'stereoWidenEnabled': ps.stereoWidenEnabled,
               'stereoEnhancementEnabled': ps.stereoEnhancementEnabled,
               'spatializationEnabled': ps.spatializationEnabled,
@@ -2345,12 +2359,14 @@ void _isolateEntry(_IsolateInitData initData) {
               'crossfeedComp': crossfeedParams.outputCompensation,
               'sautiDspEnabled': dspOn,
               'truePeakDBTP': qt.truePeakDBTP,
+              'samplePeakDB': qt.samplePeakDB,
               'momentaryLUFS': qt.momentaryLUFS,
               'shortTermLUFS': qt.shortTermLUFS,
               'integratedLUFS': qt.integratedLUFS,
               'loudnessRangeLRA': qt.loudnessRangeLRA,
               'limiterGainReductionDB': qt.limiterGainReductionDB,
               'crestFactorDB': qt.crestFactorDB,
+              'underrunCount': qt.underrunCount,
               'streamState': st.state.name,
               'streamBufferedDurationMs': st.bufferedDuration.inMilliseconds,
               'streamTotalDurationMs': st.totalDuration.inMilliseconds,

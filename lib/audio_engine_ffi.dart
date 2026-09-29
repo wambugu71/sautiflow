@@ -1492,6 +1492,26 @@ typedef _GetLoudnessMetricsDart = AELoudnessMetricsNative Function(
 typedef _ResetLoudnessMeterNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _ResetLoudnessMeterDart = void Function(ffi.Pointer<ffi.Void>);
 
+typedef _SetLoudnessMeterEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetLoudnessMeterEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetLoudnessMeterEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetLoudnessMeterEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetTruePeakMeterEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetTruePeakMeterEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetTruePeakMeterEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetTruePeakMeterEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
 typedef _SetLoudnessNormalizerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetLoudnessNormalizerEnabledDart = void Function(
@@ -2767,6 +2787,12 @@ class AudioEngineFFI {
           _GetLoudnessMetricsDart>('ae_get_loudness_metrics');
       _resetLoudnessMeter = _lib.lookupFunction<_ResetLoudnessMeterNative,
           _ResetLoudnessMeterDart>('ae_reset_loudness_meter');
+      _setLoudnessMeterEnabled = _lib.lookupFunction<
+          _SetLoudnessMeterEnabledNative,
+          _SetLoudnessMeterEnabledDart>('ae_set_loudness_meter_enabled');
+      _getLoudnessMeterEnabled = _lib.lookupFunction<
+          _GetLoudnessMeterEnabledNative,
+          _GetLoudnessMeterEnabledDart>('ae_get_loudness_meter_enabled');
       _setLoudnessNormalizerEnabled = _lib.lookupFunction<
               _SetLoudnessNormalizerEnabledNative,
               _SetLoudnessNormalizerEnabledDart>(
@@ -2787,6 +2813,12 @@ class AudioEngineFFI {
               _GetLoudnessNormalizerGainDbNative,
               _GetLoudnessNormalizerGainDbDart>(
           'ae_get_loudness_normalizer_gain_db');
+      _setTruePeakMeterEnabled = _lib.lookupFunction<
+          _SetTruePeakMeterEnabledNative,
+          _SetTruePeakMeterEnabledDart>('ae_set_true_peak_meter_enabled');
+      _getTruePeakMeterEnabled = _lib.lookupFunction<
+          _GetTruePeakMeterEnabledNative,
+          _GetTruePeakMeterEnabledDart>('ae_get_true_peak_meter_enabled');
       _getTruePeak = _lib.lookupFunction<_GetTruePeakNative, _GetTruePeakDart>(
           'ae_get_true_peak');
       _setLookaheadLimiterEnabled = _lib.lookupFunction<
@@ -2807,11 +2839,15 @@ class AudioEngineFFI {
     } catch (_) {
       _getLoudnessMetrics = null;
       _resetLoudnessMeter = null;
+      _setLoudnessMeterEnabled = null;
+      _getLoudnessMeterEnabled = null;
       _setLoudnessNormalizerEnabled = null;
       _setLoudnessNormalizerTarget = null;
       _getLoudnessNormalizerEnabled = null;
       _getLoudnessNormalizerTarget = null;
       _getLoudnessNormalizerGainDb = null;
+      _setTruePeakMeterEnabled = null;
+      _getTruePeakMeterEnabled = null;
       _getTruePeak = null;
       _setLookaheadLimiterEnabled = null;
       _setLookaheadLimiterParams = null;
@@ -3092,11 +3128,15 @@ class AudioEngineFFI {
   // Release 1 Quality Foundation Lookups
   _GetLoudnessMetricsDart? _getLoudnessMetrics;
   _ResetLoudnessMeterDart? _resetLoudnessMeter;
+  _SetLoudnessMeterEnabledDart? _setLoudnessMeterEnabled;
+  _GetLoudnessMeterEnabledDart? _getLoudnessMeterEnabled;
   _SetLoudnessNormalizerEnabledDart? _setLoudnessNormalizerEnabled;
   _SetLoudnessNormalizerTargetDart? _setLoudnessNormalizerTarget;
   _GetLoudnessNormalizerEnabledDart? _getLoudnessNormalizerEnabled;
   _GetLoudnessNormalizerTargetDart? _getLoudnessNormalizerTarget;
   _GetLoudnessNormalizerGainDbDart? _getLoudnessNormalizerGainDb;
+  _SetTruePeakMeterEnabledDart? _setTruePeakMeterEnabled;
+  _GetTruePeakMeterEnabledDart? _getTruePeakMeterEnabled;
   _GetTruePeakDart? _getTruePeak;
   _SetLookaheadLimiterEnabledDart? _setLookaheadLimiterEnabled;
   _SetLookaheadLimiterParamsDart? _setLookaheadLimiterParams;
@@ -4749,6 +4789,36 @@ class AudioEngineFFI {
     }
     final native = _getTruePeak!(_engine);
     return AETruePeakMetrics.fromNative(native);
+  }
+
+  /// Enable or disable BS.1770 live loudness metering.
+  void setLoudnessMeterEnabled(bool enabled) {
+    if (_setLoudnessMeterEnabled != null && _engine != ffi.nullptr) {
+      _setLoudnessMeterEnabled!(_engine, enabled ? 1 : 0);
+    }
+  }
+
+  /// Returns true if BS.1770 live loudness metering is enabled.
+  bool getLoudnessMeterEnabled() {
+    if (_getLoudnessMeterEnabled == null || _engine == ffi.nullptr) {
+      return false;
+    }
+    return _getLoudnessMeterEnabled!(_engine) != 0;
+  }
+
+  /// Enable or disable True-Peak inter-sample peak metering.
+  void setTruePeakMeterEnabled(bool enabled) {
+    if (_setTruePeakMeterEnabled != null && _engine != ffi.nullptr) {
+      _setTruePeakMeterEnabled!(_engine, enabled ? 1 : 0);
+    }
+  }
+
+  /// Returns true if True-Peak inter-sample peak metering is enabled.
+  bool getTruePeakMeterEnabled() {
+    if (_getTruePeakMeterEnabled == null || _engine == ffi.nullptr) {
+      return false;
+    }
+    return _getTruePeakMeterEnabled!(_engine) != 0;
   }
 
   bool _lookaheadLimiterEnabled = false;
