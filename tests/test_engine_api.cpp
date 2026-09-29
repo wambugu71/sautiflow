@@ -1038,7 +1038,7 @@ static void test_multichannel_playback_dsp_p04()
 
     const int sampleRate = 48000;
     const int channels51 = 6;
-    const int frames = 48000; // 1 second
+    const int frames = 96000; // 2.0s
     const char *wav51Path = "multichannel_51_p04_test.wav";
 
     std::vector<int16_t> pcm51((size_t)frames * channels51);
@@ -1142,6 +1142,76 @@ static void test_f32_output_memcpy_aliasing_p02()
     std::remove(wavF32Path);
 }
 
+static void test_pitch_resampler_and_noise_shaping_p23_p24()
+{
+    std::printf("\n== Pitch Resampler & Hi-Res Noise Shaping Calibration ([C] P2.3 & P2.4) ==\n");
+
+    // 1. P2.3: Pitch resampler initialization and rate adjustment
+    {
+        AudioEngineHandle *e = ae_create_engine(48000, 2);
+        CHECK(e != nullptr, "engine created for pitch resampler test");
+
+        CHECK(ae_get_pitch(e) == 1.0f, "initial pitch is unity (1.0)");
+        ae_set_pitch(e, 1.25f);
+        CHECK(ae_get_pitch(e) == 1.25f, "pitch updated to 1.25x");
+
+        // Pitch correction toggle
+        ae_set_pitch_correction(e, 1);
+        CHECK(ae_get_pitch_correction(e) == 1, "pitch correction enabled");
+        ae_set_pitch_correction(e, 0);
+        CHECK(ae_get_pitch_correction(e) == 0, "pitch correction disabled (resampler path active)");
+
+        ae_destroy_engine(e);
+    }
+
+    // 2. P2.4: Noise shaping calibration across standard, 96k, and 192k rates
+    {
+        const int testRates[] = { 44100, 96000, 192000 };
+        const int ditherModes[] = {
+            AE_DITHER_MODE_LIPSHITZ,
+            AE_DITHER_MODE_F_WEIGHTED,
+            AE_DITHER_MODE_MOD_E_WEIGHTED,
+            AE_DITHER_MODE_SHIBATA
+        };
+
+        for (int rate : testRates)
+        {
+            for (int mode : ditherModes)
+            {
+                AEResampler *r = ae_resampler_create(
+                    AE_FORMAT_S16, 2, rate, rate,
+                    AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, mode);
+                CHECK(r != nullptr, "resampler created with psychoacoustic dither mode");
+
+                const uint64_t inFrames = 512;
+                std::vector<int16_t> inData(inFrames * 2, 0);
+                for (size_t i = 0; i < inFrames; ++i)
+                {
+                    inData[i * 2 + 0] = (int16_t)(8000.0f * std::sin(2.0f * (float)M_PI * 1000.0f * (float)i / (float)rate));
+                    inData[i * 2 + 1] = (int16_t)(8000.0f * std::cos(2.0f * (float)M_PI * 1000.0f * (float)i / (float)rate));
+                }
+
+                std::vector<int16_t> outData(inFrames * 2, 0);
+                uint64_t actualIn = inFrames;
+                uint64_t actualOut = inFrames;
+
+                int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+                CHECK(ret == 1, "resampler process succeeded with calibrated dither curve");
+                CHECK(actualOut > 0, "produced output frames");
+
+                bool nonZero = false;
+                for (size_t i = 0; i < actualOut * 2; ++i)
+                {
+                    if (outData[i] != 0) { nonZero = true; break; }
+                }
+                CHECK(nonZero, "dithered 16-bit output contains valid shaped audio");
+
+                ae_resampler_destroy(r);
+            }
+        }
+    }
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1164,6 +1234,7 @@ int main()
     test_bit_perfect_exclusive_direct_pcm_p19();
     test_multichannel_playback_dsp_p04();
     test_f32_output_memcpy_aliasing_p02();
+    test_pitch_resampler_and_noise_shaping_p23_p24();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

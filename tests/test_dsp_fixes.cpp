@@ -33,6 +33,7 @@
 #include "dsp/denormals.h"
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
+#include "dsp/spatial_surround_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -1716,6 +1717,117 @@ static void test_f32_memcpy_overlapping_pointers_p02()
     CHECK(buffer[0] == 0.42f && buffer[511] == 0.42f, "Buffer contents remain intact and uncorrupted");
 }
 
+// -----------------------------------------------------------------------------
+// [C] P2.5 Spatial Surround Anti-Pop Stereo Balance Preservation
+// -----------------------------------------------------------------------------
+static void test_spatial_surround_anti_pop_balance_p25()
+{
+    std::printf("\n== [C] P2.5 Spatial Surround Anti-Pop Stereo Balance Preservation ==\n");
+
+    sauti::dsp::SpatialSurroundDSP dsp;
+    dsp.setSampleRate(48000.0f);
+    dsp.setEnabled(true);
+    dsp.setMode(sauti::dsp::SurroundMode::AcousticStage);
+
+    CHECK(dsp.getAntiPop() == 0.0f, "Anti-pop gain initializes to 0.0 on reset");
+
+    const uint32_t frames = 256;
+    std::vector<float> buf(frames * 2);
+    // Fill with identical Left and Right mono material to test stereo balance during fade
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        buf[2 * i + 0] = 0.5f;
+        buf[2 * i + 1] = 0.5f;
+    }
+
+    dsp.process(buf.data(), frames);
+
+    // During the entire anti-pop ramp, Left and Right channels must have equal gain on every stereo frame
+    float maxDeltaLR = 0.0f;
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        float diff = std::abs(buf[2 * i + 0] - buf[2 * i + 1]);
+        if (diff > maxDeltaLR) maxDeltaLR = diff;
+    }
+
+    char msg[128];
+    std::snprintf(msg, sizeof(msg), "Max L/R delta during anti-pop fade = %.6f (want < 1e-5, zero soundstage tilt)", maxDeltaLR);
+    CHECK(maxDeltaLR < 1e-5f, msg);
+    CHECK(buf[0] < 0.5f, "Anti-pop fade starts smoothly below unity");
+    CHECK(buf[2 * (frames - 1)] > buf[0], "Anti-pop ramp advances gain across frames");
+    CHECK(dsp.getAntiPop() > 0.1f, "getAntiPop() tracks ramp progression correctly");
+}
+
+// -----------------------------------------------------------------------------
+// [C] P2.6 AnalogWarmthDSP Tape Damping Effective Rate Scaling
+// -----------------------------------------------------------------------------
+static void test_analog_warmth_tape_damping_rate_scaling_p26()
+{
+    std::printf("\n== [C] P2.6 AnalogWarmthDSP Tape Damping Effective Rate Scaling ==\n");
+
+    sauti::dsp::AnalogWarmthDSP dsp;
+    dsp.setSampleRate(48000.0f);
+    dsp.setEnabled(true);
+    dsp.setProfile(sauti::dsp::AnalogWarmthProfile::MagneticTape);
+
+    // 1x oversampling: effective rate = 48000 * 1 = 48000. damping = 6000 / 48000 = 0.125
+    dsp.setOversampling(1);
+    float damp1x = dsp.getTapeDamping();
+    char msg1[128];
+    std::snprintf(msg1, sizeof(msg1), "1x oversampling tape damping = %.4f (want ~0.1250)", damp1x);
+    CHECK(nearlyEqual(damp1x, 0.1250f, 0.005f), msg1);
+
+    // 2x oversampling: effective rate = 48000 * 2 = 96000. damping = 6000 / 96000 = 0.0625
+    dsp.setOversampling(2);
+    float damp2x = dsp.getTapeDamping();
+    char msg2[128];
+    std::snprintf(msg2, sizeof(msg2), "2x oversampling tape damping = %.4f (want ~0.0625)", damp2x);
+    CHECK(nearlyEqual(damp2x, 0.0625f, 0.005f), msg2);
+
+    // 4x oversampling: effective rate = 48000 * 4 = 192000. damping = 6000 / 192000 = 0.03125
+    dsp.setOversampling(4);
+    float damp4x = dsp.getTapeDamping();
+    char msg4[128];
+    std::snprintf(msg4, sizeof(msg4), "4x oversampling tape damping = %.4f (want ~0.03125)", damp4x);
+    CHECK(nearlyEqual(damp4x, 0.03125f, 0.005f), msg4);
+
+    CHECK(damp1x > damp2x && damp2x > damp4x, "Tape damping scales inversely with oversampling rate as physically required");
+}
+
+// -----------------------------------------------------------------------------
+// [C] P2.1 ClarityDSP Dynamic Allocation Elimination & Chunking
+// -----------------------------------------------------------------------------
+static void test_clarity_dsp_zero_heap_allocation_p21()
+{
+    std::printf("\n== [C] P2.1 ClarityDSP Dynamic Allocation Elimination & Chunking ==\n");
+
+    sauti::dsp::AudioClarityDSP dsp;
+    dsp.setSampleRate(48000.0f);
+    dsp.setEnabled(true);
+    dsp.setProfile(sauti::dsp::AudioClarityProfile::HarmonicBrilliance);
+    dsp.setIntensity(0.75f);
+    dsp.setOversampling(2);
+
+    // Test processing with an oversized buffer that exceeds initial 4096-frame sizes (e.g. 16384 frames)
+    const uint32_t frames = 16384;
+    std::vector<float> buf(frames * 2, 0.3f);
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        buf[2 * i + 0] = 0.3f * std::sin(2.0f * (float)M_PI * 5000.0f * i / 48000.0f);
+        buf[2 * i + 1] = 0.3f * std::cos(2.0f * (float)M_PI * 5000.0f * i / 48000.0f);
+    }
+
+    dsp.process(buf.data(), frames);
+
+    bool finite = true;
+    for (float v : buf)
+    {
+        if (!std::isfinite(v)) { finite = false; break; }
+    }
+    CHECK(finite, "ClarityDSP HarmonicBrilliance block chunking executes without NaN/Inf on 16K frames");
+    CHECK(std::abs(buf[2 * 1000]) > 0.01f, "ClarityDSP audio output is non-zero and active");
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -1723,7 +1835,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver|p110|p111|p112|p04|p02
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver|p110|p111|p112|p04|p02|p25|p26|p21
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -1747,6 +1859,9 @@ int main(int argc, char **argv)
     if (only.empty() || only == "p112") test_dialog_enhancer_headroom_and_dynamic_attenuation_p112();
     if (only.empty() || only == "p04") test_multichannel_dsp_suite_p04();
     if (only.empty() || only == "p02") test_f32_memcpy_overlapping_pointers_p02();
+    if (only.empty() || only == "p25") test_spatial_surround_anti_pop_balance_p25();
+    if (only.empty() || only == "p26") test_analog_warmth_tape_damping_rate_scaling_p26();
+    if (only.empty() || only == "p21") test_clarity_dsp_zero_heap_allocation_p21();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

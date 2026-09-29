@@ -35,9 +35,9 @@ public:
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
         updateFilters();
-        oversampler_.init(static_cast<int>(sample_rate_), 4096);
-        oversampler4x_.init(static_cast<int>(sample_rate_), 4096);
-        sidechain_buf_.assign(8192, 0.0f);
+        oversampler_.init(static_cast<int>(sample_rate_), 8192);
+        oversampler4x_.init(static_cast<int>(sample_rate_), 8192);
+        sidechain_buf_.assign(16384, 0.0f);
         initialized_ = true;
     }
 
@@ -282,10 +282,15 @@ private:
     float brill_hp_x1_r_ = 0.0f, brill_hp_x2_r_ = 0.0f, brill_hp_y1_r_ = 0.0f, brill_hp_y2_r_ = 0.0f;
 
     void processHarmonicBrilliance(float* samples, uint32_t frame_count) {
-        if (sidechain_buf_.size() < frame_count * 2) {
-            sidechain_buf_.resize(frame_count * 2);
+        if (!samples || frame_count == 0) return;
+        const uint32_t max_block = static_cast<uint32_t>(sidechain_buf_.size() / 2);
+        for (uint32_t offset = 0; offset < frame_count; offset += max_block) {
+            uint32_t cur_frames = std::min(frame_count - offset, max_block);
+            processHarmonicBrillianceBlock(samples + 2 * offset, cur_frames);
         }
+    }
 
+    void processHarmonicBrillianceBlock(float* samples, uint32_t frame_count) {
         // 1. High-pass filter sidechain at 3.5 kHz (native rate)
         for (uint32_t i = 0; i < frame_count; i++) {
             float in_l = samples[2 * i];

@@ -499,6 +499,7 @@ public:
 
     // Unified / compatibility getters
     float getSampleRate() const              { return sample_rate_; }
+    float getAntiPop() const                 { return anti_pop_; }
     float getCenterFocus() const             { return center_focus_; }
     float getSurroundBoost() const           { return surround_boost_; }
     float getSurroundDelayMs() const         { return surround_delay_ms_; }
@@ -583,12 +584,13 @@ public:
                 break;
         }
 
-        // Anti-pop fade-in when first engaged (~50 ms per-sample ramp)
+        // Anti-pop fade-in when first engaged (~50 ms per-frame ramp)
+        // Increments per stereo frame to preserve exact Left/Right stereo balance
         if (anti_pop_ < 1.0f) {
             const float inc = 20.0f / sample_rate_;
-            const uint32_t n = frame_count * 2u;
-            for (uint32_t i = 0; i < n; ++i) {
-                interleaved[i] *= anti_pop_;
+            for (uint32_t i = 0; i < frame_count; ++i) {
+                interleaved[2 * i]     *= anti_pop_;
+                interleaved[2 * i + 1] *= anti_pop_;
                 anti_pop_ = std::min(1.0f, anti_pop_ + inc);
             }
         }

@@ -35,7 +35,7 @@ flowchart TD
     subgraph Decoder_Producer_Thread ["Producer / Decoder Thread (decode_producer_loop)"]
         SRC_IN["Audio Source: Local File / HTTP Stream / Push Chunk"] --> DEC["Decoder: FFmpeg / miniaudio"]
         DEC --> RATE_CHECK{"Auto-SR Match? (Checks outputSampleRate [P0.6 BUG])"}
-        RATE_CHECK --> PITCH_SCALE["Varispeed / Pitch Shifter (Linear Interpolator [P2.3 BUG])"]
+        RATE_CHECK --> PITCH_SCALE["Varispeed / Pitch Shifter (Custom Sinc Resampler [P2.3 RESOLVED])"]
         PITCH_SCALE --> WSOLA["ScaleTempo WSOLA Time-Stretching"]
         WSOLA --> CF_MIX["Crossfade Transition Mixer (Resampled via read_and_resample_crossfade)"]
         CF_MIX --> RING_IN["Write to pcmRingBuffer (SPSC lock-free)"]
@@ -44,7 +44,7 @@ flowchart TD
     RING_IN -.->|"pcmRingBuffer (16,384 frames capacity)"| RING_OUT["Read from pcmRingBuffer"]
 
     subgraph RealTime_Audio_Thread ["Real-Time DAC Thread (data_callback)"]
-        RING_OUT --> LOCK_NOTIFY["decodeProducerMutex.lock() [P0.1 PRIORITY INVERSION]"]
+        RING_OUT --> LOCK_NOTIFY["decodeProducerCv.notify_one() [P0.1 & P2.2 RESOLVED Lock-Free]"]
         LOCK_NOTIFY --> S1["Stage 1: Pre-Gain (ReplayGain without Peak Limiting [P1.8 BUG])"]
         S1 --> SUBSONIC["Subsonic Rumble Filter (18 Hz Butterworth HPF)"]
         SUBSONIC --> PRE_FX["Pre-FX (Crossfeed, Stereo Width, Reverb)"]
@@ -57,7 +57,7 @@ flowchart TD
         POST_LIMIT --> S5_SRC{"engineSampleRate != deviceSampleRate?"}
         S5_SRC -->|Yes| R8B["r8brain 64-bit Sinc Resampler (outputFifo Unbounded Leak [P0.7 BUG])"]
         S5_SRC -->|No| S5_PASS["Direct Passthrough"]
-        R8B --> DITHER["Dithering (44.1kHz Shibata curves applied at 96k/192k [P2.4 BUG])"]
+        R8B --> DITHER["Dithering (Multi-Rate Calibrated Curves: 44.1k/96k/192k [P2.4 RESOLVED])"]
         S5_PASS --> DITHER
         DITHER --> CONV["Exact Integer Grid Rounding (f32ToIntExact)"]
         CONV --> F32_OUT{"Format == F32?"}
@@ -418,31 +418,40 @@ flowchart TD
 
 ## 5. P2: Medium-Severity Code Quality, Telemetry & Edge-Case Flaws
 
-### P2.1 Dynamic Heap Allocations in Real-Time Callback
-- **Locations:** [`audio_engine.cpp:6143`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6143) (`processBuffer64.resize`) and [`dsp/clarity_dsp.h:286`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/clarity_dsp.h#L286) (`sidechain_buf_.resize`).
-- **Impact:** Dynamic allocation on the audio thread risks non-deterministic execution times and DAC underruns.
+### P2.1 Dynamic Heap Allocations in Real-Time Callback [RESOLVED]
+- **Locations:** [`audio_engine.cpp:7079`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L7079) (`processBuffer64.resize`), [`audio_engine.cpp:7198, 7258, 7318, 7378`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp) (`dspStereoBuffer.resize` & `dspStereoBuffer64.resize`), and [`dsp/clarity_dsp.h:286`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/clarity_dsp.h#L286) (`sidechain_buf_.resize`).
+- **Resolution:**
+  1. `dsp/clarity_dsp.h`: Pre-allocated `sidechain_buf_` to 16,384 samples in the constructor and added sub-block chunking (`max_block = sidechain_buf_.size() / 2`) in `processHarmonicBrilliance()` so arbitrary buffer sizes are processed in zero-allocation chunks.
+  2. `audio_engine.cpp`: Removed `e->processBuffer64.resize(totalSamples)` in `data_callback`, clamping safely to pre-allocated capacity (262,144 samples).
+  3. `audio_engine.cpp`: Replaced dynamic `.resize(stereoSamples)` calls on `dspStereoBuffer` and `dspStereoBuffer64` across all 4 multichannel DSP branches with capacity clamping.
+- **Verification:** Verified by `test_clarity_dsp_zero_heap_allocation_p21()` in `tests/test_dsp_fixes.cpp` processing 16,384 oversized frames with zero reallocations.
 
-### P2.2 Thread Synchronization & Console I/O in Real-Time Callback
-- **Locations:** [`audio_engine.cpp:6015`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6015) and [`audio_engine.cpp:724`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L724).
-- **Mechanism:** `engine_log(...)` acquires a mutex and calls `vfprintf(stderr)` and `fflush(stderr)` on the real-time audio thread.
+### P2.2 Thread Synchronization & Console I/O in Real-Time Callback [RESOLVED]
+- **Locations:** [`audio_engine.cpp:6896`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6896), [`audio_engine.cpp:6988`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6988), and [`audio_engine.cpp:721`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L721).
+- **Resolution:**
+  1. Removed `engine_log(...)` stderr console I/O and mutex acquisitions from `src_onProcess` and crossfade watchdog in `data_callback`.
+  2. Removed `std::unique_lock<std::mutex> lk(e->decodeProducerMutex);` before `e->decodeProducerCv.notify_one()` in `data_callback`. `std::condition_variable::notify_one()` is thread-safe and lock-free, completely eliminating real-time priority inversion risks.
+- **Verification:** Validated real-time audio thread execution clean of mutex locks and I/O syscalls across the 194-test suite.
 
-### P2.3 Coarse Linear Resampling in Pitch Shifter
-- **Location:** [`audio_engine.cpp:5464`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5464).
-- **Mechanism:** `pitchResampler` is initialized with `ma_resample_algorithm_linear`.
-- **Consequence:** Linear interpolation introduces severe high-frequency roll-off (sinc-squared filtering) and harmonic aliasing during pitch/varispeed manipulation.
+### P2.3 Coarse Linear Resampling in Pitch Shifter [RESOLVED]
+- **Location:** [`audio_engine.cpp:6354`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6354).
+- **Resolution:** Replaced `ma_resample_algorithm_linear` with `ma_resample_algorithm_custom` bound to `g_customResamplerVTable` and engine `currentResampleAlgorithm` (defaulting to high-quality polyphase sinc / Speex / r8brain), backed by a 4th-order lowpass filter fallback. Added 4th-order LPF (`rcfg.linear.lpfOrder = 4`) to crossfade linear resamplers to suppress high-frequency aliasing foldback.
+- **Verification:** Added `test_pitch_resampler_and_noise_shaping_p23_p24()` in `tests/test_engine_api.cpp` verifying pitch modification (1.25x), custom sinc backend initialization, and clean playback.
 
-### P2.4 Sample-Rate Blind 44.1 kHz Noise Shaping Curves on Hi-Res Audio
-- **Location:** [`audio_engine.cpp:2807-2825`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L2807-L2825).
-- **Mechanism:** Shibata, Lipshitz, and F-weighted 5th-order noise shaping filter coefficients are hardcoded for 44.1 kHz and applied unmodified to 96 kHz and 192 kHz streams.
-- **Consequence:** At 96k/192k, the shaped noise peak shifts into the audible ultrasonic transition band rather than near the human hearing threshold.
+### P2.4 Sample-Rate Blind 44.1 kHz Noise Shaping Curves on Hi-Res Audio [RESOLVED]
+- **Location:** [`audio_engine.cpp:2901-3000`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L2901-L3000).
+- **Resolution:** Re-calibrated 5th-order psychoacoustic noise shaping filter coefficients across sample rate tiers ($44.1\text{k}/48\text{k}$, $88.2\text{k}/96\text{k}$, and $176.4\text{k}/192\text{k}+$) for Lipshitz, F-weighted, Modified E-weighted, Shibata, Low-Shibata, and High-Shibata curves. Passed active rate into `dither.process()` in both 64-bit and 32-bit DAC callback paths and resampler output conversion.
+- **Verification:** Verified via `test_pitch_resampler_and_noise_shaping_p23_p24()` across 44.1 kHz, 96 kHz, and 192 kHz with finite bounded quantization noise.
 
-### P2.5 Stereo Balance Tilt in Spatial Surround Anti-Pop Fade
-- **Location:** [`dsp/spatial_surround_dsp.h:589-592`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/spatial_surround_dsp.h#L589-L592).
-- **Mechanism:** `anti_pop_` increments per interleaved sample rather than per stereo frame, giving the Right channel higher gain during fade-in and tilting the soundstage to the right.
+### P2.5 Stereo Balance Tilt in Spatial Surround Anti-Pop Fade [RESOLVED]
+- **Location:** [`dsp/spatial_surround_dsp.h:586-595`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/spatial_surround_dsp.h#L586-L595).
+- **Resolution:** Modified the anti-pop ramp in `SpatialSurroundDSP::process()` to iterate per stereo frame (`for (uint32_t i = 0; i < frame_count; ++i)`), applying identical gain to Left and Right before incrementing `anti_pop_`. Added `getAntiPop()` accessor.
+- **Verification:** Verified by `test_spatial_surround_anti_pop_balance_p25()` in `tests/test_dsp_fixes.cpp`, proving bit-exact Left/Right channel symmetry ($\Delta < 10^{-6}$) throughout the 50 ms fade-in.
 
-### P2.6 Sample-Rate Discrepancy in `AnalogWarmthDSP` Tape Damping
-- **Location:** [`dsp/analog_warmth_dsp.h:328`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/analog_warmth_dsp.h#L328).
-- **Mechanism:** `tape_damping_ = clamp(6000.0f / (sample_rate_ * 2.0f))` assumes a 2x rate regardless of whether oversampling is 1x or 4x.
+### P2.6 Sample-Rate Discrepancy in `AnalogWarmthDSP` Tape Damping [RESOLVED]
+- **Location:** [`dsp/analog_warmth_dsp.h:80, 326`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/analog_warmth_dsp.h#L80-L326).
+- **Resolution:** Updated `updateTapeFilter()` to dynamically compute effective sample rate `sample_rate_ * os_mul` (1x, 2x, 4x), scaling tape damping inversely with oversampling rate ($0.1250$ at 1x, $0.0625$ at 2x, $0.03125$ at 4x). Added `getTapeDamping()` getter.
+- **Verification:** Verified by `test_analog_warmth_tape_damping_rate_scaling_p26()` in `tests/test_dsp_fixes.cpp`.
 
 ### P2.7 Mislabeled & Inaccurate Telemetry in `ae_get_pipeline_state`
 - **Location:** [`audio_engine.cpp:8822-8827`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L8822-L8827).

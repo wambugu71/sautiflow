@@ -79,9 +79,11 @@ public:
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void setOversampling(int factor) {
         oversampling_factor_ = (factor >= 4) ? 4 : ((factor >= 2) ? 2 : 1);
+        updateTapeFilter();
     }
 
     int getOversampling() const { return oversampling_factor_; }
+    float getTapeDamping() const { return tape_damping_; }
 
     void process(float* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
@@ -324,8 +326,10 @@ private:
     }
 
     void updateTapeFilter() {
-        // High-frequency damping calibrated for 2x oversampled rate
-        tape_damping_ = std::clamp(6000.0f / (sample_rate_ * 2.0f), 0.025f, 0.25f);
+        // High-frequency damping calibrated for active effective oversampling rate (1x, 2x, or 4x)
+        const float os_mul = static_cast<float>(oversampling_factor_ > 0 ? oversampling_factor_ : 1);
+        const float effective_sr = sample_rate_ * os_mul;
+        tape_damping_ = std::clamp(6000.0f / effective_sr, 0.01f, 0.35f);
     }
 };
 

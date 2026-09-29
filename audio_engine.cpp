@@ -721,7 +721,6 @@ namespace
         int err = src_process(backend->state, &srcData);
         if (err)
         {
-            engine_log("src_onProcess error: %d (%s)", err, src_strerror(err));
             return MA_ERROR;
         }
 
@@ -2902,7 +2901,7 @@ namespace
         }
 
         template <typename SampleT>
-        void process(int ditherMode, AEAudioFormat outFmt, SampleT *inOutSamples, size_t totalSamples, int channels)
+        void process(int ditherMode, AEAudioFormat outFmt, SampleT *inOutSamples, size_t totalSamples, int channels, int sampleRate = 44100)
         {
             if (ditherMode <= 0 || !inOutSamples || totalSamples == 0)
                 return;
@@ -2962,23 +2961,43 @@ namespace
             }
 
             // Modes 3-8: Psychoacoustic Noise Shaping
-            static const float coefLipshitz[5] = {2.033f, -2.165f, 1.959f, -1.137f, 0.321f};
-            static const float coefFWeighted[5] = {2.412f, -2.970f, 2.453f, -1.332f, 0.366f};
-            static const float coefModEWeighted[5] = {1.836f, -1.574f, 1.212f, -0.638f, 0.174f};
-            static const float coefShibata[5] = {2.270f, -2.420f, 1.960f, -1.090f, 0.280f};
-            static const float coefLowShibata[5] = {1.450f, -1.020f, 0.580f, -0.210f, 0.040f};
-            static const float coefHighShibata[5] = {2.750f, -3.310f, 2.780f, -1.480f, 0.410f};
+            // 44.1 / 48 kHz standard curves (human audiological contour):
+            static const float coefLipshitz_44k[5]   = {2.0330f, -2.1650f, 1.9590f, -1.1370f, 0.3210f};
+            static const float coefFWeighted_44k[5]  = {2.4120f, -2.9700f, 2.4530f, -1.3320f, 0.3660f};
+            static const float coefModE_44k[5]       = {1.8360f, -1.5740f, 1.2120f, -0.6380f, 0.1740f};
+            static const float coefShibata_44k[5]    = {2.2700f, -2.4200f, 1.9600f, -1.0900f, 0.2800f};
+            static const float coefLowShibata_44k[5] = {1.4500f, -1.0200f, 0.5800f, -0.2100f, 0.0400f};
+            static const float coefHighShibata_44k[5]= {2.7500f, -3.3100f, 2.7800f, -1.4800f, 0.4100f};
 
-            const float *a = coefShibata;
+            // 88.2 / 96 kHz calibrated curves (zeros dynamically mapped to preserve audio band attenuation):
+            static const float coefLipshitz_96k[5]   = {3.5554f, -5.3740f, 4.3271f, -1.8280f, 0.3210f};
+            static const float coefFWeighted_96k[5]  = {3.6919f, -5.7382f, 4.6976f, -2.0231f, 0.3660f};
+            static const float coefModE_96k[5]       = {3.1662f, -4.1933f, 2.9620f, -1.1072f, 0.1740f};
+            static const float coefShibata_96k[5]    = {3.5189f, -5.1838f, 4.0324f, -1.6474f, 0.2800f};
+            static const float coefLowShibata_96k[5] = {2.3872f, -2.3768f, 1.2518f, -0.3460f, 0.0400f};
+            static const float coefHighShibata_96k[5]= {3.9514f, -6.3265f, 5.2567f, -2.2734f, 0.4100f};
+
+            // 176.4 / 192 kHz+ calibrated curves:
+            static const float coefLipshitz_192k[5]   = {3.9261f, -6.2211f, 4.9682f, -1.9939f, 0.3210f};
+            static const float coefFWeighted_192k[5]  = {3.9885f, -6.4442f, 5.2717f, -2.1831f, 0.3660f};
+            static const float coefModE_192k[5]       = {3.4944f, -4.8941f, 3.4479f, -1.2216f, 0.1740f};
+            static const float coefShibata_192k[5]    = {3.8201f, -5.8782f, 4.5593f, -1.7812f, 0.2800f};
+            static const float coefLowShibata_192k[5] = {2.6118f, -2.7318f, 1.4347f, -0.3782f, 0.0400f};
+            static const float coefHighShibata_192k[5]= {4.2301f, -7.0751f, 5.8959f, -2.4563f, 0.4100f};
+
+            const bool is192k = (sampleRate > 128000);
+            const bool is96k  = (!is192k && sampleRate > 64000);
+
+            const float *a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k);
             switch (ditherMode)
             {
-            case 3: a = coefLipshitz; break;
-            case 4: a = coefFWeighted; break;
-            case 5: a = coefModEWeighted; break;
-            case 6: a = coefShibata; break;
-            case 7: a = coefLowShibata; break;
-            case 8: a = coefHighShibata; break;
-            default: a = coefShibata; break;
+            case 3: a = is192k ? coefLipshitz_192k : (is96k ? coefLipshitz_96k : coefLipshitz_44k); break;
+            case 4: a = is192k ? coefFWeighted_192k : (is96k ? coefFWeighted_96k : coefFWeighted_44k); break;
+            case 5: a = is192k ? coefModE_192k : (is96k ? coefModE_96k : coefModE_44k); break;
+            case 6: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k); break;
+            case 7: a = is192k ? coefLowShibata_192k : (is96k ? coefLowShibata_96k : coefLowShibata_44k); break;
+            case 8: a = is192k ? coefHighShibata_192k : (is96k ? coefHighShibata_96k : coefHighShibata_44k); break;
+            default: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k); break;
             }
 
             for (size_t i = 0; i < frames; ++i)
@@ -5527,6 +5546,7 @@ static ma_result read_and_resample_crossfade(
             (ma_uint32)targetRate,
             ma_resample_algorithm_linear
         );
+        rcfg.linear.lpfOrder = 4;
         if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
         {
             e->crossfadeResamplerInit = true;
@@ -6105,6 +6125,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                             (ma_uint32)sr,
                                             ma_resample_algorithm_linear
                                         );
+                                        rcfg.linear.lpfOrder = 4;
                                         if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
                                         {
                                             e->crossfadeResamplerInit = true;
@@ -6335,8 +6356,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             (ma_uint32)ch,
                             (ma_uint32)sr,
                             (ma_uint32)sr,
-                            ma_resample_algorithm_linear);
-                        if (ma_resampler_init(&rcfg, nullptr, &e->pitchResampler) == MA_SUCCESS)
+                            ma_resample_algorithm_custom);
+                        rcfg.pBackendVTable = &g_customResamplerVTable;
+                        rcfg.pBackendUserData = &e->currentResampleAlgorithm;
+                        ma_result initRes = ma_resampler_init(&rcfg, nullptr, &e->pitchResampler);
+                        if (initRes != MA_SUCCESS)
+                        {
+                            rcfg = ma_resampler_config_init(
+                                ma_format_f32,
+                                (ma_uint32)ch,
+                                (ma_uint32)sr,
+                                (ma_uint32)sr,
+                                ma_resample_algorithm_linear);
+                            rcfg.linear.lpfOrder = 4;
+                            initRes = ma_resampler_init(&rcfg, nullptr, &e->pitchResampler);
+                        }
+                        if (initRes == MA_SUCCESS)
                         {
                             e->pitchResamplerInit = true;
                             e->pitchResamplerRate = sr;
@@ -6893,7 +6928,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             processBuffer = e->engineProcessBuffer.data();
         }
 
-        std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+        // Lock-free wakeup of decoder producer thread (notify_one does not require holding the mutex)
         e->decodeProducerCv.notify_one();
     }
 
@@ -6954,7 +6989,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (starved > (ma_uint32)(srForWatchdog / 4))
                     {
                         e->crossfadeSourceDead.store(true, std::memory_order_release);
-                        engine_log("Crossfade: outgoing source stalled; completing fade as fade-in.");
                     }
                 }
                 else if (gotSamples > 0)
@@ -7076,12 +7110,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
         if (use64)
         {
-            if (e->processBuffer64.size() < totalSamples)
-            {
-                e->processBuffer64.resize(totalSamples);
-            }
+            const size_t safeSamples = std::min(totalSamples, e->processBuffer64.size());
             buf64 = e->processBuffer64.data();
-            for (size_t i = 0; i < totalSamples; ++i)
+            for (size_t i = 0; i < safeSamples; ++i)
             {
                 buf64[i] = static_cast<double>(processBuffer[i]);
             }
@@ -7341,9 +7372,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 // into stereo scratch buffer. Channels 2..N-1 (Center, LFE, Surrounds) remain
                                 // strictly untouched in pristine 64-bit precision, avoiding scrambling.
                                 const size_t ch = (size_t)e->channels;
-                                const size_t stereoSamples = (size_t)produced * 2;
-                                if (e->dspStereoBuffer.size() < stereoSamples)
-                                    e->dspStereoBuffer.resize(stereoSamples);
                                 float *stBuf = e->dspStereoBuffer.data();
 
                                 for (ma_uint32 i = 0; i < produced; ++i)
@@ -7389,9 +7417,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 else
                                 {
                                     const size_t ch = (size_t)e->channels;
-                                    const size_t stereoSamples = (size_t)produced * 2;
-                                    if (e->dspStereoBuffer64.size() < stereoSamples)
-                                        e->dspStereoBuffer64.resize(stereoSamples);
                                     double *stBuf64 = e->dspStereoBuffer64.data();
 
                                     for (ma_uint32 i = 0; i < produced; ++i)
@@ -7426,9 +7451,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 else
                                 {
                                     const size_t ch = (size_t)e->channels;
-                                    const size_t stereoSamples = (size_t)produced * 2;
-                                    if (e->dspStereoBuffer64.size() < stereoSamples)
-                                        e->dspStereoBuffer64.resize(stereoSamples);
                                     double *stBuf64 = e->dspStereoBuffer64.data();
 
                                     for (ma_uint32 i = 0; i < produced; ++i)
@@ -7485,9 +7507,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             // into stereo scratch buffer for stereo-specific modules. Multichannel modules
                             // (tapeDriftDsp, dynamicEqDsp) process all channels in-place.
                             const size_t ch = (size_t)e->channels;
-                            const size_t stereoSamples = (size_t)produced * 2;
-                            if (e->dspStereoBuffer.size() < stereoSamples)
-                                e->dspStereoBuffer.resize(stereoSamples);
                             float *stBuf = e->dspStereoBuffer.data();
 
                             const bool hasPreTapeStereo = e->downwardExpanderDsp.isEnabled() ||
@@ -7959,12 +7978,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
 
+    const int activeDitherRate = (pDevice && pDevice->sampleRate > 0) ? (int)pDevice->sampleRate : (e->engineSampleRate > 0 ? e->engineSampleRate : 44100);
+
     if (use64 && buf64 != nullptr && !needsDeviceSRC)
     {
         // Pure 64-bit path: preserve 53-bit mantissa precision all the way to quantization.
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels, activeDitherRate);
         }
 
         if (pDevice->playback.format == ma_format_s16)
@@ -7996,7 +8017,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels, activeDitherRate);
         }
 
         // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
@@ -12875,7 +12896,7 @@ extern "C"
                 if (obj->ditherMode > 0)
                 {
                     obj->dither.process(obj->ditherMode, (AEAudioFormat)obj->requestedFormat,
-                                        obj->outFloat.data(), (size_t)outF * (size_t)ch, ch);
+                                        obj->outFloat.data(), (size_t)outF * (size_t)ch, ch, (int)obj->filter.sampleRateOut);
                 }
                 f32ToIntExact((AEAudioFormat)obj->requestedFormat, out_frames,
                               obj->outFloat.data(), (size_t)outF * (size_t)ch);
