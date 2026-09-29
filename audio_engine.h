@@ -301,6 +301,7 @@ extern "C"
     // Advanced Audio Controls
     AE_API void ae_set_exclusive_mode(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_exclusive_mode(AudioEngineHandle *engine);
+    AE_API int ae_is_direct_pcm_active(AudioEngineHandle *engine);
 
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);
     AE_API int ae_get_output_format(AudioEngineHandle *engine);

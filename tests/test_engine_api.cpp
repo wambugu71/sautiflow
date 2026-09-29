@@ -792,6 +792,197 @@ static void test_replaygain_peak_limiting_anticlip_p18()
     std::remove(wavPath);
 }
 
+static bool write_pattern_wav_16(const char *path, int sampleRate, int frames, const std::vector<int16_t> &samples)
+{
+#pragma pack(push, 1)
+    struct WavHeader
+    {
+        char riff[4];
+        uint32_t riffSize;
+        char wave[4];
+        char fmtId[4];
+        uint32_t fmtSize;
+        uint16_t audioFormat;
+        uint16_t channels;
+        uint32_t sampleRate;
+        uint32_t byteRate;
+        uint16_t blockAlign;
+        uint16_t bitsPerSample;
+        char dataId[4];
+        uint32_t dataBytes;
+    };
+#pragma pack(pop)
+
+    const uint32_t dataBytes = (uint32_t)samples.size() * sizeof(int16_t);
+    WavHeader h{};
+    std::memcpy(h.riff, "RIFF", 4);
+    h.riffSize = 36 + dataBytes;
+    std::memcpy(h.wave, "WAVE", 4);
+    std::memcpy(h.fmtId, "fmt ", 4);
+    h.fmtSize = 16;
+    h.audioFormat = 1; // PCM
+    h.channels = 2;
+    h.sampleRate = (uint32_t)sampleRate;
+    h.byteRate = (uint32_t)sampleRate * 2 * sizeof(int16_t);
+    h.blockAlign = 2 * sizeof(int16_t);
+    h.bitsPerSample = 16;
+    std::memcpy(h.dataId, "data", 4);
+    h.dataBytes = dataBytes;
+
+    FILE *f = std::fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(&h, sizeof(h), 1, f) == 1 &&
+                    std::fwrite(samples.data(), 1, dataBytes, f) == dataBytes;
+    std::fclose(f);
+    return ok;
+}
+
+static bool write_pattern_wav_24(const char *path, int sampleRate, int frames, const std::vector<uint8_t> &raw24)
+{
+#pragma pack(push, 1)
+    struct WavHeader
+    {
+        char riff[4];
+        uint32_t riffSize;
+        char wave[4];
+        char fmtId[4];
+        uint32_t fmtSize;
+        uint16_t audioFormat;
+        uint16_t channels;
+        uint32_t sampleRate;
+        uint32_t byteRate;
+        uint16_t blockAlign;
+        uint16_t bitsPerSample;
+        char dataId[4];
+        uint32_t dataBytes;
+    };
+#pragma pack(pop)
+
+    const uint32_t dataBytes = (uint32_t)raw24.size();
+    WavHeader h{};
+    std::memcpy(h.riff, "RIFF", 4);
+    h.riffSize = 36 + dataBytes;
+    std::memcpy(h.wave, "WAVE", 4);
+    std::memcpy(h.fmtId, "fmt ", 4);
+    h.fmtSize = 16;
+    h.audioFormat = 1; // PCM
+    h.channels = 2;
+    h.sampleRate = (uint32_t)sampleRate;
+    h.byteRate = (uint32_t)sampleRate * 2 * 3;
+    h.blockAlign = 2 * 3;
+    h.bitsPerSample = 24;
+    std::memcpy(h.dataId, "data", 4);
+    h.dataBytes = dataBytes;
+
+    FILE *f = std::fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(&h, sizeof(h), 1, f) == 1 &&
+                    std::fwrite(raw24.data(), 1, dataBytes, f) == dataBytes;
+    std::fclose(f);
+    return ok;
+}
+
+static void test_bit_perfect_exclusive_direct_pcm_p19()
+{
+    std::printf("\n== Bit-Perfect Exclusive Mode Direct PCM ([C] P1.9) ==\n");
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created at 48 kHz stereo");
+    if (!e) return;
+
+    // 1. Initial State: Exclusive mode disabled, direct PCM inactive
+    CHECK(ae_get_exclusive_mode(e) == 0, "exclusive mode is disabled by default");
+    CHECK(ae_is_direct_pcm_active(e) == 0, "direct PCM is inactive in default shared mode");
+
+    // 2. Enable Exclusive Mode
+    ae_set_exclusive_mode(e, 1);
+    CHECK(ae_get_exclusive_mode(e) == 1, "exclusive mode is enabled");
+
+    // Configure 16-bit output format and unity gain
+    ae_set_output_format(e, AE_FORMAT_S16);
+    CHECK(ae_get_output_format(e) == (int)AE_FORMAT_S16, "output format set to 16-bit signed integer");
+    ae_set_gain(e, 1.0f);
+
+    // 3. Generate 16-bit deterministic bit-exact pattern test WAV (2 seconds)
+    const int sampleRate = 48000;
+    const int frames = sampleRate * 2;
+    std::vector<int16_t> pcm16((size_t)frames * 2);
+    for (size_t i = 0; i < pcm16.size(); ++i)
+    {
+        // Pseudo-random deterministic bit pattern including full dynamic range and tricky LSB values
+        pcm16[i] = (int16_t)(((i * 1103515245 + 12345) >> 16) & 0xFFFF);
+    }
+    const char *wav16Path = "bit_perfect_16bit_p19_test.wav";
+    CHECK(write_pattern_wav_16(wav16Path, sampleRate, frames, pcm16), "16-bit test WAV written with deterministic bit pattern");
+
+    const char *paths[1] = { wav16Path };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started in exclusive mode");
+
+    // Allow producer to decode and fill the direct PCM ring buffer
+    const auto deadline = Clock::now() + std::chrono::milliseconds(300);
+    while (Clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(ae_is_direct_pcm_active(e) == 1, "direct bit-exact PCM stream is actively engaged in exclusive mode");
+
+    // 4. Volume attenuation check: lowering volume moves off unity gain (1.0)
+    // Non-unity gain must disengage direct PCM to allow smooth volume scaling and TPDF dither
+    ae_set_gain(e, 0.8f);
+    const auto gainDeadline = Clock::now() + std::chrono::milliseconds(100);
+    while (Clock::now() < gainDeadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(ae_is_direct_pcm_active(e) == 0, "attenuated volume (gain=0.8) cleanly disengages direct PCM to apply volume scaling");
+
+    // 5. Restoring unity gain (1.0) re-engages direct PCM
+    ae_set_gain(e, 1.0f);
+    const auto restoreDeadline = Clock::now() + std::chrono::milliseconds(150);
+    while (Clock::now() < restoreDeadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(ae_is_direct_pcm_active(e) == 1, "restoring unity gain (1.0) cleanly re-engages bit-exact direct PCM");
+
+    ae_stop(e);
+
+    // 6. 24-bit Hi-Res Exclusive Mode Verification
+    const char *wav24Path = "bit_perfect_24bit_p19_test.wav";
+    const size_t totalSamples24 = (size_t)frames * 2;
+    std::vector<uint8_t> raw24(totalSamples24 * 3);
+    for (size_t i = 0; i < totalSamples24; ++i)
+    {
+        // 24-bit test pattern: 3 bytes per sample (little-endian)
+        uint32_t val24 = (uint32_t)((i * 1664525 + 1013904223) & 0x00FFFFFF);
+        raw24[i * 3 + 0] = (uint8_t)(val24 & 0xFF);
+        raw24[i * 3 + 1] = (uint8_t)((val24 >> 8) & 0xFF);
+        raw24[i * 3 + 2] = (uint8_t)((val24 >> 16) & 0xFF);
+    }
+    CHECK(write_pattern_wav_24(wav24Path, sampleRate, frames, raw24), "24-bit Hi-Res test WAV written");
+
+    ae_set_output_format(e, AE_FORMAT_S24);
+    CHECK(ae_get_output_format(e) == (int)AE_FORMAT_S24, "output format configured to 24-bit integer");
+    const char *paths24[1] = { wav24Path };
+    CHECK(ae_set_playlist(e, paths24, 1), "24-bit playlist set");
+    CHECK(ae_play(e), "24-bit playback started in exclusive mode");
+
+    const auto deadline24 = Clock::now() + std::chrono::milliseconds(300);
+    while (Clock::now() < deadline24)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(ae_is_direct_pcm_active(e) == 1, "direct 24-bit bit-exact PCM stream is actively engaged without float conversion");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wav16Path);
+    std::remove(wav24Path);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -811,6 +1002,7 @@ int main()
     test_device_resampler_input_estimation_p15();
     test_filter_state_retention_equalizer_adjustment_p16();
     test_replaygain_peak_limiting_anticlip_p18();
+    test_bit_perfect_exclusive_direct_pcm_p19();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

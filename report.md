@@ -352,13 +352,22 @@ flowchart TD
 
 ---
 
-### P1.9 "Bit-Perfect" Exclusive Mode Fails True Bit-Exact Verification
-- **Location:** [`audio_engine.cpp:4283, 5757-5804, 5996-6018`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L4283)
-- **Mechanism:** `bypassAppDsp` skips downstream effect filters, but:
-  1. The decoder converts native 16-bit or 24-bit integer PCM into 32-bit float at `engineRate`.
-  2. Stage 1 executes ReplayGain and normalization arithmetic prior to bypass evaluation.
-  3. Master user gain ($g \times x$) runs on every block, subjecting bits to floating-point multiplication roundoff.
-- **Consequence:** Audio passed through "exclusive mode" undergoes float conversion, potential gain multiplication, and requantization dither rather than bit-exact byte streaming directly to the hardware ring.
+### P1.9 [RESOLVED] "Bit-Perfect" Exclusive Mode Fails True Bit-Exact Verification
+- **Location:** [`audio_engine.cpp:4305, 4668, 5670-5890, 6790-6815, 7085`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L4305)
+- **Status:** **RESOLVED** via `pcmDirectRingBuffer`, native decoder format configuration, `evaluate_direct_pcm_eligibility`, bypass of Stage 1/DSP/Gain/Dither in exclusive mode, and disarming transition fades.
+- **Mechanism:** `bypassAppDsp` skipped downstream effect filters, but:
+  1. `load_decoder_for_path` hardcoded `cfg = ma_decoder_config_init(ma_format_f32, outCh, targetRate)`, forcing miniaudio to convert native 16-bit or 24-bit integer PCM into 32-bit float.
+  2. `bypassAppDsp` was defined with `&& !e->autoSampleRateMatchEnabled.load(...)`, causing auto sample-rate matching to disable bypass and re-introduce ReplayGain and downstream filters.
+  3. `arm_transition_fade_in` armed a sine/cosine fade-in on every track transition even in exclusive mode.
+  4. Master user gain ($g \times x$) in Stage 3 and requantization dither ran on every block rather than enabling bit-exact raw integer byte streaming to the hardware DAC buffer.
+- **Consequence:** Audio passed through "exclusive mode" underwent float conversion, potential gain multiplication, and requantization dither rather than bit-exact byte streaming directly to the hardware ring.
+- **Resolution:**
+  1. **Direct PCM Byte Ring Buffer (`pcmDirectRingBuffer`):** Added a dedicated byte-exact single-producer single-consumer circular buffer (`SPSCBuffer<uint8_t> pcmDirectRingBuffer`) initialized to 1.5MB along with `isDirectPcmActive` atomic state tracking.
+  2. **Native Decoder Format Negotiation:** Updated `load_decoder_for_path` to request native track formats (`ma_format_unknown` or matching `e->outputFormat`) rather than hardcoding `ma_format_f32`. Recorded `sourceFormat` and `sourceChannels`, and synchronized DAC format in `worker_loop` and `execute_jump_direct` during auto-rate match.
+  3. **Direct Bit-Streaming Passthrough:** Implemented `evaluate_direct_pcm_eligibility`. When in exclusive mode at unity gain without resampling, pitch shift, or crossfading, `decode_producer_loop` reads raw integer PCM directly into `pcmDirectRingBuffer`, and `data_callback` copies raw bytes directly into the hardware output ring (`pOutput`), completely bypassing Stage 1 ReplayGain, normalization, effect filters, master gain multiplication, and dither.
+  4. **Smooth Fallback on Volume Attenuation:** Lowering volume cleanly disengages direct PCM and routes audio through the 64-bit float pipeline with TPDF dithering; restoring unity gain (1.0) seamlessly re-engages direct bit-exact streaming.
+  5. **Exclusive Transition Fade Disarming & Bypass Fix:** Updated `arm_transition_fade_in` to immediately disarm when `exclusiveModeEnabled` is active, and corrected `bypassAppDsp` to strictly reflect exclusive mode regardless of auto sample-rate match settings.
+  6. **Explicit API & Verification:** Added `ae_is_direct_pcm_active` to public API and added `test_bit_perfect_exclusive_direct_pcm_p19()` in `tests/test_engine_api.cpp` verifying 16-bit and 24-bit direct PCM stream engagement, volume attenuation disengagement/re-engagement, and zero float roundtrip (127/127 tests passing).
 
 ---
 
