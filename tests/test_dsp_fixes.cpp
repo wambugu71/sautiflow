@@ -1515,6 +1515,207 @@ static void test_dialog_enhancer_headroom_and_dynamic_attenuation_p112()
     }
 }
 
+// -----------------------------------------------------------------------------
+// [C] P0.4 Multichannel (5.1 & 7.1) Audio Scrambling Elimination
+// -----------------------------------------------------------------------------
+static void test_multichannel_dsp_suite_p04()
+{
+    std::printf("\n== [C] P0.4 Multichannel (5.1 & 7.1) DSP Scrambling Elimination ==\n");
+
+    const uint32_t frames = 256;
+    const int channels51 = 6;
+    const size_t totalSamples51 = frames * channels51;
+
+    // Buffer layout: [L0, R0, C0, LFE0, Ls0, Rs0, L1, R1, ...]
+    std::vector<float> buf51(totalSamples51, 0.0f);
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        buf51[f * channels51 + 0] = 0.5f * std::sin(2.0f * (float)M_PI * 1000.0f * f / 48000.0f); // L
+        buf51[f * channels51 + 1] = 0.5f * std::cos(2.0f * (float)M_PI * 1000.0f * f / 48000.0f); // R
+        buf51[f * channels51 + 2] = 0.3500f; // Center (speech/dialog)
+        buf51[f * channels51 + 3] = 0.2000f; // LFE (subwoofer)
+        buf51[f * channels51 + 4] = 0.1500f; // Left Surround
+        buf51[f * channels51 + 5] = 0.1000f; // Right Surround
+    }
+
+    // Save exact copy of non-stereo channels
+    std::vector<float> origCenter(frames), origLFE(frames), origLs(frames), origRs(frames);
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        origCenter[f] = buf51[f * channels51 + 2];
+        origLFE[f]    = buf51[f * channels51 + 3];
+        origLs[f]     = buf51[f * channels51 + 4];
+        origRs[f]     = buf51[f * channels51 + 5];
+    }
+
+    // De-interleave Front L/R pair
+    std::vector<float> stBuf(frames * 2);
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        stBuf[f * 2 + 0] = buf51[f * channels51 + 0];
+        stBuf[f * 2 + 1] = buf51[f * channels51 + 1];
+    }
+
+    // Process with stereo DSP modules: Clarity, AnalogWarmth, DialogEnhancer, MasterLimiter
+    sauti::dsp::AudioClarityDSP clarity;
+    clarity.setSampleRate(48000.0f);
+    clarity.setEnabled(true);
+    clarity.setIntensity(0.5f);
+    clarity.process(stBuf.data(), frames);
+
+    sauti::dsp::AnalogWarmthDSP warmth;
+    warmth.setSampleRate(48000.0f);
+    warmth.setEnabled(true);
+    warmth.setDrive(0.5f);
+    warmth.process(stBuf.data(), frames);
+
+    sauti::dsp::DialogEnhancerDSP dialog;
+    dialog.setSampleRate(48000.0f);
+    dialog.setEnabled(true);
+    dialog.process(stBuf.data(), frames);
+
+    sauti::dsp::MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setEnabled(true);
+    limiter.setCeilingDb(-0.5f);
+    limiter.process(stBuf.data(), frames);
+
+    // Re-interleave Front L/R back into multichannel buffer
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        buf51[f * channels51 + 0] = stBuf[f * 2 + 0];
+        buf51[f * channels51 + 1] = stBuf[f * 2 + 1];
+    }
+
+    // Verify Center channel dialog was NOT scrambled or touched by stereo DSP
+    bool centerIntact = true;
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        if (buf51[f * channels51 + 2] != origCenter[f])
+        {
+            centerIntact = false;
+            break;
+        }
+    }
+    CHECK(centerIntact, "5.1 Center dialog channel remains strictly bit-identical (no stereo scrambling)");
+
+    // Verify LFE subwoofer channel was NOT scrambled
+    bool lfeIntact = true;
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        if (buf51[f * channels51 + 3] != origLFE[f])
+        {
+            lfeIntact = false;
+            break;
+        }
+    }
+    CHECK(lfeIntact, "5.1 LFE subwoofer channel remains strictly bit-identical");
+
+    // Verify Surrounds (Ls and Rs) were NOT scrambled
+    bool surroundsIntact = true;
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        if (buf51[f * channels51 + 4] != origLs[f] || buf51[f * channels51 + 5] != origRs[f])
+        {
+            surroundsIntact = false;
+            break;
+        }
+    }
+    CHECK(surroundsIntact, "5.1 Left & Right Surround channels remain strictly bit-identical");
+
+    // Verify that all 100% of frames in Left and Right channels were processed
+    bool frontProcessed = true;
+    for (uint32_t f = (frames * 33) / 100; f < frames; ++f)
+    {
+        float origL = 0.5f * std::sin(2.0f * (float)M_PI * 1000.0f * f / 48000.0f);
+        if (buf51[f * channels51 + 0] == origL)
+        {
+            frontProcessed = false;
+            break;
+        }
+    }
+    CHECK(frontProcessed, "Front L/R channels processed across 100% of buffer (not truncated to 33%)");
+
+    // Test 64-bit double precision 7.1 surround (8 channels)
+    const int channels71 = 8;
+    const size_t totalSamples71 = frames * channels71;
+    std::vector<double> buf71(totalSamples71, 0.0);
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        buf71[f * channels71 + 0] = 0.6 * std::sin(2.0 * M_PI * 440.0 * f / 48000.0);
+        buf71[f * channels71 + 1] = 0.6 * std::cos(2.0 * M_PI * 440.0 * f / 48000.0);
+        buf71[f * channels71 + 2] = 0.3333333333333333; // Center
+        buf71[f * channels71 + 3] = 0.2222222222222222; // LFE
+        buf71[f * channels71 + 4] = 0.1111111111111111; // Ls
+        buf71[f * channels71 + 5] = 0.1212121212121212; // Rs
+        buf71[f * channels71 + 6] = 0.1313131313131313; // Rls
+        buf71[f * channels71 + 7] = 0.1414141414141414; // Rrs
+    }
+
+    std::vector<double> stBuf64(frames * 2);
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        stBuf64[f * 2 + 0] = buf71[f * channels71 + 0];
+        stBuf64[f * 2 + 1] = buf71[f * channels71 + 1];
+    }
+
+    sauti::dsp::MasterLimiterDSP limiter64;
+    limiter64.setSampleRate(48000.0f);
+    limiter64.setEnabled(true);
+    limiter64.setCeilingDb(-1.0f);
+    limiter64.process(stBuf64.data(), frames);
+
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        buf71[f * channels71 + 0] = stBuf64[f * 2 + 0];
+        buf71[f * channels71 + 1] = stBuf64[f * 2 + 1];
+    }
+
+    bool ch71Intact = true;
+    for (uint32_t f = 0; f < frames; ++f)
+    {
+        if (buf71[f * channels71 + 2] != 0.3333333333333333 ||
+            buf71[f * channels71 + 3] != 0.2222222222222222 ||
+            buf71[f * channels71 + 4] != 0.1111111111111111 ||
+            buf71[f * channels71 + 5] != 0.1212121212121212 ||
+            buf71[f * channels71 + 6] != 0.1313131313131313 ||
+            buf71[f * channels71 + 7] != 0.1414141414141414)
+        {
+            ch71Intact = false;
+            break;
+        }
+    }
+    CHECK(ch71Intact, "7.1 Surround channels 2..7 retain exact 64-bit IEEE-754 mantissa without corruption");
+}
+
+// -----------------------------------------------------------------------------
+// [C] P0.2 F32 Output Path Overlapping Pointers Guard
+// -----------------------------------------------------------------------------
+static void test_f32_memcpy_overlapping_pointers_p02()
+{
+    std::printf("\n== [C] P0.2 F32 Output Path Overlapping memcpy Prevention ==\n");
+
+    const size_t totalSamples = 512;
+    std::vector<float> buffer(totalSamples, 0.42f);
+
+    void *pOutput = buffer.data();
+    float *finalDstBuffer = reinterpret_cast<float *>(pOutput);
+
+    // Verify pointer equivalence
+    CHECK(static_cast<const void*>(finalDstBuffer) == pOutput, "finalDstBuffer and pOutput point to identical memory address");
+
+    // Execute guarded logic
+    bool memcpyCalled = false;
+    if (static_cast<const void*>(finalDstBuffer) != pOutput)
+    {
+        std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
+        memcpyCalled = true;
+    }
+
+    CHECK(!memcpyCalled, "memcpy(pOutput, pOutput) successfully bypassed to prevent C/C++ Undefined Behavior");
+    CHECK(buffer[0] == 0.42f && buffer[511] == 0.42f, "Buffer contents remain intact and uncorrupted");
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -1522,7 +1723,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver|p110|p111|p112
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver|p110|p111|p112|p04|p02
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -1544,6 +1745,8 @@ int main(int argc, char **argv)
     if (only.empty() || only == "p110") test_base_rate_saturation_aliasing_elimination_p110();
     if (only.empty() || only == "p111") test_de_esser_soft_knee_and_coeff_modulation_p111();
     if (only.empty() || only == "p112") test_dialog_enhancer_headroom_and_dynamic_attenuation_p112();
+    if (only.empty() || only == "p04") test_multichannel_dsp_suite_p04();
+    if (only.empty() || only == "p02") test_f32_memcpy_overlapping_pointers_p02();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

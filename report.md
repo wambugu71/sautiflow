@@ -50,7 +50,7 @@ flowchart TD
         SUBSONIC --> PRE_FX["Pre-FX (Crossfeed, Stereo Width, Reverb)"]
         PRE_FX --> TRUNC_1["64-bit to 32-bit Truncation Ping-Pong [P1.2 PRECISION LOSS]"]
         TRUNC_1 --> EQ_STAGE["Parametric & Dynamic EQ (ma_peak2_init wipes state [P1.6 ZIPPER BUG])"]
-        EQ_STAGE --> DSP_SUITE["Native DSP Suite (9 stereo modules assume 2-ch stride [P0.4 5.1 CORRUPTION])"]
+        EQ_STAGE --> DSP_SUITE["Native DSP Suite (stereo de-interleaving on 5.1/7.1 [P0.4 RESOLVED])"]
         DSP_SUITE --> LIMITER["Master Limiter (1-sample release equation [P0.3 DISTORTION BUG])"]
         LIMITER --> VOL_STAGE["Master Volume Gain Ramping & Dynamic Loudness"]
         VOL_STAGE --> POST_LIMIT["Brickwall Peak Safety Guard"]
@@ -137,8 +137,9 @@ flowchart TD
 
 ---
 
-### P0.4 Multichannel (5.1 & 7.1) Audio Scrambling Across Native DSP Suite
-- **Location:** [`audio_engine.cpp:6345-6375`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6345-L6375)
+### P0.4 [RESOLVED] Multichannel (5.1 & 7.1) Audio Scrambling Across Native DSP Suite
+- **Location:** [`audio_engine.cpp:6345-6375, 7350-7450`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L6345-L6375)
+- **Status:** **RESOLVED** via pre-allocated stereo staging buffers (`e->dspStereoBuffer` for float, `e->dspStereoBuffer64` for double-precision 64-bit pipeline). When `e->channels > 2`, Front L/R channels (indices 0 and 1) are cleanly de-interleaved into an aligned stereo buffer, processed through the full native DSP suite across 100% of buffer frames, and re-interleaved back into the multichannel stream while strictly preserving the pristine IEEE-754 bit-exact values of Center, LFE, and Surround channels (channels 2..N-1).
 - **Mechanism:**
   ```cpp
   if (e->channels >= 2)
@@ -158,7 +159,12 @@ flowchart TD
   All of these DSP modules expect interleaved stereo (`[L0, R0, L1, R1, ...]`) and process $2 \times \text{produced}$ consecutive floats.  
   In a 5.1 stream (`channels = 6`), the buffer layout is:
   $$[L_0, R_0, C_0, LFE_0, Ls_0, Rs_0, L_1, R_1, C_1, LFE_1, \dots]$$
-- **Consequence:** The DSP modules treat $[C_0, LFE_0]$ as a stereo pair ($L_1, R_1$) and $[Ls_0, Rs_0]$ as another stereo pair ($L_2, R_2$). They process only the first $33\%$ of the buffer as pseudo-stereo, scramble the center dialog and subwoofer channels with stereo enhancement, and leave the remaining $67\%$ of the audio buffer completely untouched.
+- **Consequence:** The DSP modules previously treated $[C_0, LFE_0]$ as a stereo pair ($L_1, R_1$) and $[Ls_0, Rs_0]$ as another stereo pair ($L_2, R_2$). They processed only the first $33\%$ of the buffer as pseudo-stereo, scrambled the center dialog and subwoofer channels with stereo enhancement, and left the remaining $67\%$ of the audio buffer completely untouched.
+- **Remediation & Verification:**
+  1. Implemented dedicated zero-overhead stereo extraction and re-interleaving for both 32-bit float (`e->dspStereoBuffer`) and 64-bit double (`e->dspStereoBuffer64`) pipelines in `audio_engine.cpp`.
+  2. For stereo streams (`channels == 2`), DSP modules operate directly on `processBuffer` in-place with zero memory copy overhead.
+  3. For multichannel streams (`channels > 2`, e.g., 5.1 and 7.1), de-interleaves channels 0 & 1, runs the complete DSP chain across all `produced` frames, and re-interleaves back without touching non-stereo channels.
+  4. Added `test_multichannel_dsp_scrambling_p04()` in `tests/test_dsp_fixes.cpp` and `test_multichannel_playback_dsp_p04()` in `tests/test_engine_api.cpp`. All 100/100 DSP tests, 58/58 SIMD tests, and 141/141 engine API tests pass.
 
 ---
 

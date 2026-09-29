@@ -4263,6 +4263,8 @@ struct AudioEngineHandle
 
     // Pre-allocated scratch buffers for audio thread to avoid real-time heap allocations
     std::vector<float> crossfadeMixBuffer;
+    std::vector<float> dspStereoBuffer;
+    std::vector<double> dspStereoBuffer64;
 
     std::mutex errorMutex;
     std::string lastError;
@@ -7282,6 +7284,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
                 if (dspLock.owns_lock())
                 {
+                    const bool isStereo = (e->channels == 2);
                     const bool hasFloatDspSuite = e->downwardExpanderDsp.isEnabled() ||
                                                   e->harmonicBassDsp.isEnabled() ||
                                                   e->dynamicSystemDsp.isEnabled() ||
@@ -7289,7 +7292,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                                   e->dialogEnhancerDsp.isEnabled() ||
                                                   e->clarityDsp.isEnabled() ||
                                                   e->deEsserDsp.isEnabled() ||
-                                                  (e->channels == 2 && e->surroundDsp.isEnabled()) ||
+                                                  (isStereo && e->surroundDsp.isEnabled()) ||
                                                   e->fftConvolverDsp.isEnabled();
                     const bool hasDoubleDspSuite = e->noiseGateDsp.isEnabled() ||
                                                    e->tapeDriftDsp.isEnabled() ||
@@ -7305,37 +7308,105 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             if (e->noiseGateDsp.isEnabled())
                                 e->noiseGateDsp.process(buf64, produced, e->channels);
 
-                            for (size_t i = 0; i < totalSamples; ++i)
-                                processBuffer[i] = static_cast<float>(buf64[i]);
+                            if (isStereo)
+                            {
+                                for (size_t i = 0; i < totalSamples; ++i)
+                                    processBuffer[i] = static_cast<float>(buf64[i]);
 
-                            if (e->downwardExpanderDsp.isEnabled())
-                                e->downwardExpanderDsp.process(processBuffer, produced);
-                            if (e->harmonicBassDsp.isEnabled())
-                                e->harmonicBassDsp.process(processBuffer, produced);
-                            if (e->dynamicSystemDsp.isEnabled())
-                                e->dynamicSystemDsp.process(processBuffer, produced);
-                            if (e->analogWarmthDsp.isEnabled())
-                                e->analogWarmthDsp.process(processBuffer, produced);
-                            if (e->dialogEnhancerDsp.isEnabled())
-                                e->dialogEnhancerDsp.process(processBuffer, produced);
-                            if (e->clarityDsp.isEnabled())
-                                e->clarityDsp.process(processBuffer, produced);
-                            if (e->deEsserDsp.isEnabled())
-                                e->deEsserDsp.process(processBuffer, produced);
-                            if (e->channels == 2 && e->surroundDsp.isEnabled())
-                                e->surroundDsp.process(processBuffer, produced);
-                            if (e->fftConvolverDsp.isEnabled())
-                                e->fftConvolverDsp.process(processBuffer, produced);
+                                if (e->downwardExpanderDsp.isEnabled())
+                                    e->downwardExpanderDsp.process(processBuffer, produced);
+                                if (e->harmonicBassDsp.isEnabled())
+                                    e->harmonicBassDsp.process(processBuffer, produced);
+                                if (e->dynamicSystemDsp.isEnabled())
+                                    e->dynamicSystemDsp.process(processBuffer, produced);
+                                if (e->analogWarmthDsp.isEnabled())
+                                    e->analogWarmthDsp.process(processBuffer, produced);
+                                if (e->dialogEnhancerDsp.isEnabled())
+                                    e->dialogEnhancerDsp.process(processBuffer, produced);
+                                if (e->clarityDsp.isEnabled())
+                                    e->clarityDsp.process(processBuffer, produced);
+                                if (e->deEsserDsp.isEnabled())
+                                    e->deEsserDsp.process(processBuffer, produced);
+                                if (e->surroundDsp.isEnabled())
+                                    e->surroundDsp.process(processBuffer, produced);
+                                if (e->fftConvolverDsp.isEnabled())
+                                    e->fftConvolverDsp.process(processBuffer, produced);
 
-                            for (size_t i = 0; i < totalSamples; ++i)
-                                buf64[i] = static_cast<double>(processBuffer[i]);
+                                for (size_t i = 0; i < totalSamples; ++i)
+                                    buf64[i] = static_cast<double>(processBuffer[i]);
+                            }
+                            else
+                            {
+                                // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
+                                // into stereo scratch buffer. Channels 2..N-1 (Center, LFE, Surrounds) remain
+                                // strictly untouched in pristine 64-bit precision, avoiding scrambling.
+                                const size_t ch = (size_t)e->channels;
+                                const size_t stereoSamples = (size_t)produced * 2;
+                                if (e->dspStereoBuffer.size() < stereoSamples)
+                                    e->dspStereoBuffer.resize(stereoSamples);
+                                float *stBuf = e->dspStereoBuffer.data();
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stBuf[i * 2 + 0] = static_cast<float>(buf64[i * ch + 0]);
+                                    stBuf[i * 2 + 1] = static_cast<float>(buf64[i * ch + 1]);
+                                }
+
+                                if (e->downwardExpanderDsp.isEnabled())
+                                    e->downwardExpanderDsp.process(stBuf, produced);
+                                if (e->harmonicBassDsp.isEnabled())
+                                    e->harmonicBassDsp.process(stBuf, produced);
+                                if (e->dynamicSystemDsp.isEnabled())
+                                    e->dynamicSystemDsp.process(stBuf, produced);
+                                if (e->analogWarmthDsp.isEnabled())
+                                    e->analogWarmthDsp.process(stBuf, produced);
+                                if (e->dialogEnhancerDsp.isEnabled())
+                                    e->dialogEnhancerDsp.process(stBuf, produced);
+                                if (e->clarityDsp.isEnabled())
+                                    e->clarityDsp.process(stBuf, produced);
+                                if (e->deEsserDsp.isEnabled())
+                                    e->deEsserDsp.process(stBuf, produced);
+                                if (e->fftConvolverDsp.isEnabled())
+                                    e->fftConvolverDsp.process(stBuf, produced);
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
+                                    buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
+                                }
+                            }
 
                             if (e->tapeDriftDsp.isEnabled())
                                 e->tapeDriftDsp.process(buf64, produced, e->channels);
                             if (e->dynamicEqDsp.isEnabled())
                                 e->dynamicEqDsp.process(buf64, produced, e->channels);
                             if (e->masterLimiterDsp.isEnabled())
-                                e->masterLimiterDsp.process(buf64, produced);
+                            {
+                                if (isStereo)
+                                {
+                                    e->masterLimiterDsp.process(buf64, produced);
+                                }
+                                else
+                                {
+                                    const size_t ch = (size_t)e->channels;
+                                    const size_t stereoSamples = (size_t)produced * 2;
+                                    if (e->dspStereoBuffer64.size() < stereoSamples)
+                                        e->dspStereoBuffer64.resize(stereoSamples);
+                                    double *stBuf64 = e->dspStereoBuffer64.data();
+
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        stBuf64[i * 2 + 0] = buf64[i * ch + 0];
+                                        stBuf64[i * 2 + 1] = buf64[i * ch + 1];
+                                    }
+                                    e->masterLimiterDsp.process(stBuf64, produced);
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        buf64[i * ch + 0] = stBuf64[i * 2 + 0];
+                                        buf64[i * ch + 1] = stBuf64[i * 2 + 1];
+                                    }
+                                }
+                            }
                         }
                         else if (hasDoubleDspSuite)
                         {
@@ -7347,7 +7418,32 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             if (e->dynamicEqDsp.isEnabled())
                                 e->dynamicEqDsp.process(buf64, produced, e->channels);
                             if (e->masterLimiterDsp.isEnabled())
-                                e->masterLimiterDsp.process(buf64, produced);
+                            {
+                                if (isStereo)
+                                {
+                                    e->masterLimiterDsp.process(buf64, produced);
+                                }
+                                else
+                                {
+                                    const size_t ch = (size_t)e->channels;
+                                    const size_t stereoSamples = (size_t)produced * 2;
+                                    if (e->dspStereoBuffer64.size() < stereoSamples)
+                                        e->dspStereoBuffer64.resize(stereoSamples);
+                                    double *stBuf64 = e->dspStereoBuffer64.data();
+
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        stBuf64[i * 2 + 0] = buf64[i * ch + 0];
+                                        stBuf64[i * 2 + 1] = buf64[i * ch + 1];
+                                    }
+                                    e->masterLimiterDsp.process(stBuf64, produced);
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        buf64[i * ch + 0] = stBuf64[i * 2 + 0];
+                                        buf64[i * ch + 1] = stBuf64[i * 2 + 1];
+                                    }
+                                }
+                            }
                         }
                         // else all 13 modules disabled: zero conversions, buf64 completely untouched!
                     }
@@ -7355,30 +7451,123 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     {
                         if (e->noiseGateDsp.isEnabled())
                             e->noiseGateDsp.process(processBuffer, produced, e->channels);
-                        if (e->downwardExpanderDsp.isEnabled())
-                            e->downwardExpanderDsp.process(processBuffer, produced);
-                        if (e->harmonicBassDsp.isEnabled())
-                            e->harmonicBassDsp.process(processBuffer, produced);
-                        if (e->dynamicSystemDsp.isEnabled())
-                            e->dynamicSystemDsp.process(processBuffer, produced);
-                        if (e->analogWarmthDsp.isEnabled())
-                            e->analogWarmthDsp.process(processBuffer, produced);
-                        if (e->tapeDriftDsp.isEnabled())
-                            e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-                        if (e->dialogEnhancerDsp.isEnabled())
-                            e->dialogEnhancerDsp.process(processBuffer, produced);
-                        if (e->clarityDsp.isEnabled())
-                            e->clarityDsp.process(processBuffer, produced);
-                        if (e->dynamicEqDsp.isEnabled())
-                            e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-                        if (e->deEsserDsp.isEnabled())
-                            e->deEsserDsp.process(processBuffer, produced);
-                        if (e->channels == 2 && e->surroundDsp.isEnabled())
-                            e->surroundDsp.process(processBuffer, produced);
-                        if (e->fftConvolverDsp.isEnabled())
-                            e->fftConvolverDsp.process(processBuffer, produced);
-                        if (e->masterLimiterDsp.isEnabled())
-                            e->masterLimiterDsp.process(processBuffer, produced);
+
+                        if (isStereo)
+                        {
+                            if (e->downwardExpanderDsp.isEnabled())
+                                e->downwardExpanderDsp.process(processBuffer, produced);
+                            if (e->harmonicBassDsp.isEnabled())
+                                e->harmonicBassDsp.process(processBuffer, produced);
+                            if (e->dynamicSystemDsp.isEnabled())
+                                e->dynamicSystemDsp.process(processBuffer, produced);
+                            if (e->analogWarmthDsp.isEnabled())
+                                e->analogWarmthDsp.process(processBuffer, produced);
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+                            if (e->dialogEnhancerDsp.isEnabled())
+                                e->dialogEnhancerDsp.process(processBuffer, produced);
+                            if (e->clarityDsp.isEnabled())
+                                e->clarityDsp.process(processBuffer, produced);
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+                            if (e->deEsserDsp.isEnabled())
+                                e->deEsserDsp.process(processBuffer, produced);
+                            if (e->channels == 2 && e->surroundDsp.isEnabled())
+                                e->surroundDsp.process(processBuffer, produced);
+                            if (e->fftConvolverDsp.isEnabled())
+                                e->fftConvolverDsp.process(processBuffer, produced);
+                            if (e->masterLimiterDsp.isEnabled())
+                                e->masterLimiterDsp.process(processBuffer, produced);
+                        }
+                        else
+                        {
+                            // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
+                            // into stereo scratch buffer for stereo-specific modules. Multichannel modules
+                            // (tapeDriftDsp, dynamicEqDsp) process all channels in-place.
+                            const size_t ch = (size_t)e->channels;
+                            const size_t stereoSamples = (size_t)produced * 2;
+                            if (e->dspStereoBuffer.size() < stereoSamples)
+                                e->dspStereoBuffer.resize(stereoSamples);
+                            float *stBuf = e->dspStereoBuffer.data();
+
+                            const bool hasPreTapeStereo = e->downwardExpanderDsp.isEnabled() ||
+                                                          e->harmonicBassDsp.isEnabled() ||
+                                                          e->dynamicSystemDsp.isEnabled() ||
+                                                          e->analogWarmthDsp.isEnabled();
+                            if (hasPreTapeStereo)
+                            {
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
+                                }
+                                if (e->downwardExpanderDsp.isEnabled())
+                                    e->downwardExpanderDsp.process(stBuf, produced);
+                                if (e->harmonicBassDsp.isEnabled())
+                                    e->harmonicBassDsp.process(stBuf, produced);
+                                if (e->dynamicSystemDsp.isEnabled())
+                                    e->dynamicSystemDsp.process(stBuf, produced);
+                                if (e->analogWarmthDsp.isEnabled())
+                                    e->analogWarmthDsp.process(stBuf, produced);
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
+                                }
+                            }
+
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+
+                            const bool hasMidStereo = e->dialogEnhancerDsp.isEnabled() ||
+                                                      e->clarityDsp.isEnabled();
+                            if (hasMidStereo)
+                            {
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
+                                }
+                                if (e->dialogEnhancerDsp.isEnabled())
+                                    e->dialogEnhancerDsp.process(stBuf, produced);
+                                if (e->clarityDsp.isEnabled())
+                                    e->clarityDsp.process(stBuf, produced);
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
+                                }
+                            }
+
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+
+                            const bool hasPostEqStereo = e->deEsserDsp.isEnabled() ||
+                                                         e->fftConvolverDsp.isEnabled() ||
+                                                         e->masterLimiterDsp.isEnabled();
+                            if (hasPostEqStereo)
+                            {
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
+                                }
+                                if (e->deEsserDsp.isEnabled())
+                                    e->deEsserDsp.process(stBuf, produced);
+                                if (e->fftConvolverDsp.isEnabled())
+                                    e->fftConvolverDsp.process(stBuf, produced);
+                                if (e->masterLimiterDsp.isEnabled())
+                                    e->masterLimiterDsp.process(stBuf, produced);
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -7716,7 +7905,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         else
         {
-            std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+            if (finalDstBuffer != processBuffer)
+            {
+                std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+            }
         }
     }
     else
@@ -7830,7 +8022,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         else if (pDevice->playback.format == ma_format_f32)
         {
-            if (finalDstBuffer != pOutput)
+            // P0.2: Guard against undefined behavior when finalDstBuffer == pOutput (in-place F32 playback)
+            if (static_cast<const void*>(finalDstBuffer) != pOutput)
             {
                 std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
             }
@@ -8535,6 +8728,8 @@ extern "C"
         e->crossfadeMixBuffer.resize(preallocSamples);
         e->engineProcessBuffer.resize(preallocSamples);
         e->processBuffer64.resize(preallocSamples);
+        e->dspStereoBuffer.resize(preallocSamples);
+        e->dspStereoBuffer64.resize(preallocSamples);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;

@@ -25,6 +25,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 static int g_failures = 0;
 static int g_passes = 0;
 
@@ -983,6 +987,161 @@ static void test_bit_perfect_exclusive_direct_pcm_p19()
     std::remove(wav24Path);
 }
 
+static bool write_multichannel_wav_16(const char *path, int sampleRate, int channels, int frames, const std::vector<int16_t> &samples)
+{
+#pragma pack(push, 1)
+    struct WavHeader
+    {
+        char riff[4];
+        uint32_t riffSize;
+        char wave[4];
+        char fmtId[4];
+        uint32_t fmtSize;
+        uint16_t audioFormat;
+        uint16_t channels;
+        uint32_t sampleRate;
+        uint32_t byteRate;
+        uint16_t blockAlign;
+        uint16_t bitsPerSample;
+        char dataId[4];
+        uint32_t dataBytes;
+    };
+#pragma pack(pop)
+
+    const uint32_t dataBytes = (uint32_t)samples.size() * sizeof(int16_t);
+    WavHeader h{};
+    std::memcpy(h.riff, "RIFF", 4);
+    h.riffSize = 36 + dataBytes;
+    std::memcpy(h.wave, "WAVE", 4);
+    std::memcpy(h.fmtId, "fmt ", 4);
+    h.fmtSize = 16;
+    h.audioFormat = 1; // PCM
+    h.channels = (uint16_t)channels;
+    h.sampleRate = (uint32_t)sampleRate;
+    h.byteRate = (uint32_t)sampleRate * channels * sizeof(int16_t);
+    h.blockAlign = (uint16_t)(channels * sizeof(int16_t));
+    h.bitsPerSample = 16;
+    std::memcpy(h.dataId, "data", 4);
+    h.dataBytes = dataBytes;
+
+    FILE *f = std::fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = std::fwrite(&h, sizeof(h), 1, f) == 1 &&
+                    std::fwrite(samples.data(), 1, dataBytes, f) == dataBytes;
+    std::fclose(f);
+    return ok;
+}
+
+static void test_multichannel_playback_dsp_p04()
+{
+    std::printf("\n== Multichannel 5.1 & 7.1 DSP Suite Engine Verification ([C] P0.4) ==\n");
+
+    const int sampleRate = 48000;
+    const int channels51 = 6;
+    const int frames = 48000; // 1 second
+    const char *wav51Path = "multichannel_51_p04_test.wav";
+
+    std::vector<int16_t> pcm51((size_t)frames * channels51);
+    for (int i = 0; i < frames; ++i)
+    {
+        pcm51[i * channels51 + 0] = (int16_t)(10000.0 * std::sin(2.0 * M_PI * 440.0 * i / sampleRate)); // L
+        pcm51[i * channels51 + 1] = (int16_t)(10000.0 * std::cos(2.0 * M_PI * 440.0 * i / sampleRate)); // R
+        pcm51[i * channels51 + 2] = 8000;  // Center
+        pcm51[i * channels51 + 3] = 4000;  // LFE
+        pcm51[i * channels51 + 4] = 3000;  // Ls
+        pcm51[i * channels51 + 5] = 2000;  // Rs
+    }
+
+    CHECK(write_multichannel_wav_16(wav51Path, sampleRate, channels51, frames, pcm51), "5.1 surround test WAV written");
+
+    AudioEngineHandle *e = ae_create_engine(sampleRate, channels51);
+    CHECK(e != nullptr, "engine created for 5.1 multichannel audio");
+
+    // Enable various stereo DSP modules in the engine
+    ae_dsp_set_clarity_enabled(e, 1);
+    ae_dsp_set_analog_warmth_enabled(e, 1);
+    ae_dsp_set_dialog_enhancer_enabled(e, 1);
+    ae_dsp_set_master_limiter_enabled(e, 1);
+    ae_dsp_set_dynamic_eq_enabled(e, 1);
+
+    const char *paths[1] = { wav51Path };
+    CHECK(ae_set_playlist(e, paths, 1), "5.1 playlist set");
+    CHECK(ae_play(e), "5.1 playback started with active DSP Suite");
+
+    // Allow real-time playback to run in float mode
+    const auto deadline1 = Clock::now() + std::chrono::milliseconds(250);
+    while (Clock::now() < deadline1)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    const PlayerStatus st1 = ae_get_status(e);
+    CHECK(st1.is_playing == 1, "5.1 playback is actively running without crash or hang");
+    CHECK(st1.position_seconds >= 0.0, "5.1 audio frames advancing smoothly");
+
+    // Switch to 64-bit pipeline
+    ae_set_64bit_processing_enabled(e, 1);
+    const auto deadline2 = Clock::now() + std::chrono::milliseconds(250);
+    while (Clock::now() < deadline2)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    const PlayerStatus st2 = ae_get_status(e);
+    CHECK(st2.is_playing == 1, "5.1 playback seamlessly transitions to 64-bit pipeline");
+    CHECK(st2.position_seconds >= st1.position_seconds, "5.1 playback continuous across 64-bit switch");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wav51Path);
+}
+
+static void test_f32_output_memcpy_aliasing_p02()
+{
+    std::printf("\n== F32 Output Path Overlapping Memcpy Guard ([C] P0.2) ==\n");
+
+    const int sampleRate = 48000;
+    const int frames = 96000; // 2.0s
+    const char *wavF32Path = "f32_memcpy_p02_test.wav";
+
+    std::vector<int16_t> pcm16((size_t)frames * 2);
+    for (int i = 0; i < frames; ++i)
+    {
+        pcm16[i * 2 + 0] = (int16_t)(15000.0 * std::sin(2.0 * M_PI * 1000.0 * i / sampleRate));
+        pcm16[i * 2 + 1] = (int16_t)(15000.0 * std::cos(2.0 * M_PI * 1000.0 * i / sampleRate));
+    }
+    CHECK(write_pattern_wav_16(wavF32Path, sampleRate, frames, pcm16), "test WAV written for F32 playback");
+
+    AudioEngineHandle *e = ae_create_engine(sampleRate, 2);
+    CHECK(e != nullptr, "engine created for F32 test");
+    ae_set_output_format(e, AE_FORMAT_F32);
+    CHECK(ae_get_output_format(e) == (int)AE_FORMAT_F32, "engine output format set to F32");
+
+    const char *paths[1] = { wavF32Path };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started in F32 mode");
+
+    const auto deadline = Clock::now() + std::chrono::milliseconds(500);
+    PlayerStatus st{};
+    while (Clock::now() < deadline)
+    {
+        st = ae_get_status(e);
+        if (st.is_playing == 1)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            st = ae_get_status(e);
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(st.is_playing == 1, "in-place F32 playback completed safely without memcpy self-aliasing UB");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavF32Path);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1003,6 +1162,8 @@ int main()
     test_filter_state_retention_equalizer_adjustment_p16();
     test_replaygain_peak_limiting_anticlip_p18();
     test_bit_perfect_exclusive_direct_pcm_p19();
+    test_multichannel_playback_dsp_p04();
+    test_f32_output_memcpy_aliasing_p02();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);
