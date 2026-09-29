@@ -330,10 +330,11 @@ flowchart TD
 ---
 
 ### P1.8 Missing ReplayGain Peak Limiting & Potential 0 dBFS Digital Clipping
-- **Locations:** [`audio_engine.cpp:4680-4716`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L4680-L4716) and [`audio_engine.cpp:5003-5012`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5003-L5012)
+- **Locations:** [`audio_engine.cpp:4930-4965`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L4930-L4965), [`audio_engine.cpp:5260-5285`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L5260-L5285), [`audio_engine.cpp:9305-9320`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L9305-L9320), and [`audio_engine.cpp:9610-9635`](file:///c:/Users/wambugukinyua/miniaudiodart/audio_engine.cpp#L9610-L9635)
+- **Status:** **RESOLVED** via anti-clipping peak ceiling calculation (`maxSafeLinear = 1.0f / peak`) across initial loudness initialization, autonomous preview normalization, background preload, and explicit setters.
 - **Mechanism:** When reading metadata tags via `sautiflow::read_file_tags_ffmpeg`:
   ```cpp
-  // audio_engine.cpp:5005-5010
+  // audio_engine.cpp
   bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
   if (hasTags && trackGain != 0.0f)
   {
@@ -341,8 +342,13 @@ flowchart TD
       e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
   }
   ```
-  The parsed `trackPeak` value is completely discarded. If a track has `trackGain = +6.0 dB` (linear $2.0$) and a `trackPeak = 0.95` (-0.45 dBFS), the resulting output peak reaches $+5.55\text{ dBFS}$ ($1.90$).
-- **Consequence:** Because `masterLimiterDsp` is disabled by default in Stage 3, applying positive ReplayGain causes hard digital clipping against 0 dBFS during output quantization, destroying audio fidelity on quiet or classical tracks.
+  The parsed `trackPeak` value was previously discarded. If a track had `trackGain = +6.0 dB` (linear $1.995$) and `trackPeak = 0.95` (-0.45 dBFS), the resulting output peak reached $+5.55\text{ dBFS}$ ($1.895$). Because `masterLimiterDsp` is disabled by default in Stage 3, applying positive ReplayGain caused hard digital clipping against 0 dBFS during output quantization.
+- **Resolution:**
+  1. **Anti-Clipping Ceiling Enforcement in `apply_initial_track_loudness`:** Evaluated `trackPeak` (and `albumPeak` fallback) against parsed gain. Clamped linear gain to `std::min(linearGain, 1.0f / peak)` when `peak > 0.0f`, ensuring the amplified signal never exceeds 0 dBFS (1.000000 linear).
+  2. **Autonomous Preview Normalization Peak Protection:** Extended `compute_preview_lufs` to track true max sample peak across the preview window, applying `maxSafeLinear = 1.0f / previewPeak` to fallback gain calculations when metadata tags are absent.
+  3. **Preload Track Anti-Clipping in `worker_loop`:** Applied identical peak ceiling limiters to `nextTrackReplayGain` and `nextTrackNormalizerGain` during background file preloading.
+  4. **Explicit API Support:** Added `ae_set_replay_gain_with_peak` and `ae_set_next_replay_gain_with_peak` alongside linear and dB getters (`ae_get_replay_gain_linear`, `ae_get_replay_gain_db`, `ae_get_next_replay_gain_linear`).
+  5. **Verification:** Added `test_replaygain_peak_limiting_anticlip_p18()` to `tests/test_engine_api.cpp` confirming that $+6.0\text{ dB}$ gain with $0.95$ peak is strictly clamped to $1.0526$ ($0.95 \times 1.0526 \le 1.000$), preserving unclipped headroom when peak is low, and validating end-to-end engine ReplayGain application (111/111 tests passing).
 
 ---
 

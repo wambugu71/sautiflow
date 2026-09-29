@@ -1434,19 +1434,25 @@ bool read_file_metadata_ffmpeg(
     const char *rgTrack = get_tag("REPLAYGAIN_TRACK_GAIN");
     if (!rgTrack) rgTrack = get_tag("replaygain_track_gain");
     if (!rgTrack) rgTrack = get_tag("R128_TRACK_GAIN");
+    if (!rgTrack) rgTrack = get_tag("r128_track_gain");
     if (rgTrack) outTrackGain = parse_gain_db(rgTrack);
 
     const char *rgAlbum = get_tag("REPLAYGAIN_ALBUM_GAIN");
     if (!rgAlbum) rgAlbum = get_tag("replaygain_album_gain");
     if (!rgAlbum) rgAlbum = get_tag("R128_ALBUM_GAIN");
+    if (!rgAlbum) rgAlbum = get_tag("r128_album_gain");
     if (rgAlbum) outAlbumGain = parse_gain_db(rgAlbum);
 
     const char *rgPeak = get_tag("REPLAYGAIN_TRACK_PEAK");
     if (!rgPeak) rgPeak = get_tag("replaygain_track_peak");
+    if (!rgPeak) rgPeak = get_tag("R128_TRACK_PEAK");
+    if (!rgPeak) rgPeak = get_tag("r128_track_peak");
     if (rgPeak) outTrackPeak = parse_gain_db(rgPeak);
 
     const char *rgAlbumPeak = get_tag("REPLAYGAIN_ALBUM_PEAK");
     if (!rgAlbumPeak) rgAlbumPeak = get_tag("replaygain_album_peak");
+    if (!rgAlbumPeak) rgAlbumPeak = get_tag("R128_ALBUM_PEAK");
+    if (!rgAlbumPeak) rgAlbumPeak = get_tag("r128_album_peak");
     if (rgAlbumPeak) outAlbumPeak = parse_gain_db(rgAlbumPeak);
 
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {

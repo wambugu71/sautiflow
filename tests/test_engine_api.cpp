@@ -706,6 +706,92 @@ static void test_filter_state_retention_equalizer_adjustment_p16()
     std::remove(wavPath);
 }
 
+static void test_replaygain_peak_limiting_anticlip_p18()
+{
+    std::printf("\n== ReplayGain Anti-Clipping Peak Limiting ([C] P1.8) ==\n");
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created at 48 kHz stereo");
+    if (!e) return;
+
+    // 1. Math verification: Positive gain with high peak (+6.0 dB, peak = 0.95)
+    // Raw linear gain for +6.0 dB is 10^(6/20) ~ 1.995262.
+    // Peak would reach 0.95 * 1.995262 = 1.8955 (+5.55 dBFS, severe digital clipping).
+    // With anti-clipping: maxSafeLinear = 1.0 / 0.95 = 1.0526315.
+    // Resulting linear gain must be clamped to 1.0526315 (peak stays <= 1.000000).
+    ae_set_replay_gain_with_peak(e, 6.0f, 0.95f);
+    const float limitedLinear = ae_get_replay_gain_linear(e);
+    const float expectedLimit = 1.0f / 0.95f;
+    CHECK(std::abs(limitedLinear - expectedLimit) < 1e-4f,
+          "positive ReplayGain (+6 dB) with peak 0.95 is clamped to max safe linear 1.0526 (prevents 0 dBFS clipping)");
+    const float limitedDb = ae_get_replay_gain_db(e);
+    CHECK(std::abs(limitedDb - 0.4455f) < 0.05f,
+          "effective ReplayGain dB (+0.45 dB) matches anti-clipping headroom ceiling");
+    CHECK(limitedLinear * 0.95f <= 1.00001f,
+          "output peak after limited ReplayGain does not exceed 1.000000 full-scale");
+
+    // 2. Headroom available: Positive gain with low peak (+6.0 dB, peak = 0.40)
+    // maxSafeLinear = 1.0 / 0.40 = 2.50.
+    // Raw linear gain 1.995262 <= 2.50, so full +6 dB gain must be preserved without attenuation.
+    ae_set_replay_gain_with_peak(e, 6.0f, 0.40f);
+    const float unattenuatedLinear = ae_get_replay_gain_linear(e);
+    const float rawSixDb = std::pow(10.0f, 6.0f / 20.0f);
+    CHECK(std::abs(unattenuatedLinear - rawSixDb) < 1e-4f,
+          "positive ReplayGain (+6 dB) with low peak 0.40 preserves full +6 dB gain (no unnecessary limiting)");
+    CHECK(unattenuatedLinear * 0.40f <= 1.00001f,
+          "output peak with headroom remains safely within 1.000000 (0.798 <= 1.000)");
+
+    // 3. Negative gain: Attenuation (-4.0 dB, peak = 0.98)
+    // Negative gain naturally attenuates below 1.0, so peak limiting must never interfere.
+    ae_set_replay_gain_with_peak(e, -4.0f, 0.98f);
+    const float attenuatedLinear = ae_get_replay_gain_linear(e);
+    const float rawMinusFourDb = std::pow(10.0f, -4.0f / 20.0f);
+    CHECK(std::abs(attenuatedLinear - rawMinusFourDb) < 1e-4f,
+          "negative ReplayGain (-4 dB) passes uninhibited (attenuation preserved)");
+
+    // 4. Preload next track ReplayGain with peak limiting (+8.0 dB, peak = 0.90)
+    // Raw linear = 10^(8/20) ~ 2.511886. Max safe linear = 1.0 / 0.90 = 1.111111.
+    ae_set_next_replay_gain_with_peak(e, 8.0f, 0.90f);
+    const float nextLimited = ae_get_next_replay_gain_linear(e);
+    CHECK(std::abs(nextLimited - (1.0f / 0.90f)) < 1e-4f,
+          "preload next track ReplayGain (+8 dB) with peak 0.90 is clamped to 1.1111");
+
+    // 5. Zero or invalid peak handled gracefully without division by zero or NaN
+    ae_set_replay_gain_with_peak(e, 3.0f, 0.0f);
+    CHECK(std::abs(ae_get_replay_gain_linear(e) - std::pow(10.0f, 3.0f / 20.0f)) < 1e-4f,
+          "zero peak tag bypasses ceiling limiter without division by zero");
+
+    ae_set_replay_gain_with_peak(e, 3.0f, -1.0f);
+    CHECK(std::abs(ae_get_replay_gain_linear(e) - std::pow(10.0f, 3.0f / 20.0f)) < 1e-4f,
+          "negative peak tag bypasses ceiling limiter without corrupting gain");
+
+    // 6. End-to-end active playback test with ReplayGain peak limiting
+    const char *wavPath = "replaygain_p18_test.wav";
+    CHECK(write_test_wav(wavPath, 48000, 2, 0.85f), "test WAV generated (amplitude 0.85)");
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started");
+
+    // Without peak limiting, +6.0 dB on 0.85 amplitude = 0.85 * 1.995 = 1.696 (+4.59 dBFS clipping)
+    // With peak limiting (peak 0.85): maxSafe = 1.0 / 0.85 = 1.17647 (+1.41 dB)
+    ae_set_replay_gain_with_peak(e, 6.0f, 0.85f);
+
+    // Let audio process for 250ms
+    const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+    while (Clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    const PlayerStatus st = ae_get_status(e);
+    CHECK(st.is_playing == 1, "playback active with peak-limited ReplayGain");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -724,6 +810,7 @@ int main()
     test_sample_rate_switch_position_continuity_p14();
     test_device_resampler_input_estimation_p15();
     test_filter_state_retention_equalizer_adjustment_p16();
+    test_replaygain_peak_limiting_anticlip_p18();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

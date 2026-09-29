@@ -177,6 +177,8 @@ extern "C"
     AE_API void ae_set_loudness_crossfade_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_loudness_crossfade_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_next_replay_gain(AudioEngineHandle *engine, float gain_db);
+    AE_API void ae_set_next_replay_gain_with_peak(AudioEngineHandle *engine, float gain_db, float peak);
+    AE_API float ae_get_next_replay_gain_linear(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
@@ -193,6 +195,9 @@ extern "C"
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
     AE_API void ae_set_replay_gain(AudioEngineHandle *engine, float gain_db);
+    AE_API void ae_set_replay_gain_with_peak(AudioEngineHandle *engine, float gain_db, float peak);
+    AE_API float ae_get_replay_gain_linear(AudioEngineHandle *engine);
+    AE_API float ae_get_replay_gain_db(AudioEngineHandle *engine);
     AE_API void ae_set_pan(AudioEngineHandle *engine, float pan_minus1_to_plus1);
     AE_API void ae_set_rate(AudioEngineHandle *engine, float rate);
     AE_API float ae_get_rate(AudioEngineHandle *engine);

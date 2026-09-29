@@ -4865,7 +4865,7 @@ static void request_jump(AudioEngineHandle *e, int idx)
     e->workerCv.notify_one();
 }
 
-static float compute_preview_lufs(ma_decoder *decoder)
+static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr)
 {
     if (decoder == nullptr) return -100.0f;
     const ma_uint32 sampleRate = decoder->outputSampleRate > 0 ? decoder->outputSampleRate : 48000;
@@ -4884,6 +4884,7 @@ static float compute_preview_lufs(ma_decoder *decoder)
 
     double activeBlockSumPwr = 0.0;
     int activeBlockCount = 0;
+    float maxSamplePeak = 0.0f;
 
     for (ma_uint32 chunk = 0; chunk < maxChunks; ++chunk)
     {
@@ -4894,7 +4895,10 @@ static float compute_preview_lufs(ma_decoder *decoder)
         double blockSumSq[8] = {0};
         for (ma_uint64 i = 0; i < framesRead; ++i) {
             for (ma_uint32 c = 0; c < useCh; ++c) {
-                double s = (double)pcmChunk[(size_t)i * (size_t)channels + (size_t)c];
+                float rawSample = pcmChunk[(size_t)i * (size_t)channels + (size_t)c];
+                float absSample = std::fabs(rawSample);
+                if (absSample > maxSamplePeak) maxSamplePeak = absSample;
+                double s = (double)rawSample;
                 double kf = kFilters[c].process(s);
                 blockSumSq[c] += kf * kf;
             }
@@ -4916,6 +4920,8 @@ static float compute_preview_lufs(ma_decoder *decoder)
     // Rewind back to frame 0 for subsequent playback
     (void)ma_decoder_seek_to_pcm_frame(decoder, 0);
 
+    if (outPeak) *outPeak = maxSamplePeak;
+
     if (activeBlockCount == 0) return -100.0f;
     double meanPwr = activeBlockSumPwr / (double)activeBlockCount;
     return (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
@@ -4935,23 +4941,40 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
         float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
         std::string art, tit, alb;
         bool hasTags = sautiflow::read_file_tags_ffmpeg(path.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
-        if (hasTags && trackGain != 0.0f)
+        if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
         {
-            chosenLinear = std::pow(10.0f, trackGain / 20.0f);
-            chosenLufs = targetLufs - trackGain;
+            const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
+            float peak = (trackGain != 0.0f) ? trackPeak : albumPeak;
+            if (peak <= 0.0f && albumPeak > 0.0f)
+                peak = albumPeak;
+            chosenLinear = std::pow(10.0f, gainDb / 20.0f);
+            if (peak > 0.0f && std::isfinite(peak))
+            {
+                const float maxSafeLinear = 1.0f / peak;
+                if (chosenLinear > maxSafeLinear)
+                    chosenLinear = maxSafeLinear;
+            }
+            chosenLufs = targetLufs - gainDb;
             foundLoudness = true;
-            engine_log("apply_initial_track_loudness: ReplayGain tag %.2f dB (linear %.3f)", trackGain, chosenLinear);
+            engine_log("apply_initial_track_loudness: ReplayGain tag %.2f dB (linear %.3f, peak %.3f)", gainDb, chosenLinear, peak);
         }
         else if (decoder != nullptr)
         {
-            float previewLufs = compute_preview_lufs(decoder);
+            float previewPeak = 0.0f;
+            float previewLufs = compute_preview_lufs(decoder, &previewPeak);
             if (previewLufs > -70.0f)
             {
                 float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
                 chosenLinear = std::pow(10.0f, gainDb / 20.0f);
+                if (previewPeak > 0.0f && std::isfinite(previewPeak))
+                {
+                    const float maxSafeLinear = 1.0f / previewPeak;
+                    if (chosenLinear > maxSafeLinear)
+                        chosenLinear = maxSafeLinear;
+                }
                 chosenLufs = previewLufs;
                 foundLoudness = true;
-                engine_log("apply_initial_track_loudness: Preview LUFS %.2f -> gain %.2f dB (linear %.3f)", previewLufs, gainDb, chosenLinear);
+                engine_log("apply_initial_track_loudness: Preview LUFS %.2f -> gain %.2f dB (linear %.3f, peak %.3f)", previewLufs, gainDb, chosenLinear, previewPeak);
             }
         }
     }
@@ -5262,24 +5285,41 @@ static void worker_loop(AudioEngineHandle *e)
                 std::string art, tit, alb;
                 bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
                 const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
-                if (hasTags && trackGain != 0.0f)
+                if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
                 {
-                    float linearGain = std::pow(10.0f, trackGain / 20.0f);
+                    const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
+                    float peak = (trackGain != 0.0f) ? trackPeak : albumPeak;
+                    if (peak <= 0.0f && albumPeak > 0.0f)
+                        peak = albumPeak;
+                    float linearGain = std::pow(10.0f, gainDb / 20.0f);
+                    if (peak > 0.0f && std::isfinite(peak))
+                    {
+                        const float maxSafeLinear = 1.0f / peak;
+                        if (linearGain > maxSafeLinear)
+                            linearGain = maxSafeLinear;
+                    }
                     e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
                     e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
-                    engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f)", trackGain, linearGain);
+                    engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f, peak %.3f)", gainDb, linearGain, peak);
                 }
                 else if (decoded != nullptr)
                 {
                     // Fallback: Autonomous BS.1770-4 preview LUFS
-                    float previewLufs = compute_preview_lufs(decoded);
+                    float previewPeak = 0.0f;
+                    float previewLufs = compute_preview_lufs(decoded, &previewPeak);
                     if (previewLufs > -70.0f)
                     {
                         float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
                         float linearGain = std::pow(10.0f, gainDb / 20.0f);
+                        if (previewPeak > 0.0f && std::isfinite(previewPeak))
+                        {
+                            const float maxSafeLinear = 1.0f / previewPeak;
+                            if (linearGain > maxSafeLinear)
+                                linearGain = maxSafeLinear;
+                        }
                         e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
                         e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
-                        engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f)", previewLufs, gainDb, linearGain);
+                        engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f, peak %.3f)", previewLufs, gainDb, linearGain, previewPeak);
                     }
                 }
             }
@@ -9304,11 +9344,29 @@ extern "C"
 
     AE_API void ae_set_next_replay_gain(AudioEngineHandle *e, float gain_db)
     {
+        ae_set_next_replay_gain_with_peak(e, gain_db, 0.0f);
+    }
+
+    AE_API void ae_set_next_replay_gain_with_peak(AudioEngineHandle *e, float gain_db, float peak)
+    {
         if (e == nullptr)
             return;
-        const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        if (peak > 0.0f && std::isfinite(peak))
+        {
+            const float maxSafeLinear = 1.0f / peak;
+            if (linear > maxSafeLinear)
+                linear = maxSafeLinear;
+        }
         e->nextTrackReplayGain.store(linear, std::memory_order_relaxed);
         e->nextTrackGainExplicitlySet.store(gain_db != 0.0f, std::memory_order_relaxed);
+    }
+
+    AE_API float ae_get_next_replay_gain_linear(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 1.0f;
+        return e->nextTrackReplayGain.load(std::memory_order_relaxed);
     }
 
     AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)
@@ -9609,11 +9667,37 @@ extern "C"
     // gain_db == 0 means no adjustment. Positive boosts, negative attenuates.
     AE_API void ae_set_replay_gain(AudioEngineHandle *e, float gain_db)
     {
+        ae_set_replay_gain_with_peak(e, gain_db, 0.0f);
+    }
+
+    AE_API void ae_set_replay_gain_with_peak(AudioEngineHandle *e, float gain_db, float peak)
+    {
         if (e == nullptr)
             return;
-        const float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        float linear = (gain_db == 0.0f) ? 1.0f : std::pow(10.0f, gain_db / 20.0f);
+        if (peak > 0.0f && std::isfinite(peak))
+        {
+            const float maxSafeLinear = 1.0f / peak;
+            if (linear > maxSafeLinear)
+                linear = maxSafeLinear;
+        }
         e->replayGainLinear.store(linear, std::memory_order_relaxed);
         e->currentTrackReplayGain.store(linear, std::memory_order_relaxed);
+    }
+
+    AE_API float ae_get_replay_gain_linear(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 1.0f;
+        return e->replayGainLinear.load(std::memory_order_relaxed);
+    }
+
+    AE_API float ae_get_replay_gain_db(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0f;
+        const float linear = e->replayGainLinear.load(std::memory_order_relaxed);
+        return (linear > 1e-6f) ? (20.0f * std::log10(linear)) : -120.0f;
     }
 
     AE_API void ae_set_pan(AudioEngineHandle *e, float pan_minus1_to_plus1)
