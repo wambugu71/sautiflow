@@ -184,6 +184,21 @@ public:
 
     float getReleaseMs() const { return release_ms_; }
 
+    // C^1-Continuous Soft-Knee Gain Reduction Function
+    static inline float computeKneeGainReduction(float env_db, float threshold_db, float ratio, float max_reduction_db, float knee_db = 4.0f) {
+        const float diff = env_db - threshold_db;
+        const float half_knee = knee_db * 0.5f;
+        if (diff > half_knee) {
+            float gr_db = diff * (1.0f - 1.0f / ratio);
+            return std::min(gr_db, max_reduction_db);
+        } else if (diff > -half_knee) {
+            float knee_factor = diff + half_knee;
+            float gr_db = (1.0f - 1.0f / ratio) * (knee_factor * knee_factor) / (2.0f * knee_db);
+            return std::min(gr_db, max_reduction_db);
+        }
+        return 0.0f;
+    }
+
     void reset() {
         // Reset dynamic shelf biquad states
         shelf_x1_l_ = shelf_x2_l_ = shelf_y1_l_ = shelf_y2_l_ = 0.0f;
@@ -201,6 +216,7 @@ public:
         current_intensity_ = target_intensity_;
         current_threshold_db_ = target_threshold_db_;
         anti_pop_ = 0.0f;
+        prev_shelf_gain_db_ = 999.0f;
         updateShelfCoeffs(0.0f);
         shelf_b0_ = tgt_shelf_b0_;
         shelf_b1_ = tgt_shelf_b1_;
@@ -208,6 +224,11 @@ public:
         shelf_a1_ = tgt_shelf_a1_;
         shelf_a2_ = tgt_shelf_a2_;
     }
+
+    // Active interpolated and target high-shelf coefficients (for verification/telemetry)
+    float getActiveShelfB0() const { return shelf_b0_; }
+    float getTargetShelfB0() const { return tgt_shelf_b0_; }
+    float getPrevShelfGainDb() const { return prev_shelf_gain_db_; }
 
     // Real-time gain reduction in dB for meters / UI
     float getGainReductionDb() const {
@@ -269,18 +290,7 @@ public:
             float target_gr_db = 0.0f;
             if (env_peak > 1e-5f) {
                 const float env_db = 20.0f * std::log10(env_peak);
-                const float diff = env_db - current_threshold_db_;
-                constexpr float knee_db = 4.0f;
-                constexpr float half_knee = knee_db * 0.5f;
-
-                if (diff > half_knee) {
-                    float gr_db = diff * (1.0f - 1.0f / ratio_);
-                    target_gr_db = std::min(gr_db, max_reduction_db_);
-                } else if (diff > -half_knee) {
-                    float knee_factor = diff + half_knee;
-                    float gr_db = (1.0f - 1.0f / ratio_) * (knee_factor * knee_factor) / (2.0f * knee_db);
-                    target_gr_db = std::min(gr_db, max_reduction_db_);
-                }
+                target_gr_db = computeKneeGainReduction(env_db, current_threshold_db_, ratio_, max_reduction_db_);
             }
 
             // Smooth gain reduction to eliminate audio clicks

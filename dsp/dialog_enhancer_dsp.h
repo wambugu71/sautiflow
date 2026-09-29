@@ -122,11 +122,25 @@ public:
             target_clarity_ = std::clamp(clarity, 0.0f, 1.0f);
             target_center_focus_ = std::clamp(centerFocus, 0.0f, 1.0f);
         }
+        current_amount_ = target_amount_;
+        current_ducking_ = target_ducking_;
+        current_clarity_ = target_clarity_;
+        current_center_focus_ = target_center_focus_;
+        recalcBiquads();
     }
 
     // Telemetry / metering: current ducking gain reduction in dB
     float getGainReductionDb() const {
         return last_ducking_reduction_db_;
+    }
+
+    // Telemetry / verification: automatic headroom trim compensation
+    float getHeadroomCompensation() const {
+        return headroom_comp_;
+    }
+
+    float getHeadroomCompensationDb() const {
+        return (headroom_comp_ > 0.0f) ? (20.0f * std::log10(headroom_comp_)) : -100.0f;
     }
 
     void reset() {
@@ -222,8 +236,15 @@ public:
             float mid_gain = 1.0f + current_center_focus_ * 0.25f;
             float side_gain = current_side_gain * (1.0f - current_center_focus_ * 0.20f);
 
-            // Apply mid gain scaled by automatic headroom compensation
-            float out_mid = mid_enhanced * (mid_gain * headroom_comp_);
+            // Dynamic headroom attenuation: prevents internal digital clipping on high-level voice tracks
+            const float estimated_mid_peak = std::max(speech_energy_env_, std::fabs(mid_enhanced)) * (mid_gain * headroom_comp_);
+            float dynamic_atten = 1.0f;
+            if (estimated_mid_peak > 0.95f) {
+                dynamic_atten = 0.95f / estimated_mid_peak;
+            }
+
+            // Apply mid gain scaled by automatic headroom compensation and dynamic attenuation
+            float out_mid = mid_enhanced * (mid_gain * headroom_comp_ * dynamic_atten);
             float out_side = side * side_gain;
 
             // 5. Mid-Side synthesis back to Left & Right

@@ -1229,6 +1229,292 @@ static void test_fft_convolver_latency_compensation()
     CHECK(convolver.getLatencySamples() == 512, "getLatencySamples() accurately reports BLOCK_SIZE (512)");
 }
 
+// -----------------------------------------------------------------------------
+// [C] P1.10 Base-Rate Nonlinear Saturation Aliasing Elimination
+// -----------------------------------------------------------------------------
+static void test_base_rate_saturation_aliasing_elimination_p110()
+{
+    std::printf("\n== [C] P1.10 Base-Rate Saturation Aliasing Elimination ==\n");
+
+    // 1. DynamicBassDSP: high-frequency tone transparency without full-band soft-clipping
+    {
+        sauti::dsp::HarmonicBassDSP bassDsp;
+        bassDsp.setSampleRate(48000.0f);
+        bassDsp.setEnabled(true);
+        bassDsp.setProfile(sauti::dsp::BassEnhanceProfile::NaturalBass);
+        bassDsp.setBoost(0.6f);
+        bassDsp.reset();
+
+        // Feed pure high-frequency 15 kHz tone at amplitude 0.75
+        // At 48 kHz, Nyquist is 24 kHz. Soft-clipping at base rate generates 3rd harmonic
+        // at 45 kHz, folding back across Nyquist to 45 - 48 = -3 kHz -> 3 kHz aliasing distortion!
+        const uint32_t N = 4800; // 100ms
+        std::vector<float> buf(2 * N);
+        const float f_hf = 15000.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.75f * std::sin(2.0f * static_cast<float>(M_PI) * f_hf * static_cast<float>(i) / 48000.0f);
+            buf[2 * i]     = s;
+            buf[2 * i + 1] = s;
+        }
+
+        // Warm up past anti-pop
+        for (int k = 0; k < 5; ++k) bassDsp.process(buf.data(), N);
+
+        // Process test block
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.75f * std::sin(2.0f * static_cast<float>(M_PI) * f_hf * static_cast<float>(i) / 48000.0f);
+            buf[2 * i]     = s;
+            buf[2 * i + 1] = s;
+        }
+        bassDsp.process(buf.data(), N);
+
+        // Measure correlation at foldback alias frequency f_alias = 3000 Hz
+        // In the presence of foldback aliasing, a 3 kHz component would be generated.
+        double alias_real = 0.0, alias_imag = 0.0;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            float angle = 2.0f * static_cast<float>(M_PI) * 3000.0f * static_cast<float>(i) / 48000.0f;
+            alias_real += buf[2 * i] * std::cos(angle);
+            alias_imag += buf[2 * i] * std::sin(angle);
+        }
+        const double alias_mag = (std::sqrt(alias_real * alias_real + alias_imag * alias_imag) * 2.0) / (N / 2);
+
+        char alias_msg[128];
+        std::snprintf(alias_msg, sizeof(alias_msg), "DynamicBassDSP 3 kHz foldback alias magnitude = %.2e (want < 1e-4)", alias_mag);
+        CHECK(alias_mag < 1e-4, alias_msg);
+
+        // Verify peak 15 kHz amplitude matches unclipped input ~0.75
+        float maxHf = 0.0f;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            maxHf = std::max(maxHf, std::abs(buf[2 * i]));
+        }
+        CHECK(nearlyEqual(maxHf, 0.75f, 0.02f), "DynamicBassDSP leaves 15 kHz high frequencies unattenuated and unclipped (~0.75)");
+    }
+
+    // 2. DynamicBassDSP DynamicMultiPole mode: clean pass-through without soft-clipping
+    {
+        sauti::dsp::HarmonicBassDSP bassDsp;
+        bassDsp.setSampleRate(48000.0f);
+        bassDsp.setEnabled(true);
+        bassDsp.setProfile(sauti::dsp::BassEnhanceProfile::DynamicMultiPole);
+        bassDsp.setBoost(0.5f);
+        bassDsp.reset();
+
+        const uint32_t N = 2048;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.8f * std::sin(2.0f * static_cast<float>(M_PI) * 12000.0f * static_cast<float>(i) / 48000.0f);
+            buf[2 * i]     = s;
+            buf[2 * i + 1] = s;
+        }
+        for (int k = 0; k < 5; ++k) bassDsp.process(buf.data(), N);
+
+        bool finite = true;
+        for (float v : buf) {
+            if (!std::isfinite(v)) { finite = false; break; }
+        }
+        CHECK(finite, "DynamicBassDSP MultiPole output is strictly finite without clipping saturation");
+    }
+
+    // 3. DynamicSystemDSP: direct linear reconstruction without base-rate soft-clipping
+    {
+        sauti::dsp::DynamicSystemDSP dynSys;
+        dynSys.setSampleRate(48000.0f);
+        dynSys.setEnabled(true);
+        dynSys.setProfile(sauti::dsp::TransducerProfile::Headphone);
+        dynSys.setStrength(0.9f);
+        dynSys.reset();
+
+        const uint32_t N = 4800;
+        std::vector<float> buf(2 * N);
+        const float f_hf = 10000.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.85f * std::sin(2.0f * static_cast<float>(M_PI) * f_hf * static_cast<float>(i) / 48000.0f);
+            buf[2 * i]     = s;
+            buf[2 * i + 1] = s;
+        }
+
+        for (int k = 0; k < 5; ++k) dynSys.process(buf.data(), N);
+
+        float maxVal = 0.0f;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            maxVal = std::max(maxVal, std::abs(buf[2 * i]));
+        }
+        CHECK(maxVal > 0.80f, "DynamicSystemDSP preserves high-frequency dynamics without destructive soft-clipping");
+        CHECK(!std::isnan(maxVal) && !std::isinf(maxVal), "DynamicSystemDSP output is strictly finite");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// [C] P1.11 De-Esser Dynamic Filter Modulations & C^1 Continuous Soft Knee
+// -----------------------------------------------------------------------------
+static void test_de_esser_soft_knee_and_coeff_modulation_p111()
+{
+    std::printf("\n== [C] P1.11 De-Esser Soft Knee & Coefficient Modulation ==\n");
+
+    // 1. Mathematical continuity and C^1 smoothness of the soft knee function
+    {
+        const float threshold_db = -20.0f;
+        const float ratio = 4.0f;
+        const float max_red = 12.0f;
+        const float knee_db = 4.0f; // half_knee = 2.0 dB, knee active from -22 dB to -18 dB
+
+        // Region 1: Below knee (diff < -2.0 dB)
+        float gr_below = sauti::dsp::DeEsserDSP::computeKneeGainReduction(-23.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(gr_below == 0.0f, "Soft knee below boundary (diff = -3.0 dB) yields 0.0 dB gain reduction");
+
+        // Region 2: Lower boundary (diff = -2.0 dB)
+        float gr_lower = sauti::dsp::DeEsserDSP::computeKneeGainReduction(-22.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(nearlyEqual(gr_lower, 0.0f, 1e-6f), "Soft knee lower boundary (diff = -2.0 dB) is continuous at 0.0 dB");
+
+        // Region 3: Knee center (diff = 0.0 dB, threshold)
+        // gr = (1 - 1/4) * (2)^2 / (2 * 4) = 0.75 * 4 / 8 = 0.375 dB
+        float gr_center = sauti::dsp::DeEsserDSP::computeKneeGainReduction(-20.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(nearlyEqual(gr_center, 0.375f, 1e-5f), "Soft knee center (diff = 0.0 dB) evaluates to exactly 0.375 dB");
+
+        // Region 4: Upper boundary (diff = +2.0 dB)
+        // gr = (1 - 1/4) * (4)^2 / 8 = 1.5 dB, matching linear slope diff * (1 - 1/4) = 2.0 * 0.75 = 1.5 dB
+        float gr_upper = sauti::dsp::DeEsserDSP::computeKneeGainReduction(-18.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(nearlyEqual(gr_upper, 1.500f, 1e-5f), "Soft knee upper boundary (diff = +2.0 dB) evaluates to exactly 1.500 dB");
+
+        // Region 5: Linear section above knee (diff = +4.0 dB)
+        float gr_above = sauti::dsp::DeEsserDSP::computeKneeGainReduction(-16.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(nearlyEqual(gr_above, 3.000f, 1e-5f), "Linear section above knee (diff = +4.0 dB) evaluates to 3.000 dB");
+
+        // Region 6: Clamped to maximum reduction
+        float gr_clamped = sauti::dsp::DeEsserDSP::computeKneeGainReduction(0.0f, threshold_db, ratio, max_red, knee_db);
+        CHECK(nearlyEqual(gr_clamped, 12.0f, 1e-5f), "Gain reduction clamps to configured max reduction (12.0 dB)");
+
+        // Numerical derivative test for C^1 continuity across lower boundary (-22.0 dB)
+        const float eps = 1e-3f;
+        float d_lower = (sauti::dsp::DeEsserDSP::computeKneeGainReduction(-22.0f + eps, threshold_db, ratio, max_red, knee_db) -
+                         sauti::dsp::DeEsserDSP::computeKneeGainReduction(-22.0f - eps, threshold_db, ratio, max_red, knee_db)) / (2.0f * eps);
+        CHECK(nearlyEqual(d_lower, 0.0f, 0.01f), "Soft knee first derivative is C^1-smooth (tangent = 0.0) at lower boundary");
+
+        // Numerical derivative test for C^1 continuity across upper boundary (-18.0 dB)
+        float d_upper = (sauti::dsp::DeEsserDSP::computeKneeGainReduction(-18.0f + eps, threshold_db, ratio, max_red, knee_db) -
+                         sauti::dsp::DeEsserDSP::computeKneeGainReduction(-18.0f - eps, threshold_db, ratio, max_red, knee_db)) / (2.0f * eps);
+        CHECK(nearlyEqual(d_upper, 0.75f, 0.01f), "Soft knee first derivative is C^1-smooth (tangent = 0.75) at upper boundary");
+    }
+
+    // 2. Continuous biquad coefficient interpolation during rapid sibilance bursts
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(48000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setMode(sauti::dsp::DeEsserMode::SplitBand);
+        deEsser.setThresholdDb(-24.0f);
+        deEsser.setRatio(6.0f);
+        deEsser.reset();
+
+        // Feed a sudden vocal sibilance burst (silence followed by 0 dBFS 6 kHz tone)
+        const uint32_t N = 2400; // 50 ms
+        std::vector<float> burst(2 * N, 0.0f);
+        for (uint32_t i = 480; i < N; ++i) { // sudden burst starting at frame 480 (10ms)
+            float s = 0.9f * std::sin(2.0f * static_cast<float>(M_PI) * 6000.0f * static_cast<float>(i) / 48000.0f);
+            burst[2 * i]     = s;
+            burst[2 * i + 1] = s;
+        }
+
+        // Settle anti-pop
+        std::vector<float> warmup(2 * 480, 0.0f);
+        deEsser.process(warmup.data(), 480);
+
+        // Process frame-by-frame and track shelf coefficient transition
+        float prev_b0 = deEsser.getActiveShelfB0();
+        float max_b0_step = 0.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            float frame[2] = { burst[2 * i], burst[2 * i + 1] };
+            deEsser.process(frame, 1);
+            float curr_b0 = deEsser.getActiveShelfB0();
+            float step = std::fabs(curr_b0 - prev_b0);
+            max_b0_step = std::max(max_b0_step, step);
+            prev_b0 = curr_b0;
+        }
+
+        char step_msg[128];
+        std::snprintf(step_msg, sizeof(step_msg), "Max shelf b0 sample-to-sample step = %.2e (want < 0.05, zero zippering)", max_b0_step);
+        CHECK(max_b0_step < 0.05f, step_msg);
+        CHECK(deEsser.getGainReductionDb() > 3.0f, "DeEsser successfully engages gain reduction on sibilance burst");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// [C] P1.12 Dialog Enhancer Cascade Gain Headroom Risk & Dynamic Attenuation
+// -----------------------------------------------------------------------------
+static void test_dialog_enhancer_headroom_and_dynamic_attenuation_p112()
+{
+    std::printf("\n== [C] P1.12 Dialog Enhancer Headroom & Dynamic Attenuation ==\n");
+
+    sauti::dsp::DialogEnhancerDSP de;
+    de.setSampleRate(48000.0f);
+    de.setEnabled(true);
+
+    // 1. Automatic headroom trim compensation caps static cumulative boost (+19.5 dB)
+    {
+        de.reset();
+        // Custom profile with maximum boost parameters:
+        // formant_gain = +11 dB (2.4 kHz)
+        // body_gain = +3.5 dB (1.2 kHz)
+        // clarity_gain = +5.0 dB (3.8 kHz)
+        // Total cumulative boost = +19.5 dB
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 1.0f, 0.5f, 1.0f, 1.0f);
+
+        float headroom_db = de.getHeadroomCompensationDb();
+        float headroom_linear = de.getHeadroomCompensation();
+
+        char hr_msg[128];
+        std::snprintf(hr_msg, sizeof(hr_msg), "DialogEnhancer headroom trim = %.2f dB (want ~ -7.5 dB, linear %.3f <= 0.45)", headroom_db, headroom_linear);
+        CHECK(headroom_db <= -7.0f && headroom_db >= -8.0f, hr_msg);
+        CHECK(headroom_linear <= 0.45f && headroom_linear > 0.40f, "Headroom compensation scales linear gain to ~0.422 (12 dB cap)");
+    }
+
+    // 2. High-level (0 dBFS) voice track protection via dynamic attenuation
+    {
+        de.reset();
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 1.0f, 0.5f, 1.0f, 1.0f);
+
+        // Feed full-scale 0 dBFS voice track (amplitude 1.0) at 2400 Hz formant peak
+        const uint32_t N = 4800; // 100ms
+        std::vector<float> hotVoice(2 * N);
+        const float f0 = 2400.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 1.0f * std::sin(2.0f * static_cast<float>(M_PI) * f0 * static_cast<float>(i) / 48000.0f);
+            hotVoice[2 * i]     = s;
+            hotVoice[2 * i + 1] = s;
+        }
+
+        // Process audio through maximum enhancement chain
+        for (int k = 0; k < 5; ++k) de.process(hotVoice.data(), N);
+
+        // Measure steady-state peak output
+        float maxPeak = 0.0f;
+        for (uint32_t i = N / 2; i < N; ++i) {
+            maxPeak = std::max(maxPeak, std::abs(hotVoice[2 * i]));
+        }
+
+        char peak_msg[128];
+        std::snprintf(peak_msg, sizeof(peak_msg), "Hot 0 dBFS voice track output peak = %.4f (must be <= 0.98, no internal clipping)", maxPeak);
+        CHECK(maxPeak <= 0.98f, peak_msg);
+        CHECK(maxPeak >= 0.85f, "Hot voice track remains prominent and intelligible");
+    }
+
+    // 3. Sub-block coefficient throttling check (no per-sample coefficient re-computation)
+    {
+        de.reset();
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 0.5f, 0.5f, 0.5f, 0.5f);
+
+        const uint32_t N = 128;
+        std::vector<float> buf(2 * N, 0.1f);
+        de.process(buf.data(), N);
+
+        bool finite = true;
+        for (float v : buf) {
+            if (!std::isfinite(v)) { finite = false; break; }
+        }
+        CHECK(finite, "DialogEnhancer sub-block processing is stable and strictly finite");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -1236,7 +1522,7 @@ int main(int argc, char **argv)
     std::printf("==============================================\n");
 
     // Optionally run a single test by name for isolation:
-    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver
+    //   test_dsp_fixes.exe pure_bass|crossfeed|limiter|warmth|clarity|dynsys|oversample|deesser|expander|subsonic|dialog|scaletempo|convolver|p110|p111|p112
     std::string only = (argc > 1) ? argv[1] : "";
 
     if (only.empty() || only == "pure_bass") test_pure_bass_fir();
@@ -1255,6 +1541,9 @@ int main(int argc, char **argv)
     if (only.empty() || only == "dialog") test_dialog_enhancer_dsp();
     if (only.empty() || only == "scaletempo") test_scaletempo_dsp();
     if (only.empty() || only == "convolver") test_fft_convolver_latency_compensation();
+    if (only.empty() || only == "p110") test_base_rate_saturation_aliasing_elimination_p110();
+    if (only.empty() || only == "p111") test_de_esser_soft_knee_and_coeff_modulation_p111();
+    if (only.empty() || only == "p112") test_dialog_enhancer_headroom_and_dynamic_attenuation_p112();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

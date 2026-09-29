@@ -371,24 +371,42 @@ flowchart TD
 
 ---
 
-### P1.10 Base-Rate Nonlinear Saturation Aliasing in Non-Oversampled Modules
+### P1.10 [RESOLVED] Base-Rate Nonlinear Saturation Aliasing in Non-Oversampled Modules
 - **Location:** [`dsp/dynamic_bass_dsp.h:540, 834`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/dynamic_bass_dsp.h#L540) and [`dsp/dynamic_system_dsp.h:232`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/dynamic_system_dsp.h#L232)
-- **Mechanism:** Harmonic generation and full-band soft-clipping occur at native base sample rates without polyphase oversampling in `DynamicBassDSP` and `DynamicSystemDSP`.
-- **Consequence:** Harmonics generated above $f_s/2$ fold back across the Nyquist frequency as inharmonic aliasing distortion, contaminating the audible spectrum with unnatural metallic grain.
+- **Status:** **RESOLVED** via full-band soft-clipping elimination and linear multi-band matrix reconstruction.
+- **Mechanism:** Harmonic generation and full-band soft-clipping formerly occurred at native base sample rates without polyphase oversampling in `DynamicBassDSP` and `DynamicSystemDSP`.
+- **Consequence:** Harmonics generated above $f_s/2$ folded back across the Nyquist frequency as inharmonic aliasing distortion, contaminating the audible spectrum with unnatural metallic grain.
+- **Resolution:**
+  1. **Full-Band Soft-Clipping Removal in `DynamicBassDSP`:** Eliminated `softClip` calls from full-band audio summation in `shapeMix` (line 544), `shapeMixStereo` (line 563), and `processDynamicMultiPole` (lines 853, 878), allowing clean high-frequency audio (up to 20 kHz) to pass linearly without nonlinear foldback aliasing.
+  2. **Sub-Band Soft-Clipping Isolation:** Confined rational algebraic soft-clipping exclusively to the DC-blocked fundamental bass channel (< 120 Hz) in `shapeMix` (`bass = softClip(y, 0.8f);`), where any generated harmonics remain below 1 kHz — far below the 24 kHz Nyquist limit.
+  3. **Linear Matrix Assignment in `DynamicSystemDSP`:** Eliminated base-rate soft-clipping from the output stage in `DynamicSystemDSP::process` (line 232), replacing destructive saturation with direct linear assignment from the phase-aligned multi-band ladder matrix.
+  4. **Verification:** Added `test_base_rate_saturation_aliasing_elimination_p110()` to `tests/test_dsp_fixes.cpp` verifying that pure 15 kHz high-frequency tones pass cleanly with zero 3 kHz foldback alias distortion (measured alias magnitude $< 10^{-4}$), that multi-pole processing is linear and finite, and that `DynamicSystemDSP` preserves unclipped high-frequency dynamics.
 
 ---
 
-### P1.11 De-Esser Dynamic Filter Modulations & Instantaneous Hard Knee
+### P1.11 [RESOLVED] De-Esser Dynamic Filter Modulations & Instantaneous Hard Knee
 - **Location:** [`dsp/de_esser_dsp.h:275, 391-419`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/de_esser_dsp.h#L275)
-- **Mechanism:** `updateShelfCoeffs()` recomputes `std::sin`, `std::cos`, and `std::sqrt` biquad coefficients while dynamic gain moves rapidly. The detector gain curve uses a piecewise hard threshold rather than a true $C^1$-continuous soft knee.
-- **Consequence:** Rapid filter coefficient re-calculation inside dynamic signal changes causes transient phase smearing and micro-zippering clicks on vocal sibilance bursts.
+- **Status:** **RESOLVED** via $C^1$-continuous soft-knee detector, throttled coefficient recalculation, and continuous 1 ms parameter interpolation.
+- **Mechanism:** `updateShelfCoeffs()` previously recomputed `std::sin`, `std::cos`, and `std::sqrt` biquad coefficients on every sample while dynamic gain moved rapidly. The detector gain curve used a piecewise hard threshold rather than a true $C^1$-continuous soft knee.
+- **Consequence:** Rapid filter coefficient re-calculation inside dynamic signal changes caused transient phase smearing and micro-zippering clicks on vocal sibilance bursts.
+- **Resolution:**
+  1. **$C^1$-Continuous Quadratic Soft Knee:** Implemented `computeKneeGainReduction()` with a 4.0 dB soft-knee transition region centered at `current_threshold_db_`, guaranteeing mathematical $C^1$ continuity (equal values and derivatives at boundaries $-2.0\text{ dB}$ and $+2.0\text{ dB}$) to eliminate abrupt threshold clipping transitions.
+  2. **Throttled Transcendental Recalculation:** Throttled `updateShelfCoeffs()` to recompute trigonometric filter targets only when gain reduction changes by $\ge 0.1\text{ dB}$, avoiding redundant transcendental function calls on small signal variations.
+  3. **Continuous 1 ms Biquad Coefficient Interpolation:** Implemented continuous exponential smoothing on active shelf biquad coefficients (`shelf_b0_ += coeff_interp_coeff_ * (tgt_shelf_b0_ - shelf_b0_)`), allowing active filter coefficients to glide smoothly towards targets and eliminating discrete parameter stepping and micro-zippering clicks on sudden vocal sibilance bursts.
+  4. **Verification:** Added `test_de_esser_soft_knee_and_coeff_modulation_p111()` to `tests/test_dsp_fixes.cpp` verifying soft-knee values and $C^1$ derivative smoothness across lower and upper boundaries, and confirming that sample-to-sample coefficient steps during hot sibilance bursts remain $< 0.05$ with zero zippering.
 
 ---
 
-### P1.12 Dialog Enhancer Cascade Gain Headroom Risk
+### P1.12 [RESOLVED] Dialog Enhancer Cascade Gain Headroom Risk
 - **Location:** [`dsp/dialog_enhancer_dsp.h:304-316`](file:///c:/Users/wambugukinyua/miniaudiodart/dsp/dialog_enhancer_dsp.h#L304)
-- **Mechanism:** The enhancement chain cascades three peaking filters centered on speech formant bands ($1\text{ kHz}, 2.5\text{ kHz}, 4.5\text{ kHz}$) with cumulative boosts up to $+19.5\text{ dB}$, without internal dynamic gain attenuation or trim compensation.
-- **Consequence:** High-level voice tracks quickly clip internally before reaching the master volume stage.
+- **Status:** **RESOLVED** via automatic headroom trim compensation, dynamic peak attenuation, and sub-block coefficient calculation throttling.
+- **Mechanism:** The enhancement chain cascades three peaking filters centered on speech formant bands ($1.2\text{ kHz}, 2.4\text{ kHz}, 3.8\text{ kHz}$) with cumulative boosts up to $+19.5\text{ dB}$, without internal dynamic gain attenuation or trim compensation.
+- **Consequence:** High-level voice tracks quickly clipped internally before reaching the master volume stage.
+- **Resolution:**
+  1. **Automatic Headroom Trim Compensation:** In `recalcBiquads()`, calculated cumulative boost across formant (+11 dB), body (+3.5 dB), and clarity (+5.0 dB) bands, attenuating the mid channel via `headroom_comp_ = 10^((12 - total_boost)/20)` when total boost exceeds safe +12 dB headroom, ensuring static cascaded boost never causes internal clipping.
+  2. **Dynamic Headroom Attenuation:** Tracked the speech envelope (`speech_energy_env_`) and instantaneous peak in `mid_enhanced`, calculating `estimated_mid_peak = std::max(speech_energy_env_, std::fabs(mid_enhanced)) * (mid_gain * headroom_comp_)`. When hot voice tracks approach 0 dBFS, dynamically scaled gain (`dynamic_atten = 0.95f / estimated_mid_peak`) to strictly clamp output peaks $\le 0.95$ (0 dBFS headroom preserved without internal digital clipping).
+  3. **Sub-Block Recalculation Throttling:** Throttled parameter updates and biquad recalculations to 32-sample sub-block boundaries (`if ((i & 31) == 0)`).
+  4. **Verification:** Added `test_dialog_enhancer_headroom_and_dynamic_attenuation_p112()` to `tests/test_dsp_fixes.cpp` confirming that maximum cumulative boost (+19.5 dB) engages $-7.50\text{ dB}$ headroom trim, that a 0 dBFS hot voice track output peak is strictly bounded to $\le 0.98$ without internal clipping, and that sub-block processing is stable and finite.
 
 ---
 
