@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:shimmer/shimmer.dart';
 
 import 'album_detail_screen.dart';
 import 'services/app_theme_service.dart';
@@ -172,15 +173,7 @@ class _ArtistCatalogScreenState extends State<ArtistCatalogScreen> {
                     ),
                   ),
                   if (_loading)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Center(
-                        child: M3EProgressIndicator.circularWavy(
-                          color: _primary,
-                          trackColor: _primary.withValues(alpha: 0.15),
-                        ),
-                      ),
-                    )
+                    _buildShimmer(isDesktop)
                   else if (_error != null)
                     SliverFillRemaining(
                       hasScrollBody: false,
@@ -404,37 +397,57 @@ class _ArtistCatalogScreenState extends State<ArtistCatalogScreen> {
           (context, index) {
             final song = songs[index];
             final thumb = _getBestThumbnail(song.thumbnails);
+            final isFirst = index == 0;
+            final isLast = index == songs.length - 1;
+            final borderRadius = BorderRadius.only(
+              topLeft: Radius.circular(isFirst ? 20 : 6),
+              topRight: Radius.circular(isFirst ? 20 : 6),
+              bottomLeft: Radius.circular(isLast ? 20 : 6),
+              bottomRight: Radius.circular(isLast ? 20 : 6),
+            );
+
+            final hasAlbum = song.album != null && song.album!.name.isNotEmpty;
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.only(bottom: 3),
               child: Material(
                 color: _surfaceDark,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: _outline.withValues(alpha: 0.08)),
+                  borderRadius: borderRadius,
+                  side: BorderSide(color: _outline.withValues(alpha: 0.12)),
                 ),
+                clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () {
                     if (widget.onPlayTracks != null) {
-                      final trackInfos = songs.map((s) => TrackInfo.fromSongDetailed(s)).toList();
+                      final trackInfos = songs.map((s) {
+                        return TrackInfo.fromSongDetailed(
+                          s,
+                          album: s.album?.name,
+                          albumId: s.album?.albumId,
+                        );
+                      }).toList();
                       Navigator.of(context).popUntil((r) => r.isFirst);
                       widget.onPlayTracks!(trackInfos, initialIndex: index);
                     }
                   },
-                  borderRadius: BorderRadius.circular(12),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     child: Row(
                       children: [
                         SizedBox(
-                          width: 28,
+                          width: 24,
                           child: Text(
                             '${index + 1}',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: _textDark, fontSize: 13, fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              color: _textDark,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: SizedBox(
@@ -469,25 +482,80 @@ class _ArtistCatalogScreenState extends State<ArtistCatalogScreen> {
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: _textPrimary,
-                                  fontSize: 14.5,
+                                  fontSize: isDesktop ? 15 : 13.5,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               const SizedBox(height: 2),
-                              Text(
-                                song.album?.name ?? widget.artistName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: _textDark, fontSize: 12),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      widget.artistName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: _textDark, fontSize: isDesktop ? 13 : 11.5),
+                                    ),
+                                  ),
+                                  if (hasAlbum) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                                      child: Container(
+                                        width: 3,
+                                        height: 3,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _textDark.withValues(alpha: 0.5),
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(Icons.album_outlined, size: 11, color: _textDark.withValues(alpha: 0.7)),
+                                    const SizedBox(width: 3),
+                                    Flexible(
+                                      child: Text(
+                                        song.album!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: _textDark.withValues(alpha: 0.8),
+                                          fontSize: isDesktop ? 12.5 : 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ],
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Text(
                           _formatDuration(song.duration),
-                          style: TextStyle(color: _textDark, fontSize: 13),
+                          style: TextStyle(
+                            color: _textDark,
+                            fontSize: isDesktop ? 13 : 11.5,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.play_circle_outline_rounded, size: 22),
+                          color: _primary,
+                          tooltip: 'Play track',
+                          onPressed: () {
+                            if (widget.onPlayTracks != null) {
+                              final trackInfos = songs.map((s) {
+                                return TrackInfo.fromSongDetailed(
+                                  s,
+                                  album: s.album?.name,
+                                  albumId: s.album?.albumId,
+                                );
+                              }).toList();
+                              Navigator.of(context).popUntil((r) => r.isFirst);
+                              widget.onPlayTracks!(trackInfos, initialIndex: index);
+                            }
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -496,6 +564,169 @@ class _ArtistCatalogScreenState extends State<ArtistCatalogScreen> {
             );
           },
           childCount: songs.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmer(bool isDesktop) {
+    switch (_selectedType) {
+      case ArtistCatalogType.albums:
+      case ArtistCatalogType.singles:
+        return _buildAlbumGridShimmer(isDesktop);
+      case ArtistCatalogType.songs:
+        return _buildSongsListShimmer(isDesktop);
+    }
+  }
+
+  Widget _buildAlbumGridShimmer(bool isDesktop) {
+    final crossAxisCount = isDesktop ? 5 : 2;
+    final surface = context.cardDark;
+    final highlight = surface.withValues(alpha: 0.55);
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16, vertical: 16),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 20,
+          childAspectRatio: 0.76,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            return Shimmer.fromColors(
+              baseColor: surface,
+              highlightColor: highlight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 60,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+          childCount: isDesktop ? 10 : 6,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSongsListShimmer(bool isDesktop) {
+    final surface = context.cardDark;
+    final highlight = surface.withValues(alpha: 0.55);
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16, vertical: 12),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final isFirst = index == 0;
+            final isLast = index == 7;
+            return Shimmer.fromColors(
+              baseColor: surface,
+              highlightColor: highlight,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Container(
+                  height: 62,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: surface,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(isFirst ? 20 : 6),
+                      topRight: Radius.circular(isFirst ? 20 : 6),
+                      bottomLeft: Radius.circular(isLast ? 20 : 6),
+                      bottomRight: Radius.circular(isLast ? 20 : 6),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 20,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              height: 13,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              width: 120,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 32,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          childCount: 8,
         ),
       ),
     );

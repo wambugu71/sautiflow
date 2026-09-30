@@ -3,6 +3,7 @@ import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:shimmer/shimmer.dart';
 
 import 'artist_profile_screen.dart';
 import 'models/liked_song.dart';
@@ -116,8 +117,8 @@ class TrackInfo {
       artistId: song.artist.artistId,
       thumbnailUrl: thumb,
       durationSeconds: song.duration,
-      album: album,
-      albumId: albumId,
+      album: album ?? song.album?.name,
+      albumId: albumId ?? song.album?.albumId,
       albumArtist: albumArtist,
       trackNumber: trackNumber,
     );
@@ -152,6 +153,269 @@ class TrackInfo {
   }
 }
 
+sealed class AlbumDetailState {
+  const AlbumDetailState();
+}
+
+class AlbumDetailLoading extends AlbumDetailState {
+  const AlbumDetailLoading();
+}
+
+class AlbumDetailError extends AlbumDetailState {
+  final String message;
+  const AlbumDetailError(this.message);
+}
+
+class AlbumDetailSuccess extends AlbumDetailState {
+  final List<TrackInfo> tracks;
+  final String? year;
+  const AlbumDetailSuccess({required this.tracks, this.year});
+}
+
+class AlbumDetailReactiveController extends ValueNotifier<AlbumDetailState> {
+  final dynamic item;
+  final String initialTitle;
+  final String initialArtist;
+  final String? initialThumbnailUrl;
+  final YTMusic _ytMusic = YTMusic();
+
+  AlbumDetailReactiveController({
+    required this.item,
+    required this.initialTitle,
+    required this.initialArtist,
+    this.initialThumbnailUrl,
+  }) : super(const AlbumDetailLoading());
+
+  List<TrackInfo> get tracks {
+    final s = value;
+    return s is AlbumDetailSuccess ? s.tracks : const [];
+  }
+
+  bool get isLoading => value is AlbumDetailLoading;
+
+  String? get errorMessage {
+    final s = value;
+    return s is AlbumDetailError ? s.message : null;
+  }
+
+  String? get year {
+    final s = value;
+    return s is AlbumDetailSuccess ? s.year : null;
+  }
+
+  Future<void> load() async {
+    value = const AlbumDetailLoading();
+    try {
+      if (item is AlbumDetailed) {
+        final albumItem = item as AlbumDetailed;
+        await _ytMusic.initialize();
+        if (albumItem.albumId.isNotEmpty) {
+          try {
+            final album = await _ytMusic.getAlbum(albumItem.albumId);
+            final loadedTracks = album.songs.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final s = entry.value;
+              final baseTrack = TrackInfo.fromSongDetailed(
+                s,
+                album: initialTitle,
+                albumId: albumItem.albumId,
+                albumArtist: initialArtist,
+                trackNumber: idx + 1,
+              );
+              return baseTrack.copyWith(
+                thumbnailUrl: baseTrack.thumbnailUrl ?? initialThumbnailUrl,
+              );
+            }).toList();
+            value = AlbumDetailSuccess(
+              tracks: loadedTracks,
+              year: album.year?.toString(),
+            );
+            return;
+          } catch (e) {
+            debugPrint('getAlbum failed for ${albumItem.albumId}: $e');
+          }
+        }
+        value = const AlbumDetailSuccess(tracks: []);
+      } else if (item is PlaylistDetailed) {
+        final playlistItem = item as PlaylistDetailed;
+        final pid = playlistItem.playlistId;
+        try {
+          await _ytMusic.initialize();
+          final playlistVideos = await _ytMusic.getPlaylistVideos(pid);
+          final loadedTracks = playlistVideos.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final v = entry.value;
+            final baseTrack = TrackInfo.fromVideoDetailed(
+              v,
+              album: initialTitle,
+              albumId: pid,
+              albumArtist: initialArtist,
+              trackNumber: idx + 1,
+            );
+            return baseTrack.copyWith(
+              thumbnailUrl: baseTrack.thumbnailUrl ?? initialThumbnailUrl,
+            );
+          }).toList();
+          value = AlbumDetailSuccess(tracks: loadedTracks);
+        } catch (e) {
+          debugPrint('dart_ytmusic_api getPlaylistVideos failed for $pid: $e');
+          value = const AlbumDetailError('Could not load playlist tracks.');
+        }
+      } else if (item is SongDetailed || item is VideoDetailed) {
+        await _ytMusic.initialize();
+        final String videoId = item is SongDetailed
+            ? (item as SongDetailed).videoId
+            : (item as VideoDetailed).videoId;
+        final TrackInfo mainTrack = item is SongDetailed
+            ? TrackInfo.fromSongDetailed(
+                item as SongDetailed,
+                album: initialTitle,
+                albumArtist: initialArtist,
+                trackNumber: 1,
+              ).copyWith(thumbnailUrl: initialThumbnailUrl)
+            : TrackInfo.fromVideoDetailed(
+                item as VideoDetailed,
+                album: initialTitle,
+                albumArtist: initialArtist,
+                trackNumber: 1,
+              ).copyWith(thumbnailUrl: initialThumbnailUrl);
+
+        final List<TrackInfo> trackList = [mainTrack];
+        try {
+          final upNexts = await _ytMusic.getUpNexts(videoId);
+          for (int i = 0; i < upNexts.length; i++) {
+            final next = upNexts[i];
+            trackList.add(TrackInfo(
+              videoId: next.videoId,
+              title: next.title,
+              artist: next.artists.name,
+              artistId: next.artists.artistId,
+              thumbnailUrl: next.thumbnails.isNotEmpty
+                  ? next.thumbnails.first.url
+                  : initialThumbnailUrl,
+              durationSeconds: next.duration,
+              album: initialTitle,
+              albumArtist: initialArtist,
+              trackNumber: i + 2,
+            ));
+          }
+        } catch (e) {
+          debugPrint('getUpNexts failed: $e');
+        }
+        value = AlbumDetailSuccess(tracks: trackList);
+      } else {
+        value = const AlbumDetailSuccess(tracks: []);
+      }
+    } catch (e) {
+      value = AlbumDetailError(e.toString());
+    }
+  }
+}
+
+class _AlbumDetailTracklistShimmer extends StatelessWidget {
+  final bool isDesktop;
+
+  const _AlbumDetailTracklistShimmer({required this.isDesktop});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = context.cardDark;
+    final highlight = surface.withValues(alpha: 0.55);
+
+    return Shimmer.fromColors(
+      baseColor: surface,
+      highlightColor: highlight,
+      child: Column(
+        children: List.generate(8, (i) {
+          final isFirst = i == 0;
+          final isLast = i == 7;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 3.0),
+            child: Container(
+              height: isDesktop ? 68 : 58,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(isFirst ? 20 : 6),
+                  topRight: Radius.circular(isFirst ? 20 : 6),
+                  bottomLeft: Radius.circular(isLast ? 20 : 6),
+                  bottomRight: Radius.circular(isLast ? 20 : 6),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: isDesktop ? 22 : 18,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: isDesktop ? 48 : 40,
+                    height: isDesktop ? 48 : 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          width: 130,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Container(
+                    width: 36,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
 class AlbumDetailScreen extends StatefulWidget {
   /// The tapped item from the home screen (AlbumDetailed, PlaylistDetailed, or SongDetailed)
   final dynamic item;
@@ -167,10 +431,7 @@ class AlbumDetailScreen extends StatefulWidget {
 }
 
 class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
-  final YTMusic _ytMusic = YTMusic();
-  List<TrackInfo> _tracks = [];
-  bool _loading = true;
-  String? _error;
+  late final AlbumDetailReactiveController _controller;
 
   Color get _bgDark => context.bgDark;
   Color get _surfaceDark => context.cardDark;
@@ -178,6 +439,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Color get _textPrimary => context.textPrimary;
   Color get _textMuted => context.textMuted;
   Color get _outline => context.outlineColor;
+
+  List<TrackInfo> get _tracks => _controller.tracks;
+  bool get _loading => _controller.isLoading;
+  String? get _error => _controller.errorMessage;
 
   // Extracted info
   String _title = '';
@@ -190,7 +455,18 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   void initState() {
     super.initState();
     _extractInfo();
-    _loadSongs();
+    _controller = AlbumDetailReactiveController(
+      item: widget.item,
+      initialTitle: _title,
+      initialArtist: _artist,
+      initialThumbnailUrl: _thumbnailUrl,
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   void _extractInfo() {
@@ -223,135 +499,6 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     if (thumbs.isEmpty) return null;
     thumbs.sort((a, b) => b.width.compareTo(a.width));
     return thumbs.first.url;
-  }
-
-  Future<void> _loadSongs() async {
-    try {
-      final item = widget.item;
-
-      if (item is AlbumDetailed) {
-        // Use dart_ytmusic_api for albums
-        await _ytMusic.initialize();
-        if (item.albumId.isNotEmpty) {
-          try {
-            final album = await _ytMusic.getAlbum(item.albumId);
-            if (mounted) {
-              setState(() {
-                _tracks = album.songs.asMap().entries.map((entry) {
-                  final idx = entry.key;
-                  final s = entry.value;
-                  final baseTrack = TrackInfo.fromSongDetailed(
-                    s,
-                    album: _title,
-                    albumId: item.albumId,
-                    albumArtist: _artist,
-                    trackNumber: idx + 1,
-                  );
-                  return baseTrack.copyWith(
-                    thumbnailUrl: baseTrack.thumbnailUrl ?? _thumbnailUrl,
-                  );
-                }).toList();
-                _loading = false;
-                if (album.year != null) _year = album.year.toString();
-              });
-            }
-            return;
-          } catch (e) {
-            debugPrint('getAlbum failed for ${item.albumId}: $e');
-          }
-        }
-        if (mounted) setState(() => _loading = false);
-      } else if (item is PlaylistDetailed) {
-        final pid = item.playlistId;
-
-        try {
-          await _ytMusic.initialize();
-          final playlistVideos = await _ytMusic.getPlaylistVideos(pid);
-          if (mounted) {
-            setState(() {
-              _tracks = playlistVideos.asMap().entries.map((entry) {
-                final idx = entry.key;
-                final v = entry.value;
-                final baseTrack = TrackInfo.fromVideoDetailed(
-                  v,
-                  album: _title,
-                  albumId: pid,
-                  albumArtist: _artist,
-                  trackNumber: idx + 1,
-                );
-                return baseTrack.copyWith(
-                  thumbnailUrl: baseTrack.thumbnailUrl ?? _thumbnailUrl,
-                );
-              }).toList();
-              _loading = false;
-              _error = null;
-            });
-          }
-        } catch (e) {
-          debugPrint('dart_ytmusic_api getPlaylistVideos failed for $pid: $e');
-          if (mounted) {
-            setState(() {
-              _error = 'Could not load playlist tracks.';
-              _loading = false;
-            });
-          }
-        }
-      } else if (item is SongDetailed || item is VideoDetailed) {
-        // Show the song/video + load related tracks via getUpNexts
-        await _ytMusic.initialize();
-        final String videoId =
-            item is SongDetailed ? item.videoId : (item as VideoDetailed).videoId;
-        final TrackInfo mainTrack = item is SongDetailed
-            ? TrackInfo.fromSongDetailed(
-                item,
-                album: _title,
-                albumArtist: _artist,
-                trackNumber: 1,
-              ).copyWith(thumbnailUrl: _thumbnailUrl)
-            : TrackInfo.fromVideoDetailed(
-                item as VideoDetailed,
-                album: _title,
-                albumArtist: _artist,
-                trackNumber: 1,
-              ).copyWith(thumbnailUrl: _thumbnailUrl);
-        final List<TrackInfo> trackList = [mainTrack];
-        try {
-          final upNexts = await _ytMusic.getUpNexts(videoId);
-          for (int i = 0; i < upNexts.length; i++) {
-            final next = upNexts[i];
-            trackList.add(TrackInfo(
-              videoId: next.videoId,
-              title: next.title,
-              artist: next.artists.name,
-              artistId: next.artists.artistId,
-              thumbnailUrl:
-                  next.thumbnails.isNotEmpty ? next.thumbnails.first.url : _thumbnailUrl,
-              durationSeconds: next.duration,
-              album: _title,
-              albumArtist: _artist,
-              trackNumber: i + 2,
-            ));
-          }
-        } catch (e) {
-          debugPrint('getUpNexts failed: $e');
-        }
-        if (mounted) {
-          setState(() {
-            _tracks = trackList;
-            _loading = false;
-          });
-        }
-      } else {
-        if (mounted) setState(() => _loading = false);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
-      }
-    }
   }
 
   void _openArtist(String name, {String? artistId}) {
@@ -404,74 +551,85 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: contentMaxWidth),
-              child: CustomScrollView(
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  // ── App Bar ──
-                  SliverAppBar(
-                    backgroundColor: _bgDark,
-                    surfaceTintColor: Colors.transparent,
-                    elevation: 0,
-                    scrolledUnderElevation: 0,
-                    pinned: true,
-                    leading: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Center(
-                        child: M3EIconButton(
-                          icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-                          variant: M3EIconButtonVariant.tonal,
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                      ),
-                    ),
-                  ),
+              child: ValueListenableBuilder<AlbumDetailState>(
+                valueListenable: _controller,
+                builder: (context, state, _) {
+                  if (state is AlbumDetailSuccess && state.year != null && _year == null) {
+                    _year = state.year;
+                  }
+                  final currentTracks = state is AlbumDetailSuccess ? state.tracks : <TrackInfo>[];
 
-                  // ── Hero ──
-                  SliverToBoxAdapter(child: _buildHero(isDesktop: isDesktop)),
-
-                  // ── Tracklist ──
-                  if (_loading)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: RepaintBoundary(
-                        child: Center(
-                          child: M3EProgressIndicator.circularWavy(
-                            color: _primary,
-                            trackColor: _primary.withValues(alpha: 0.15),
+                  return CustomScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    slivers: [
+                      // ── App Bar ──
+                      SliverAppBar(
+                        backgroundColor: _bgDark,
+                        surfaceTintColor: Colors.transparent,
+                        elevation: 0,
+                        scrolledUnderElevation: 0,
+                        pinned: true,
+                        leading: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Center(
+                            child: M3EIconButton(
+                              icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                              variant: M3EIconButtonVariant.tonal,
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
                           ),
                         ),
                       ),
-                    )
-                  else if (_error != null)
-                    SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: _buildError(isDesktop: isDesktop))
-                  else if (_tracks.isEmpty)
-                    SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: _buildEmpty(isDesktop: isDesktop))
-                  else ...[
-                    SliverPadding(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: isDesktop ? 32 : 16, vertical: 8),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, i) => _buildTrackRow(
-                            i,
-                            _tracks[i],
-                            isDesktop: isDesktop,
-                            isFirst: i == 0,
-                            isLast: i == _tracks.length - 1,
-                          ),
-                          childCount: _tracks.length,
-                        ),
-                      ),
-                    ),
-                  ],
 
-                  // Bottom padding
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
-                ],
+                      // ── Hero ──
+                      SliverToBoxAdapter(child: _buildHero(isDesktop: isDesktop)),
+
+                      // ── Tracklist ──
+                      if (state is AlbumDetailLoading)
+                        SliverPadding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 32 : 16,
+                            vertical: 8,
+                          ),
+                          sliver: SliverToBoxAdapter(
+                            child: _AlbumDetailTracklistShimmer(isDesktop: isDesktop),
+                          ),
+                        )
+                      else if (state is AlbumDetailError)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: _buildError(error: state.message, isDesktop: isDesktop),
+                        )
+                      else if (currentTracks.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: _buildEmpty(isDesktop: isDesktop),
+                        )
+                      else
+                        SliverPadding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 32 : 16,
+                            vertical: 8,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, i) => _buildTrackRow(
+                                i,
+                                currentTracks[i],
+                                isDesktop: isDesktop,
+                                isFirst: i == 0,
+                                isLast: i == currentTracks.length - 1,
+                              ),
+                              childCount: currentTracks.length,
+                            ),
+                          ),
+                        ),
+
+                      // Bottom padding
+                      const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -1287,21 +1445,60 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                             fontSize: isDesktop ? 15 : 13.5,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        InkWell(
-                          onTap: () => _openArtist(track.artist, artistId: track.artistId),
-                          borderRadius: BorderRadius.circular(4),
-                          child: Text(
-                            track.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: _textMuted,
-                              fontSize: isDesktop ? 13 : 11.5,
-                              decoration: TextDecoration.underline,
-                              decorationColor: _textMuted.withValues(alpha: 0.4),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: InkWell(
+                                onTap: () => _openArtist(track.artist,
+                                    artistId: track.artistId),
+                                borderRadius: BorderRadius.circular(4),
+                                child: Text(
+                                  track.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _textMuted,
+                                    fontSize: isDesktop ? 13 : 11.5,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor:
+                                        _textMuted.withValues(alpha: 0.4),
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
+                            if (track.album != null &&
+                                track.album!.isNotEmpty &&
+                                track.album != _title) ...[
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 5),
+                                child: Container(
+                                  width: 3,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _textMuted.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ),
+                              Icon(Icons.album_outlined,
+                                  size: 11,
+                                  color: _textMuted.withValues(alpha: 0.7)),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  track.album!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: _textMuted.withValues(alpha: 0.8),
+                                    fontSize: isDesktop ? 12.5 : 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
@@ -1316,6 +1513,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                     ),
                   ),
                   _buildTrackDownloadIcon(track, isDesktop: isDesktop),
+                  _buildTrackMenu(track, index),
                 ],
               ),
             ),
@@ -1403,9 +1601,116 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     );
   }
 
+  Widget _buildTrackMenu(TrackInfo track, int index) {
+    return ValueListenableBuilder<List<LikedSong>>(
+      valueListenable: LikedSongsService.instance.likedSongsNotifier,
+      builder: (context, likedSongs, _) {
+        final isLiked = likedSongs.any((s) => s.videoId == track.videoId);
+        return M3EMenu(
+          anchorBuilder: (context, open) => IconButton(
+            icon: Icon(
+              Icons.more_vert_rounded,
+              color: _textMuted.withValues(alpha: 0.7),
+              size: 18,
+            ),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            splashRadius: 16,
+            onPressed: open,
+          ),
+          children: [
+            M3EMenuGroup.entries(
+              entries: [
+                M3EMenuEntry(
+                  label: 'Play',
+                  leading: const Icon(Icons.play_arrow_rounded, size: 18),
+                  onPressed: () => _playAt(index),
+                ),
+                M3EMenuEntry(
+                  label: isLiked ? 'Remove from Liked' : 'Save to Liked Songs',
+                  leading: Icon(
+                    isLiked
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isLiked ? Colors.redAccent : null,
+                    size: 18,
+                  ),
+                  onPressed: () async {
+                    if (isLiked) {
+                      await LikedSongsService.instance
+                          .removeLikedSong(track.videoId);
+                    } else {
+                      await LikedSongsService.instance.addLikedSong(
+                        LikedSong(
+                          videoId: track.videoId,
+                          title: track.title,
+                          artist: track.artist,
+                          artistId: track.artistId,
+                          thumbnailUrl: track.thumbnailUrl ?? _thumbnailUrl,
+                          durationSeconds: track.durationSeconds ?? 0,
+                          likedAt: DateTime.now(),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (track.artist.isNotEmpty &&
+                    track.artist != 'Unknown Artist' &&
+                    track.artist != 'Local File')
+                  M3EMenuEntry(
+                    label: 'Go to Artist',
+                    leading:
+                        const Icon(Icons.person_outline_rounded, size: 18),
+                    onPressed: () =>
+                        _openArtist(track.artist, artistId: track.artistId),
+                  ),
+                if (track.albumId != null &&
+                    track.albumId!.isNotEmpty &&
+                    track.albumId != _albumKey)
+                  M3EMenuEntry(
+                    label: 'Go to Album',
+                    leading: const Icon(Icons.album_outlined, size: 18),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AlbumDetailScreen(
+                            item: AlbumDetailed(
+                              type: 'album',
+                              playlistId: '',
+                              albumId: track.albumId!,
+                              name: track.album ?? 'Album',
+                              artist: ArtistBasic(
+                                name: track.albumArtist ?? track.artist,
+                                artistId: track.artistId,
+                              ),
+                              thumbnails: track.thumbnailUrl != null
+                                  ? [
+                                      ThumbnailFull(
+                                        url: track.thumbnailUrl!,
+                                        width: 300,
+                                        height: 300,
+                                      )
+                                    ]
+                                  : [],
+                            ),
+                            onPlayTracks: widget.onPlayTracks,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ── States ────────────────────────────────────────────────────────────────
 
-  Widget _buildError({bool isDesktop = false}) {
+  Widget _buildError({String? error, bool isDesktop = false}) {
+    final msg = error ?? _error ?? 'Unknown network error.';
     return RepaintBoundary(
       child: Center(
         child: Padding(
@@ -1441,7 +1746,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                _error ?? 'Unknown network error.',
+                msg,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: _textMuted, fontSize: 13),
               ),
@@ -1449,13 +1754,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
               M3EButton.icon(
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: Text(context.strings.retry),
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-                  _loadSongs();
-                },
+                onPressed: () => _controller.load(),
               ),
             ],
           ),

@@ -1,14 +1,12 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
-import 'package:sautiflow/sautiflow.dart';
 
+import 'album_detail_screen.dart'; // For TrackInfo
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
 import 'services/storage_volume_service.dart';
-import 'widgets/song_options_menu.dart';
 
 /// Full-featured, senior-engineered hierarchical local folder navigator.
 /// Seamlessly bridges Internal Storage and Removable SD Cards (Memory Cards).
@@ -588,7 +586,6 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
   Widget _buildActionBar() {
     final audioCount = _contents!.audioFiles.length;
     final folderCount = _contents!.subdirectories.length;
-    final isTracked = _isFolderTracked(_currentPath);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -607,7 +604,7 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
             ),
           ),
           if (audioCount > 0 || folderCount > 0) ...[
-            M3EButton(
+            M3EButton.icon(
               onPressed: () => _playCurrentFolder(shuffle: false),
               icon: const Icon(Icons.play_arrow_rounded, size: 18),
               label: const Text('Play'),
@@ -682,7 +679,7 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
 
     return ListTile(
       leading: M3EContainer(
-        Shapes.roundedRectangle,
+        Shapes.square,
         width: 44,
         height: 44,
         color: _primary.withAlpha(20),
@@ -849,7 +846,7 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            M3EButton(
+            M3EButton.icon(
               onPressed: _initBrowser,
               icon: const Icon(Icons.lock_open_rounded),
               label: const Text('Grant Storage Permission'),
