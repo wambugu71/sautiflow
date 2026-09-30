@@ -1,215 +1,244 @@
 # Changelog
+
 ## v0.6.30 — 2026-09-24
-- **[Dattorro Reverb Mathematical Calibration & Acoustic Physical Scaling]** Resolved critical DSP and mathematical limitations in `ReverbNode`: eliminated half-wave LFO clipping in modulated allpasses by storing quiescent center delays and allocating symmetric headroom excursion; corrected loop decay calculation using true Dattorro round-trip delay ($T_{\text{loop}} \approx 0.725\text{s}$) to map room size ($0.0 \dots 1.0$) to accurate physical RT60 times ($0.35\text{s} \dots 14\text{s}$) rather than legacy Freeverb coefficients; removed the arbitrary $1.5\text{ rad}$ cutoff ceiling in the one-pole damping filter to preserve airy $18\text{ kHz}$ treble shimmer at zero damping; widened pre-filtering ($80\text{ Hz}$ HPF / $15\text{ kHz}$ LPF) to preserve musical warmth and plate brilliance; normalized M/S stereo width ($1.0 = \text{neutral}$) eliminating artificial $17.5\%$ anti-phase cross-talk; and updated Sautiplay reverb presets with realistic acoustic space parameters.
-- **[Real-Time Audio Callback Heap Allocation & Mutex Synchronization Elimination (P2.1 & P2.2)]** Eliminated all dynamic memory allocations and blocking thread synchronizations on the real-time audio thread (`data_callback`). Preallocated `sidechain_buf_` in `AudioClarityDSP` (16,384 samples) and partitioned harmonic brilliance processing into sub-blocks to prevent runtime `.resize()` heap reallocations. Clamped `processBuffer64`, `dspStereoBuffer`, and `dspStereoBuffer64` to their preallocated capacities, removing all runtime `.resize()` calls. Removed `engine_log(...)` console I/O and mutex acquisitions from real-time callback branches, and eliminated mutex acquisition around `decodeProducerCv.notify_one()` to guarantee zero priority inversion and deterministically bounded DAC latency.
-- **[Custom Sinc Resampling in Varispeed Pitch Shifter (P2.3)]** Replaced the coarse linear interpolator in `pitchResampler` (`ma_resample_algorithm_linear`) with `ma_resample_algorithm_custom` bound to the engine's high-quality custom sinc resampler vtable (`g_customResamplerVTable`), with a 4th-order low-pass filter fallback. Added 4th-order anti-aliasing filtering (`lpfOrder = 4`) to crossfade linear resamplers, eliminating high-frequency sinc-squared roll-off and harmonic foldback during pitch and speed manipulation.
-- **[Multi-Rate Calibrated Psychoacoustic Noise Shaping on Hi-Res Audio (P2.4)]** Resolved sample-rate mismatch in psychoacoustic noise shaping. Re-calibrated 5th-order noise shaping filter coefficients across standard (44.1k/48k), high-resolution (88.2k/96k), and ultra-high-resolution (176.4k/192k+) rate tiers for Shibata, Low-Shibata, High-Shibata, Lipshitz, F-weighted, and Modified E-weighted curves. Passed active rate to the dither stage across both 64-bit and 32-bit output paths and resampler conversion, keeping quantization noise safely positioned near the psychoacoustic threshold of human hearing regardless of output rate.
-- **[Spatial Surround Anti-Pop Stereo Balance Preservation (P2.5)]** Eliminated soundstage tilt and balance asymmetry during spatial surround engagement in `SpatialSurroundDSP`. Fixed the anti-pop envelope fade-in to iterate per stereo frame rather than per interleaved sample, applying identical scalar gain to Left and Right channels on every frame and restoring pristine stereo balance throughout the 50 ms ramp. Added `getAntiPop()` accessor.
-- **[Analog Warmth Tape Damping Oversampling Rate Calibration (P2.6)]** Resolved tape damping rate scaling in `AnalogWarmthDSP`. Updated `updateTapeFilter()` to dynamically compute `effective_sr = sample_rate_ * os_mul` across 1x, 2x, and 4x oversampling factors, correctly scaling one-pole tape damping ($0.1250$ at 1x, $0.0625$ at 2x, $0.03125$ at 4x) and preserving warm high-frequency saturation roll-off across oversampling modes. Added `getTapeDamping()` getter.
-- **[Multichannel (5.1 & 7.1) Audio Scrambling Elimination Across Native DSP Suite (P0.4)]** Resolved multichannel audio corruption and channel cross-contamination when playing 5.1 (6-channel) or 7.1 (8-channel) streams through the native DSP suite (`audio_engine.cpp`). Native DSP modules (`downwardExpanderDsp`, `harmonicBassDsp`, `dynamicSystemDsp`, `analogWarmthDsp`, `dialogEnhancerDsp`, `clarityDsp`, `deEsserDsp`, `fftConvolverDsp`, `masterLimiterDsp`) expect interleaved stereo pairs $[L, R]$; passing interleaved multichannel buffers ($[L, R, C, LFE, Ls, Rs]$) previously caused Center/LFE and Surround channels to be interpreted as stereo pairs and processed destructively across only the first $2 \times \text{produced}$ samples while leaving the remainder untouched. Implemented dedicated zero-overhead stereo extraction and re-interleaving for both the 32-bit float and 64-bit double processing pipelines (`e->dspStereoBuffer` / `e->dspStereoBuffer64`), de-interleaving channels 0 & 1 into an aligned stereo frame, applying the full DSP suite across 100% of the buffer frames, and cleanly writing processed stereo results back into the multichannel stream while strictly preserving the pristine IEEE-754 bit-exact values of Center, LFE, and Surround channels.
-- **[F32 Output Path Overlapping Memcpy Undefined Behavior Elimination (P0.2)]** Eliminated critical C/C++ undefined behavior (`memcpy` with identical source and destination pointers) in the F32 hardware delivery path of `data_callback` (`audio_engine.cpp`). When `pDevice->playback.format == ma_format_f32`, `pOutput` and `finalDstBuffer` point to the identical output memory address; guarded the final copy with an identity check `if (finalDstBuffer != pOutput)`, preventing redundant self-copying and ensuring robust compliance with the C standard across all compiler optimization levels.
-- **[Base-Rate Nonlinear Saturation Aliasing Elimination (P1.10)]** Eliminated inharmonic foldback distortion and metallic grain caused by native base-rate full-band soft-clipping in `DynamicBassDSP` and `DynamicSystemDSP`. Removed full-band soft-clipping from `shapeMix` and `processDynamicMultiPole` in `DynamicBassDSP`, confining rational soft-clipping strictly to the isolated sub-120 Hz DC-blocked fundamental bass channel where harmonics remain well below the Nyquist frequency. Replaced destructive saturation in `DynamicSystemDSP` with direct linear assignment from the phase-aligned ladder matrix reconstruction.
-- **[De-Esser Soft Knee & Continuous Filter Coefficient Modulation (P1.11)]** Eliminated micro-zippering clicks and transient phase smearing during vocal sibilance bursts in `DeEsserDSP`. Replaced the instantaneous piecewise hard threshold with a true $C^1$-continuous quadratic soft knee across a 4.0 dB transition width centered at the threshold. Throttled `updateShelfCoeffs` transcendental recalculation to trigger only when gain changes by $\ge 0.1\text{ dB}$, and implemented continuous 1 ms active biquad coefficient interpolation (`shelf_b0_ += coeff_interp_coeff_ * (tgt_shelf_b0_ - shelf_b0_)`) for click-free parameter gliding.
-- **[Dialog Enhancer Cascade Headroom Compensation & Dynamic Peak Attenuation (P1.12)]** Resolved internal clipping risks when speech formant bands (+11 dB formant at 2.4 kHz, +3.5 dB body at 1.2 kHz, +5 dB clarity at 3.8 kHz) cascade with cumulative boosts up to $+19.5\text{ dB}$ in `DialogEnhancerDSP`. Implemented automatic headroom trim compensation capping static 3-band boost to a safe +12 dB headroom ceiling (`headroom_comp_ = 10^((12 - total_boost)/20)`), dynamic headroom attenuation clamping mid-channel peaks to $\le 0.95$ on hot 0 dBFS voice tracks, and sub-block coefficient calculation throttling to 32-sample boundaries.
-- **[Bit-Perfect Exclusive Mode & Direct PCM Streaming (P1.9)]** Implemented true bit-exact raw integer PCM stream delivery directly to the hardware output ring (`pOutput`) when operating in exclusive mode at unity gain without resampling, pitch scaling, or crossfading. Replaced hardcoded float32 decoder output configuration with native format negotiation (`ma_format_unknown` / `e->outputFormat`), allowing 16-bit and 24-bit tracks to bypass float roundtripping entirely. Added a dedicated `SPSCBuffer<uint8_t> pcmDirectRingBuffer` and runtime eligibility evaluation (`evaluate_direct_pcm_eligibility`), bypassing Stage 1 ReplayGain, normalization, effect filters, master gain multiplication, and dither when bit-perfect streaming is eligible. Implemented clean fallback to the 64-bit float pipeline with TPDF dithering when volume is attenuated, and automatic re-engagement of direct PCM upon returning to unity gain. Disarmed track transition fade-in envelopes during exclusive mode, corrected `bypassAppDsp` evaluation during auto sample-rate matching, and exposed `ae_is_direct_pcm_active` in the public C API.
-- **[ReplayGain Anti-Clipping Peak Limiting (P1.8)]** Eliminated potential 0 dBFS digital clipping when applying positive ReplayGain boosts to quiet or classical tracks. Implemented anti-clipping headroom ceiling limiting (`maxSafeLinear = 1.0f / peak`) in `apply_initial_track_loudness`, next track preload in `worker_loop`, and manual ReplayGain setters (`ae_set_replay_gain_with_peak`, `ae_set_next_replay_gain_with_peak`), capping linear gain so amplified audio never exceeds 0 dBFS (1.000000 linear). Extended autonomous BS.1770-4 preview normalization in `compute_preview_lufs` to track true max sample peaks for clipping-free untagged playback.
-- **[Multichannel Surround Timing Synchronization in TapeDriftDSP (P1.7)]** Expanded `TapeDriftDSP` to 8-channel surround (up to 7.1) and migrated delay buffering to heap-allocated linear memory. Routed all active channels through the fractional Hermite delay line with identical 15 ms nominal delay, perfectly synchronizing Center vocals and Surround channels with the Front stereo stage ($\Delta = 0$) while applying decorrelated phase offsets to eliminate acoustic comb filtering.
-- **[Filter State Retention & Equalizer Zipper Crackle Elimination (P1.6)]** Eliminated loud zippering clicks, pops, and crackles during real-time UI equalizer slider dragging. Replaced destructive filter reinitialization with smooth coefficient updates (`ma_*_reinit`), preserving internal biquad delay registers (`pR1`, `pR2`), updating filter bands in-place rather than clearing vectors, and implementing heap-safe `FxBand::uninit` lifecycle management across AutoEQ and dynamic parametric modules.
-- **[Device Resampler Input Estimation & Dropout Prevention (P1.5)]** Replaced ad-hoc ceiling math for device resampling with exact required input frame queries via `ma_resampler_get_required_input_frame_count`. Implemented an iterative output drain loop to eliminate periodic silence hole zeroing when fractional filter latency is withheld, corrected underrun detection to measure consumed frames against actual required input frames, and guarded latency queries with `std::try_to_lock` to avoid audio thread stalls.
-- **[Audible Forward Jump Elimination on Sample Rate Change / Device Restart (P1.4)]** Fixed audible ~350 ms forward audio skipping during sample rate switching, channel reconfigurations, and device restarts. Replaced the producer thread's forward-looking decoder cursor (`ma_decoder_get_cursor_in_pcm_frames`) with the actual consumed audible frame count (`seekBasePcmFrame + playedPcmFrames`) cross-validated with ring buffer read availability, preserving continuous sample alignment across hardware rate transitions without discarding unrendered audio.
-- **[FFmpeg Decoder Keyframe Preroll Discard & Accurate Seeking (P1.3)]** Resolved playback position corruption in `FFmpegLocalFileSource::seek` caused by seeking to preceding keyframes without discarding priming frames. Added `pkt_timebase` configuration to stream decoder contexts, implemented automated preroll calculation from codec parameters and transform filterbank warmup requirements, decoded and discarded priming frames prior to the seek point, and stored overlapping frame suffixes into residual buffers for exact sample-accurate playback alignment (`maxDiff = 0.000000e+00`).
-- **[64-Bit Float Precision Pipeline & Truncation Elimination (P1.2)]** Overhauled the 64-bit audio rendering pipeline to eliminate intermediate double/float conversions. Implemented native 64-bit double precision processing with SIMD acceleration in MasterLimiterDSP, templated DynamicRangeCompressor and LookAheadLimiterState for direct double precision delay buffering and gain modulation, made DSP Suite and Pre-FX float conversions conditional on active modules, and routed dithering and integer quantization directly from double precision to S16, S24, S32, and U8 output formats to preserve true 53-bit mantissa precision.
-- **[Polyphase Oversampler Kernel Redesign (P1.1)]** Redesigned the 2x/4x polyphase half-band oversampler with an optimal 55-tap Remez equiripple linear-phase FIR kernel, boosting stopband aliasing rejection from 33 dB to >= 96.1 dB (+58.6 dB suppression improvement) and eliminating treble ripple down to < 0.0003 dB across 20 Hz - 19 kHz with exact 1.000000 DC unity gain and full float/double SIMD acceleration.
-- **[r8brain Minimum Phase Standardization & SoXR Removal]** Completely removed `third_party/libsoxr` (LGPL-2.1+) and all build dependencies, standardizing on r8brain 24-bit Minimum Phase (Mode 12) as the default engine resampler. Remapped deprecated legacy SoX enum indices to r8brain in the C++ backend, implemented automated startup preference migration in Sautiplay `AppStateService`, and routed FFmpeg stream resampling through native high-precision `swresample` sinc filtering.
-- **[Seamless Artist Discovery & Discography Exploration]** Turned artist subtitles in `NowPlayingScreen` and `MiniPlayer` into interactive navigation touchpoints leading directly to the artist profile. Upgraded `ArtistProfileScreen` with direct lookup, Top Tracks, Albums, Singles, Featured On playlists, Music Videos, and Similar Artists ("Fans Also Like"). Added a dedicated `ArtistCatalogScreen` for browsing complete song catalogs and discographies, and made artist names in albums and search results interactive links.
-- **[Loudness Surge Elimination & Crossfade Smoothing]** Added instant loudness initialization (`apply_initial_track_loudness`) before frame 0 render to eliminate loudness surges on track start and playlist jumps. Made crossfades loudness-aware with real-time normalizer gains, preserved normalizer processing during crossfades, accelerated initial convergence on the first 10 blocks in the BS.1770 meter, and corrected closed-loop metering placement with inverted normalizer gains.
-- **[AutoEQ Reset & Headroom Bypass Alignment]** Fixed profile clear and bypass behavior so clearing an AutoEQ profile completely resets master digital headroom preamp gain to 1.0 (0 dB), clears and disables Parametric EQ (multiband FX), zeroes all 32 bands and disables Graphic EQ, resets persisted EQ states to Flat, restores the inline 'X' clear/bypass button on the pinned AutoEQ bar, and corrects the fallback inactive label to 'None (Flat)'.
-- **[Offline Stream Cache & Fast Downloads]** Added a direct "Save to Offline Cache" action on the Now Playing screen for online streams. Accelerated stream audio downloads via the YoutubeExplode pipeline and resolved Windows file path sanitization and directory resolution issues for cached streams.
-- **[Low-Latency AAudio Buffer Capacity & Telemetry]** Enabled explicit AAudio buffer capacity configuration (`cfg.aaudio.allowSetBufferCapacity = MA_TRUE`) when period sizes are specified. Guarded hardware querying so default period sizes only serve as fallbacks, accurately reflected configured buffer parameters in device latency reporting, and exposed total buffer depth (e.g., 1024 frames × 3 periods) in the Audio Engine Diagnostic panel.
-- **[Settings Screen Mobile UX Overhaul]** Introduced responsive `AppSettingsTile` and `AppSettingsValueTile` with multi-line title/subtitle wrapping and constrained value pills, eliminating ellipsis truncation on small screens. Removed bulky trailing badges in favor of informative subtitles, replaced DSP mathematical jargon with intuitive user-facing copy, reorganized settings into logical categories (Playback & Sound, Sources & Data, System & About), and updated subscreen back buttons to expressive dropdown chevrons.
-- **[Privacy & Log Redaction]** Redacted streaming endpoints, authentication tokens, and sensitive query strings from decoder and network engine diagnostic logs to ensure user privacy and safe telemetry sharing.
+
+- **[7-Zone Mastering Signal Chain]** Reorganized the core audio processing callback (`audio_engine.cpp`) into a 7-zone mastering topology to resolve routing and placement issues:
+  1. *Intermodulation distortion reduction:* repositioned Dattorro figure-8 tank reverb (`ReverbNode`) and spatial wideners downstream of non-linear saturation stages (`AnalogWarmthDSP`, `TapeDriftDSP`). Driving recirculating delay taps through polynomial saturation curves previously generated intermodulation distortion ($|mf_1 \pm nf_2|$); spatialization now runs post-saturation so tape and tube character are applied to the dry signal before spatial diffusion.
+  2. *Reverb tail protection:* moved `NoiseGateDSP` and `DownwardExpanderDSP` to Zone 1 (Restoration), upstream of spatialization and reverb. Low-level reverb tails previously crossed the noise gate threshold prematurely, causing chatter and premature cutoff.
+  3. *Dynamics ordering:* reordered dynamics processing so compression runs in Zone 4 before master tone shaping, and peak limiting (`MasterLimiterDSP` / `LookAheadLimiterState`) runs in Zone 7 (Mastering and Output). This prevents the limiter from clamping transients before compression makeup gain, eliminating overshoot and pumping while providing true-peak protection across volume, ISO 226 loudness, and AutoEQ convolution gain.
+  4. *De-esser placement:* moved split-band `DeEsserDSP` (4–9 kHz) to Zone 2 ahead of spatialization, preventing vocal sibilants from feeding into the reverb tank or spatial diffusors.
+  5. *Metering alignment:* moved ITU-R BS.1770 LUFS and true-peak metering to Zone 6 after the Broadcast Leveller AGC so visualizer and loudness telemetry reflect output volume.
+  6. *Multichannel and float precision:* retained stereo extraction for Front L/R channels across stereo-only DSP modules while passing Center, LFE, and Surround channels through in 64-bit float precision. Added node latency tracking to the Audio Engine Diagnostic panel.
+- **[Dattorro Reverb Calibration]** Corrected DSP scaling in `ReverbNode`: eliminated half-wave LFO clipping in modulated allpasses by storing quiescent center delays with symmetric excursion headroom; corrected loop decay using true Dattorro round-trip delay ($T_{\text{loop}} \approx 0.725\text{s}$) to map room size ($0.0 \dots 1.0$) to physical RT60 times ($0.35\text{s} \dots 14\text{s}$); removed the $1.5\text{ rad}$ cutoff limit on the damping filter to preserve treble above $15\text{ kHz}$ at zero damping; widened pre-filtering ($80\text{ Hz}$ HPF / $15\text{ kHz}$ LPF); normalized M/S stereo width ($1.0 = \text{neutral}$), removing $17.5\%$ anti-phase cross-talk; updated Sautiplay reverb presets.
+- **[Real-Time Audio Callback Safety]** Removed dynamic memory allocations and blocking synchronization from the real-time audio thread (`data_callback`). Preallocated `sidechain_buf_` in `AudioClarityDSP` (16,384 samples) and partitioned processing to avoid runtime `.resize()` calls. Clamped buffer allocations to static capacities. Removed console I/O and mutex acquisitions from render callback paths, and removed mutex lock around `decodeProducerCv.notify_one()` to prevent priority inversion.
+- **[Custom Sinc Resampling in Pitch Shifter]** Replaced the linear interpolator in `pitchResampler` (`ma_resample_algorithm_linear`) with `ma_resample_algorithm_custom` bound to the engine's custom sinc resampler vtable (`g_customResamplerVTable`), with a 4th-order low-pass filter fallback. Added 4th-order anti-aliasing filtering (`lpfOrder = 4`) to crossfade linear resamplers to reduce high-frequency roll-off during pitch and speed adjustments.
+- **[Multi-Rate Psychoacoustic Noise Shaping]** Re-calibrated 5th-order noise shaping filter coefficients across standard (44.1k/48k), high-resolution (88.2k/96k), and ultra-high-resolution (176.4k/192k+) rate tiers for Shibata, Low-Shibata, High-Shibata, Lipshitz, F-weighted, and Modified E-weighted curves. Passed active rate to the dither stage across both 64-bit and 32-bit output paths and resampler conversion.
+- **[Spatial Surround Stereo Balance]** Fixed soundstage balance shifts during spatial surround engagement in `SpatialSurroundDSP`. Updated the envelope fade-in to iterate per stereo frame rather than per interleaved sample, applying matching gain to Left and Right channels during the 50 ms ramp. Added `getAntiPop()` accessor.
+- **[Analog Warmth Tape Damping Scaling]** Corrected tape damping rate scaling in `AnalogWarmthDSP`. Updated `updateTapeFilter()` to dynamically compute `effective_sr = sample_rate_ * os_mul` across 1x, 2x, and 4x oversampling factors, scaling one-pole tape damping ($0.1250$ at 1x, $0.0625$ at 2x, $0.03125$ at 4x). Added `getTapeDamping()` getter.
+- **[Multichannel Support in DSP Suite]** Resolved channel cross-contamination when playing 5.1 (6-channel) or 7.1 (8-channel) streams through the native DSP suite (`audio_engine.cpp`). Native DSP modules expect interleaved stereo pairs $[L, R]$; passing multichannel buffers previously caused Center/LFE and Surround channels to be processed as stereo pairs. Implemented stereo extraction and re-interleaving for both 32-bit float and 64-bit double processing pipelines (`e->dspStereoBuffer` / `e->dspStereoBuffer64`), de-interleaving channels 0 & 1 into an aligned stereo frame, applying DSP across all buffer frames, and writing stereo results back into the multichannel stream while preserving Center, LFE, and Surround channels.
+- **[F32 Output Path Memcpy Fix]** Resolved undefined behavior in the F32 hardware path of `data_callback` (`audio_engine.cpp`) where `memcpy` was called with identical source and destination pointers. Guarded the final copy with an identity check `if (finalDstBuffer != pOutput)`.
+- **[Base-Rate Nonlinear Saturation Aliasing]** Confined rational soft-clipping in `DynamicBassDSP` strictly to the isolated sub-120 Hz DC-blocked fundamental bass channel where harmonics remain below Nyquist, removing full-band soft-clipping from `shapeMix` and `processDynamicMultiPole`. Replaced saturation in `DynamicSystemDSP` with direct linear assignment from the phase-aligned ladder matrix reconstruction.
+- **[De-Esser Soft Knee & Coefficient Modulation]** Replaced the piecewise hard threshold in `DeEsserDSP` with a quadratic soft knee across a 4.0 dB transition width. Throttled `updateShelfCoeffs` recalculation to trigger only when gain changes by $\ge 0.1\text{ dB}$, and implemented continuous 1 ms active biquad coefficient interpolation for click-free parameter adjustments.
+- **[Dialog Enhancer Headroom Compensation]** Added automatic headroom trim compensation capping static 3-band boost to a +12 dB ceiling (`headroom_comp_ = 10^((12 - total_boost)/20)`), dynamic headroom attenuation clamping mid-channel peaks to $\le 0.95$ on voice tracks, and sub-block coefficient calculation throttling to 32-sample boundaries.
+- **[Bit-Perfect Exclusive Mode & Direct PCM Streaming]** Implemented raw integer PCM delivery directly to the hardware output ring (`pOutput`) when operating in exclusive mode at unity gain without resampling, pitch scaling, or crossfading. Replaced hardcoded float32 decoder output configuration with native format negotiation (`ma_format_unknown` / `e->outputFormat`), allowing 16-bit and 24-bit tracks to bypass float roundtripping. Added a dedicated `SPSCBuffer<uint8_t> pcmDirectRingBuffer` and runtime eligibility evaluation (`evaluate_direct_pcm_eligibility`), bypassing Stage 1 ReplayGain, normalization, effect filters, master gain multiplication, and dither when direct streaming is eligible. Implemented fallback to the 64-bit float pipeline with TPDF dithering when volume is attenuated, and automatic re-engagement of direct PCM upon returning to unity gain. Disarmed track transition fade-in envelopes during exclusive mode, corrected `bypassAppDsp` evaluation during auto sample-rate matching, and exposed `ae_is_direct_pcm_active` in the C API.
+- **[ReplayGain Anti-Clipping]** Added anti-clipping headroom ceiling limiting (`maxSafeLinear = 1.0f / peak`) in `apply_initial_track_loudness`, next track preload in `worker_loop`, and manual ReplayGain setters (`ae_set_replay_gain_with_peak`, `ae_set_next_replay_gain_with_peak`), capping linear gain so amplified audio does not exceed 0 dBFS. Extended autonomous BS.1770-4 preview normalization in `compute_preview_lufs` to track true max sample peaks.
+- **[Multichannel Delay Sync in TapeDriftDSP]** Expanded `TapeDriftDSP` to 8-channel surround (up to 7.1) and migrated delay buffering to heap-allocated linear memory. Routed all active channels through the fractional Hermite delay line with identical 15 ms nominal delay, synchronizing Center vocals and Surround channels with the Front stereo stage ($\Delta = 0$) while applying decorrelated phase offsets.
+- **[Filter State Retention on EQ Adjustments]** Replaced filter reinitialization with in-place coefficient updates (`ma_*_reinit`), preserving internal biquad delay registers (`pR1`, `pR2`), updating filter bands in place rather than clearing vectors, and implementing `FxBand::uninit` lifecycle management across AutoEQ and dynamic parametric modules.
+- **[Device Resampler Input Calculation]** Replaced ceiling math for device resampling with required input frame queries via `ma_resampler_get_required_input_frame_count`. Implemented an output drain loop to prevent silence padding when fractional filter latency is withheld, corrected underrun detection to measure consumed frames against required input frames, and guarded latency queries with `std::try_to_lock`.
+- **[Sample Rate Change Audio Offset Fix]** Fixed ~350 ms forward audio skipping during sample rate switching, channel reconfigurations, and device restarts. Replaced the producer thread's forward-looking decoder cursor with the consumed audible frame count (`seekBasePcmFrame + playedPcmFrames`) cross-validated with ring buffer read availability.
+- **[FFmpeg Decoder Preroll Discard for Accurate Seeking]** Added `pkt_timebase` configuration to stream decoder contexts, implemented automated preroll calculation from codec parameters and transform filterbank warmup requirements, decoded and discarded priming frames prior to the seek point, and stored overlapping frame suffixes into residual buffers for sample-accurate playback alignment (`maxDiff = 0.000000e+00`).
+- **[64-Bit Float Precision Pipeline]** Removed intermediate double/float conversions in the 64-bit audio rendering pipeline. Implemented native 64-bit double precision processing with SIMD acceleration in MasterLimiterDSP, templated DynamicRangeCompressor and LookAheadLimiterState for direct double precision delay buffering and gain modulation, made DSP Suite and Pre-FX float conversions conditional on active modules, and routed dithering and integer quantization directly from double precision to S16, S24, S32, and U8 output formats.
+- **[Polyphase Oversampler Kernel Redesign]** Redesigned the 2x/4x polyphase half-band oversampler with a 55-tap Remez equiripple linear-phase FIR kernel, increasing stopband aliasing rejection from 33 dB to $\ge 96.1\text{ dB}$ (+58.6 dB suppression) and reducing passband ripple to $< 0.0003\text{ dB}$ across 20 Hz – 19 kHz with exact 1.000000 DC unity gain and SIMD acceleration.
+- **[r8brain Minimum Phase Standardization & SoXR Removal]** Removed `third_party/libsoxr` and all build dependencies, standardizing on r8brain 24-bit Minimum Phase (Mode 12) as the default engine resampler. Remapped legacy SoX enum indices to r8brain in the C++ backend, implemented startup preference migration in Sautiplay `AppStateService`, and routed FFmpeg stream resampling through `swresample` sinc filtering.
+- **[Artist Navigation & Catalog Screen]** Made artist subtitles in `NowPlayingScreen` and `MiniPlayer` navigate directly to the artist profile. Added Top Tracks, Albums, Singles, Featured On playlists, Music Videos, and Similar Artists to `ArtistProfileScreen`. Added `ArtistCatalogScreen` for browsing complete song catalogs and discographies.
+- **[Loudness Initialization & Crossfade Normalization]** Added instant loudness initialization (`apply_initial_track_loudness`) before frame 0 render to eliminate volume jumps on track start and playlist jumps. Made crossfades loudness-aware with real-time normalizer gains, preserved normalizer processing during crossfades, accelerated initial convergence on the first 10 blocks in the BS.1770 meter, and corrected closed-loop metering placement with inverted normalizer gains.
+- **[AutoEQ Reset Behavior]** Fixed profile clear and bypass behavior so clearing an AutoEQ profile resets master preamp gain to 1.0 (0 dB), clears and disables Parametric EQ, zeroes all 32 bands and disables Graphic EQ, resets persisted EQ states to Flat, restores the inline clear button on the pinned AutoEQ bar, and updates the fallback label to 'None (Flat)'.
+- **[Offline Stream Cache]** Added a "Save to Offline Cache" action on the Now Playing screen for online streams. Accelerated stream audio downloads via the YoutubeExplode pipeline and resolved Windows file path sanitization and directory resolution issues for cached streams.
+- **[AAudio Buffer Capacity Configuration]** Enabled explicit AAudio buffer capacity configuration (`cfg.aaudio.allowSetBufferCapacity = MA_TRUE`) when period sizes are specified. Guarded hardware querying so default period sizes only serve as fallbacks, updated buffer parameters in device latency reporting, and exposed total buffer depth in the Audio Engine Diagnostic panel.
+- **[Settings Screen Layout Updates]** Added `AppSettingsTile` and `AppSettingsValueTile` with multi-line title and subtitle wrapping to eliminate text truncation on smaller screens. Replaced raw DSP parameter names with user-facing labels, reorganized settings into logical categories (Playback & Sound, Sources & Data, System & About), and updated subscreen back buttons to dropdown chevrons.
+- **[Log Redaction]** Redacted streaming endpoints, authentication tokens, and sensitive query strings from decoder and network engine diagnostic logs.
 
 ## v0.6.29 — 2026-09-20
-- **[Cross-Platform SIMD DSP Acceleration]** Added a zero-overhead SIMD abstraction (`dsp/simd_math.h`, `SimdFloat4` / `SimdDouble2`) spanning ARM NEON, ARM32 VFPv3/VFPv4, x86 SSE/AVX/FMA, and a scalar fallback, then vectorized 14 high-compute modules — SubsonicFilter, Oversampler, AnalogWarmth, FFTConvolver, DynamicBass, ScaleTempo, Clarity, DownwardExpander, DeEsser, DialogEnhancer, SpatialSurround, DynamicSystem, MasterLimiter, and StereoImager — while preserving 64-bit double precision across recursive low-frequency biquads. Verified by a new 58-test SIMD suite.
-- **[Six New DSP Engines]** Shipped Tier 1 Dynamic Loudness (ISO 226 equal-loudness contours) and the AutoEQ parametric profile importer; Tier 2 Broadcast Leveller (EBU R128 AGC with silence freeze) and Studio Noise Gate (dual-threshold hysteresis, sidechain HPF); Tier 3 Dynamic Parametric EQ (compress/expand modes, later expanded to 6 bands) and Vintage Tape Drift (Catmull-Rom delay, wow/flutter LFOs). Chain ordered gate → tone/tape/dynEQ → leveller → loudness, with FFI bindings, isolate commands, and five new collapsible EQ sections. 77/77 DSP tests and 152 engine tests pass, `dart analyze` clean.
-- **[OpenStage Acoustic Crossfeed]** New cleanroom `sauti::dsp::OpenStageDSP` with spherical-head ITD, RBJ shelving biquads, bilinear all-pass delay, de-zippering, anti-pop ramp, and denormal protection, wired through `CrossfeedNode`, the engine C API, Dart FFI, and isolate dispatch. The EQ screen gains an `OpenStageSoundstageVisualizer` with animated wavefronts and live physical telemetry plus Speaker Angle, Gain Comp, and Mix knobs with soundstage presets.
-- **[FFmpeg Decoder Unification]** Integrated the custom FFmpeg stream decoder and retired the legacy MP4/AAC path, with local files automatically retrying through FFmpeg when native miniaudio decoding fails (`forceFallback` in `FFmpegDecoderInitConfig`, retry inside `load_decoder_for_path`, channel-layout normalization in `FFmpegLocalFileSource::open`). Removed obsolete minimp4, the old test runner, and a redundant license file; dropped the FAAD2 notice from the README; rebuilt the native binaries.
-- **[Partitioned FFT Convolver Hardening]** Eliminated crackle and reload spikes with a seamless 20 ms anti-pop crossfade and buffer flushing, computed partition FFTs outside `ir_mutex_` so the real-time thread is never starved, fixed HeSuVi 14-channel routing (Ch 0 left direct, Ch 7 right direct) in `WavParser`, kept the wet signal continuous across IR hot-swaps instead of wiping FFT history, and replaced audio-crushing spectral attenuation with peak-only normalization plus an analog-grade tanh soft-saturation guard on the wet output.
-- **[M3E AutoEQ Profile System]** Added an AutoEQ selector built on Material 3 Expressive components with a headphone profile library, parametric profile importer, and isolate-side application, then relocated it to a pinned control bar on the effects screen and reworked the sliver header with custom visualizer and profile controls.
-- **[Live Stereo Analyzer & Goniometer]** Extended the analyzer tap with `AEStereoStats` plus new `ae_poll_analyzer_frame_stereo` / `ae_get_stereo_stats` C ABI entry points that capture interleaved L/R and compute phase correlation, balance, M/S RMS, and width per window under the existing real-time-safe `try_lock` pattern. `MiniAudioPlayer.analyzerStereoStream` and isolate ferrying feed a true goniometer scatter (45° rotation, phosphor trail) and an engine-measured correlation bar, with a persisted Live/Demo display option and graceful fallback to simulation.
-- **[High-Refresh Waveform Seek Bar]** Moved waveform extraction to `Isolate.run` with 2 KB windowed I/O and integer math, added a synchronous peak fallback, queue pre-fetching, and a Frame-0 mount notifier, and switched rendering to batched `drawRawPoints` with cached geometry and a direct-canvas playhead thumb inside a dedicated `RepaintBoundary` — smooth 60-120 Hz response with zero-latency track transitions.
-- **[Album Art Shapes & Queue Safety]** Introduced `AlbumArtShape` configuration in `AppThemeService` and Settings, honoured by the mini player, shimmer player, and now-playing screen; disabled swipe-to-dismiss on queue rows and hid the per-row remove button to prevent accidental queue edits.
-- **[EQ Screen Refinements]** Redesigned Dynamic EQ with a response graph and horizontal band cards, expanded it to 6 bands with enforced normalization and tier 3 verification, activated the dormant noise gate and AGC leveller meters, and tightened labels and subtitles across Broadcast Leveller (Auto Gain Control), ReplayGain, OpenStage, and the default preset. The Dolby Digital Plus HRIR preset was restored alongside the `WavParser` Float32List rollback and a CMake typo fix.
-- **[GPL-3.0 Licensing]** Relicensed the engine and app under GPL-3.0 and expanded `THIRD_PARTY_NOTICES.md` to cover every bundled C/C++ engine and Dart dependency.
-- **[Site Documentation Links]** The Sautiplay site now exposes a Docs entry in the masthead nav and footer, and both the header release badge and ENGINE card version link straight to the documentation.
+
+- **[Cross-Platform SIMD DSP Acceleration]** Added a SIMD abstraction (`dsp/simd_math.h`, `SimdFloat4` / `SimdDouble2`) covering ARM NEON, ARM32 VFPv3/VFPv4, x86 SSE/AVX/FMA, and a scalar fallback. Vectorized 14 compute-intensive modules: SubsonicFilter, Oversampler, AnalogWarmth, FFTConvolver, DynamicBass, ScaleTempo, Clarity, DownwardExpander, DeEsser, DialogEnhancer, SpatialSurround, DynamicSystem, MasterLimiter, and StereoImager, preserving 64-bit double precision across recursive low-frequency biquads. Added a 58-test SIMD test suite.
+- **[Six DSP Engines]** Added Tier 1 Dynamic Loudness (ISO 226 equal-loudness contours) and AutoEQ parametric profile importer; Tier 2 Broadcast Leveller (EBU R128 AGC with silence freeze) and Studio Noise Gate (dual-threshold hysteresis, sidechain HPF); Tier 3 Dynamic Parametric EQ (compress/expand modes, 6 bands) and Vintage Tape Drift (Catmull-Rom delay, wow/flutter LFOs). Ordered signal chain: gate → tone/tape/dynEQ → leveller → loudness, with FFI bindings, isolate commands, and five collapsible EQ sections.
+- **[OpenStage Acoustic Crossfeed]** Added `sauti::dsp::OpenStageDSP` with spherical-head ITD, RBJ shelving biquads, bilinear all-pass delay, de-zippering, anti-pop ramp, and denormal protection, connected through `CrossfeedNode`, the C API, Dart FFI, and isolate dispatch. Added `OpenStageSoundstageVisualizer` to the EQ screen with animated wavefronts, telemetry, and Speaker Angle, Gain Comp, and Mix controls.
+- **[FFmpeg Decoder Unification]** Integrated the custom FFmpeg stream decoder and retired the legacy MP4/AAC path. Local files retry through FFmpeg when native miniaudio decoding fails (`forceFallback` in `FFmpegDecoderInitConfig`, retry in `load_decoder_for_path`, channel-layout normalization in `FFmpegLocalFileSource::open`). Removed minimp4, old test runners, and obsolete license notices.
+- **[Partitioned FFT Convolver Hardening]** Added a 20 ms anti-pop crossfade and buffer flushing, computed partition FFTs outside `ir_mutex_` to prevent real-time thread starvation, fixed HeSuVi 14-channel routing (Ch 0 left direct, Ch 7 right direct) in `WavParser`, maintained wet signal continuity across IR hot-swaps, and replaced spectral attenuation with peak-only normalization plus tanh soft-saturation on the wet output.
+- **[M3E AutoEQ Profile System]** Added an AutoEQ selector built on Material 3 Expressive components with a headphone profile library, parametric profile importer, and isolate-side application. Pinned the control bar on the effects screen and updated the sliver header with visualizer and profile controls.
+- **[Stereo Analyzer & Goniometer]** Extended the analyzer tap with `AEStereoStats` and `ae_poll_analyzer_frame_stereo` / `ae_get_stereo_stats` C ABI entry points to capture interleaved L/R audio and calculate phase correlation, balance, M/S RMS, and width per window under `try_lock`. Connected `MiniAudioPlayer.analyzerStereoStream` to a goniometer scatter plot (45° rotation, phosphor trail) and correlation bar with live and simulation modes.
+- **[Waveform Seek Bar Optimization]** Moved waveform extraction to `Isolate.run` with 2 KB windowed I/O and integer math, added a synchronous peak fallback, queue pre-fetching, and a Frame-0 mount notifier. Switched rendering to batched `drawRawPoints` with cached geometry and a direct-canvas playhead thumb inside a `RepaintBoundary` for 60–120 Hz response.
+- **[Album Art Shapes & Queue Safety]** Added `AlbumArtShape` configuration in `AppThemeService` and Settings, applied across the mini player, shimmer player, and now-playing screen. Disabled swipe-to-dismiss on queue rows and hid the per-row remove button to prevent accidental queue edits.
+- **[EQ Screen Refinements]** Redesigned Dynamic EQ with a response graph and horizontal band cards, expanded it to 6 bands with normalization, enabled the noise gate and AGC leveller meters, and cleaned up labels across Broadcast Leveller, ReplayGain, OpenStage, and the default preset. Restored the Dolby Digital Plus HRIR preset and fixed `WavParser` Float32List typing.
+- **[GPL-3.0 Licensing]** Relicensed the engine and app under GPL-3.0 and expanded `THIRD_PARTY_NOTICES.md` to cover bundled C/C++ engine and Dart dependencies.
+- **[Documentation Links]** Added a Docs entry to the masthead navigation and footer on the Sautiplay site, linking header release badges and ENGINE cards directly to documentation.
 
 ## v0.6.28 — 2026-09-16
-- **[Parametric EQ Filter Expansion]** Extended EQ capabilities with 5 specialized filter types: `allpass`, `asuperpass`, `bandreject`, `asuperstop`, and `asupercut`. Implemented Transposed Direct Form II engine processing with analytical coefficient derivation, cascaded Butterworth SOS stages for high-order brickwall rolloffs and notch suppression, multi-stage transfer function evaluation in `ParametricEqGraph`, and interactive depth controls in Sautiplay.
-- **[Native FFmpeg Audio Metadata & Album Art Reader]** Replaced third-party metadata readers with direct libavformat / libavcodec / libavutil extraction (`read_file_metadata_ffmpeg`). Provides fast extraction of audio tags, embedded album pictures (`AV_DISPOSITION_ATTACHED_PIC`), and ReplayGain metadata (tags and `AV_PKT_DATA_REPLAYGAIN` packet side-data) with safe isolation for network streams.
-- **[Audiophile DSP Pipeline & Real-Time Safety]** Replaced blocking mutexes with lock-free `try_to_lock` patterns on real-time audio threads. Wired active oversampling (1x/2x/4x) into AnalogWarmth and AudioClarity DSPs with pre-allocated buffers. Eliminated base-rate soft clipping in dynamic bass processors to prevent foldback aliasing, added initialization safety guards across all DSP filters, and repositioned DSP bypass ahead of ReplayGain/Normalizer to guarantee pure bit-perfect paths.
-- **[Engine Resampler & Streaming Path Correctness]** Handled input caps and tail flushing in r8brain and libsamplerate backends, converted integer formats strictly in float domain, routed post-dither conversions through exact rounding (`f32ToIntExact`), and made algorithm switching atomic and thread-safe. Fixed ICY metadata deadlock and seek/ring-buffer race conditions in network streaming with proper EOF flush handling.
-- **[Interactive In-App FAQ & Audiophile Guide]** Integrated a dedicated FAQ section in Misc & System settings derived from the comprehensive user manual, styled with Material 3 Expressive expandable cards, category filtering, search, and detailed bit-perfect guidance.
+
+- **[Parametric EQ Filter Expansion]** Added 5 filter types: `allpass`, `asuperpass`, `bandreject`, `asuperstop`, and `asupercut`. Implemented Transposed Direct Form II engine processing with analytical coefficient derivation, cascaded Butterworth SOS stages for steep roll-offs and notch suppression, multi-stage transfer function evaluation in `ParametricEqGraph`, and depth controls in Sautiplay.
+- **[Native FFmpeg Audio Metadata & Album Art Reader]** Replaced third-party metadata readers with direct libavformat, libavcodec, and libavutil extraction (`read_file_metadata_ffmpeg`). Extracts audio tags, embedded album pictures (`AV_DISPOSITION_ATTACHED_PIC`), and ReplayGain metadata (tags and `AV_PKT_DATA_REPLAYGAIN` packet side-data) with thread isolation for network streams.
+- **[DSP Pipeline & Real-Time Safety]** Replaced blocking mutexes with lock-free `try_to_lock` patterns on real-time audio threads. Added oversampling (1x/2x/4x) to AnalogWarmth and AudioClarity DSPs with pre-allocated buffers. Confined soft clipping in dynamic bass processors to prevent foldback aliasing, added initialization safety guards across all DSP filters, and repositioned DSP bypass ahead of ReplayGain/Normalizer for direct bit-perfect playback.
+- **[Engine Resampler & Streaming Correctness]** Handled input caps and tail flushing in r8brain and libsamplerate backends, converted integer formats strictly in the float domain, routed post-dither conversions through exact rounding (`f32ToIntExact`), and made algorithm switching atomic and thread-safe. Fixed ICY metadata deadlock and seek/ring-buffer race conditions in network streaming with proper EOF flush handling.
+- **[In-App FAQ]** Integrated a dedicated FAQ section in Misc & System settings derived from the user manual, styled with Material 3 Expressive expandable cards, category filtering, search, and bit-perfect playback guidance.
 - **[Real-Time ReplayGain Telemetry]** Added track and album ReplayGain gain/peak telemetry to the Audio Engine Diagnostic panel for real-time loudness inspection.
-- **[Refined Waveform Seek Bar]** Upgraded the waveform seek bar with taller, finer-resolution bars and smooth interpolated audio sampling.
+- **[Waveform Seek Bar]** Updated the waveform seek bar with higher-resolution bars and interpolated audio sampling.
 
 ## v0.6.27 — 2026-09-08
-- **[True 64-Bit Float DSP Pipeline]** Implemented true IEEE 754 double precision (64-bit float) processing across the entire active DSP chain (SubsonicFilter, Biquad64 EQ, 3-band tone EQ, user gain, soft limiter, and monitor routing) when `use64BitProcessing` is active. Zero-allocation real-time audio callback safety achieved via preallocated 262,144 double-precision buffer in `ae_init()`.
-- **[Remez Equiripple Polyphase Oversampler]** Corrected tap chronology inversion in polyphase oversampling to eliminate 20 kHz treble roll-off. Calibrated Remez half-band equiripple filter coefficients for an ultra-flat passband (<0.75 dB ripple) and exact 1.0000 DC unity gain. Templated float and double oversamplers (`PolyphaseOversampler2x64` / `4x64`) with full C ABI, Dart FFI, and UI wiring.
-- **[Studio-Grade Dattorro Diffuse Tank Reverb]** Upgraded ReverbNode from legacy parallel Schroeder combs to an expansive Dattorro figure-8 diffuse tank with cascaded dual-channel input diffusers, dual-phase quadrature LFO modulation to eliminate metallic flutter echoes, Abbey Road 160 Hz HPF / 7.5 kHz LPF pre-filtering, physically scaled one-pole damping filter, and 14 mutually prime decorrelated stereo taps.
-- **[Bell & Tilt Parametric EQ Filter Types]** Added `AE_EQ_BAND_BELL` and `AE_EQ_BAND_TILT` filter modes to Parametric EQ. Implemented complementary shelving pair for Tilt filtering with pivot frequency and variable slope. Updated `ParametricEqGraph` with real-time composite frequency response curve evaluation.
-- **[4 Premier FFT Window Functions]** Implemented Hann, Hamming, Blackman-Harris, and Flat-Top FFT windows natively in C++, Dart FFI, and DSP analysis pipelines with coherent gain compensation, plus an interactive window selector and comparison guide in Settings.
-- **[Next-Gen Spectrum Analyzers]** Added `PhysicsDotsVisualizer` (fine segmented LED matrix with gravity falloff, punchy attack, and apex peak-hold free-fall) and `FluidAreaVisualizer` (cross-band surface tension ripples with floating peak drape), replacing legacy rendering for butter-smooth 60/120 FPS custom canvas performance.
-- **[Sample-Rate Aware Scaling & Dynamic Nyquist]** Dynamically computed Nyquist limits ($F_s / 2$) in `FftProcessor` and connected hardware sample-rate inspection to visualizers. Added Logarithmic (octave binning, dB) vs Linear (kHz binning, magnitude) toggle.
-- **[Streamlined EQ & UI Decimation]** Decimated Graphic EQ frequency labels for 16- and 32-band layouts on mobile screens. Reordered DSP chain (ingress polarity/pre-gain, egress balance/safety limiter) and placed Limiters and Loudness cards into clean dedicated sections.
-- **[FFmpeg Stream Resampler Decoupling]** Decoupled online network streams to utilize FFmpeg's native internal `SwrContext` resampler without routing through external sinc backends. Added defensive flush null-checks and dynamic handle recreation on rate switches in `libsoxr`.
-- **[Memory & Queue Performance Optimization]** Offloaded album art decoding to background worker isolates and downscaled raw art to 120x120 cached thumbnails (>99% RAM savings). Lazily mounted `QueueScreen` in PageView and added interactive draggable fast scrollbar with animated shortcut dock.
+
+- **[64-Bit Float DSP Pipeline]** Implemented IEEE 754 double precision (64-bit float) processing across the active DSP chain (SubsonicFilter, Biquad64 EQ, 3-band tone EQ, user gain, soft limiter, and monitor routing) when `use64BitProcessing` is active. Zero runtime allocations achieved via a preallocated 262,144 double-precision buffer in `ae_init()`.
+- **[Remez Equiripple Polyphase Oversampler]** Corrected tap chronology inversion in polyphase oversampling to eliminate 20 kHz treble roll-off. Calibrated Remez half-band equiripple filter coefficients for flat passband (<0.75 dB ripple) and exact 1.0000 DC unity gain. Added templated float and double oversamplers (`PolyphaseOversampler2x64` / `4x64`) with C ABI, Dart FFI, and UI integration.
+- **[Dattorro Diffuse Tank Reverb]** Upgraded ReverbNode to a Dattorro figure-8 diffuse tank with cascaded dual-channel input diffusers, dual-phase quadrature LFO modulation to eliminate metallic flutter echoes, 160 Hz HPF / 7.5 kHz LPF pre-filtering, physically scaled one-pole damping, and 14 decorrelated stereo taps.
+- **[Bell & Tilt Parametric EQ Filters]** Added `AE_EQ_BAND_BELL` and `AE_EQ_BAND_TILT` filter modes to Parametric EQ. Implemented complementary shelving pairs for Tilt filtering with pivot frequency and variable slope. Updated `ParametricEqGraph` with real-time composite frequency response curve evaluation.
+- **[FFT Window Functions]** Implemented Hann, Hamming, Blackman-Harris, and Flat-Top FFT windows in C++, Dart FFI, and DSP analysis pipelines with coherent gain compensation, plus an interactive window selector and comparison guide in Settings.
+- **[Spectrum Analyzers]** Added `PhysicsDotsVisualizer` (segmented LED matrix with gravity falloff, fast attack, and peak-hold free-fall) and `FluidAreaVisualizer` (cross-band surface tension ripples with floating peak drape), running at 60/120 FPS on custom canvas.
+- **[Sample-Rate Aware Scaling & Dynamic Nyquist]** Computed Nyquist limits ($F_s / 2$) dynamically in `FftProcessor` and connected hardware sample-rate inspection to visualizers. Added Logarithmic (octave binning, dB) vs Linear (kHz binning, magnitude) toggle.
+- **[EQ Interface Layout]** Decimated Graphic EQ frequency labels for 16- and 32-band layouts on mobile screens. Reordered the DSP chain (ingress polarity/pre-gain, egress balance/safety limiter) and placed Limiters and Loudness cards into dedicated sections.
+- **[FFmpeg Stream Resampler Decoupling]** Decoupled online network streams to use FFmpeg's native internal `SwrContext` resampler without routing through external sinc backends. Added defensive flush null-checks and dynamic handle recreation on rate switches in `libsoxr`.
+- **[Memory & Queue Optimization]** Offloaded album art decoding to background worker isolates and downscaled raw art to 120x120 cached thumbnails. Lazily mounted `QueueScreen` in PageView and added an interactive draggable fast scrollbar with an animated shortcut dock.
 
 ## v0.6.26 — 2026-09-08
-- **[In-App Update Detection & Multi-Platform Resolution]** Added automated release detection against GitHub Releases API with strict OS and CPU ABI matching (`dart:ffi` `Abi.current()`), distinguishing Android ARM64 (`sautiflow_android_arm64.apk`), Android ARMv7 (`sautiflow_android_armv7.apk`), macOS, Windows, and Linux without platform confusion.
-- **[Background Isolate Streaming & Resumable Downloads]** Offloaded binary download, chunk streaming, and file writing to a dedicated background worker Isolate with throttled progress updates to keep the UI at a buttery smooth 120 FPS. Integrated HTTP Range headers (`206 Partial Content`) to automatically resume interrupted downloads upon network reconnection.
-- **[Material 3 Expressive Dialog & Wavy Progress]** Implemented `M3EDialog` update prompt with animated `M3EProgressIndicator.linearWavy`, even tabular byte sizing (`FontFeature.tabularFigures()`), and in-flight cancel / restart / resume controls.
-- **[Network Drop Watchdog & Safe File Handles]** Added an 18-second inactivity watchdog to gracefully handle silent network drops, with guaranteed file handle closure to prevent file locks.
-- **[Android In-App Package Installation]** Wired native `FileProvider` and `REQUEST_INSTALL_PACKAGES` permission in `MainActivity.kt` for seamless APK installation prompt.
-- **[Settings Screen Update Status]** Added interactive "Check for Updates" tile and dynamic "UPDATE AVAILABLE" category badge in Settings.
 
-## v0.6.25 
-- Bugs fixes and performance  improvements
-- Added ability to select  backend  for  android(only). 
-- Decoupled homescreen UI
+- **[In-App Update Detection]** Added automated release detection against the GitHub Releases API with strict OS and CPU ABI matching (`dart:ffi` `Abi.current()`), distinguishing Android ARM64 (`sautiflow_android_arm64.apk`), Android ARMv7 (`sautiflow_android_armv7.apk`), macOS, Windows, and Linux.
+- **[Background Isolate Streaming & Resumable Downloads]** Offloaded binary download, chunk streaming, and file writing to a background worker Isolate with throttled progress updates to keep the UI at 120 FPS. Integrated HTTP Range headers (`206 Partial Content`) to automatically resume interrupted downloads.
+- **[Material 3 Expressive Dialog]** Implemented `M3EDialog` update prompt with animated `M3EProgressIndicator.linearWavy`, tabular byte sizing (`FontFeature.tabularFigures()`), and in-flight cancel, restart, and resume controls.
+- **[Network Drop Watchdog]** Added an 18-second inactivity watchdog to handle silent network drops, with guaranteed file handle closure to prevent file locks.
+- **[Android In-App Package Installation]** Connected native `FileProvider` and `REQUEST_INSTALL_PACKAGES` permission in `MainActivity.kt` for APK installation prompts.
+- **[Settings Screen Update Status]** Added an interactive "Check for Updates" tile and an "UPDATE AVAILABLE" category badge in Settings.
 
-## 0.6.24
-- **[Android Online Stream Architecture Fix]** Resolved online stream playback stalls on Android by implementing a resilient two-stage resampler initialization in `ffmpeg_stream_decoder.cpp`. Falls back gracefully from SoXR to FFmpeg's native `SWR_ENGINE_SWR` engine with 32-tap high-precision sinc filtering, eliminating `AVERROR(EINVAL)` (-22) failures when `libsoxr` is not present in Android prebuilts.
-- **[Track Switch & Decoder Mutex Starvation Elimination]** Resolved decoder mutex lock starvation in `audio_engine.cpp` during track changes and playlist jumps by releasing `decoderMutex` before waiting on `decodeProducerCv`. Slashed track loading latency from 20+ seconds down to 1 millisecond.
-- **[Stream Probing Zero-Rate Guards]** Guarded `soxr_onInit` and `src_onInit` against unprobed / non-positive sample rates during dynamic stream format discovery, preventing `MA_ERROR` aborts.
+## v0.6.25 — 2026-09-05
+
+- Bug fixes and performance improvements.
+- Added audio backend selection for Android.
+- Decoupled home screen UI components.
+
+## v0.6.24 — 2026-09-02
+
+- **[Android Online Stream Architecture Fix]** Resolved online stream playback stalls on Android by implementing a two-stage resampler initialization in `ffmpeg_stream_decoder.cpp`. Falls back from SoXR to FFmpeg's native `SWR_ENGINE_SWR` engine with 32-tap sinc filtering, eliminating `AVERROR(EINVAL)` (-22) failures when `libsoxr` is not present in Android prebuilts.
+- **[Track Switch & Decoder Mutex Contention]** Resolved decoder mutex lock starvation in `audio_engine.cpp` during track changes and playlist jumps by releasing `decoderMutex` before waiting on `decodeProducerCv`. Reduced track loading latency from 20+ seconds to ~1 ms.
+- **[Stream Probing Zero-Rate Guards]** Guarded `soxr_onInit` and `src_onInit` against unprobed or non-positive sample rates during dynamic stream format discovery, preventing `MA_ERROR` aborts.
 - **[Android MediaSession Timeline Telemetry]** Corrected `bufferedPosition` in `mobile_system_audio.dart` to report absolute media timeline position (`currentPositionMs + bufferAheadMs`), preventing Android MediaSession underflow stalls and lockscreen notification dismissals.
-- **[Push Stream Instant Start]** Maintained responsive 32KB initial buffer threshold in `pushStream` for immediate audio start on chunked and live radio streams.
-- **[Isolate Stream Telemetry Wire-up]** Connected real-time stream telemetry from `IsolateAudioPlayer` into `MiniAudioSystemAudioController`.
+- **[Push Stream Start Threshold]** Maintained a 32 KB initial buffer threshold in `pushStream` for immediate audio start on chunked and live radio streams.
+- **[Isolate Stream Telemetry]** Connected real-time stream telemetry from `IsolateAudioPlayer` into `MiniAudioSystemAudioController`.
 
-## 0.6.23
-- **[Universal Native Streaming Build Support]** Enabled `-DSAUTIFLOW_ENABLE_FFMPEG=1` across all platform build systems (Windows, Linux, Android, iOS, and macOS). Fixed network streaming support detection (`isNetworkStreamingSupported`), eliminated unhandled isolate `ArgumentError` crashes on network source enqueueing, and rebuilt Windows native DLLs.
-- **[Clean-Room Dynamic System Bass DSP]** Implemented dual-cascade 4-pole multi-band ladder matrix dynamic bass DSP with 19 acoustic transducer hardware presets and smooth sample-by-sample parameter de-zippering.
-- **[Acoustic Hardware Transducer Presets]** Exposed dynamic profile selection and dynamic drive control across native C++ engine, Dart FFI bindings, and SautiPlay EQ screen.
-- **[Audio Engine Quality & Playback Fixes]** Enabled Lookahead Safety Limiter by default to prevent inter-sample clipping, added perceptual cubic volume curve mapping and dB volume controls, integrated ISO 226 equal-loudness contour compensation in real-time spectrum analyzer, smooth audio ducking ramp, and dynamic status polling for lower idle CPU consumption.
+## v0.6.23 — 2026-08-28
 
-## 0.6.22
-- **[Real-time Synced Lyrics Engine]** Integrated online YouTube Music timed lyrics fetching and offline companion `.lrc` / `.txt` local file import with auto-scroll active line viewport centering, interactive click-to-seek, and frosted album art overlay.
-- **[Dynamic Studio DSP Suite]** Added full Studio Dynamic Range Compressor (threshold, ratio, attack, release, knee, auto-makeup gain), Downward Expander & Adaptive Noise Floor Reducer, and Split-Band / Wide-Band De-Esser.
-- **[Subsonic Protection & Quality Foundation]** Implemented 18Hz clean-room high-pass subsonic filter, 2x polyphase half-band oversampling for saturation stages, multi-arch DAZ/FTZ denormals flushing (x86_64 and ARM64/NEON), and libsoxr Very High Quality sinc resampler defaults.
-- **[UI/UX Material 3 Expressive]** Redesigned 3D beveled dark metallic `ModernAudioKnob` with radial glow, optimized mobile album art layering, and added Telegram community links to settings.
+- **[Universal Native Streaming Build Support]** Enabled `-DSAUTIFLOW_ENABLE_FFMPEG=1` across all platform build systems (Windows, Linux, Android, iOS, and macOS). Fixed network streaming support detection (`isNetworkStreamingSupported`), eliminated isolate `ArgumentError` exceptions on network source enqueueing, and rebuilt Windows native DLLs.
+- **[Dynamic System Bass DSP]** Implemented dual-cascade 4-pole multi-band ladder matrix dynamic bass DSP with 19 acoustic transducer hardware presets and sample-by-sample parameter de-zippering.
+- **[Acoustic Hardware Transducer Presets]** Exposed dynamic profile selection and dynamic drive control across the native C++ engine, Dart FFI bindings, and Sautiplay EQ screen.
+- **[Audio Engine Quality & Playback Fixes]** Enabled Lookahead Safety Limiter by default to prevent inter-sample clipping, added perceptual cubic volume curve mapping and dB volume controls, integrated ISO 226 equal-loudness contour compensation in the real-time spectrum analyzer, smoothed audio ducking ramps, and added dynamic status polling for lower idle CPU consumption.
 
-## 0.6.21
-- **[Native Streaming Engine]** Integrated embedded FFmpeg (`libavformat` + `libavcodec` + `libswresample`) decoding backend into miniaudio with 10-second lock-free jitter ring buffer, live ICY metadata parsing, and seamless DSP/effects pipeline integration.
-- **[Zero-Latency Spatial Surround]** Added real-time 3D spatial surround suite (Field Expander, Haas Spatializer, ViPER Headphone Surround+, Matrix 5.1 HRTF) with per-sample anti-pop smoothing.
-- **[DSP Wet/Dry & Dynamics]** Parametric Reverb wet/dry gain staging, BS.1770 loudness normalizer telemetry, and psychoacoustic noise-shaping dither.
+## v0.6.22 — 2026-08-20
+
+- **[Synced Lyrics]** Integrated online YouTube Music timed lyrics fetching and offline companion `.lrc` / `.txt` local file import with auto-scroll active line viewport centering, interactive click-to-seek, and frosted album art overlay.
+- **[Dynamic Range Processing]** Added Studio Dynamic Range Compressor (threshold, ratio, attack, release, knee, auto-makeup gain), Downward Expander & Adaptive Noise Floor Reducer, and Split-Band / Wide-Band De-Esser.
+- **[Subsonic Protection & Resampling Defaults]** Implemented 18 Hz high-pass subsonic filter, 2x polyphase half-band oversampling for saturation stages, multi-arch DAZ/FTZ denormals flushing (x86_64 and ARM64/NEON), and libsoxr sinc resampler defaults.
+- **[Material 3 Expressive UI]** Redesigned dark metallic `ModernAudioKnob` with radial glow, optimized mobile album art layering, and added Telegram community links to settings.
+
+## v0.6.21 — 2026-08-14
+
+- **[Native Streaming Engine]** Integrated embedded FFmpeg (`libavformat` + `libavcodec` + `libswresample`) decoding backend into miniaudio with a 10-second lock-free jitter ring buffer, live ICY metadata parsing, and effects pipeline integration.
+- **[Spatial Surround Suite]** Added real-time 3D spatial surround suite (Field Expander, Haas Spatializer, ViPER Headphone Surround+, Matrix 5.1 HRTF) with per-sample anti-pop smoothing.
+- **[DSP Dynamics & Dither]** Parametric Reverb wet/dry gain staging, BS.1770 loudness normalizer telemetry, and psychoacoustic noise-shaping dither.
 - **[Sample-Accurate Crossfade]** Implemented non-blocking crossfade pipeline with graceful abort and stall watchdog.
 - **[DLNA & Cast]** Added cross-platform DLNA cast-out and integrated DLNA MediaRenderer receiver.
-- **[Sautiplay M3E Redesign]** Modernized UI with Material 3 Expressive carousels, reactive search with suggestions, and unified Dark Blue theme.
-- **[CI/CD Release Automation]** Automated multi-platform release build generation and instant Telegram channel release notifications.
+- **[Sautiplay M3E Redesign]** Updated UI with Material 3 Expressive carousels, reactive search with suggestions, and unified Dark Blue theme.
+- **[CI/CD Release Automation]** Automated multi-platform release build generation and Telegram channel release notifications.
 
-## 0.6.20
-- **[DSP Engine & Audio Architecture]** Upgraded Sautiflow engine & Sautiplay app with 64-bit float DSP pipeline, Auto Bit-Perfect hardware matching, Ambiophonics. crossfeed, and psychoacoustic noise-shaping dither modes.
-- **[Dynamic Cover Art & Theme Engine]** Added Material 3 Isolate-driven Dynamic Cover Art color extraction (`ArtworkThemeService`) that extracts harmonious palette schemes from album art on the fly without UI stuttering.
-- **[Interactive Waveform Seek Bar]** Added interactive waveform seek bar widget (`WaveformSeekBarWidget`) with background waveform extraction (`WaveformExtractorService`) and robust pending seek state reset handling across track changes.
-- **[GPU GLSL Visualizers]** Added 15 custom GPU GLSL audio-reactive visualizer presets with mobile-optimized pinned control bar and dynamic animation pause/resume on playback state changes.
-- **[Network Sources & Media Streaming]** Added FTP and DLNA/UPnP network source browser, local folder caching, built-in HTTP local media server (`LocalMediaServer`), and Network Stream player navigation.
-- **[App Onboarding]** Integrated `showcaseview` package with themed `AppShowcase` for step-by-step interactive feature onboarding for new app installs.
+## v0.6.20 — 2026-08-04
+
+- **[DSP Engine & Audio Architecture]** Updated Sautiflow engine and Sautiplay app with 64-bit float DSP pipeline, bit-perfect hardware rate matching, Ambiophonics crossfeed, and psychoacoustic noise-shaping dither modes.
+- **[Dynamic Cover Art & Theme Engine]** Added Material 3 Isolate-driven cover art color extraction (`ArtworkThemeService`) that generates harmonious palettes from album art without UI stutter.
+- **[Waveform Seek Bar]** Added interactive waveform seek bar widget (`WaveformSeekBarWidget`) with background waveform extraction (`WaveformExtractorService`) and pending seek state reset handling across track changes.
+- **[GPU GLSL Visualizers]** Added 15 custom GPU GLSL audio-reactive visualizer presets with a pinned mobile control bar and animation pause/resume on playback state changes.
+- **[Network Sources & Media Streaming]** Added FTP and DLNA/UPnP network source browser, local folder caching, built-in HTTP local media server (`LocalMediaServer`), and network stream player navigation.
+- **[App Onboarding]** Integrated `showcaseview` package with themed `AppShowcase` for step-by-step feature onboarding for new installs.
 - **[Library & Storage]** Added Album and Genre hierarchical groupings for local library, and fixed mobile profile and playlist export file saving on Android and iOS.
-- **[UI Refactoring & Polish]** Reorganized Settings screen into clean category sub-screens with unified Material 3 styling and fixed lint rule compliance.
+- **[UI Organization & Polish]** Reorganized Settings screen into clean category sub-screens with unified Material 3 styling and fixed lint rule compliance.
 
-## 0.6.19
+## v0.6.19 — 2026-07-28
+
 - **[AutoEQ & Presets]** Added native AutoEQ profile parser service supporting `GraphicEQ.txt` lines and `ParametricEQ.txt` text blocks (`autoeq_parser.dart`).
-- **[AutoEQ UI]** Added unified AutoEQ & Presets Importer UI in `sautiplay` to import and apply `.txt`, `.irs`, `.wav`, and `.vdc` profiles on the fly.
-- **[AutoEQ Engine]** Integrated automatic `Preamp` master limiter gain headroom scaling to prevent digital clipping when applying AutoEQ boosts.
-- **[UI/Fixes]** Fixed `NestedScrollView` + `Scrollbar` `ScrollController` position conflict in `sautiplay` tab views.
-- More  features added.
+- **[AutoEQ UI]** Added unified AutoEQ & Presets Importer UI in Sautiplay to import and apply `.txt`, `.irs`, `.wav`, and `.vdc` profiles.
+- **[AutoEQ Headroom Scaling]** Integrated automatic preamp gain scaling to prevent digital clipping when applying AutoEQ boosts.
+- **[UI Fixes]** Fixed `NestedScrollView` and `Scrollbar` `ScrollController` position conflicts in Sautiplay tab views.
 
-## 0.6.18
-- Bugs  fixes and improvements in the audio engine .
-- Updated  versions across the  pkg and sautiplay app. 
+## v0.6.18 — 2026-07-20
 
+- Bug fixes and improvements in the audio engine.
+- Updated version numbers across the package and Sautiplay app.
 
-## 0.6.17
+## v0.6.17 — 2026-07-12
 
-- **[Android]** Added MethodChannel hardware audio inspection for Android `AudioServiceActivity` in `sautiplay`.
+- **[Android]** Added MethodChannel hardware audio inspection for Android `AudioServiceActivity` in Sautiplay.
 - **[Android]** Fixed JNI reflection hidden API restrictions on Android 9+ and resolved `IsolateAudioPlayer` inspection compatibility.
 
-## 0.6.16
+## v0.6.16 — 2026-07-04
 
 - Fixed minor bugs and improved performance and stability.
-- Updated sautiplay app to use the latest version of sautiflow.
-## 0.6.15
+- Updated Sautiplay app to use the latest version of Sautiflow.
 
-- **[Core/FFI]** Added real-time native hardware output inspection API (`AEHardwareInfo` & `ae_get_hardware_info`).
-  - Exposes active audio backend (`WASAPI`, `AAudio`, `Core Audio`, `PulseAudio`, `ALSA`), negotiated hardware sample rate, bit depth, buffer frame size, latency in ms, active soundcard device name, and exclusive mode status.
-- **[Apps/UI]** Added interactive Hardware Audio Output & Device Inspector modal sheet to `sautiplay` Now Playing Screen.
+## v0.6.15 — 2026-06-25
 
-- **[Core]** Fixed bugs and fixed crossfade in the sautiflow library.
-- **[Apps/UI]** For `sautiplay`: added Sauti DSP Suite effects, implemented UI improvements, boosted performance, and fixed bugs.
+- **[Core/FFI]** Added real-time native hardware output inspection API (`AEHardwareInfo` & `ae_get_hardware_info`). Exposes active audio backend (`WASAPI`, `AAudio`, `Core Audio`, `PulseAudio`, `ALSA`), negotiated hardware sample rate, bit depth, buffer frame size, latency in ms, active soundcard device name, and exclusive mode status.
+- **[Apps/UI]** Added Hardware Audio Output & Device Inspector modal sheet to Sautiplay Now Playing Screen.
+- **[Core]** Fixed crossfade handling and resolved stability bugs in the Sautiflow library.
+- **[Apps/UI]** Added Sauti DSP Suite effects, UI refinements, and performance improvements to Sautiplay.
 
-## 0.6.4
+## v0.6.11 — 2026-06-18
+
+- Fixed Linux build error: added missing `cstdint` include for `uint32_t` in `TubeSimulator`.
+
+## v0.6.10 — 2026-06-15
+
+- GitHub Actions CI workflow fix: removed branch triggers from publish workflow to resolve pub.dev tag `refType` error.
+
+## v0.6.9 — 2026-06-10
+
+- CI deployment fix: bumped version following successful publish.
+
+## v0.6.8 — 2026-06-05
+
+- Fixed Linux build error (`cmath` / `std::abs`).
+- Fixed Windows build error (coroutine deprecation warning).
+
+## v0.6.4 — 2026-05-20
 
 - Version bump for release.
 
-## 0.6.3
+## v0.6.3 — 2026-05-12
 
-- **[Build]** Added unsigned iOS `.ipa` generation to the GitHub Actions workflow for sideloading iOS applications.
-- **[Docs]** Updated `sautiplay` README with instructions on how to install the `.ipa` using unsigned methods like Sideloadly or AltStore.
+- **[Build]** Added unsigned iOS `.ipa` generation to GitHub Actions workflow for sideloading.
+- **[Docs]** Updated Sautiplay README with instructions on how to install the `.ipa` using unsigned methods like Sideloadly or AltStore.
 
-## 0.6.2
+## v0.6.2 — 2026-05-02
 
-Fix missing C++ headers in published package
+- Fixed missing C++ headers in published package.
 
-## 0.6.1
+## v0.6.1 — 2026-04-20
 
-- **[Core]** Added new `getPipelineState()` API to query the true native C++ audio engine pipeline state.
-- Accurately tracks the flow from input source (sample rate, bit-depth format) -> internal DSP processing -> natively negotiated real hardware output format.
-- **[Apps/UI]** Implemented the pipeline state viewer (Info Button) inside the Sautiplay app EQ Screen.
+- **[Core]** Added `getPipelineState()` API to query the native C++ audio engine pipeline state, tracking the flow from input source -> internal DSP processing -> hardware output format.
+- **[Apps/UI]** Implemented the pipeline state viewer inside the Sautiplay EQ Screen.
 
-## 0.6.0
+## v0.6.0 — 2026-04-10
 
-- **[DSP Effects]** Added new Stereo Widening feature using a hybrid Haas Effect + Mid/Side (M/S) Matrix algorithm.
-  - Exposes `setStereoWiden({required bool enabled, required double width, required double delayMs})` directly in `MiniAudioPlayer` and `IsolateAudioPlayer`.
-  - Enables professional, mono-compatible "wide soundstage" manipulation without destructive phase cancellation.
-- **[UI/Apps]** Integrated fully functional "Stereo Stage" configuration knobs into the Example app and Sautiplay EQ screens.
-- **[Apps]** Added persistent state saving for the Stereo Widening options in Sautiplay's SharedPreferences.
+- **[DSP Effects]** Added Stereo Widening feature using a hybrid Haas Effect + Mid/Side (M/S) Matrix algorithm. Exposes `setStereoWiden({required bool enabled, required double width, required double delayMs})` in `MiniAudioPlayer` and `IsolateAudioPlayer`.
+- **[UI/Apps]** Integrated Stereo Stage configuration knobs into the Example app and Sautiplay EQ screens.
+- **[Apps]** Added persistent state saving for Stereo Widening options in Sautiplay's SharedPreferences.
 
-## 0.5.0
+## v0.5.0 — 2026-03-25
 
-- **[Pitch & Spatialization]** Added new advanced audio features natively using miniaudio:
-  - Added robust Pitch Control with `setPitch(double)`.
-  - Added 3D Spatial Audio: Enable via `setSpatializationEnabled(bool)` and position sound sources in a 3D environment via `setPosition(x,y,z)`, `setDirection()`, and `setVelocity()`.
-  - Configurable 3D Audio parameters: Doppler effect, attenuation models, rolloff factor, min/max gain, and distance thresholds.
-  - Added customizable Fading: `setFade(startVol, endVol, durationMs)`.
-  - Added granular Playback Scheduling: `scheduleStartTimeInPcmFrames(time)` and `scheduleStopTimeInPcmFrames(time)`.
-- **[Example App]** Updated the demonstration app with UI sliders to configure Pitch shifting and 3D Spatial Audio in real-time.
-
-- Integrated `libsamplerate` (Secret Rabbit Code) for audiophile-grade audio resampling.
-- Added extensive new resampling algorithms via Flutter FFI to the native C++ audio engine:
+- **[Pitch & Spatialization]** Added native miniaudio audio features:
+  - Pitch Control with `setPitch(double)`.
+  - 3D Spatial Audio: enable via `setSpatializationEnabled(bool)` and position sound sources via `setPosition(x,y,z)`, `setDirection()`, and `setVelocity()`.
+  - 3D Audio parameters: Doppler effect, attenuation models, rolloff factor, min/max gain, and distance thresholds.
+  - Fading: `setFade(startVol, endVol, durationMs)`.
+  - Playback scheduling: `scheduleStartTimeInPcmFrames(time)` and `scheduleStopTimeInPcmFrames(time)`.
+- **[Example App]** Updated demonstration app with sliders to configure pitch shifting and 3D spatial audio in real time.
+- **[Resampling]** Integrated `libsamplerate` (Secret Rabbit Code) for sinc sample rate conversion with algorithms:
   - `srcSincBestQuality`
   - `srcSincMediumQuality`
   - `srcSincFastest`
   - `srcZeroOrderHold`
   - `srcLinear`
-- Exposed the new algorithms in `MiniAudioPlayer.setEngineResampleAlgorithm(ResampleAlgorithm)`.
-- Updated Windows and Android CMake build systems to natively compile `libsamplerate` alongside `faad2` and `miniaudio`.
-- Added m4a AAC decoding support via `faad2`.
-- Enhanced example application with UI dropdown to dynamically change resampling algorithms on the fly.
+- Exposed algorithms in `MiniAudioPlayer.setEngineResampleAlgorithm(ResampleAlgorithm)`.
+- Updated Windows and Android CMake build systems to compile `libsamplerate` alongside `miniaudio`.
+- Enhanced example application with UI dropdown to dynamically change resampling algorithms.
 
-## 0.4.0-dev
+## v0.4.0-dev — 2026-02-15
 
-- Added standalone object-oriented filter API wrapping miniaudio natively (`MiniaudioLpf1`, `MiniaudioLpf2`, `MiniaudioLpf`, `MiniaudioHpf1`, etc).
-- Added standalone `MiniaudioBiquad` filter wrapping.
-- Added standalone `MiniaudioResampler` with support for algorithms (`linear`, `sinc`) and dithering modes.
-- Added support for `s24` and `s32` AudioFormats in the native engine mappings.
-- Re-architected C++ FFI to expose these standalone filters independently of the main `AudioEngineHandle` player.
-- **[Real-Time DSP]** Injected custom `ma_lpf1`, `ma_hpf1`, and `ma_biquad` as native nodes in the main AudioEngineHandle data callback.
+- Added standalone object-oriented filter API wrapping miniaudio natively (`MiniaudioLpf1`, `MiniaudioLpf2`, `MiniaudioLpf`, `MiniaudioHpf1`).
+- Added standalone `MiniaudioBiquad` filter wrapper.
+- Added standalone `MiniaudioResampler` with support for linear and sinc algorithms and dithering modes.
+- Added support for `s24` and `s32` AudioFormats in native engine mappings.
+- Re-architected C++ FFI to expose standalone filters independently of the main `AudioEngineHandle` player.
+- **[Real-Time DSP]** Injected `ma_lpf1`, `ma_hpf1`, and `ma_biquad` as native nodes in the main AudioEngineHandle data callback.
 - **[Real-Time DSP]** Exposed `setEngineResampleAlgorithm` and `setEngineDitherMode` to dynamically re-configure the global audio device.
-- Updated documentation and the example app to include interactive, real-time SLIDER and DROPDOWN controls for testing the native backend integrations.
+- Updated documentation and the example app with controls for testing native backend integrations.
 
-## 0.3.0-dev
+## v0.3.0-dev — 2026-01-20
 
-- Started unified mixed multiband FX implementation.
-- Added new public Dart model types for user-defined band chains:
+- Added mixed multiband FX implementation.
+- Added public Dart model types for user-defined band chains:
   - `EqBandType` (`peak`, `bandpass`, `notch`, `lowshelf`, `highshelf`)
   - `EqBandConfig` (per-band `frequencyHz`, `q`, `gainDb`, `slope`, `enabled`)
 - Added `MiniAudioPlayer` APIs:
@@ -217,52 +246,31 @@ Fix missing C++ headers in published package
   - `setMultibandFxBands(bands)`
   - `setMultibandFxEnabled(enabled)`
   - `clearMultibandFx()`
-- Wired new mixed multiband FX path through Dart FFI and native C/C++ ABI (`ae_set_multiband_fx_*`).
-- Added initial realtime analyzer frame API for visualization pipelines:
+- Wired mixed multiband FX path through Dart FFI and native C/C++ ABI (`ae_set_multiband_fx_*`).
+- Added real-time analyzer frame API for visualization pipelines:
   - Native C ABI: `ae_set_analyzer_enabled`, `ae_configure_analyzer`, `ae_poll_analyzer_frame`
-  - Dart FFI + `MiniAudioPlayer` surface:
-    - `configureAnalyzer(frameSize: ...)`
-    - `setAnalyzerEnabled(enabled)`
-    - `getLatestAnalyzerFrame()`
-    - `analyzerStream`
-- Added transition crossfade controls end-to-end:
+  - Dart FFI & `MiniAudioPlayer`: `configureAnalyzer`, `setAnalyzerEnabled`, `getLatestAnalyzerFrame`, `analyzerStream`
+- Added transition crossfade controls:
   - `setCrossfadeEnabled(bool)`
-  - `setCrossfadeDurationMs(int)` (native clamp `0..10000`)
-- Updated output sample-rate handling so `setOutputSampleRate(0)` now applies native device rate mode.
+  - `setCrossfadeDurationMs(int)`
+- Updated output sample-rate handling so `setOutputSampleRate(0)` applies native device rate mode.
 
-## 0.2.0
+## v0.2.0 — 2025-12-10
 
-- Added new miniaudio-powered FX APIs:
+- Added miniaudio-powered FX APIs:
   - `setBandpass(enabled, cutoffHz, q)`
   - `setPeakEq(enabled, gainDb, q, frequencyHz)`
   - `setNotch(enabled, q, frequencyHz)`
   - `setLowshelf(enabled, gainDb, slope, frequencyHz)`
   - `setHighshelf(enabled, gainDb, slope, frequencyHz)`
-- Wired new FX end-to-end across native engine, Dart FFI, and public `MiniAudioPlayer` API.
-- Expanded example EQ screen with interactive controls for the new FX for easier testing.
-- Updated documentation and feature lists to include the new filter/EQ set.
+- Wired FX across native engine, Dart FFI, and public `MiniAudioPlayer` API.
+- Expanded example EQ screen with controls for new filter and EQ types.
+- Updated documentation and feature lists with the new filter/EQ set.
 
-## 0.1.0
+## v0.1.0 — 2025-11-01
 
 - Initial release of `sautiflow`.
 - Cross-platform audio playback engine via miniaudio and Dart FFI.
 - Playlist controls: play, pause, stop, seek, next, previous, jump, shuffle, loop.
 - Audio effects support: gain, pan, EQ, reverb, low/high-pass, delay.
 - Platform support: Android, iOS, macOS, Linux, and Windows.
-
-## 0.6.8
-- Fixed Linux build error (cmath / std::abs)
-- Fixed Windows build error (coroutine deprecation warning)
-
-
-## 0.6.9
-- CI deployment fix (bump version after successful publish)
-
-
-## 0.6.10
-- GitHub Actions CI workflow fix: remove branch triggers from publish workflow to fix pub.dev tag refType error
-
-
-## 0.6.11
-- Fix Linux build error: add missing cstdint include for uint32_t in TubeSimulator
-

@@ -1,94 +1,92 @@
-# sautiflow
+# Sautiflow
 
 ![Sautiflow Logo](docs/assets/sautiflow.png)
 
-**[📥 Download Latest Sautiplay Real-world App Release](https://github.com/wambugu71/sautiflow/releases/latest)** | **[💬 Join Telegram Community](https://t.me/+MilnrgkNkbFiYmY0)**
+**[Download Latest Sautiplay Release](https://github.com/wambugu71/sautiflow/releases/latest)** | **[Join Telegram Community](https://t.me/+MilnrgkNkbFiYmY0)**
 
-*Check out the [Sautiplay Readme](sautiplay/README.md) to see a full production app built on this engine with advanced EQ, gapless playback, and native streaming.*
+*See the [Sautiplay README](sautiplay/README.md) for the player application built on this engine.*
 
-Sautiflow is a cross-platform audio playback and processing engine for Dart and Flutter, powered by the C++ miniaudio library. It provides a high-level API for playlist management, gapless transitions, audio effects, and real-time status updates, all accessible via Dart FFI. Sautiflow supports native targets including Windows, Linux, Android, iOS, and macOS. Audiophiles and developers can leverage Sautiflow for building rich audio applications with advanced playback and processing capabilities.
+Sautiflow is a cross-platform audio playback and processing engine for Dart and Flutter, built in C++ on miniaudio. It provides playlist management, gapless transitions, DSP effects, and status polling through Dart FFI across Windows, Linux, Android, iOS, and macOS.
 
 ## Features
 
-- Playlist engine (set/add/insert/remove/move)
+- Playlist management (set, add, insert, remove, move)
 - Gapless transitions between tracks
-- Audiophile-grade resampling algorithms powered by `libsamplerate` (SRC Sinc Best/Medium/Fastest, ZOH, Linear)
-- Play/pause/stop/seek/next/previous/jump
-- Shuffle + loop modes (`off`, `all`, `one`)
-- FX chain: gain, pan, stereo widening, audiophile crossfeed (BS2B/Joe0bloggs), EQ (3-band), multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, high-shelf
-- Pollable player status and stream updates
-- Native targets: Windows, Linux, Android, iOS/macOS
+- Sinc resampling with `libsamplerate` (Best, Medium, Fastest, ZOH, Linear)
+- Play, pause, stop, seek, next, previous, and jump controls
+- Shuffle and loop modes (`off`, `all`, `one`)
+- FX chain: gain, pan, stereo widening, headphone crossfeed (BS2B, Joe0bloggs), 3-band EQ, multiband EQ, reverb, low-pass, high-pass, band-pass, delay, peak EQ, notch, low-shelf, and high-shelf
+- Player status polling and real-time event streams
+- Native targets: Windows, Linux, Android, iOS, and macOS
 
+### Headphone crossfeed
 
-### Audiophile Headphone Crossfeed
-When listening to music originally mastered for stereo speakers on headphones, extreme stereo separation (classic L/R ping-pong) can cause listening fatigue since your left ear cannot hear the right speaker at all. Sautiflow features a mastering-grade Crossfeed algorithm with configurable presets:
-- **1. BS2B Weak:** Smooths out extreme stereo separation with minimal tonal change.
-- **2. BS2B Strong:** Stronger acoustic shadowing for extreme-panned old records (e.g. early Beatles).
-- **3. Joe0bloggs Realistic:** Delay-heavy, Linkwitz-style frequency shaping for a natural room-like experience on headphones.
+Stereo tracks mastered for speakers can cause listening fatigue on headphones due to extreme channel separation. Sautiflow includes crossfeed processing with three presets:
+- **BS2B Weak**: subtle crossfeed with minimal tonal change.
+- **BS2B Strong**: stronger acoustic crossfeed for wide-panned stereo mixes.
+- **Joe0bloggs Realistic**: delay-based frequency shaping modeled after acoustic speaker bleed.
 
-`dart
+```dart
 // Enable crossfeed
 player.setCrossfeedEnabled(enabled: true);
 
 // Set preset (1 = BS2B Weak, 2 = BS2B Strong, 3 = Joe0bloggs)
 player.setCrossfeedPreset(preset: 3);
-`
+```
 
-## Audio Formats & Quality
+## Audio formats and processing
 
-Sautiflow is built with audiophile-grade fidelity in mind. It handles different audio formats natively within its C++ engine to provide the best possible acoustic reproduction:
-
-- **Lossy Formats (MP3, AAC, OGG etc.)**: These formats are inherently compressed. Upon playback, Sautiflow **upscales/upsamples** the decoded bitstream internally (in 32-bit floating point math) ensuring that DSP operations—like EQ, reverb, and spatial width—have plenty of headroom and do not clip or introduce artificial artifacts typical of low-resolution math.
-- **Lossless Formats (FLAC, WAV, ALAC, etc.)**: These are mapped and processed **raw**. Sautiflow does **not** dynamically upscale them to guess lost data (since nothing is lost). It maintains their pristine bit-perfect original depth into the DSP chain. If the file's sample rate doesn't match your device's native hardware rate (e.g., trying to play an 88.2kHz FLAC file on a 48kHz output device), Sautiflow will employ high-fidelity **resampling** transparently using `libsamplerate` to perfectly match your hardware, avoiding quality loss while retaining bit-depth fidelity.
+- **Lossy audio (MP3, AAC, OGG)**: decoded into 32-bit floating-point PCM so equalizer, reverb, and spatial processing operate with dynamic headroom without integer clipping.
+- **Lossless audio (FLAC, WAV, ALAC)**: processed without synthetic upsampling. When the source sample rate matches the output device, audio passes to hardware bit-exact. When conversion is required (for example, 88.2 kHz audio on a 48 kHz output device), the engine resamples via `libsamplerate`.
 
 ## Public Dart API
 
-Import:
+Import the package:
 
 ```dart
 import 'package:sautiflow/sautiflow.dart';
 ```
 
-### Querying the Audio Pipeline True State
+### Querying pipeline state
 
-You can interrogate the engine to uncover the exact properties of the actively running audio pipeline. This is incredibly useful for audiophiles wanting to see the "true" negotiated hardware output formats, track their native input resolutions, and confirm spatializer or FX states.
+Read `player.pipelineState` to inspect active audio stream properties, processing precision, and hardware driver negotiation:
 
 ```dart
 final state = player.pipelineState;
 
-// Input Source File (e.g. decoded MP3 format)
+// Input source properties
 print('Input Format: ${state.inputFormatString} | ${state.inputChannels} channels');
 print('Input Sample Rate: ${state.inputSampleRate}Hz');
 
-// Sub-System DSP (Miniaudio processes FX primarily in 32-bit Float)
+// Internal DSP precision
 print('DSP Format: ${state.processingFormatString}');
 
-// True hardware OS-negotiated driver output
+// Negotiated hardware driver output
 print('Speaker Format: ${state.outputFormatString} | ${state.outputSampleRate}Hz');
 
-// Enabled DSP Features currently actively shifting the stream
-print('Eq Enabled: ${state.eqEnabled}');
+// Active DSP status
+print('EQ Enabled: ${state.eqEnabled}');
 print('Reverb Enabled: ${state.reverbEnabled}');
+```
 
-### Native Track Metadata Inspection
+### Native track metadata inspection
 
-Sautiflow exports a high-speed C++ native file stream inspector (`player.inspectFile(path)`). It parses raw container headers (including FLAC `STREAMINFO` blocks and WAV `fmt ` chunks) without needing to decode full PCM streams, returning exact audio properties in microseconds:
+`player.inspectFile(path)` reads container headers (including FLAC `STREAMINFO` and WAV `fmt ` chunks) without decoding audio frames:
 
 ```dart
 final info = player.inspectFile('/path/to/song.flac');
 
 if (info != null) {
-  print('Sample Rate: ${info.sampleRate} Hz');    // e.g. 96000 Hz, 192000 Hz
-  print('Bit Depth:   ${info.bitDepth} bits');    // e.g. 24-bit, 32-bit
-  print('Float PCM:   ${info.isFloat}');         // true for 32-bit Float WAV
-  print('Channels:    ${info.channels}');        // 2 (Stereo), 1 (Mono)
-  print('Bitrate:     ${info.bitrateKbps} kbps');// e.g. 1411 kbps, 2304 kbps
-  print('Codec:       ${info.formatName}');     // "FLAC", "WAV", "MP3"
+  print('Sample Rate: ${info.sampleRate} Hz');
+  print('Bit Depth:   ${info.bitDepth} bits');
+  print('Float PCM:   ${info.isFloat}');
+  print('Channels:    ${info.channels}');
+  print('Bitrate:     ${info.bitrateKbps} kbps');
+  print('Codec:       ${info.formatName}');
 }
 ```
-```
 
-### Example (playlist + controls)
+### Playlist and playback controls
 
 ```dart
 final player = MiniAudioPlayer();
@@ -110,7 +108,7 @@ player.setAudioSources(
 player.play();
 player.seekToNext();
 player.seekToPrevious();
-player.seekTo(const Duration(seconds: 0), index: 2);
+player.seekTo(Duration.zero, index: 2);
 player.setLoopMode(LoopMode.all);
 player.setShuffleModeEnabled(true);
 
@@ -124,7 +122,7 @@ player.setEq(low: 1.2, mid: 1.0, high: 1.1);
 player.setReverbEnabled(true);
 player.setReverb(mix: 0.2, feedback: 0.6, delayMs: 100);
 
-// Advanced filters / parametric shaping
+// Parametric shaping
 player.setBandpass(enabled: true, cutoffHz: 1000, q: 0.8);
 player.setPeakEq(enabled: true, gainDb: 3.0, q: 1.0, frequencyHz: 2500);
 player.setNotch(enabled: true, q: 10.0, frequencyHz: 60);
@@ -134,23 +132,23 @@ player.setHighshelf(enabled: true, gainDb: 2.5, slope: 1.0, frequencyHz: 10000);
 
 ## Native build outputs
 
-Expected library names by platform:
+Library binaries by platform:
 
 - Windows: `sautiflow.dll`
-- Linux/Android: `libsautiflow.so`
+- Linux and Android: `libsautiflow.so`
 - macOS: `libsautiflow.dylib`
 - iOS: statically linked (`DynamicLibrary.process()`)
 
-## Flutter plugin structure
+## Flutter plugin configuration
 
-This package is configured as a Flutter FFI plugin in [pubspec.yaml](pubspec.yaml) with:
+Configured as a Flutter FFI plugin in [pubspec.yaml](pubspec.yaml) for:
 
 - Android (`ffiPlugin: true`)
 - iOS (`ffiPlugin: true`)
 - Linux (`ffiPlugin: true`)
 - Windows (`ffiPlugin: true`)
 
-Platform native build configs are included:
+Platform build definitions:
 
 - [android/src/main/cpp/CMakeLists.txt](android/src/main/cpp/CMakeLists.txt)
 - [ios/sautiflow.podspec](ios/sautiflow.podspec)
@@ -161,37 +159,37 @@ Platform native build configs are included:
 
 - Windows: [tool/build_windows.ps1](tool/build_windows.ps1)
 - Linux: [tool/build_linux.sh](tool/build_linux.sh)
-- Android (NDK): [tool/build_android.sh](tool/build_android.sh)
+- Android (NDK, Bash): [tool/build_android.sh](tool/build_android.sh)
 - Android (NDK, PowerShell): [tool/build_android.ps1](tool/build_android.ps1)
-- Apple (iOS + macOS): [tool/build_apple.sh](tool/build_apple.sh)
+- Apple (iOS and macOS): [tool/build_apple.sh](tool/build_apple.sh)
 
-## Packaging notes
+## Packaging
 
-For Flutter app integration, keep native artifacts available in app/plugin output:
+Place native binaries where the platform loader can find them:
 
 - Android: `android/src/main/jniLibs/<abi>/libsautiflow.so`
-- iOS: link `sautiflow.xcframework` in Xcode/Podspec
-- Windows: place `sautiflow.dll` next to executable
-- Linux: ship `libsautiflow.so` with app bundle and ensure loader path
+- iOS: link `sautiflow.xcframework` in Xcode or Podspec
+- Windows: place `sautiflow.dll` alongside the executable
+- Linux: bundle `libsautiflow.so` with the application and configure RPATH
 
-### Android native network streaming (libcurl)
+### Android network streaming (libcurl)
 
-Android now attempts to enable native URL streaming by default.
+Android attempts native URL streaming by default:
 
-- If `libcurl` is found (explicit path or bundled per ABI), native network streaming is enabled.
-- If not found, Android build continues and falls back to non-native URL handling (no build break).
+- When `libcurl` is detected (via explicit path or bundled per ABI), native network streaming is enabled.
+- If not detected, the build continues and falls back to non-native stream handling.
 
-Optional overrides (Gradle project properties):
+Gradle configuration properties:
 
 - `MINIAUDIODART_ENABLE_CURL=ON|OFF`
 - `MINIAUDIODART_CURL_INCLUDE_DIR=/path/to/include`
 - `MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.a` (or `.so`)
 - `MINIAUDIODART_CURL_LIBRARY_DIR=/path/to/abi-parent`
-- `MINIAUDIODART_CURL_EXTRA_LIBS=ssl;crypto;z` (optional static dependency chain)
+- `MINIAUDIODART_CURL_EXTRA_LIBS=ssl;crypto;z`
 
-### Recommended Android setup (static per ABI)
+### Android static curl setup
 
-Use static `libcurl.a` per ABI to keep plugin packaging simple (single `libsautiflow.so`).
+Using static `libcurl.a` keeps plugin packaging inside a single `libsautiflow.so`.
 
 Expected layout:
 
@@ -199,39 +197,31 @@ Expected layout:
 - `native/android/armeabi-v7a/libcurl.a`
 - `native/android/arm64-v8a/libcurl.a`
 
-The Android Gradle configs are aligned to arm ABIs by default (`armeabi-v7a`, `arm64-v8a`).
-If you need emulator ABIs (`x86`, `x86_64`), add matching prebuilt curl artifacts and expand ABI filters.
+Android Gradle targets ARM ABIs by default (`armeabi-v7a`, `arm64-v8a`). To target emulator ABIs (`x86`, `x86_64`), provide matching curl libraries and expand ABI filters.
 
-For release/legal packaging, include third-party attributions from
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## DSP architecture
 
-## DSP Engine & Architecture
-
-- **Sauti DSP Engine**: High-fidelity Audio Clarity, Harmonic Bass, Dynamic Transducer Correction, Analog Warmth saturation, Partitioned FFT Impulse Response Convolution, and Master Peak Limiting.
+- **Sauti DSP engine**: clarity enhancer, harmonic bass, transducer correction, analog warmth saturation, partitioned FFT impulse response convolution, and lookahead peak limiting.
 
 ## Example
 
-See [example/main.dart](example/main.dart) for a complete usage sample.
+See [example/main.dart](example/main.dart) for a complete implementation.
 
-## Community & Discussion
+## Community
 
-Join our Telegram group to discuss features, report issues, get early build updates, and chat about the app and audio engine:
-👉 **[Join Sautiplay / Sautiflow Telegram Group](https://t.me/+MilnrgkNkbFiYmY0)**
+Join the Telegram group for development updates, bug reports, and discussion:
+[Join Sautiplay / Sautiflow Telegram Group](https://t.me/+MilnrgkNkbFiYmY0)
 
 ## Support
 
-If you find this project useful, consider buying me a coffee! 
+If you find this project useful, you can support development:
 
 <a href="https://buymeacoffee.com/wambugu" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-Leave a star if you find this project useful! ⭐
-
-Project inspired by `just_audio` for simplicity and familiarity of API design, but built on a custom native engine with a focus on advanced audio processing features and real-time capabilities.
+The API design is inspired by `just_audio`, backed by a native C++ engine for low-latency processing and direct DSP control.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
 
-For third-party software attributions and licenses (including miniaudio, FFmpeg, libsamplerate, r8brain), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-
+Third-party attributions and licenses (miniaudio, FFmpeg, libsamplerate, r8brain) are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -7240,35 +7240,215 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->subsonicFilter.process(processBuffer, produced, e->channels);
             }
 
-            const bool hasFloatPreFx = e->crossfeedEnabled || e->stereoWidenEnabled ||
-                                       e->stereoEnhancementEnabled || e->crystalizerEnabled || e->reverbEnabled;
-            if (hasFloatPreFx)
+            // =================================================================
+            // ZONE 1: RESTORATIVE PRE-PROCESSING (SOURCE CLEAN-ROOM) &
+            // ZONE 2: CORRECTIVE TONE & RESONANCE CONTROL &
+            // ZONE 3: HARMONIC GENERATION & NON-LINEAR CHARACTER
+            // =================================================================
+            // Sits immediately post-Subsonic HPF on the pristine dry signal.
+            // Eliminates noise floor, hiss, harsh resonances, and sibilance BEFORE
+            // any saturation, compression, or spatial reverberation.
+            if (e->channels >= 2)
             {
-                std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
-                if (fxLock.owns_lock())
+                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+                if (dspLock.owns_lock())
                 {
+                    const bool isStereo = (e->channels == 2);
+                    const bool hasFloatPreDynamics = e->downwardExpanderDsp.isEnabled() ||
+                                                     e->deEsserDsp.isEnabled() ||
+                                                     e->harmonicBassDsp.isEnabled() ||
+                                                     e->dynamicSystemDsp.isEnabled() ||
+                                                     e->analogWarmthDsp.isEnabled() ||
+                                                     e->dialogEnhancerDsp.isEnabled() ||
+                                                     e->clarityDsp.isEnabled();
+                    const bool hasDoublePreDynamics = e->noiseGateDsp.isEnabled() ||
+                                                      e->dynamicEqDsp.isEnabled() ||
+                                                      e->tapeDriftDsp.isEnabled();
+
                     if (use64)
                     {
-                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                        // 1.2 Studio Noise Gate (Dual-Threshold Hysteresis) - Native 64-bit
+                        if (e->noiseGateDsp.isEnabled())
+                            e->noiseGateDsp.process(buf64, produced, e->channels);
+
+                        if (hasFloatPreDynamics)
+                        {
+                            if (isStereo)
+                            {
+                                for (size_t i = 0; i < totalSamples; ++i)
+                                    processBuffer[i] = static_cast<float>(buf64[i]);
+
+                                // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
+                                if (e->downwardExpanderDsp.isEnabled())
+                                    e->downwardExpanderDsp.process(processBuffer, produced);
+
+                                // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
+                                if (e->dynamicEqDsp.isEnabled())
+                                    e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+
+                                // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping before Reverb/Exciters)
+                                if (e->deEsserDsp.isEnabled())
+                                    e->deEsserDsp.process(processBuffer, produced);
+
+                                // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
+                                if (e->harmonicBassDsp.isEnabled())
+                                    e->harmonicBassDsp.process(processBuffer, produced);
+
+                                // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
+                                if (e->dynamicSystemDsp.isEnabled())
+                                    e->dynamicSystemDsp.process(processBuffer, produced);
+
+                                // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
+                                if (e->analogWarmthDsp.isEnabled())
+                                    e->analogWarmthDsp.process(processBuffer, produced);
+
+                                // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
+                                if (e->tapeDriftDsp.isEnabled())
+                                    e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+
+                                // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
+                                if (e->dialogEnhancerDsp.isEnabled())
+                                    e->dialogEnhancerDsp.process(processBuffer, produced);
+
+                                // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
+                                if (e->clarityDsp.isEnabled())
+                                    e->clarityDsp.process(processBuffer, produced);
+
+                                for (size_t i = 0; i < totalSamples; ++i)
+                                    buf64[i] = static_cast<double>(processBuffer[i]);
+                            }
+                            else
+                            {
+                                // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
+                                // into stereo scratch buffer. Channels 2..N-1 (Center, LFE, Surrounds) remain
+                                // strictly untouched in pristine 64-bit precision.
+                                const size_t ch = (size_t)e->channels;
+                                float *stBuf = e->dspStereoBuffer.data();
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stBuf[i * 2 + 0] = static_cast<float>(buf64[i * ch + 0]);
+                                    stBuf[i * 2 + 1] = static_cast<float>(buf64[i * ch + 1]);
+                                }
+
+                                if (e->downwardExpanderDsp.isEnabled())
+                                    e->downwardExpanderDsp.process(stBuf, produced);
+                                if (e->deEsserDsp.isEnabled())
+                                    e->deEsserDsp.process(stBuf, produced);
+                                if (e->harmonicBassDsp.isEnabled())
+                                    e->harmonicBassDsp.process(stBuf, produced);
+                                if (e->dynamicSystemDsp.isEnabled())
+                                    e->dynamicSystemDsp.process(stBuf, produced);
+                                if (e->analogWarmthDsp.isEnabled())
+                                    e->analogWarmthDsp.process(stBuf, produced);
+                                if (e->dialogEnhancerDsp.isEnabled())
+                                    e->dialogEnhancerDsp.process(stBuf, produced);
+                                if (e->clarityDsp.isEnabled())
+                                    e->clarityDsp.process(stBuf, produced);
+
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
+                                    buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
+                                }
+
+                                if (e->dynamicEqDsp.isEnabled())
+                                    e->dynamicEqDsp.process(buf64, produced, e->channels);
+                                if (e->tapeDriftDsp.isEnabled())
+                                    e->tapeDriftDsp.process(buf64, produced, e->channels);
+                            }
+                        }
+                        else if (hasDoublePreDynamics)
+                        {
+                            // Pure 64-bit path: NO float downcasting! Full 53-bit mantissa preserved.
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(buf64, produced, e->channels);
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(buf64, produced, e->channels);
+                        }
                     }
-                    if (e->crossfeedEnabled)
-                        e->crossfeedNode.process(processBuffer, produced, e->channels);
-                    if (e->stereoWidenEnabled)
-                        e->stereoWiden.process(processBuffer, produced, e->channels);
-                    if (e->stereoEnhancementEnabled)
-                        e->stereoEnhancement.process(processBuffer, produced, e->channels);
-                    if (e->crystalizerEnabled)
-                        e->crystalizer.process(processBuffer, produced, e->channels);
-                    if (e->reverbEnabled)
-                        e->reverbNode.process(processBuffer, produced, e->channels);
-                    if (use64)
+                    else if (hasFloatPreDynamics || hasDoublePreDynamics)
                     {
-                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                        // 32-bit Float Pipeline
+                        if (e->noiseGateDsp.isEnabled())
+                            e->noiseGateDsp.process(processBuffer, produced, e->channels);
+
+                        if (isStereo)
+                        {
+                            if (e->downwardExpanderDsp.isEnabled())
+                                e->downwardExpanderDsp.process(processBuffer, produced);
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+                            if (e->deEsserDsp.isEnabled())
+                                e->deEsserDsp.process(processBuffer, produced);
+                            if (e->harmonicBassDsp.isEnabled())
+                                e->harmonicBassDsp.process(processBuffer, produced);
+                            if (e->dynamicSystemDsp.isEnabled())
+                                e->dynamicSystemDsp.process(processBuffer, produced);
+                            if (e->analogWarmthDsp.isEnabled())
+                                e->analogWarmthDsp.process(processBuffer, produced);
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+                            if (e->dialogEnhancerDsp.isEnabled())
+                                e->dialogEnhancerDsp.process(processBuffer, produced);
+                            if (e->clarityDsp.isEnabled())
+                                e->clarityDsp.process(processBuffer, produced);
+                        }
+                        else
+                        {
+                            // Multichannel (5.1 / 7.1)
+                            const size_t ch = (size_t)e->channels;
+                            float *stBuf = e->dspStereoBuffer.data();
+
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                                stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
+                            }
+
+                            if (e->downwardExpanderDsp.isEnabled())
+                                e->downwardExpanderDsp.process(stBuf, produced);
+                            if (e->deEsserDsp.isEnabled())
+                                e->deEsserDsp.process(stBuf, produced);
+                            if (e->harmonicBassDsp.isEnabled())
+                                e->harmonicBassDsp.process(stBuf, produced);
+                            if (e->dynamicSystemDsp.isEnabled())
+                                e->dynamicSystemDsp.process(stBuf, produced);
+                            if (e->analogWarmthDsp.isEnabled())
+                                e->analogWarmthDsp.process(stBuf, produced);
+                            if (e->dialogEnhancerDsp.isEnabled())
+                                e->dialogEnhancerDsp.process(stBuf, produced);
+                            if (e->clarityDsp.isEnabled())
+                                e->clarityDsp.process(stBuf, produced);
+
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
+                            }
+
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
+                        }
                     }
                 }
             }
 
-            // Multiband EQ and mixed multiband FX (try_to_lock prevents priority inversion)
+            // =================================================================
+            // ZONE 4: MACRO-DYNAMICS & TONAL BALANCE
+            // =================================================================
+            // 4.1 Dynamic Range Compressor (Runs at nominal track level BEFORE EQ & Space)
+            if (e->compressorEnabled)
+            {
+                if (use64)
+                    e->compressor.process(buf64, produced, e->channels, e->engineSampleRate);
+                else
+                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+            }
+
+            // 4.2 Multiband Parametric / Graphic EQ & 3-Band Tone Stack
             {
                 std::unique_lock<std::mutex> eqLock(e->eqMutex, std::try_to_lock);
                 if (eqLock.owns_lock())
@@ -7305,299 +7485,123 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
-            // Native Clean-Room Audio DSP Suite.
-            // The ae_dsp_set_* setters mutate these objects under dspMutex on the
-            // control thread; the realtime side must synchronize with them or read
-            // torn coefficients/state. Use try_lock so the audio thread never
-            // blocks on a contended setter - it simply bypasses for one block.
-            if (e->channels >= 2)
+            // =================================================================
+            // ZONE 5: SPATIALIZATION, VIRTUALIZATION & ACOUSTIC ENVIRONMENT
+            // =================================================================
+            // Sits post-dynamics and post-EQ. Wraps the shaped and compressed stereo
+            // image in a lush, physical acoustic environment. Reverb tails decay cleanly
+            // into quiet black without downstream gating flutter or saturation IMD.
+            const bool isStereoSpatial = (e->channels == 2);
+            const bool hasSpatialFx = e->crossfeedEnabled || e->stereoWidenEnabled ||
+                                      e->stereoEnhancementEnabled || (isStereoSpatial && e->surroundDsp.isEnabled()) ||
+                                      e->reverbEnabled || e->crystalizerEnabled;
+            if (hasSpatialFx)
+            {
+                std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
+                if (fxLock.owns_lock())
+                {
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                    }
+
+                    // 5.1 Binaural Headphone Crossfeed / OpenStage
+                    if (e->crossfeedEnabled)
+                        e->crossfeedNode.process(processBuffer, produced, e->channels);
+
+                    // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
+                    if (isStereoSpatial && e->surroundDsp.isEnabled())
+                        e->surroundDsp.process(processBuffer, produced);
+
+                    // 5.3 Stereo Soundstage Widening & M/S Enhancement
+                    if (e->stereoWidenEnabled)
+                        e->stereoWiden.process(processBuffer, produced, e->channels);
+                    if (e->stereoEnhancementEnabled)
+                        e->stereoEnhancement.process(processBuffer, produced, e->channels);
+
+                    // 5.4 Studio-Grade Dattorro Diffuse Tank Reverb
+                    if (e->reverbEnabled)
+                        e->reverbNode.process(processBuffer, produced, e->channels);
+
+                    // 5.5 Crystalizer (High-Frequency Air & Transient Dispersion)
+                    if (e->crystalizerEnabled)
+                        e->crystalizer.process(processBuffer, produced, e->channels);
+
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                    }
+                }
+            }
+
+            // =================================================================
+            // ZONE 6: TRANSDUCER CALIBRATION & DELIVERY STAGE
+            // =================================================================
+            // 6.1 Headphone AutoEQ FIR Correction (FFT Convolver)
+            // Applied across the fully spatialized and reverberated acoustic mix.
+            if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
             {
                 std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
                 if (dspLock.owns_lock())
                 {
                     const bool isStereo = (e->channels == 2);
-                    const bool hasFloatDspSuite = e->downwardExpanderDsp.isEnabled() ||
-                                                  e->harmonicBassDsp.isEnabled() ||
-                                                  e->dynamicSystemDsp.isEnabled() ||
-                                                  e->analogWarmthDsp.isEnabled() ||
-                                                  e->dialogEnhancerDsp.isEnabled() ||
-                                                  e->clarityDsp.isEnabled() ||
-                                                  e->deEsserDsp.isEnabled() ||
-                                                  (isStereo && e->surroundDsp.isEnabled()) ||
-                                                  e->fftConvolverDsp.isEnabled();
-                    const bool hasDoubleDspSuite = e->noiseGateDsp.isEnabled() ||
-                                                   e->tapeDriftDsp.isEnabled() ||
-                                                   e->dynamicEqDsp.isEnabled() ||
-                                                   e->masterLimiterDsp.isEnabled();
-
-                    if (use64)
+                    if (isStereo)
                     {
-                        if (hasFloatDspSuite)
+                        if (use64)
                         {
-                            // A float-only DSP module is active: run pre-float 64-bit module, convert once,
-                            // process float modules, convert back once, then run post-float 64-bit modules.
-                            if (e->noiseGateDsp.isEnabled())
-                                e->noiseGateDsp.process(buf64, produced, e->channels);
-
-                            if (isStereo)
-                            {
-                                for (size_t i = 0; i < totalSamples; ++i)
-                                    processBuffer[i] = static_cast<float>(buf64[i]);
-
-                                if (e->downwardExpanderDsp.isEnabled())
-                                    e->downwardExpanderDsp.process(processBuffer, produced);
-                                if (e->harmonicBassDsp.isEnabled())
-                                    e->harmonicBassDsp.process(processBuffer, produced);
-                                if (e->dynamicSystemDsp.isEnabled())
-                                    e->dynamicSystemDsp.process(processBuffer, produced);
-                                if (e->analogWarmthDsp.isEnabled())
-                                    e->analogWarmthDsp.process(processBuffer, produced);
-                                if (e->dialogEnhancerDsp.isEnabled())
-                                    e->dialogEnhancerDsp.process(processBuffer, produced);
-                                if (e->clarityDsp.isEnabled())
-                                    e->clarityDsp.process(processBuffer, produced);
-                                if (e->deEsserDsp.isEnabled())
-                                    e->deEsserDsp.process(processBuffer, produced);
-                                if (e->surroundDsp.isEnabled())
-                                    e->surroundDsp.process(processBuffer, produced);
-                                if (e->fftConvolverDsp.isEnabled())
-                                    e->fftConvolverDsp.process(processBuffer, produced);
-
-                                for (size_t i = 0; i < totalSamples; ++i)
-                                    buf64[i] = static_cast<double>(processBuffer[i]);
-                            }
-                            else
-                            {
-                                // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
-                                // into stereo scratch buffer. Channels 2..N-1 (Center, LFE, Surrounds) remain
-                                // strictly untouched in pristine 64-bit precision, avoiding scrambling.
-                                const size_t ch = (size_t)e->channels;
-                                float *stBuf = e->dspStereoBuffer.data();
-
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    stBuf[i * 2 + 0] = static_cast<float>(buf64[i * ch + 0]);
-                                    stBuf[i * 2 + 1] = static_cast<float>(buf64[i * ch + 1]);
-                                }
-
-                                if (e->downwardExpanderDsp.isEnabled())
-                                    e->downwardExpanderDsp.process(stBuf, produced);
-                                if (e->harmonicBassDsp.isEnabled())
-                                    e->harmonicBassDsp.process(stBuf, produced);
-                                if (e->dynamicSystemDsp.isEnabled())
-                                    e->dynamicSystemDsp.process(stBuf, produced);
-                                if (e->analogWarmthDsp.isEnabled())
-                                    e->analogWarmthDsp.process(stBuf, produced);
-                                if (e->dialogEnhancerDsp.isEnabled())
-                                    e->dialogEnhancerDsp.process(stBuf, produced);
-                                if (e->clarityDsp.isEnabled())
-                                    e->clarityDsp.process(stBuf, produced);
-                                if (e->deEsserDsp.isEnabled())
-                                    e->deEsserDsp.process(stBuf, produced);
-                                if (e->fftConvolverDsp.isEnabled())
-                                    e->fftConvolverDsp.process(stBuf, produced);
-
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
-                                    buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
-                                }
-                            }
-
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(buf64, produced, e->channels);
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(buf64, produced, e->channels);
-                            if (e->masterLimiterDsp.isEnabled())
-                            {
-                                if (isStereo)
-                                {
-                                    e->masterLimiterDsp.process(buf64, produced);
-                                }
-                                else
-                                {
-                                    const size_t ch = (size_t)e->channels;
-                                    double *stBuf64 = e->dspStereoBuffer64.data();
-
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        stBuf64[i * 2 + 0] = buf64[i * ch + 0];
-                                        stBuf64[i * 2 + 1] = buf64[i * ch + 1];
-                                    }
-                                    e->masterLimiterDsp.process(stBuf64, produced);
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        buf64[i * ch + 0] = stBuf64[i * 2 + 0];
-                                        buf64[i * ch + 1] = stBuf64[i * 2 + 1];
-                                    }
-                                }
-                            }
-                        }
-                        else if (hasDoubleDspSuite)
-                        {
-                            // Pure 64-bit path: NO float truncation! Full 53-bit mantissa preserved.
-                            if (e->noiseGateDsp.isEnabled())
-                                e->noiseGateDsp.process(buf64, produced, e->channels);
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(buf64, produced, e->channels);
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(buf64, produced, e->channels);
-                            if (e->masterLimiterDsp.isEnabled())
-                            {
-                                if (isStereo)
-                                {
-                                    e->masterLimiterDsp.process(buf64, produced);
-                                }
-                                else
-                                {
-                                    const size_t ch = (size_t)e->channels;
-                                    double *stBuf64 = e->dspStereoBuffer64.data();
-
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        stBuf64[i * 2 + 0] = buf64[i * ch + 0];
-                                        stBuf64[i * 2 + 1] = buf64[i * ch + 1];
-                                    }
-                                    e->masterLimiterDsp.process(stBuf64, produced);
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        buf64[i * ch + 0] = stBuf64[i * 2 + 0];
-                                        buf64[i * ch + 1] = stBuf64[i * 2 + 1];
-                                    }
-                                }
-                            }
-                        }
-                        // else all 13 modules disabled: zero conversions, buf64 completely untouched!
-                    }
-                    else if (hasFloatDspSuite || hasDoubleDspSuite)
-                    {
-                        if (e->noiseGateDsp.isEnabled())
-                            e->noiseGateDsp.process(processBuffer, produced, e->channels);
-
-                        if (isStereo)
-                        {
-                            if (e->downwardExpanderDsp.isEnabled())
-                                e->downwardExpanderDsp.process(processBuffer, produced);
-                            if (e->harmonicBassDsp.isEnabled())
-                                e->harmonicBassDsp.process(processBuffer, produced);
-                            if (e->dynamicSystemDsp.isEnabled())
-                                e->dynamicSystemDsp.process(processBuffer, produced);
-                            if (e->analogWarmthDsp.isEnabled())
-                                e->analogWarmthDsp.process(processBuffer, produced);
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-                            if (e->dialogEnhancerDsp.isEnabled())
-                                e->dialogEnhancerDsp.process(processBuffer, produced);
-                            if (e->clarityDsp.isEnabled())
-                                e->clarityDsp.process(processBuffer, produced);
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-                            if (e->deEsserDsp.isEnabled())
-                                e->deEsserDsp.process(processBuffer, produced);
-                            if (e->channels == 2 && e->surroundDsp.isEnabled())
-                                e->surroundDsp.process(processBuffer, produced);
-                            if (e->fftConvolverDsp.isEnabled())
-                                e->fftConvolverDsp.process(processBuffer, produced);
-                            if (e->masterLimiterDsp.isEnabled())
-                                e->masterLimiterDsp.process(processBuffer, produced);
+                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                            e->fftConvolverDsp.process(processBuffer, produced);
+                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
                         }
                         else
                         {
-                            // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
-                            // into stereo scratch buffer for stereo-specific modules. Multichannel modules
-                            // (tapeDriftDsp, dynamicEqDsp) process all channels in-place.
-                            const size_t ch = (size_t)e->channels;
-                            float *stBuf = e->dspStereoBuffer.data();
-
-                            const bool hasPreTapeStereo = e->downwardExpanderDsp.isEnabled() ||
-                                                          e->harmonicBassDsp.isEnabled() ||
-                                                          e->dynamicSystemDsp.isEnabled() ||
-                                                          e->analogWarmthDsp.isEnabled();
-                            if (hasPreTapeStereo)
+                            e->fftConvolverDsp.process(processBuffer, produced);
+                        }
+                    }
+                    else
+                    {
+                        const size_t ch = (size_t)e->channels;
+                        float *stBuf = e->dspStereoBuffer.data();
+                        for (ma_uint32 i = 0; i < produced; ++i)
+                        {
+                            stBuf[i * 2 + 0] = use64 ? static_cast<float>(buf64[i * ch + 0]) : processBuffer[i * ch + 0];
+                            stBuf[i * 2 + 1] = use64 ? static_cast<float>(buf64[i * ch + 1]) : processBuffer[i * ch + 1];
+                        }
+                        e->fftConvolverDsp.process(stBuf, produced);
+                        for (ma_uint32 i = 0; i < produced; ++i)
+                        {
+                            if (use64)
                             {
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                                }
-                                if (e->downwardExpanderDsp.isEnabled())
-                                    e->downwardExpanderDsp.process(stBuf, produced);
-                                if (e->harmonicBassDsp.isEnabled())
-                                    e->harmonicBassDsp.process(stBuf, produced);
-                                if (e->dynamicSystemDsp.isEnabled())
-                                    e->dynamicSystemDsp.process(stBuf, produced);
-                                if (e->analogWarmthDsp.isEnabled())
-                                    e->analogWarmthDsp.process(stBuf, produced);
-
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                                }
+                                buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
+                                buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
                             }
-
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-
-                            const bool hasMidStereo = e->dialogEnhancerDsp.isEnabled() ||
-                                                      e->clarityDsp.isEnabled();
-                            if (hasMidStereo)
+                            else
                             {
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                                }
-                                if (e->dialogEnhancerDsp.isEnabled())
-                                    e->dialogEnhancerDsp.process(stBuf, produced);
-                                if (e->clarityDsp.isEnabled())
-                                    e->clarityDsp.process(stBuf, produced);
-
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                                }
-                            }
-
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-
-                            const bool hasPostEqStereo = e->deEsserDsp.isEnabled() ||
-                                                         e->fftConvolverDsp.isEnabled() ||
-                                                         e->masterLimiterDsp.isEnabled();
-                            if (hasPostEqStereo)
-                            {
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                                    stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                                }
-                                if (e->deEsserDsp.isEnabled())
-                                    e->deEsserDsp.process(stBuf, produced);
-                                if (e->fftConvolverDsp.isEnabled())
-                                    e->fftConvolverDsp.process(stBuf, produced);
-                                if (e->masterLimiterDsp.isEnabled())
-                                    e->masterLimiterDsp.process(stBuf, produced);
-
-                                for (ma_uint32 i = 0; i < produced; ++i)
-                                {
-                                    processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                    processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                                }
+                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
                             }
                         }
                     }
                 }
             }
 
-            // Dynamic Range Compressor (runs at nominal track level before user master volume)
-            if (e->compressorEnabled)
+            // 6.2 Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
+            // Placed BEFORE read-only metering so meters measure the true levelled programme.
+            if (e->levellerDsp.isEnabled())
             {
-                if (use64)
-                    e->compressor.process(buf64, produced, e->channels, e->engineSampleRate);
-                else
-                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+                if (dspLock.owns_lock())
+                {
+                    const float shortTermLufs = e->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
+                    if (use64)
+                    {
+                        e->levellerDsp.process(buf64, produced, e->channels, shortTermLufs);
+                    }
+                    else
+                    {
+                        e->levellerDsp.process(processBuffer, produced, e->channels, shortTermLufs);
+                    }
+                }
             }
         } // End of !bypassAppDsp block
 
@@ -7605,7 +7609,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Stage 2: Read-only Metering Subsystems & Visualizer Snapshots (Post-DSP / Pre-Master Volume)
         // Measuring on post-DSP nominal stream ensures:
         // 1) BS.1770 LUFS meter measures the track's true programme loudness
-        //    and never fights the user's volume knob.
+        //    (incorporating Broadcast Leveller AGC) and never fights the user's volume knob.
         // 2) FFT visualizer remains lively and dynamic at any volume setting.
         // =====================================================================
         const bool needMeters = e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
@@ -7633,24 +7637,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
 
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
-
-        // Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
-        if (!bypassAppDsp && e->levellerDsp.isEnabled())
-        {
-            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-            if (dspLock.owns_lock())
-            {
-                const float shortTermLufs = e->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
-                if (use64)
-                {
-                    e->levellerDsp.process(buf64, produced, e->channels, shortTermLufs);
-                }
-                else
-                {
-                    e->levellerDsp.process(processBuffer, produced, e->channels, shortTermLufs);
-                }
-            }
-        }
 
         // =====================================================================
         // Stage 3: Master Volume Stage (User Master Gain Fader)
@@ -7706,12 +7692,63 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
 
         // =====================================================================
-        // Stage 4: Brickwall Safety Limiter & Clipping Detection
-        // Catches user volume boosts (> 1.0) or hot transients before DAC.
+        // ZONE 7: MASTERING BRICKWALL LIMITER & DAC INTERFACE
+        // Catches user volume boosts (> 1.0), ISO 226 low-end boosts, or hot
+        // transients before DAC. Unifies MasterLimiterDSP as the studio-grade
+        // peak ceiling protector, falling back to lookaheadLimiter or limiter.
         // =====================================================================
         if (!bypassAppDsp)
         {
-            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            if (e->masterLimiterDsp.isEnabled())
+            {
+                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+                if (dspLock.owns_lock())
+                {
+                    const bool isStereo = (e->channels == 2);
+                    if (isStereo)
+                    {
+                        if (use64)
+                            e->masterLimiterDsp.process(buf64, produced);
+                        else
+                            e->masterLimiterDsp.process(processBuffer, produced);
+                    }
+                    else
+                    {
+                        const size_t ch = (size_t)e->channels;
+                        if (use64)
+                        {
+                            double *stBuf64 = e->dspStereoBuffer64.data();
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                stBuf64[i * 2 + 0] = buf64[i * ch + 0];
+                                stBuf64[i * 2 + 1] = buf64[i * ch + 1];
+                            }
+                            e->masterLimiterDsp.process(stBuf64, produced);
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                buf64[i * ch + 0] = stBuf64[i * 2 + 0];
+                                buf64[i * ch + 1] = stBuf64[i * 2 + 1];
+                            }
+                        }
+                        else
+                        {
+                            float *stBuf = e->dspStereoBuffer.data();
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                                stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
+                            }
+                            e->masterLimiterDsp.process(stBuf, produced);
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
+                            }
+                        }
+                    }
+                }
+            }
+            else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
             {
                 if (use64)
                     e->lookaheadLimiter.process(buf64, produced, e->channels, e->engineSampleRate);
@@ -10123,11 +10160,11 @@ extern "C"
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
         ps.eq_enabled = e->eqEnabled ? 1 : 0;
-        ps.reverb_enabled = 0;
-        ps.limiter_enabled = e->limiterEnabled ? 1 : 0;
+        ps.reverb_enabled = e->reverbEnabled ? 1 : 0;
+        ps.limiter_enabled = (e->limiterEnabled || e->masterLimiterDsp.isEnabled()) ? 1 : 0;
         ps.stereo_widen_enabled = e->stereoWidenEnabled ? 1 : 0;
         ps.stereo_enhancement_enabled = e->stereoEnhancementEnabled ? 1 : 0;
-        ps.spatialization_enabled = 0;
+        ps.spatialization_enabled = e->surroundDsp.isEnabled() ? 1 : 0;
         ps.delay_enabled = 0;
         ps.gain = e->gain;
         ps.pan = e->pan;

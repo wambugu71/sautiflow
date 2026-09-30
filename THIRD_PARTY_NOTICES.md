@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This project incorporates, links against, or builds with several open-source libraries and algorithms. Below are the attributions and license notices for these components:
+This project links against or builds with several open-source libraries and algorithms. Below are the attributions and license notices for these components:
 
 ---
 
@@ -10,7 +10,7 @@ This project incorporates, links against, or builds with several open-source lib
 - **Project:** FFmpeg
 - **Website:** https://ffmpeg.org/
 - **License:** GNU Lesser General Public License v2.1 or later (LGPLv2.1+ / LGPLv3)
-- **Usage:** Stream and local file demuxing, audio decoding (AAC, MP4, M4A, etc.), and network stream resampling via dynamic linking (`libavformat`, `libavcodec`, `libavutil`, `libswresample`).
+- **Usage:** Stream and local file demuxing, audio decoding (AAC, MP4, M4A), and network stream resampling via dynamic linking (`libavformat`, `libavcodec`, `libavutil`, `libswresample`).
 
 ### miniaudio
 - **Project:** miniaudio
@@ -24,19 +24,18 @@ This project incorporates, links against, or builds with several open-source lib
 - **Author:** Aleksey Vaneev (Voxengo)
 - **Website:** https://github.com/avaneev/r8brain-free-src
 - **License:** MIT License
-- **Usage:** High-performance, audiophile-grade sinc sample rate conversion.
+- **Usage:** High-performance sinc sample rate conversion.
 
 ### libsamplerate
 - **Project:** libsamplerate (Secret Rabbit Code)
 - **Author:** Erik de Castro Lopo
 - **License:** BSD 2-Clause License
-- **Usage:** Audiophile sinc sample rate conversion (Sinc Best / Medium / Fastest).
-
+- **Usage:** Sinc sample rate conversion (Sinc Best, Medium, Fastest).
 
 ### cURL (Optional / Android Network Streaming)
 - **Project:** cURL
 - **Homepage:** https://curl.se/
-- **License:** curl License (MIT/X derivate)
+- **License:** curl License (MIT/X derivative)
 - **Usage:** Optional native HTTP/HTTPS streaming on Android (`MINIAUDIODART_ENABLE_CURL=ON`).
 - *Note on transitive dependencies:* If statically linking prebuilt `libcurl.a`, dependencies may include mbedTLS (Apache-2.0 / GPL-2.0+), OpenSSL, or zlib.
 
@@ -71,7 +70,7 @@ This project incorporates, links against, or builds with several open-source lib
 - **Project:** material_3_expressive
 - **Author:** Paa Developments
 - **License:** MIT License
-- **Usage:** Modern Material Design 3 Expressive UI components.
+- **Usage:** Material Design 3 Expressive UI components.
 
 ---
 

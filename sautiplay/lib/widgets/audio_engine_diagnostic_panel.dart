@@ -268,20 +268,16 @@ class _AudioEngineDiagnosticPanelState
     bool hasReplayGain = false;
     if (rgTrack != null && rgAlbum != null) {
       hasReplayGain = true;
-      final tStr =
-          '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
-      final aStr =
-          '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
+      final tStr = '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
+      final aStr = '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
       replayGainDisplay = '$tStr (Track) / $aStr (Album)';
     } else if (rgTrack != null) {
       hasReplayGain = true;
-      final tStr =
-          '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
+      final tStr = '${rgTrack >= 0 ? "+" : ""}${rgTrack.toStringAsFixed(2)} dB';
       replayGainDisplay = '$tStr (Track)';
     } else if (rgAlbum != null) {
       hasReplayGain = true;
-      final aStr =
-          '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
+      final aStr = '${rgAlbum >= 0 ? "+" : ""}${rgAlbum.toStringAsFixed(2)} dB';
       replayGainDisplay = '$aStr (Album)';
     }
 
@@ -313,6 +309,7 @@ class _AudioEngineDiagnosticPanelState
     final int periodCount = hw['periodCount'] as int? ?? specs.periodCount;
 
     final bool eqOn = t['eqEnabled'] == true;
+    final bool reverbOn = t['reverbEnabled'] == true;
     final double crossfeedMix = (t['crossfeedMix'] as num?)?.toDouble() ?? 0.0;
     final String crossfeedAlgo =
         _formatCrossfeedAlgo(t['crossfeedAlgo']?.toString(), crossfeedMix);
@@ -347,7 +344,7 @@ class _AudioEngineDiagnosticPanelState
     final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
     final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
 
-    // Calculate node latencies
+    // Calculate node latencies across 7-Zone Studio Architecture
     final nodeLatencies = _calculatePerNodeLatencies(
       sampleRate: dspRate,
       hwLatencyMs:
@@ -357,7 +354,9 @@ class _AudioEngineDiagnosticPanelState
       limiterOn: limiterOn,
       stereoWidenOn: stereoWidenOn,
       stereoEnhanceOn: stereoEnhanceOn,
+      reverbOn: reverbOn,
       sautiDspOn: sautiDspOn,
+      eqOn: eqOn,
       isSrcActive: (srcRate != dacRate),
       resampleLatencyMs: (t['resampleLatencyMs'] as num?)?.toDouble(),
       deviceType: specs.deviceType,
@@ -367,8 +366,7 @@ class _AudioEngineDiagnosticPanelState
     double sumDspMs = 0.0;
     double sumDspSamples = 0.0;
     for (final n in nodeLatencies) {
-      if (n.nodeName != 'Source / Decoder' &&
-          !n.nodeName.startsWith('Output')) {
+      if (n.nodeName != 'Source / Decoder' && !n.isHardware) {
         sumDspMs += n.latencyMs;
         sumDspSamples += n.latencySamples;
       }
@@ -498,14 +496,10 @@ class _AudioEngineDiagnosticPanelState
                       ? 'ON (${(srcRate / 1000.0).toStringAsFixed(1)} → ${(dacRate / 1000.0).toStringAsFixed(1)} kHz)'
                       : 'OFF'),
               _buildTelemetryRow('Resampler', resamplerAlgo),
-              _buildTelemetryRow('True-Peak',
-                  '${((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} dBTP',
-                  isValueActive:
-                      ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) >
-                          -90.0,
-                  isWarning:
-                      ((t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0) >
-                          -0.5),
+              _buildTelemetryRow(
+                  'True-Peak', '${truePeakDBTP.toStringAsFixed(1)} dBTP',
+                  isValueActive: truePeakDBTP > -90.0,
+                  isWarning: truePeakDBTP > -0.5),
               _buildTelemetryRow('Loudness (LUFS)',
                   'Mom: ${((t['momentaryLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} / Int: ${((t['integratedLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)}'),
               _buildTelemetryRow(
@@ -552,6 +546,8 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive: eqOn),
               _buildTelemetryRow('Crossfeed', crossfeedAlgo,
                   isValueActive: crossfeedAlgo != 'OFF'),
+              _buildTelemetryRow('Reverb', reverbOn ? 'ON' : 'OFF',
+                  isValueActive: reverbOn),
               _buildTelemetryRow('Sauti DSP', sautiDspOn ? 'ON' : 'OFF',
                   isValueActive: sautiDspOn),
               _buildTelemetryRow(
@@ -995,7 +991,7 @@ class _AudioEngineDiagnosticPanelState
               const Row(
                 children: [
                   Text(
-                    'Latency',
+                    '7-Zone Signal Chain Latency',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       color: Colors.white70,
@@ -1036,6 +1032,31 @@ class _AudioEngineDiagnosticPanelState
                           ),
                         ),
                         const SizedBox(width: 6),
+                        if (node.zoneBadge != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.cyanAccent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color:
+                                    Colors.cyanAccent.withValues(alpha: 0.35),
+                                width: 0.6,
+                              ),
+                            ),
+                            child: Text(
+                              node.zoneBadge!,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                color: Colors.cyanAccent,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         Text(
                           node.nodeName,
                           style: TextStyle(
@@ -1199,9 +1220,8 @@ class _AudioEngineDiagnosticPanelState
   void _toggleNormalizer(bool currentNormOn, double currentTarget) {
     final nextState = !currentNormOn;
     widget.player.setLoudnessNormalizerEnabled(nextState);
-    final target = (currentTarget < -24.0 || currentTarget > -6.0)
-        ? -12.0
-        : currentTarget;
+    final target =
+        (currentTarget < -24.0 || currentTarget > -6.0) ? -12.0 : currentTarget;
     widget.player.setLoudnessNormalizerTarget(target);
     AppStateService.instance.saveLoudnessNormalizer(
       enabled: nextState,
@@ -1346,8 +1366,8 @@ class _AudioEngineDiagnosticPanelState
                           : const Color(0xFF1E2840),
                     ),
                   ),
-                  leading:
-                      const Icon(Icons.compress_rounded, color: Colors.greenAccent),
+                  leading: const Icon(Icons.compress_rounded,
+                      color: Colors.greenAccent),
                   title: const Text('Anti-Clipping Limiter',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.bold)),
@@ -1366,8 +1386,8 @@ class _AudioEngineDiagnosticPanelState
                 if (lookaheadOn || simpleLimiterOn) ...[
                   const SizedBox(height: 10),
                   ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                       side: const BorderSide(color: Color(0xFF2A1515)),
@@ -1401,7 +1421,9 @@ class _AudioEngineDiagnosticPanelState
     required bool limiterOn,
     required bool stereoWidenOn,
     required bool stereoEnhanceOn,
+    required bool reverbOn,
     required bool sautiDspOn,
+    required bool eqOn,
     required bool isSrcActive,
     double? resampleLatencyMs,
     String? deviceType,
@@ -1412,67 +1434,167 @@ class _AudioEngineDiagnosticPanelState
     // 1. Source / Decoder
     list.add(_NodeLatencyInfo('${step++}.', 'Source / Decoder', 0.0, 0.0));
 
-    // 2. Crossfeed Node
+    // Zone 1: Restorative Filtering (Subsonic HPF, Studio Noise Gate, Downward Expander)
+    list.add(_NodeLatencyInfo(
+      '${step++}.',
+      'Restoration (Subsonic/Gate)',
+      0.0,
+      0.0,
+      zoneBadge: 'Z1',
+    ));
+
+    // Zone 2: Corrective Tone & Sibilance (Dynamic EQ, De-Esser)
+    list.add(_NodeLatencyInfo(
+      '${step++}.',
+      'Tone & De-Esser',
+      0.0,
+      0.0,
+      zoneBadge: 'Z2',
+    ));
+
+    // Zone 3: Harmonics & Character (Analog Warmth, Tape Drift, Bass Exciter, Clarity)
+    list.add(_NodeLatencyInfo(
+      '${step++}.',
+      'Harmonics & Character',
+      0.0,
+      0.0,
+      zoneBadge: 'Z3',
+    ));
+
+    // Zone 4: Macro Dynamics & Master EQ (Compressor, Parametric/Graphic EQ)
+    list.add(_NodeLatencyInfo(
+      '${step++}.',
+      'Dynamics & Master EQ',
+      0.0,
+      0.0,
+      zoneBadge: 'Z4',
+    ));
+
+    // Zone 5: Spatialization & Acoustics
     if (crossfeedAlgo != 'OFF') {
       final double delayMs = crossfeedDelayMs > 0 ? crossfeedDelayMs : 0.40;
       final double samples = delayMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'Crossfeed ($crossfeedAlgo)', delayMs, samples));
-    } else {
-      list.add(_NodeLatencyInfo('${step++}.', 'Crossfeed Node', 0.0, 0.0));
+        '${step++}.',
+        'Crossfeed ($crossfeedAlgo)',
+        delayMs,
+        samples,
+        zoneBadge: 'Z5',
+      ));
     }
-
-    // 3. Sauti DSP Suite Node (Convolver & Enhancers)
-    if (sautiDspOn) {
-      const double dspMs = 0.50; // Low-latency partitioned convolution & DSP
-      final double samples = dspMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP', dspMs, samples));
-    } else {
-      list.add(_NodeLatencyInfo('${step++}.', 'Sauti DSP', 0.0, 0.0));
-    }
-
-    // 4. Stereo Widen (Haas delay)
     if (stereoWidenOn) {
       const double delayMs = 15.0;
       final double samples = delayMs * 0.001 * sampleRate;
-      list.add(
-          _NodeLatencyInfo('${step++}.', 'Stereo Widen', delayMs, samples));
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'Stereo Widen (Haas)',
+        delayMs,
+        samples,
+        zoneBadge: 'Z5',
+      ));
     }
-
-    // 5. Stereo Enhancement (PFB analysis)
     if (stereoEnhanceOn) {
       const double delayMs = 1.20;
       final double samples = delayMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'Stereo Enhancement', delayMs, samples));
+        '${step++}.',
+        'Stereo Enhancement',
+        delayMs,
+        samples,
+        zoneBadge: 'Z5',
+      ));
+    }
+    if (reverbOn) {
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'Dattorro Reverb Tank',
+        0.0,
+        0.0,
+        zoneBadge: 'Z5',
+      ));
+    }
+    if (crossfeedAlgo == 'OFF' &&
+        !stereoWidenOn &&
+        !stereoEnhanceOn &&
+        !reverbOn) {
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'Spatial & Acoustic Space',
+        0.0,
+        0.0,
+        zoneBadge: 'Z5',
+      ));
     }
 
-    // 6. Lookahead Limiter Node
+    // Zone 6: Transducer Calibration & Delivery Stage (AutoEQ FIR Convolver, Leveller AGC, Metering)
+    if (sautiDspOn) {
+      const double dspMs = 0.50; // Low-latency partitioned convolution
+      final double samples = dspMs * 0.001 * sampleRate;
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'AutoEQ FIR & Leveller',
+        dspMs,
+        samples,
+        zoneBadge: 'Z6',
+      ));
+    } else {
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'Transducer & Delivery',
+        0.0,
+        0.0,
+        zoneBadge: 'Z6',
+      ));
+    }
+
+    // Zone 7: Mastering Peak Limiter & Output Stage (Master Brickwall Limiter)
     if (limiterOn) {
-      const double attackMs = 2.0;
+      const double attackMs = 2.0; // 2 ms Lookahead window
       final double samples = attackMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
-          '${step++}.', 'Software Limiter', attackMs, samples));
+        '${step++}.',
+        'Master Lookahead Limiter',
+        attackMs,
+        samples,
+        zoneBadge: 'Z7',
+      ));
     } else {
-      list.add(_NodeLatencyInfo('${step++}.', 'Software Limiter', 0.0, 0.0));
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'Master Output Limiter',
+        0.0,
+        0.0,
+        zoneBadge: 'Z7',
+      ));
     }
 
-    // 7. Resampler Node
+    // Resampler Node
     if (isSrcActive) {
-      final double resampleMs = (resampleLatencyMs != null && resampleLatencyMs > 0.0)
-          ? resampleLatencyMs
-          : 0.50;
+      final double resampleMs =
+          (resampleLatencyMs != null && resampleLatencyMs > 0.0)
+              ? resampleLatencyMs
+              : 0.50;
       final double samples = resampleMs * 0.001 * sampleRate;
-      list.add(
-          _NodeLatencyInfo('${step++}.', 'SRC Resampler', resampleMs, samples));
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        'SRC Resampler',
+        resampleMs,
+        samples,
+      ));
     }
 
-    // 8. Hardware Output DAC
+    // Hardware Output DAC
     final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
     final hwLabel = deviceType != null && deviceType.isNotEmpty
-        ? 'Hardware Output'
+        ? 'Hardware Output ($deviceType)'
         : 'Hardware Output DAC';
-    list.add(_NodeLatencyInfo('${step++}.', hwLabel, hwLatencyMs, hwSamples));
+    list.add(_NodeLatencyInfo(
+      '${step++}.',
+      hwLabel,
+      hwLatencyMs,
+      hwSamples,
+      isHardware: true,
+    ));
 
     return list;
   }
@@ -1531,7 +1653,15 @@ class _NodeLatencyInfo {
   final String nodeName;
   final double latencyMs;
   final double latencySamples;
+  final bool isHardware;
+  final String? zoneBadge;
 
   _NodeLatencyInfo(
-      this.stepNumber, this.nodeName, this.latencyMs, this.latencySamples);
+    this.stepNumber,
+    this.nodeName,
+    this.latencyMs,
+    this.latencySamples, {
+    this.isHardware = false,
+    this.zoneBadge,
+  });
 }
