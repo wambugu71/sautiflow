@@ -29,8 +29,10 @@ import 'services/file_deletion_helper.dart';
 import 'liked_songs_screen.dart'; // NEW
 import 'models/liked_song.dart'; // NEW
 import 'models/local_song_item.dart';
+import 'local_folder_browser_screen.dart';
 import 'network_sources_screen.dart';
 import 'services/audio_file_inspector.dart';
+import 'services/storage_volume_service.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/song_options_menu.dart';
@@ -1463,21 +1465,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<bool> _requestPermissions() async {
-    if (Platform.isAndroid) {
-      if (await Permission.manageExternalStorage.isGranted) {
-        return true;
-      }
-      var status = await Permission.storage.status;
-      if (!status.isGranted) {
-        status = await Permission.storage.request();
-      }
-      var audioStatus = await Permission.audio.status;
-      if (!audioStatus.isGranted) {
-        audioStatus = await Permission.audio.request();
-      }
-      return status.isGranted || audioStatus.isGranted;
-    }
-    return true; // Assume iOS/Desktop permissions are handled at pick time
+    return StorageVolumeService.ensureStoragePermissions();
   }
 
   Future<List<String>> _scanForAudioFiles(String dirPath) async {
@@ -1564,6 +1552,57 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
+  }
+
+  void _navigateToFolderBrowser([String? initialPath]) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LocalFolderBrowserScreen(
+          player: widget.player,
+          initialPath: initialPath,
+          trackedFolders: _folders.map((f) => f['path'] as String).toList(),
+          onPlayFolder: widget.onPlayFolder,
+          onQueueTrack: widget.onQueueTrack,
+          onToggleTrackFolder: _toggleTrackFolderFromBrowser,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleTrackFolderFromBrowser(String folderPath) async {
+    final canonical = p.canonicalize(folderPath);
+    final existingIndex = _folders.indexWhere(
+      (f) =>
+          p.canonicalize(f['path'] as String).toLowerCase() ==
+          canonical.toLowerCase(),
+    );
+
+    if (existingIndex >= 0) {
+      _folders.removeAt(existingIndex);
+      await _saveFolders();
+      await _updateAllSongs();
+      if (mounted) setState(() {});
+    } else {
+      final remainingFolders = <Map<String, dynamic>>[];
+      for (final f in _folders) {
+        final existingPath = p.canonicalize(f['path'] as String);
+        if (!p.isWithin(canonical, existingPath)) {
+          remainingFolders.add(f);
+        }
+      }
+      final audioPaths = await _scanForAudioFiles(canonical);
+      final newFolder = {
+        'path': canonical,
+        'name': p.basename(canonical),
+        'count': audioPaths.length,
+      };
+      setState(() {
+        _folders = remainingFolders..add(newFolder);
+      });
+      await _saveFolders();
+      await _updateAllSongs();
+    }
   }
 
   Future<void> _rescanLibrary() async {
@@ -2153,6 +2192,17 @@ class LibraryScreenState extends State<LibraryScreen>
                                                           .lightGreenAccent,
                                                       size: 20),
                                                   onPressed: _rescanLibrary,
+                                                ),
+                                                M3EMenuEntry(
+                                                  label:
+                                                      'Browse Storage (Internal & SD)',
+                                                  leading: const Icon(
+                                                      Icons.storage_rounded,
+                                                      color: Colors
+                                                          .deepPurpleAccent,
+                                                      size: 20),
+                                                  onPressed: () =>
+                                                      _navigateToFolderBrowser(),
                                                 ),
                                                 M3EMenuEntry(
                                                   label: 'Add Local Folder',
@@ -3372,16 +3422,9 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildFoldersTabSliver(Color primaryColor, Color textDark,
       {bool isDesktop = false}) {
-    if (_folders.isEmpty && !_isLoading) {
-      return SliverFillRemaining(
-        hasScrollBody: false,
-        child: _buildEmptyState(textDark,
-            message: 'No local folders added',
-            subMessage:
-                'Use the (+) button above to add music folders from your device.',
-            isDesktop: isDesktop),
-      );
-    }
+    final hasFolders = _folders.isNotEmpty;
+    final totalCount = hasFolders ? (1 + _folders.length) : 2;
+
     return SliverPadding(
       padding: EdgeInsets.symmetric(
         horizontal: isDesktop ? 32.0 : 16.0,
@@ -3390,22 +3433,61 @@ class LibraryScreenState extends State<LibraryScreen>
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final f = _folders[index];
-            final isFirst = index == 0;
-            final isLast = index == _folders.length - 1;
+            if (index == 0) {
+              return _buildLibraryItem(
+                title: 'Browse Storage (Internal & SD Card)',
+                subtitle:
+                    'Explore folders on Internal Storage and Removable SD Cards',
+                iconData: Icons.storage_rounded,
+                iconGradient: const LinearGradient(
+                  colors: [Color(0xFF5E35B1), Color(0xFF311B92)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                onTap: () => _navigateToFolderBrowser(),
+                context: context,
+                isDesktop: isDesktop,
+                isFirst: true,
+                isLast: !hasFolders,
+              );
+            }
+
+            if (!hasFolders && index == 1) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 32.0, bottom: 24.0),
+                child: _buildEmptyState(
+                  textDark,
+                  message: 'No pinned folders yet',
+                  subMessage:
+                      'Tap "Browse Storage" above to navigate your Internal Storage and SD Cards, or use (+) to add a folder.',
+                  isDesktop: isDesktop,
+                ),
+              );
+            }
+
+            final folderIndex = index - 1;
+            final f = _folders[folderIndex];
+            final isLast = folderIndex == _folders.length - 1;
+
             return _buildLibraryItem(
               title: f['name'] as String,
-              subtitle: '${f['count']} Songs • Local Folder',
+              subtitle: '${f['count']} Songs • Tap to explore subfolders',
               iconData: Icons.folder_rounded,
-              onTap: () => _playFolder(f['path'] as String),
-              onLongPress: () => _removeFolder(index),
+              trailing: IconButton(
+                icon: Icon(Icons.play_circle_fill_rounded,
+                    color: primaryColor, size: 28),
+                tooltip: 'Play All in Folder',
+                onPressed: () => _playFolder(f['path'] as String),
+              ),
+              onTap: () => _navigateToFolderBrowser(f['path'] as String),
+              onLongPress: () => _removeFolder(folderIndex),
               context: context,
               isDesktop: isDesktop,
-              isFirst: isFirst,
+              isFirst: false,
               isLast: isLast,
             );
           },
-          childCount: _folders.length,
+          childCount: totalCount,
         ),
       ),
     );

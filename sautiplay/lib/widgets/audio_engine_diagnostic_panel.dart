@@ -664,33 +664,7 @@ class _AudioEngineDiagnosticPanelState
               ),
               const SizedBox(height: 12),
               const Divider(color: Color(0xFF1B2336), height: 1),
-              const SizedBox(height: 10),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    size: 14,
-                    color: isAntiClipActive
-                        ? Colors.cyanAccent
-                        : (clippedCount > 0
-                            ? Colors.amberAccent
-                            : Colors.white54),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Tip: Enabling Loudness Normalizer at -12 dB + Look-Ahead Limiter guarantees safe dynamic headroom, prevents digital saturation, and eliminates inter-sample clipping.',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        color: Colors.white.withValues(alpha: 0.65),
-                        fontSize: 10.5,
-                        height: 1.35,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              const SizedBox(height: 8),
             ],
           ),
         ),
