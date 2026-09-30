@@ -780,6 +780,86 @@ class LibraryScreenState extends State<LibraryScreen>
     _toggleSelectionMode(false);
   }
 
+  Future<void> _deleteSelectedTracks() async {
+    final count = _selectedTrackPaths.length;
+    if (count == 0) return;
+
+    final hasPerm = await FileDeletionHelper.ensureDeletePermission(context);
+    if (!hasPerm) return;
+    if (!mounted) return;
+
+    final confirm = await M3EDialog.show<bool>(
+      context,
+      dialog: M3EDialog(
+        title: 'Delete $count Tracks',
+        topDivider: true,
+        bottomDivider: true,
+        content: Text(
+          'Are you sure you want to permanently delete $count selected track${count > 1 ? 's' : ''} from storage? This action cannot be undone.',
+          style: TextStyle(
+            color: AppThemeService.instance.currentData.textDark,
+            fontSize: 14,
+          ),
+        ),
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Delete $count File${count > 1 ? 's' : ''}'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+
+    final pathsToDelete = List<String>.from(_selectedTrackPaths);
+    int deletedCount = 0;
+
+    for (final path in pathsToDelete) {
+      final result = await FileDeletionHelper.safeDeleteTrackFile(
+        path,
+        context: context,
+        player: widget.player,
+        onBeforeDelete: (p) async {
+          if (widget.onDeleteTrack != null) {
+            await widget.onDeleteTrack!(p);
+          }
+        },
+      );
+      if (result.success) {
+        deletedCount++;
+        final normTarget = FileDeletionHelper.normalizeFilePath(path);
+        setState(() {
+          _allSongs.removeWhere((s) =>
+              FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+          _filteredSongs.removeWhere((s) =>
+              FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+          _selectedTrackPaths.remove(path);
+        });
+      }
+    }
+
+    await _saveCachedSongs();
+    if (!mounted) return;
+
+    setState(() {
+      _isSelectionMode = false;
+      _selectedTrackPaths.clear();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Deleted $deletedCount song${deletedCount == 1 ? '' : 's'}.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _showAddToPlaylistSheet(
       {List<LocalSongItem>? explicitSongs}) async {
     final songsToAdd = explicitSongs ??
@@ -2018,7 +2098,7 @@ class LibraryScreenState extends State<LibraryScreen>
                           const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
                           // 1. App Bar Row + Total local track count (Scrolls away)
-                          PinnedHeaderSliver(
+                          SliverToBoxAdapter(
                             child: Container(
                               color: bgDark,
                               padding: EdgeInsets.symmetric(
@@ -2161,95 +2241,148 @@ class LibraryScreenState extends State<LibraryScreen>
                             ),
                           ),
 
-                          // 2. PINNED Search Bar + M3E Chips
+                          // 2. PINNED Search Bar + M3E Chips OR Selection Action Bar
                           PinnedHeaderSliver(
                             child: Container(
                               color: bgDark,
                               padding: EdgeInsets.symmetric(
                                   horizontal: horizontalPadding),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 6),
-                                  // Search Bar
-                                  SizedBox(
-                                    height: isDesktop ? 48 : 42,
-                                    child: TextField(
-                                      controller: _searchController,
-                                      style: TextStyle(
-                                          color: textLight,
-                                          fontSize: isDesktop ? 15 : 14),
-                                      decoration: InputDecoration(
-                                        hintText:
-                                            context.strings.searchPlaceholder,
-                                        hintStyle: TextStyle(
-                                            color: textDark,
-                                            fontSize: isDesktop ? 15 : 14),
-                                        prefixIcon: Icon(Icons.search_rounded,
-                                            color: textDark,
-                                            size: isDesktop ? 22 : 20),
-                                        suffixIcon: _searchController
-                                                .text.isNotEmpty
-                                            ? IconButton(
-                                                icon: Icon(Icons.clear_rounded,
-                                                    color: textDark, size: 18),
-                                                onPressed: () {
-                                                  _searchController.clear();
-                                                  _applySearchAndSort();
-                                                },
-                                              )
-                                            : null,
-                                        filled: true,
-                                        fillColor: surfaceColor,
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              isDesktop ? 14 : 12),
-                                          borderSide: BorderSide.none,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                  opacity: animation,
+                                  child: SizeTransition(
+                                    sizeFactor: animation,
+                                    child: child,
+                                  ),
+                                ),
+                                child: _isSelectionMode
+                                    ? KeyedSubtree(
+                                        key: const ValueKey(
+                                            'selection_action_bar_pinned'),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 6.0),
+                                          child: _buildSelectionActionBar(
+                                              primaryColor,
+                                              isDesktop: isDesktop),
                                         ),
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                                vertical: 0, horizontal: 12),
-                                      ),
-                                      onChanged: (v) => _applySearchAndSort(),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-
-                                  // M3E Chips
-                                  SizedBox(
-                                    height: isDesktop ? 42 : 36,
-                                    child: SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      physics: const BouncingScrollPhysics(),
-                                      child: Row(
-                                        children:
-                                            LibraryCategory.values.map((cat) {
-                                          final isSelected =
-                                              _selectedCategory == cat;
-                                          return Padding(
-                                            padding: const EdgeInsets.only(
-                                                right: 8.0),
-                                            child: M3EChip(
-                                              label:
-                                                  cat.localizedLabel(context),
-                                              type: M3EChipType.filter,
-                                              selected: isSelected,
-                                              leading: Icon(cat.icon, size: 16),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _selectedCategory = cat;
-                                                });
-                                                PreferencesStore.instance.setString('library_selected_category', cat.name);
-                                              },
+                                      )
+                                    : KeyedSubtree(
+                                        key: const ValueKey(
+                                            'normal_search_chips'),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const SizedBox(height: 6),
+                                            // Search Bar
+                                            SizedBox(
+                                              height: isDesktop ? 48 : 42,
+                                              child: TextField(
+                                                controller: _searchController,
+                                                style: TextStyle(
+                                                    color: textLight,
+                                                    fontSize:
+                                                        isDesktop ? 15 : 14),
+                                                decoration: InputDecoration(
+                                                  hintText: context.strings
+                                                      .searchPlaceholder,
+                                                  hintStyle: TextStyle(
+                                                      color: textDark,
+                                                      fontSize:
+                                                          isDesktop ? 15 : 14),
+                                                  prefixIcon: Icon(
+                                                      Icons.search_rounded,
+                                                      color: textDark,
+                                                      size:
+                                                          isDesktop ? 22 : 20),
+                                                  suffixIcon: _searchController
+                                                          .text.isNotEmpty
+                                                      ? IconButton(
+                                                          icon: Icon(
+                                                              Icons
+                                                                  .clear_rounded,
+                                                              color: textDark,
+                                                              size: 18),
+                                                          onPressed: () {
+                                                            _searchController
+                                                                .clear();
+                                                            _applySearchAndSort();
+                                                          },
+                                                        )
+                                                      : null,
+                                                  filled: true,
+                                                  fillColor: surfaceColor,
+                                                  border: OutlineInputBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            isDesktop
+                                                                ? 14
+                                                                : 12),
+                                                    borderSide: BorderSide.none,
+                                                  ),
+                                                  contentPadding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                          vertical: 0,
+                                                          horizontal: 12),
+                                                ),
+                                                onChanged: (v) =>
+                                                    _applySearchAndSort(),
+                                              ),
                                             ),
-                                          );
-                                        }).toList(),
+                                            const SizedBox(height: 8),
+
+                                            // M3E Chips
+                                            SizedBox(
+                                              height: isDesktop ? 42 : 36,
+                                              child: SingleChildScrollView(
+                                                scrollDirection:
+                                                    Axis.horizontal,
+                                                physics:
+                                                    const BouncingScrollPhysics(),
+                                                child: Row(
+                                                  children:
+                                                      LibraryCategory.values
+                                                          .map((cat) {
+                                                    final isSelected =
+                                                        _selectedCategory == cat;
+                                                    return Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                              right: 8.0),
+                                                      child: M3EChip(
+                                                        label:
+                                                            cat.localizedLabel(
+                                                                context),
+                                                        type: M3EChipType.filter,
+                                                        selected: isSelected,
+                                                        leading: Icon(cat.icon,
+                                                            size: 16),
+                                                        onPressed: () {
+                                                          setState(() {
+                                                            _selectedCategory =
+                                                                cat;
+                                                          });
+                                                          PreferencesStore
+                                                              .instance
+                                                              .setString(
+                                                                  'library_selected_category',
+                                                                  cat.name);
+                                                        },
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                ],
                               ),
                             ),
                           ),
@@ -2348,19 +2481,17 @@ class LibraryScreenState extends State<LibraryScreen>
                             ),
                           ),
 
-                          // 5. Category Header / Sort row (or selection action bar)
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: horizontalPadding),
-                              child: _isSelectionMode
-                                  ? _buildSelectionActionBar(primaryColor,
-                                      isDesktop: isDesktop)
-                                  : _buildCategoryHeaderRow(
-                                      primaryColor, textDark,
-                                      isDesktop: isDesktop),
+                          // 5. Category Header / Sort row (hidden while selecting to avoid duplication with pinned action bar)
+                          if (!_isSelectionMode)
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: horizontalPadding),
+                                child: _buildCategoryHeaderRow(
+                                    primaryColor, textDark,
+                                    isDesktop: isDesktop),
+                              ),
                             ),
-                          ),
 
                           // 6. Active Category Content Sliver
                           _buildSelectedSliverContent(primaryColor, textDark,
@@ -2932,75 +3063,158 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildSelectionActionBar(Color primaryColor,
       {bool isDesktop = false}) {
+    final selectedCount = _selectedTrackPaths.length;
+    final allSelected = selectedCount == _filteredSongs.length &&
+        _filteredSongs.isNotEmpty;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 10 : 6,
+        vertical: isDesktop ? 6 : 4,
+      ),
       decoration: BoxDecoration(
-        color: primaryColor.withValues(alpha: 0.15),
+        color: primaryColor.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(isDesktop ? 16 : 14),
         border: Border.all(
           color: primaryColor.withValues(alpha: 0.45),
-          width: 1.5,
+          width: 1.2,
         ),
       ),
       child: Row(
         children: [
-          M3EIconButton(
-            icon: Icon(Icons.close_rounded, size: isDesktop ? 22 : 20),
-            variant: M3EIconButtonVariant.tonal,
+          // Close button to cancel selection mode
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: Icon(Icons.close_rounded,
+                size: isDesktop ? 22 : 19, color: _textPrimary),
+            tooltip: 'Cancel selection',
             onPressed: () => _toggleSelectionMode(false),
           ),
-          const SizedBox(width: 6),
-          // Selection count pill
+          const SizedBox(width: 4),
+
+          // Selection count badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 10 : 7,
+              vertical: 4,
+            ),
             decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.2),
+              color: primaryColor.withValues(alpha: 0.22),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '${_selectedTrackPaths.length} Selected',
+              isDesktop ? '$selectedCount Selected' : '$selectedCount',
               style: TextStyle(
                 color: _textPrimary,
                 fontWeight: FontWeight.bold,
-                fontSize: isDesktop ? 14 : 12.5,
+                fontSize: isDesktop ? 13.5 : 12,
               ),
             ),
           ),
-          const Spacer(),
-          M3EIconButton(
-            icon: Icon(
-              _selectedTrackPaths.length == _filteredSongs.length &&
-                      _filteredSongs.isNotEmpty
-                  ? Icons.deselect_rounded
-                  : Icons.select_all_rounded,
-              size: isDesktop ? 22 : 20,
+          const SizedBox(width: 6),
+
+          // Actions inside M3ESegmentedButton - compact and never overstretches on mobile!
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isDesktop ? 340 : 255,
+                    minWidth: isDesktop ? 280 : 210,
+                  ),
+                  child: M3ESegmentedButton<String>(
+                    showSelectedIcon: false,
+                    segments: [
+                      M3ESegment<String>(
+                        value: 'selectAll',
+                        icon: Tooltip(
+                          message: allSelected ? 'Deselect all' : 'Select all',
+                          child: Icon(
+                            allSelected
+                                ? Icons.deselect_rounded
+                                : Icons.select_all_rounded,
+                            size: isDesktop ? 20 : 17,
+                          ),
+                        ),
+                      ),
+                      M3ESegment<String>(
+                        value: 'playlist',
+                        icon: Tooltip(
+                          message: 'Add to playlist',
+                          child: Icon(
+                            Icons.playlist_add_rounded,
+                            size: isDesktop ? 20 : 17,
+                          ),
+                        ),
+                      ),
+                      M3ESegment<String>(
+                        value: 'queue',
+                        icon: Tooltip(
+                          message: 'Add to queue',
+                          child: Icon(
+                            Icons.queue_music_rounded,
+                            size: isDesktop ? 20 : 17,
+                          ),
+                        ),
+                      ),
+                      M3ESegment<String>(
+                        value: 'delete',
+                        icon: Tooltip(
+                          message: 'Delete selected',
+                          child: Icon(
+                            Icons.delete_outline_rounded,
+                            size: isDesktop ? 20 : 17,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ),
+                      M3ESegment<String>(
+                        value: 'play',
+                        icon: Tooltip(
+                          message: 'Play selected',
+                          child: Icon(
+                            Icons.play_arrow_rounded,
+                            size: isDesktop ? 23 : 19,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                    selected: const <String>{},
+                    onSelectionChanged: (selectedSet) {
+                      if (selectedSet.isEmpty) return;
+                      final action = selectedSet.first;
+                      switch (action) {
+                        case 'selectAll':
+                          if (allSelected) {
+                            _deselectAllTracks();
+                          } else {
+                            _selectAllTracks();
+                          }
+                          break;
+                        case 'playlist':
+                          _showAddToPlaylistSheet();
+                          break;
+                        case 'queue':
+                          _queueSelectedTracks();
+                          break;
+                        case 'delete':
+                          _deleteSelectedTracks();
+                          break;
+                        case 'play':
+                          _playSelectedTracks();
+                          break;
+                      }
+                    },
+                  ),
+                ),
+              ),
             ),
-            variant: M3EIconButtonVariant.tonal,
-            onPressed: () {
-              if (_selectedTrackPaths.length == _filteredSongs.length) {
-                _deselectAllTracks();
-              } else {
-                _selectAllTracks();
-              }
-            },
-          ),
-          const SizedBox(width: 6),
-          M3EIconButton(
-            icon: Icon(Icons.playlist_add_rounded, size: isDesktop ? 22 : 20),
-            variant: M3EIconButtonVariant.tonal,
-            onPressed: () => _showAddToPlaylistSheet(),
-          ),
-          const SizedBox(width: 6),
-          M3EIconButton(
-            icon: Icon(Icons.queue_music_rounded, size: isDesktop ? 22 : 20),
-            variant: M3EIconButtonVariant.tonal,
-            onPressed: _queueSelectedTracks,
-          ),
-          const SizedBox(width: 6),
-          M3EIconButton(
-            icon: Icon(Icons.play_arrow_rounded, size: isDesktop ? 24 : 22),
-            variant: M3EIconButtonVariant.filled,
-            onPressed: () => _playSelectedTracks(),
           ),
         ],
       ),
