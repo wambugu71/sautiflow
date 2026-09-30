@@ -786,8 +786,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final count = _selectedTrackPaths.length;
     if (count == 0) return;
 
-    final hasPerm = await FileDeletionHelper.ensureDeletePermission(context);
-    if (!hasPerm) return;
+    final hasAllFiles = await FileDeletionHelper.hasAllFilesAccess();
     if (!mounted) return;
 
     final confirm = await M3EDialog.show<bool>(
@@ -796,18 +795,58 @@ class LibraryScreenState extends State<LibraryScreen>
         title: 'Delete $count Tracks',
         topDivider: true,
         bottomDivider: true,
-        content: Text(
-          'Are you sure you want to permanently delete $count selected track${count > 1 ? 's' : ''} from storage? This action cannot be undone.',
-          style: TextStyle(
-            color: AppThemeService.instance.currentData.textDark,
-            fontSize: 14,
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to permanently delete $count selected track${count > 1 ? 's' : ''} from storage? This action cannot be undone.',
+              style: TextStyle(
+                color: AppThemeService.instance.currentData.textDark,
+                fontSize: 14,
+              ),
+            ),
+            if (Platform.isAndroid && !hasAllFiles) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 18, color: Colors.amber),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Android will show 1 confirmation prompt. To delete automatically in the future without prompts, grant "All files access".',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppThemeService.instance.currentData.textDark.withOpacity(0.85),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           M3EButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Cancel'),
           ),
+          if (Platform.isAndroid && !hasAllFiles)
+            M3EButton(
+              onPressed: () async {
+                Navigator.of(context).pop(false);
+                await FileDeletionHelper.requestAllFilesAccess();
+              },
+              child: const Text('Grant Full Access'),
+            ),
           M3EButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text('Delete $count File${count > 1 ? 's' : ''}'),
@@ -820,46 +859,58 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
 
     final pathsToDelete = List<String>.from(_selectedTrackPaths);
-    int deletedCount = 0;
 
-    for (final path in pathsToDelete) {
-      final result = await FileDeletionHelper.safeDeleteTrackFile(
-        path,
-        context: context,
-        player: widget.player,
-        onBeforeDelete: (p) async {
-          if (widget.onDeleteTrack != null) {
+    final result = await FileDeletionHelper.safeDeleteTrackFiles(
+      pathsToDelete,
+      context: context,
+      player: widget.player,
+      onBeforeDelete: (paths) async {
+        if (widget.onDeleteTrack != null) {
+          for (final p in paths) {
             await widget.onDeleteTrack!(p);
           }
-        },
-      );
-      if (result.success) {
-        deletedCount++;
-        final normTarget = FileDeletionHelper.normalizeFilePath(path);
-        setState(() {
-          _allSongs.removeWhere((s) =>
-              FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-          _filteredSongs.removeWhere((s) =>
-              FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-          _selectedTrackPaths.remove(path);
-        });
-      }
-    }
+        }
+      },
+    );
 
-    await _saveCachedSongs();
     if (!mounted) return;
 
-    setState(() {
-      _isSelectionMode = false;
-      _selectedTrackPaths.clear();
-    });
+    if (result.success && result.deletedCount > 0) {
+      final normalizedDeleted = result.deletedPaths
+          .map((p) => FileDeletionHelper.normalizeFilePath(p))
+          .toSet();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Deleted $deletedCount song${deletedCount == 1 ? '' : 's'}.'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+      setState(() {
+        _allSongs.removeWhere((s) =>
+            normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(s.path)));
+        _filteredSongs.removeWhere((s) =>
+            normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(s.path)));
+        _selectedTrackPaths.removeWhere((p) =>
+            normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(p)));
+        _isSelectionMode = false;
+        _selectedTrackPaths.clear();
+      });
+
+      await _saveCachedSongs();
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted ${result.deletedCount} song${result.deletedCount == 1 ? '' : 's'}.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } else if (result.cancelled) {
+      // User cancelled system deletion prompt
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? 'Failed to delete tracks.'),
+          backgroundColor: Colors.redAccent.shade700,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   Future<void> _showAddToPlaylistSheet(
