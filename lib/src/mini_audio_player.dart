@@ -750,7 +750,12 @@ class MiniAudioPlayer {
 
   void setCrossfeed({required bool enabled, required int preset}) {
     _engine.setCrossfeedEnabled(enabled);
-    _engine.setCrossfeedPreset(preset);
+    if (enabled) {
+      _engine.setCrossfeedPreset(preset);
+    } else {
+      _engine.setCrossfeedPreset(0);
+      _engine.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
+    }
   }
 
   void setCrossfeedAlgorithm(CrossfeedAlgorithm algorithm) =>

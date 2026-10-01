@@ -10616,6 +10616,12 @@ extern "C"
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->crossfeedPreset = preset;
 
+        if (!engine->crossfeedEnabled)
+        {
+            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
+            return;
+        }
+
         if (preset == 4)
         {
             engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
@@ -10683,8 +10689,8 @@ extern "C"
             return;
         }
         std::lock_guard<std::mutex> lock(engine->fxMutex);
-        if (out_algorithm) *out_algorithm = static_cast<int>(engine->crossfeedNode.getAlgorithm());
-        if (out_mix) *out_mix = engine->crossfeedNode.getMix();
+        if (out_algorithm) *out_algorithm = engine->crossfeedEnabled ? static_cast<int>(engine->crossfeedNode.getAlgorithm()) : 0;
+        if (out_mix) *out_mix = engine->crossfeedEnabled ? engine->crossfeedNode.getMix() : 0.0f;
         if (out_delay_ms) *out_delay_ms = engine->crossfeedNode.getDelayMs();
         if (out_cutoff_hz) *out_cutoff_hz = engine->crossfeedNode.getCutoffHz();
         if (out_output_compensation) *out_output_compensation = engine->crossfeedNode.getOutputCompensation() ? 1 : 0;

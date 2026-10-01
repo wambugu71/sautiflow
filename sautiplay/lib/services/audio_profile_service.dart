@@ -34,7 +34,7 @@ class AudioProfileService {
     player.setDelay(enabled: false);
     player.setDynamicBass(enabled: false, preset: 18, gain: 0.0);
     player.setCrystalizer(enabled: false);
-    player.setCrossfeed(enabled: false, preset: 1);
+    player.setCrossfeed(enabled: false, preset: 0);
     player.setStereoWiden(enabled: false, width: 1.5, delayMs: 15.0);
     player.setStereoEnhancement(enabled: false, mix: 0.5);
     player.setEqEnabled(false);
@@ -304,8 +304,8 @@ class AudioProfileService {
       await AppStateService.instance
           .saveCrossfeed(enabled: enabled, preset: preset);
     } else {
-      player.setCrossfeed(enabled: false, preset: 1);
-      await AppStateService.instance.saveCrossfeed(enabled: false, preset: 1);
+      player.setCrossfeed(enabled: false, preset: 0);
+      await AppStateService.instance.saveCrossfeed(enabled: false, preset: 0);
     }
 
     if (dsp.containsKey('stereoWiden')) {

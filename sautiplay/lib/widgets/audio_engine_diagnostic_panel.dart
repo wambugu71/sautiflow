@@ -965,7 +965,7 @@ class _AudioEngineDiagnosticPanelState
               const Row(
                 children: [
                   Text(
-                    '7-Zone Signal Chain Latency',
+                    'Chain Latency',
                     style: TextStyle(
                       fontFamily: 'monospace',
                       color: Colors.white70,
@@ -1006,31 +1006,6 @@ class _AudioEngineDiagnosticPanelState
                           ),
                         ),
                         const SizedBox(width: 6),
-                        if (node.zoneBadge != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.cyanAccent.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.35),
-                                width: 0.6,
-                              ),
-                            ),
-                            child: Text(
-                              node.zoneBadge!,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                color: Colors.cyanAccent,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                        ],
                         Text(
                           node.nodeName,
                           style: TextStyle(
@@ -1411,7 +1386,7 @@ class _AudioEngineDiagnosticPanelState
     // Zone 1: Restorative Filtering (Subsonic HPF, Studio Noise Gate, Downward Expander)
     list.add(_NodeLatencyInfo(
       '${step++}.',
-      'Restoration (Subsonic/Gate)',
+      'Restoration',
       0.0,
       0.0,
       zoneBadge: 'Z1',
@@ -1461,7 +1436,7 @@ class _AudioEngineDiagnosticPanelState
       final double samples = delayMs * 0.001 * sampleRate;
       list.add(_NodeLatencyInfo(
         '${step++}.',
-        'Stereo Widen (Haas)',
+        'Stereo Widen',
         delayMs,
         samples,
         zoneBadge: 'Z5',
@@ -1560,8 +1535,8 @@ class _AudioEngineDiagnosticPanelState
     // Hardware Output DAC
     final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
     final hwLabel = deviceType != null && deviceType.isNotEmpty
-        ? 'Hardware Output ($deviceType)'
-        : 'Hardware Output DAC';
+        ? 'HW Output ($deviceType)'
+        : 'HW Output DAC';
     list.add(_NodeLatencyInfo(
       '${step++}.',
       hwLabel,

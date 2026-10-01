@@ -4756,12 +4756,7 @@ class _EqScreenState extends State<EqScreen>
                         isEnabled: _crossfeedEnabled,
                         onToggle: (v) {
                           setState(() => _crossfeedEnabled = v);
-                          if (v) {
-                            _updateCrossfeed();
-                          } else {
-                            widget.player.setCrossfeed(
-                                enabled: false, preset: _crossfeedPreset);
-                          }
+                          _updateCrossfeed();
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
