@@ -1,3 +1,15 @@
+## v0.6.31 — 2026-10-01
+- 7-Zone Studio Mastering: Clean signal chain with zero intermodulation, post-saturation reverb, and true-peak limiter protection
+- Drift SQLite Persistence: Fast ACID-compliant storage for liked songs, recently played, playlists, and settings state
+- Multi-Storage & Batch Library: Native internal and SD card folder navigation, sticky selection action bar, and batch deletion
+- Reactive Shimmer UI: Instant reactive state, skeleton shimmer loading, and enriched metadata across all library and search screens
+- Format-Aware Waveforms: Fast background acoustic extraction with persistent binary caching
+- 60–120 Hz Fluid Transitions: Dynamic cover art palette extraction, GPU scroll optimization, and decoupled now-playing controls
+- Trilingual Localization: Complete app localization for English, Swahili, and Amharic with in-app language picker
+- Advanced Audio Focus: Audio ducking, call resumption, auto-start, and multi-click headset button controls
+- Bit-Perfect Hardware Delivery: Direct integer PCM streaming in exclusive mode with anti-clipping headroom limiter
+- Dattorro Reverb & Crossfeed Fixes: Calibrated acoustic presets, accurate physical RT60 scaling, and click-free BS2B crossfeed
+
 ## v0.6.30 — 2026-09-24
 - r8brain Resampling Standardization: Standardized on r8brain 24-bit Minimum Phase as default resampler; retired legacy libsoxr and migrated saved preferences seamlessly
 - Artist Profiles & Discography Browsing: Interactive artist names in Now Playing, MiniPlayer, and albums leading to full artist profiles, top tracks, releases, and catalog explorer
