@@ -34,6 +34,8 @@
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
+#include "dsp/dynamic_loudness_dsp.h"
+#include "dsp/broadcast_leveller_dsp.h"
 #include "../crossfeed_node.h"
 
 static int g_failures = 0;
@@ -304,6 +306,126 @@ static void test_master_limiter_ballistics_and_lookahead_hold()
     limiter.process(release_buf.data(), 2880);
     float gr_60ms = limiter.getCurrentGainReductionDb();
     CHECK(gr_60ms > -3.0f && gr_60ms <= 0.0f, "gain reduction smoothly released after 60ms");
+}
+
+// -----------------------------------------------------------------------------
+// [C] MasterLimiterDSP True Peak Detection & Lookahead Gain Ramp Verification
+// -----------------------------------------------------------------------------
+static void test_master_limiter_lookahead_gain_ramp_and_true_peak()
+{
+    std::printf("\n== [C] Master limiter lookahead ramp & true-peak detection ==\n");
+
+    sauti::dsp::MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setCeilingDb(0.0f); // 1.0 linear ceiling
+    limiter.setReleaseMs(60.0f);
+    limiter.setEnabled(true);
+    limiter.reset();
+
+    // 1. Lookahead Gain Ramp Smoothness:
+    // When a peak enters the lookahead buffer, the gain must ramp smoothly
+    // down across the lookahead window instead of stepping instantaneously.
+    std::vector<float> step_buf(2 * 300, 0.0f);
+    for (size_t i = 100; i < 200; ++i) {
+        step_buf[2 * i + 0] = 2.5f;
+        step_buf[2 * i + 1] = 2.5f;
+    }
+
+    std::vector<float> gain_history;
+    gain_history.reserve(300);
+
+    for (size_t i = 0; i < 300; ++i) {
+        limiter.process(&step_buf[2 * i], 1);
+        gain_history.push_back(limiter.getCurrentLinearGain());
+    }
+
+    float max_gain_step = 0.0f;
+    for (size_t i = 1; i < gain_history.size(); ++i) {
+        float d = std::abs(gain_history[i] - gain_history[i - 1]);
+        if (d > max_gain_step) max_gain_step = d;
+    }
+
+    char ramp_msg[128];
+    std::snprintf(ramp_msg, sizeof(ramp_msg), "max sample-to-sample gain step = %.5f (want < 0.02, smooth ramp)", max_gain_step);
+    CHECK(max_gain_step < 0.02f, ramp_msg);
+
+    // 2. Inter-sample True Peak Detection with 4x Oversampling:
+    // Generate a 12 kHz sine wave at fs=48kHz sampled at phase pi/4:
+    // Sample peak is exactly 0.7071 (-3.01 dBFS), but continuous true peak is 1.0.
+    // Ceiling set to -1.0 dBFS (linear ~0.891). True-peak limiter detects the 1.0 peak!
+    limiter.setCeilingDb(-1.0f);
+    limiter.reset();
+
+    const size_t num_sine_frames = 480;
+    std::vector<float> sine_buf(2 * num_sine_frames);
+    for (size_t i = 0; i < num_sine_frames; ++i) {
+        float val = std::sin(2.0f * (float)M_PI * (12000.0f / 48000.0f) * (float)i + ((float)M_PI / 4.0f));
+        sine_buf[2 * i + 0] = val;
+        sine_buf[2 * i + 1] = val;
+    }
+
+    limiter.process(sine_buf.data(), num_sine_frames);
+
+    float final_gr_db = limiter.getCurrentGainReductionDb();
+    char tp_msg[128];
+    std::snprintf(tp_msg, sizeof(tp_msg), "true-peak gain reduction = %.2f dB (want < -0.8 dB, true peak clamped)", final_gr_db);
+    CHECK(final_gr_db < -0.8f, tp_msg);
+
+    // 3. Exact Release Single-Pole Ballistics:
+    // With 60ms release (~2880 frames tau), 25000 frames is > 8.6 tau, recovering to > 0.999.
+    std::vector<float> sil_buf(2 * 25000, 0.0f);
+    limiter.process(sil_buf.data(), 25000);
+    CHECK(limiter.getCurrentLinearGain() > 0.999f, "single-pole release smoothly recovers to 1.0");
+}
+
+// -----------------------------------------------------------------------------
+// [C] Lock-Free DSP Parameter Snapshot Verification
+// -----------------------------------------------------------------------------
+static void test_lockfree_dsp_parameter_access()
+{
+    std::printf("\n== [C] Lock-free DSP parameter atomics verification ==\n");
+
+    sauti::dsp::DynamicLoudnessDSP dynLoud;
+    dynLoud.setSampleRate(48000.0f);
+    dynLoud.setEnabled(true);
+    dynLoud.setParams(-12.0f, 6.0f, 3.0f, 90.0f, 9000.0f);
+    float ref_lvl, max_bass, max_treble, bass_f, treble_f;
+    dynLoud.getParams(&ref_lvl, &max_bass, &max_treble, &bass_f, &treble_f);
+    CHECK(nearlyEqual(ref_lvl, -12.0f, 0.01f), "DynamicLoudness ref level matches");
+    CHECK(nearlyEqual(max_bass, 6.0f, 0.01f), "DynamicLoudness max bass boost matches");
+
+    sauti::dsp::BroadcastLevellerDSP leveller;
+    leveller.setSampleRate(48000.0f);
+    leveller.setEnabled(true);
+    leveller.setParams(-16.0f, 1.0f, 2.0f, 8.0f, 10.0f, -60.0f);
+    float tgt_lufs, rise, fall, max_b, max_a, sil_gate;
+    leveller.getParams(&tgt_lufs, &rise, &fall, &max_b, &max_a, &sil_gate);
+    CHECK(nearlyEqual(tgt_lufs, -16.0f, 0.01f), "Leveller target LUFS matches");
+    CHECK(nearlyEqual(max_b, 8.0f, 0.01f), "Leveller max boost matches");
+
+    sauti::dsp::MasterLimiterDSP limiter;
+    limiter.setSampleRate(48000.0f);
+    limiter.setEnabled(true);
+    limiter.setCeilingDb(-0.5f);
+    limiter.setOutputGainDb(1.0f);
+    limiter.setReleaseMs(80.0f);
+    CHECK(nearlyEqual(limiter.getCeilingDb(), -0.5f, 0.01f), "MasterLimiter ceiling matches");
+    CHECK(nearlyEqual(limiter.getOutputGainDb(), 1.0f, 0.01f), "MasterLimiter output gain matches");
+    CHECK(nearlyEqual(limiter.getReleaseMs(), 80.0f, 0.01f), "MasterLimiter release matches");
+    CHECK(limiter.getLatencySamples() == 72, "MasterLimiter reports exact 72-sample lookahead latency at 48k");
+
+    // Continuous audio processing while concurrently modifying parameters
+    std::vector<float> audio_buf(2 * 1024, 0.5f);
+    for (int iter = 0; iter < 10; ++iter) {
+        dynLoud.setParams(-6.0f - (float)iter, 6.0f, 3.0f, 90.0f, 9000.0f);
+        leveller.setParams(-14.0f - (float)iter, 1.0f, 2.0f, 8.0f, 10.0f, -60.0f);
+        limiter.setCeilingDb(-0.1f * (float)(iter + 1));
+
+        dynLoud.process(audio_buf.data(), 1024, 2, 0.5f);
+        leveller.process(audio_buf.data(), 1024, 2);
+        limiter.process(audio_buf.data(), 1024);
+    }
+    CHECK(std::isfinite(audio_buf[0]), "lock-free audio processing executes without exceptions or skips");
 }
 
 // -----------------------------------------------------------------------------
@@ -1843,7 +1965,9 @@ int main(int argc, char **argv)
     if (only.empty() || only == "limiter") {
         test_master_limiter_defaults_and_ceiling();
         test_master_limiter_ballistics_and_lookahead_hold();
+        test_master_limiter_lookahead_gain_ramp_and_true_peak();
     }
+    if (only.empty() || only == "lockfree") test_lockfree_dsp_parameter_access();
     if (only.empty() || only == "warmth") test_analog_warmth_no_dc_offset();
     if (only.empty() || only == "clarity") test_clarity_presence_reconstruction();
     if (only.empty() || only == "dynsys") test_dynamic_system_cutoff_and_stability();

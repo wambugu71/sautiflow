@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include <atomic>
 #include "denormals.h"
 #include "simd_math.h"
 
@@ -40,15 +41,13 @@ public:
     float getSampleRate() const { return sample_rate_; }
 
     void setEnabled(bool enabled) {
-        if (enabled_ != enabled) {
-            enabled_ = enabled;
-            if (!enabled) {
-                reset();
-            }
+        enabled_.store(enabled, std::memory_order_release);
+        if (!enabled) {
+            reset();
         }
     }
 
-    bool isEnabled() const { return enabled_; }
+    bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
 
     void setParams(float target_lufs,
                    float max_rise_db_sec,
@@ -56,12 +55,12 @@ public:
                    float max_boost_db,
                    float max_attenuation_db,
                    float silence_gate_lufs) {
-        target_lufs_ = std::clamp(target_lufs, -36.0f, -6.0f);
-        max_rise_db_sec_ = std::clamp(max_rise_db_sec, 0.1f, 6.0f);
-        max_fall_db_sec_ = std::clamp(max_fall_db_sec, 0.1f, 12.0f);
-        max_boost_db_ = std::clamp(max_boost_db, 0.0f, 18.0f);
-        max_attenuation_db_ = std::clamp(max_attenuation_db, 0.0f, 24.0f);
-        silence_gate_lufs_ = std::clamp(silence_gate_lufs, -70.0f, -24.0f);
+        target_lufs_.store(std::clamp(target_lufs, -36.0f, -6.0f), std::memory_order_release);
+        max_rise_db_sec_.store(std::clamp(max_rise_db_sec, 0.1f, 6.0f), std::memory_order_release);
+        max_fall_db_sec_.store(std::clamp(max_fall_db_sec, 0.1f, 12.0f), std::memory_order_release);
+        max_boost_db_.store(std::clamp(max_boost_db, 0.0f, 18.0f), std::memory_order_release);
+        max_attenuation_db_.store(std::clamp(max_attenuation_db, 0.0f, 24.0f), std::memory_order_release);
+        silence_gate_lufs_.store(std::clamp(silence_gate_lufs, -70.0f, -24.0f), std::memory_order_release);
     }
 
     void getParams(float *out_target_lufs,
@@ -70,16 +69,16 @@ public:
                    float *out_max_boost_db,
                    float *out_max_attenuation_db,
                    float *out_silence_gate_lufs) const {
-        if (out_target_lufs) *out_target_lufs = target_lufs_;
-        if (out_max_rise_db_sec) *out_max_rise_db_sec = max_rise_db_sec_;
-        if (out_max_fall_db_sec) *out_max_fall_db_sec = max_fall_db_sec_;
-        if (out_max_boost_db) *out_max_boost_db = max_boost_db_;
-        if (out_max_attenuation_db) *out_max_attenuation_db = max_attenuation_db_;
-        if (out_silence_gate_lufs) *out_silence_gate_lufs = silence_gate_lufs_;
+        if (out_target_lufs) *out_target_lufs = target_lufs_.load(std::memory_order_relaxed);
+        if (out_max_rise_db_sec) *out_max_rise_db_sec = max_rise_db_sec_.load(std::memory_order_relaxed);
+        if (out_max_fall_db_sec) *out_max_fall_db_sec = max_fall_db_sec_.load(std::memory_order_relaxed);
+        if (out_max_boost_db) *out_max_boost_db = max_boost_db_.load(std::memory_order_relaxed);
+        if (out_max_attenuation_db) *out_max_attenuation_db = max_attenuation_db_.load(std::memory_order_relaxed);
+        if (out_silence_gate_lufs) *out_silence_gate_lufs = silence_gate_lufs_.load(std::memory_order_relaxed);
     }
 
     float getCurrentGainDb() const {
-        return current_gain_db_;
+        return current_gain_db_.load(std::memory_order_relaxed);
     }
 
     void reset() {
@@ -190,47 +189,53 @@ private:
     }
 
     void computeBlockGain(float effective_lufs, size_t frame_count) {
+        const float silence_gate = silence_gate_lufs_.load(std::memory_order_relaxed);
         // 1. Check Silence / Noise Gate Freeze
-        if (effective_lufs <= silence_gate_lufs_) {
+        if (effective_lufs <= silence_gate) {
             is_frozen_ = true;
             // Freeze target at current level - do not ramp up into noise!
-            target_gain_db_ = current_gain_db_;
+            target_gain_db_ = current_gain_db_.load(std::memory_order_relaxed);
             return;
         }
 
         is_frozen_ = false;
 
         // 2. Compute desired correction gain in dB
-        float desired_gain_db = target_lufs_ - effective_lufs;
+        const float target_lufs = target_lufs_.load(std::memory_order_relaxed);
+        const float max_att = max_attenuation_db_.load(std::memory_order_relaxed);
+        const float max_boost = max_boost_db_.load(std::memory_order_relaxed);
+        float desired_gain_db = target_lufs - effective_lufs;
         // Clamp to configured boost & attenuation limits
-        desired_gain_db = std::clamp(desired_gain_db, -max_attenuation_db_, max_boost_db_);
+        desired_gain_db = std::clamp(desired_gain_db, -max_att, max_boost);
         target_gain_db_ = desired_gain_db;
 
         // 3. Slew rate limiter: step smoothly toward target
         const float dt = static_cast<float>(frame_count) / sample_rate_;
+        float cur = current_gain_db_.load(std::memory_order_relaxed);
 
-        if (target_gain_db_ > current_gain_db_) {
-            const float max_rise = max_rise_db_sec_ * dt;
-            current_gain_db_ = std::min(target_gain_db_, current_gain_db_ + max_rise);
-        } else if (target_gain_db_ < current_gain_db_) {
-            const float max_fall = max_fall_db_sec_ * dt;
-            current_gain_db_ = std::max(target_gain_db_, current_gain_db_ - max_fall);
+        if (target_gain_db_ > cur) {
+            const float max_rise = max_rise_db_sec_.load(std::memory_order_relaxed) * dt;
+            cur = std::min(target_gain_db_, cur + max_rise);
+        } else if (target_gain_db_ < cur) {
+            const float max_fall = max_fall_db_sec_.load(std::memory_order_relaxed) * dt;
+            cur = std::max(target_gain_db_, cur - max_fall);
         }
+        current_gain_db_.store(cur, std::memory_order_relaxed);
     }
 
-    bool enabled_ = false;
+    std::atomic<bool> enabled_{false};
     float sample_rate_ = 48000.0f;
 
     // Controls
-    float target_lufs_ = -16.0f;          // Target broadcast / streaming level
-    float max_rise_db_sec_ = 0.75f;       // Upward slew rate (0.75 dB/sec = transparent)
-    float max_fall_db_sec_ = 1.50f;       // Downward slew rate (1.5 dB/sec)
-    float max_boost_db_ = 9.0f;           // Max permissible upward gain
-    float max_attenuation_db_ = 12.0f;    // Max permissible downward attenuation
-    float silence_gate_lufs_ = -45.0f;    // Level below which gain freezes
+    std::atomic<float> target_lufs_{-16.0f};          // Target broadcast / streaming level
+    std::atomic<float> max_rise_db_sec_{0.75f};       // Upward slew rate (0.75 dB/sec = transparent)
+    std::atomic<float> max_fall_db_sec_{1.50f};       // Downward slew rate (1.5 dB/sec)
+    std::atomic<float> max_boost_db_{9.0f};           // Max permissible upward gain
+    std::atomic<float> max_attenuation_db_{12.0f};    // Max permissible downward attenuation
+    std::atomic<float> silence_gate_lufs_{-45.0f};    // Level below which gain freezes
 
     // Real-time state
-    float current_gain_db_ = 0.0f;
+    std::atomic<float> current_gain_db_{0.0f};
     float target_gain_db_ = 0.0f;
     float current_gain_linear_ = 1.0f;
     bool is_frozen_ = false;

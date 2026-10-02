@@ -2677,27 +2677,27 @@ namespace
 
     // ============================================================
     // CrystalizerState
-    // Audiophile-grade transient edge reconstruction algorithm.
+    // High-frequency tone brightener / edge emphasis effect.
     //
-    // Stage 1 — Transient Edge Reconstruction
-    //   Recovers detail that lossy codecs (MP3/AAC) discard by extracting
-    //   the inter-sample differences (signal derivative) and re-injecting them.
-    //   This improves attack precision, presence, and perceived resolution.
+    // Stage 1 — High-Frequency Tone Brightener (Discrete First-Difference)
+    //   Applies a first-difference differentiator: y = x + (x - prev) * intensity.
+    //   Acts as a high-frequency shelving/peaking tone effect, boosting presence
+    //   and HF attack. Intensity is capped to 0.4 max (Nyquist gain ~ +5.1 dB)
+    //   to prevent extreme high-frequency harshness and digital overs.
     //
     // Stage 2 — High-Shelf "Air" Enhancement (optional)
-    //   A gentle 2nd-order biquad high-shelf applied above ~8 kHz adds the
-    //   "open sky" quality missing from compressed audio.
+    //   A gentle 2nd-order biquad high-shelf applied above ~8 kHz adds airy sparkle.
     //
-    // Stage 3 — Soft-Clip Guard
-    //   tanh saturation to prevent digital overs when intensity is high.
+    // Stage 3 — Continuous Native Soft-Clip Guard
+    //   Continuous sample-accurate tanh saturation to prevent digital overs
+    //   without any block delay jumps, time shifts, or stale filter states.
     // ============================================================
     struct CrystalizerState
     {
-        float intensity = 0.5f;       // [0.0, 1.0] reconstruction strength
+        float intensity = 0.4f;       // [0.0, 0.4] high-frequency tone boost strength (capped to prevent harshness)
         bool highShelfEnabled = true; // enable Stage 2 air shelf
         float highShelfGainDb = 2.0f; // [0.0, 6.0] shelf boost in dB
         int cachedSampleRate = 0;
-        sauti::dsp::PolyphaseOversampler2x oversampler;
 
         // Per-channel previous sample for derivative calculation (up to 8 ch)
         float prevSample[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
@@ -2752,12 +2752,11 @@ namespace
             cachedSampleRate = sampleRate;
             std::fill(prevSample, prevSample + 8, 0.f);
             shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
-            oversampler.init(sampleRate, 4096);
         }
 
         void updateParams(int sampleRate, float newIntensity, bool newShelfEnabled, float newShelfGainDb)
         {
-            intensity = clampf(newIntensity, 0.0f, 1.0f);
+            intensity = clampf(newIntensity, 0.0f, 0.4f); // Capped to 0.4 max to prevent extreme overs & harshness
             highShelfEnabled = newShelfEnabled;
             const float clampedGain = clampf(newShelfGainDb, 0.0f, 6.0f);
 
@@ -2766,7 +2765,6 @@ namespace
                 highShelfGainDb = clampedGain;
                 cachedSampleRate = sampleRate;
                 shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
-                oversampler.init(sampleRate, 4096);
             }
         }
 
@@ -2790,8 +2788,7 @@ namespace
                     const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
                     float x = interleaved[idx];
 
-                    // Stage 1 — Transient edge reconstruction
-                    // diff captures the derivative (high-frequency / transient energy)
+                    // Stage 1 — High-Frequency Tone Brightener (First-Difference)
                     const float diff = x - prevSample[c];
                     prevSample[c] = x;
                     x = x + diff * intensity;
@@ -2809,47 +2806,16 @@ namespace
                 }
             }
 
-            // Stage 3 — 2x Oversampled Soft-Clip Guard (prevents overs without harmonic aliasing)
-            if (channels == 2)
+            // Stage 3 — Continuous Native Soft-Clip Guard
+            // Runs continuously with zero delay across all channels, avoiding the
+            // 26-sample group-delay time shift and stale filter state on block transitions.
+            for (ma_uint32 i = 0; i < frames * channels; ++i)
             {
-                bool needsClip = false;
-                for (ma_uint32 i = 0; i < frames * 2; ++i)
-                {
-                    if (std::abs(interleaved[i]) > 0.95f)
-                    {
-                        needsClip = true;
-                        break;
-                    }
-                }
-
-                if (needsClip)
-                {
-                    float *os = oversampler.upsample(interleaved, frames);
-                    if (os)
-                    {
-                        const uint32_t osSamples = frames * 4;
-                        for (uint32_t j = 0; j < osSamples; ++j)
-                        {
-                            float v = os[j];
-                            if (v > 0.95f)
-                                os[j] = 0.95f + 0.05f * std::tanh((v - 0.95f) / 0.05f);
-                            else if (v < -0.95f)
-                                os[j] = -0.95f + 0.05f * std::tanh((v + 0.95f) / 0.05f);
-                        }
-                        oversampler.downsample(os, interleaved, frames);
-                    }
-                }
-            }
-            else
-            {
-                for (ma_uint32 i = 0; i < frames * channels; ++i)
-                {
-                    float x = interleaved[i];
-                    if (x > 0.95f)
-                        interleaved[i] = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
-                    else if (x < -0.95f)
-                        interleaved[i] = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
-                }
+                float x = interleaved[i];
+                if (x > 0.95f)
+                    interleaved[i] = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
+                else if (x < -0.95f)
+                    interleaved[i] = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
             }
         }
     };
@@ -7250,8 +7216,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // any saturation, compression, or spatial reverberation.
             if (e->channels >= 2)
             {
-                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-                if (dspLock.owns_lock())
                 {
                     const bool isStereo = (e->channels == 2);
                     const bool hasFloatPreDynamics = e->downwardExpanderDsp.isEnabled() ||
@@ -7541,8 +7505,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Applied across the fully spatialized and reverberated acoustic mix.
             if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
             {
-                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-                if (dspLock.owns_lock())
                 {
                     const bool isStereo = (e->channels == 2);
                     if (isStereo)
@@ -7589,8 +7551,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Placed BEFORE read-only metering so meters measure the true levelled programme.
             if (e->levellerDsp.isEnabled())
             {
-                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-                if (dspLock.owns_lock())
                 {
                     const float shortTermLufs = e->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
                     if (use64)
@@ -7676,18 +7636,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Dynamic Loudness (ISO 226 Equal-Loudness Contour Compensation)
         if (!bypassAppDsp && e->dynamicLoudnessDsp.isEnabled())
         {
-            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-            if (dspLock.owns_lock())
+            const float currentVolume = e->paramUserGain.getTarget();
+            if (use64)
             {
-                const float currentVolume = e->paramUserGain.getTarget();
-                if (use64)
-                {
-                    e->dynamicLoudnessDsp.process(buf64, produced, e->channels, static_cast<double>(currentVolume));
-                }
-                else
-                {
-                    e->dynamicLoudnessDsp.process(processBuffer, produced, e->channels, currentVolume);
-                }
+                e->dynamicLoudnessDsp.process(buf64, produced, e->channels, static_cast<double>(currentVolume));
+            }
+            else
+            {
+                e->dynamicLoudnessDsp.process(processBuffer, produced, e->channels, currentVolume);
             }
         }
 
@@ -7701,49 +7657,45 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             if (e->masterLimiterDsp.isEnabled())
             {
-                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-                if (dspLock.owns_lock())
+                const bool isStereo = (e->channels == 2);
+                if (isStereo)
                 {
-                    const bool isStereo = (e->channels == 2);
-                    if (isStereo)
+                    if (use64)
+                        e->masterLimiterDsp.process(buf64, produced);
+                    else
+                        e->masterLimiterDsp.process(processBuffer, produced);
+                }
+                else
+                {
+                    const size_t ch = (size_t)e->channels;
+                    if (use64)
                     {
-                        if (use64)
-                            e->masterLimiterDsp.process(buf64, produced);
-                        else
-                            e->masterLimiterDsp.process(processBuffer, produced);
+                        double *stBuf64 = e->dspStereoBuffer64.data();
+                        for (ma_uint32 i = 0; i < produced; ++i)
+                        {
+                            stBuf64[i * 2 + 0] = buf64[i * ch + 0];
+                            stBuf64[i * 2 + 1] = buf64[i * ch + 1];
+                        }
+                        e->masterLimiterDsp.process(stBuf64, produced);
+                        for (ma_uint32 i = 0; i < produced; ++i)
+                        {
+                            buf64[i * ch + 0] = stBuf64[i * 2 + 0];
+                            buf64[i * ch + 1] = stBuf64[i * 2 + 1];
+                        }
                     }
                     else
                     {
-                        const size_t ch = (size_t)e->channels;
-                        if (use64)
+                        float *stBuf = e->dspStereoBuffer.data();
+                        for (ma_uint32 i = 0; i < produced; ++i)
                         {
-                            double *stBuf64 = e->dspStereoBuffer64.data();
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                stBuf64[i * 2 + 0] = buf64[i * ch + 0];
-                                stBuf64[i * 2 + 1] = buf64[i * ch + 1];
-                            }
-                            e->masterLimiterDsp.process(stBuf64, produced);
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                buf64[i * ch + 0] = stBuf64[i * 2 + 0];
-                                buf64[i * ch + 1] = stBuf64[i * 2 + 1];
-                            }
+                            stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
+                            stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
                         }
-                        else
+                        e->masterLimiterDsp.process(stBuf, produced);
+                        for (ma_uint32 i = 0; i < produced; ++i)
                         {
-                            float *stBuf = e->dspStereoBuffer.data();
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                                stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                            }
-                            e->masterLimiterDsp.process(stBuf, produced);
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                            }
+                            processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
+                            processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
                         }
                     }
                 }
@@ -10053,20 +10005,15 @@ extern "C"
         // Clean-room DSP suite: report real pipeline latencies so position
         // reporting / PDC stays aligned when these nodes are active.
         {
-            std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-            if (dspLock.owns_lock())
+            if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
             {
-                if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
-                {
-                    // Partitioned overlap-add convolver delays output by BLOCK_SIZE.
-                    totalLatency += (double)sauti::dsp::FFTConvolverDSP::BLOCK_SIZE;
-                }
-                if (e->masterLimiterDsp.isEnabled())
-                {
-                    // Look-ahead limiter delays the signal by its lookahead window
-                    // (~1.5 ms at the engine sample rate).
-                    totalLatency += 0.0015 * (double)sr;
-                }
+                // Partitioned overlap-add convolver delays output by BLOCK_SIZE.
+                totalLatency += (double)sauti::dsp::FFTConvolverDSP::BLOCK_SIZE;
+            }
+            if (e->masterLimiterDsp.isEnabled())
+            {
+                // Look-ahead limiter delays the signal by its exact lookahead window.
+                totalLatency += (double)e->masterLimiterDsp.getLatencySamples();
             }
         }
         if (e->deviceResamplerInit)

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include "denormals.h"
 #include "simd_math.h"
 
@@ -50,26 +51,24 @@ public:
     float getSampleRate() const { return sample_rate_; }
 
     void setEnabled(bool enabled) {
-        if (enabled_ != enabled) {
-            enabled_ = enabled;
-            if (!enabled) {
-                reset();
-            }
+        enabled_.store(enabled, std::memory_order_release);
+        if (!enabled) {
+            reset();
         }
     }
 
-    bool isEnabled() const { return enabled_; }
+    bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
 
     void setParams(float ref_level_db,
                    float max_bass_boost_db,
                    float max_treble_boost_db,
                    float bass_freq_hz,
                    float treble_freq_hz) {
-        ref_level_db_ = clampf(ref_level_db, -60.0f, 12.0f);
-        max_bass_boost_db_ = clampf(max_bass_boost_db, 0.0f, 24.0f);
-        max_treble_boost_db_ = clampf(max_treble_boost_db, 0.0f, 18.0f);
-        bass_freq_hz_ = clampf(bass_freq_hz, 20.0f, 500.0f);
-        treble_freq_hz_ = clampf(treble_freq_hz, 2000.0f, 20000.0f);
+        ref_level_db_.store(clampf(ref_level_db, -60.0f, 12.0f), std::memory_order_release);
+        max_bass_boost_db_.store(clampf(max_bass_boost_db, 0.0f, 24.0f), std::memory_order_release);
+        max_treble_boost_db_.store(clampf(max_treble_boost_db, 0.0f, 18.0f), std::memory_order_release);
+        bass_freq_hz_.store(clampf(bass_freq_hz, 20.0f, 500.0f), std::memory_order_release);
+        treble_freq_hz_.store(clampf(treble_freq_hz, 2000.0f, 20000.0f), std::memory_order_release);
     }
 
     void getParams(float *out_ref_level_db,
@@ -77,11 +76,11 @@ public:
                    float *out_max_treble_boost_db,
                    float *out_bass_freq_hz,
                    float *out_treble_freq_hz) const {
-        if (out_ref_level_db) *out_ref_level_db = ref_level_db_;
-        if (out_max_bass_boost_db) *out_max_bass_boost_db = max_bass_boost_db_;
-        if (out_max_treble_boost_db) *out_max_treble_boost_db = max_treble_boost_db_;
-        if (out_bass_freq_hz) *out_bass_freq_hz = bass_freq_hz_;
-        if (out_treble_freq_hz) *out_treble_freq_hz = treble_freq_hz_;
+        if (out_ref_level_db) *out_ref_level_db = ref_level_db_.load(std::memory_order_relaxed);
+        if (out_max_bass_boost_db) *out_max_bass_boost_db = max_bass_boost_db_.load(std::memory_order_relaxed);
+        if (out_max_treble_boost_db) *out_max_treble_boost_db = max_treble_boost_db_.load(std::memory_order_relaxed);
+        if (out_bass_freq_hz) *out_bass_freq_hz = bass_freq_hz_.load(std::memory_order_relaxed);
+        if (out_treble_freq_hz) *out_treble_freq_hz = treble_freq_hz_.load(std::memory_order_relaxed);
     }
 
     // Reports the currently applied real-time compensation gain
@@ -122,9 +121,12 @@ public:
         // When listening below reference (e.g. 0 dB), bass drops faster than mids.
         // Bass sensitivity slope ~0.26 dB boost per dB of attenuation below reference.
         // Treble sensitivity slope ~0.12 dB boost per dB of attenuation below reference.
-        const float attenuation_db = std::max(0.0f, ref_level_db_ - current_vol_db);
-        target_bass_gain_db_ = std::min(max_bass_boost_db_, attenuation_db * 0.26f);
-        target_treble_gain_db_ = std::min(max_treble_boost_db_, attenuation_db * 0.12f);
+        const float max_bass = max_bass_boost_db_.load(std::memory_order_relaxed);
+        const float max_treble = max_treble_boost_db_.load(std::memory_order_relaxed);
+        const float ref_level = ref_level_db_.load(std::memory_order_relaxed);
+        const float attenuation_db = std::max(0.0f, ref_level - current_vol_db);
+        target_bass_gain_db_ = std::min(max_bass, attenuation_db * 0.26f);
+        target_treble_gain_db_ = std::min(max_treble, attenuation_db * 0.12f);
 
         // Sub-block processing for click-free coefficient updating
         size_t frames_remaining = frame_count;
@@ -187,9 +189,12 @@ public:
         const float vol_clamped = static_cast<float>(std::max(current_volume_linear, 1.0e-4));
         const float current_vol_db = 20.0f * std::log10(vol_clamped);
 
-        const float attenuation_db = std::max(0.0f, ref_level_db_ - current_vol_db);
-        target_bass_gain_db_ = std::min(max_bass_boost_db_, attenuation_db * 0.26f);
-        target_treble_gain_db_ = std::min(max_treble_boost_db_, attenuation_db * 0.12f);
+        const float max_bass = max_bass_boost_db_.load(std::memory_order_relaxed);
+        const float max_treble = max_treble_boost_db_.load(std::memory_order_relaxed);
+        const float ref_level = ref_level_db_.load(std::memory_order_relaxed);
+        const float attenuation_db = std::max(0.0f, ref_level - current_vol_db);
+        target_bass_gain_db_ = std::min(max_bass, attenuation_db * 0.26f);
+        target_treble_gain_db_ = std::min(max_treble, attenuation_db * 0.12f);
 
         size_t frames_remaining = frame_count;
         double *ptr = buffer;
@@ -251,7 +256,7 @@ private:
         // 1. Low Shelf (Cookbook formula)
         {
             const double A = std::pow(10.0, static_cast<double>(bass_gain_db) / 40.0);
-            const double w0 = 2.0 * PI * static_cast<double>(bass_freq_hz_) / static_cast<double>(sample_rate_);
+            const double w0 = 2.0 * PI * static_cast<double>(bass_freq_hz_.load(std::memory_order_relaxed)) / static_cast<double>(sample_rate_);
             const double cosw0 = std::cos(w0);
             const double sinw0 = std::sin(w0);
             // S = 1.0 shelf slope
@@ -271,7 +276,7 @@ private:
         // 2. High Shelf (Cookbook formula)
         {
             const double A = std::pow(10.0, static_cast<double>(treble_gain_db) / 40.0);
-            const double w0 = 2.0 * PI * static_cast<double>(treble_freq_hz_) / static_cast<double>(sample_rate_);
+            const double w0 = 2.0 * PI * static_cast<double>(treble_freq_hz_.load(std::memory_order_relaxed)) / static_cast<double>(sample_rate_);
             const double cosw0 = std::cos(w0);
             const double sinw0 = std::sin(w0);
             const double alpha = 0.5 * sinw0 * std::sqrt((A + 1.0 / A) * (1.0 - 1.0) + 2.0);
@@ -282,23 +287,23 @@ private:
 
             b0_treble_ = (A * ((A + 1.0) + (A - 1.0) * cosw0 + two_sqrtA_alpha)) * inv_a0;
             b1_treble_ = (-2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0)) * inv_a0;
-            b2_treble_ = (A * ((A + 1.0) - (A - 1.0) * cosw0 - two_sqrtA_alpha)) * inv_a0;
+            b2_treble_ = (A * ((A + 1.0) + (A - 1.0) * cosw0 - two_sqrtA_alpha)) * inv_a0;
             a1_treble_ = (2.0 * ((A - 1.0) - (A + 1.0) * cosw0)) * inv_a0;
             a2_treble_ = ((A + 1.0) - (A - 1.0) * cosw0 - two_sqrtA_alpha) * inv_a0;
         }
     }
 
-    bool enabled_ = false;
+    std::atomic<bool> enabled_{false};
     bool initialized_ = false;
     float sample_rate_ = 48000.0f;
     float smoothing_coeff_ = 0.001f;
 
     // Controls
-    float ref_level_db_ = 0.0f;           // Flat reference volume level (0 dB)
-    float max_bass_boost_db_ = 9.0f;      // Max bass shelf lift
-    float max_treble_boost_db_ = 4.5f;    // Max treble shelf lift
-    float bass_freq_hz_ = 90.0f;          // Bass corner frequency
-    float treble_freq_hz_ = 9000.0f;      // Treble corner frequency
+    std::atomic<float> ref_level_db_{0.0f};           // Flat reference volume level (0 dB)
+    std::atomic<float> max_bass_boost_db_{9.0f};      // Max bass shelf lift
+    std::atomic<float> max_treble_boost_db_{4.5f};    // Max treble shelf lift
+    std::atomic<float> bass_freq_hz_{90.0f};          // Bass corner frequency
+    std::atomic<float> treble_freq_hz_{9000.0f};      // Treble corner frequency
 
     // Real-time tracking state
     float current_bass_gain_db_ = 0.0f;
