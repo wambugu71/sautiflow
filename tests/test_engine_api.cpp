@@ -643,6 +643,74 @@ static void test_device_resampler_input_estimation_p15()
     std::remove(wavPath);
 }
 
+static void test_r8brain_callback_bursty_cpu_elimination()
+{
+    std::printf("\n== r8brain Bursty CPU Elimination in Audio Callback ==\n");
+
+    const char *wavPath = "r8b_callback_elim_test.wav";
+    const int sampleRate = 44100;
+    CHECK(write_test_wav(wavPath, sampleRate, 2, 0.5f), "test WAV generated (44.1 kHz, 2s)");
+
+    // Case 1: Device SRC required (engine rate 44.1k != device rate 48k) with r8brain selected.
+    // The engine must NOT run r8brain in the callback thread (deviceResampler), avoiding 180 dB FFT bursts.
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created at 48.0 kHz");
+    if (!e)
+    {
+        std::remove(wavPath);
+        return;
+    }
+
+    ae_set_output_sample_rate(e, 44100);
+    ae_set_engine_resample_algorithm(e, 11); // r8brain linear phase
+
+    const char *paths[1] = { wavPath };
+    CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+    CHECK(ae_play(e), "playback started with r8brain requested and device SRC active");
+
+    const auto deadline1 = Clock::now() + std::chrono::milliseconds(400);
+    while (Clock::now() < deadline1)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    PlayerStatus st = ae_get_status(e);
+    CHECK(st.is_playing == 1, "playback active under non-1:1 device SRC");
+    CHECK(st.position_seconds >= 0.15, "playback position advancing smoothly without stalling");
+
+    AEQualityTelemetry telem = ae_get_quality_telemetry(e);
+    CHECK(telem.underrun_count == 0, "zero underruns during playback (no bursty FFT callback underruns)");
+
+    AEResamplingPolicyInfo policy = ae_get_resampling_policy_info(e);
+    CHECK(policy.engine_sample_rate == 44100, "policy reports engine rate 44100 Hz");
+    CHECK(policy.device_sample_rate == 48000, "policy reports device rate 48000 Hz");
+    CHECK(policy.is_bypassed == 0, "policy reports active SRC stage");
+
+    // Case 2: 1:1 Identity rate match (48k -> 48k).
+    // In 1:1 mode, r8brain executes the identity memcpy fast-path with zero latency and zero FFT.
+    ae_set_output_sample_rate(e, 48000);
+    ae_set_engine_resample_algorithm(e, 12); // r8brain minimum phase
+
+    const auto deadline2 = Clock::now() + std::chrono::milliseconds(300);
+    while (Clock::now() < deadline2)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    st = ae_get_status(e);
+    CHECK(st.is_playing == 1, "playback continues in 1:1 mode");
+    telem = ae_get_quality_telemetry(e);
+    CHECK(telem.underrun_count == 0, "zero underruns in 1:1 mode");
+
+    policy = ae_get_resampling_policy_info(e);
+    CHECK(policy.engine_sample_rate == 48000, "engine rate switched to 48000 Hz");
+    CHECK(policy.device_sample_rate == 48000, "device rate matches at 48000 Hz");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wavPath);
+}
+
 static void test_filter_state_retention_equalizer_adjustment_p16()
 {
     std::printf("\n== Filter State Retention & Equalizer Zipper Crackle Elimination ([C] P1.6) ==\n");
@@ -1435,6 +1503,7 @@ int main()
     test_ffmpeg_seek_preroll_p13();
     test_sample_rate_switch_position_continuity_p14();
     test_device_resampler_input_estimation_p15();
+    test_r8brain_callback_bursty_cpu_elimination();
     test_filter_state_retention_equalizer_adjustment_p16();
     test_replaygain_peak_limiting_anticlip_p18();
     test_bit_perfect_exclusive_direct_pcm_p19();

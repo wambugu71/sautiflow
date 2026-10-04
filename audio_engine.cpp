@@ -1010,6 +1010,14 @@ namespace
         backend->inBufs.resize(backend->channels);
         backend->outPtrs.resize(backend->channels, nullptr);
 
+        // At 1:1 ratio, r8brain operates strictly as an identity memcpy fast-path.
+        // Skip allocating CDSPResampler instances, ring buffers, and filter priming.
+        if (std::fabs(backend->ratio - 1.0) < 1.0e-5)
+        {
+            *ppBackend = (ma_resampling_backend *)backend;
+            return MA_SUCCESS;
+        }
+
         try
         {
             for (int c = 0; c < backend->channels; ++c)
@@ -1070,13 +1078,39 @@ namespace
         if (ch <= 0)
             return MA_ERROR;
 
-        // 1:1 Fast-path identity copy
-        if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && pFramesIn != nullptr && pFramesOut != nullptr && backend->outputRing.empty())
+        // 1:1 Fast-path identity copy: zero allocation, zero FFT, real-time audio thread safe
+        if (std::fabs(backend->ratio - 1.0) < 1.0e-5 && backend->outputRing.empty())
         {
-            ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
-            std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
-            *pFrameCountIn = toCopy;
-            *pFrameCountOut = toCopy;
+            if (pFramesIn != nullptr && pFramesOut != nullptr)
+            {
+                ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+                std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
+                *pFrameCountIn = toCopy;
+                *pFrameCountOut = toCopy;
+            }
+            else
+            {
+                *pFrameCountIn = 0;
+                *pFrameCountOut = 0;
+            }
+            return MA_SUCCESS;
+        }
+
+        // Safety fallback: if CDSPResampler instances were not initialized (e.g. 1:1 mode), passthrough
+        if (backend->resamplers.empty() || !backend->resamplers[0])
+        {
+            if (pFramesIn != nullptr && pFramesOut != nullptr)
+            {
+                ma_uint64 toCopy = std::min(*pFrameCountIn, *pFrameCountOut);
+                std::memcpy(pFramesOut, pFramesIn, (size_t)toCopy * (size_t)ch * sizeof(float));
+                *pFrameCountIn = toCopy;
+                *pFrameCountOut = toCopy;
+            }
+            else
+            {
+                *pFrameCountIn = 0;
+                *pFrameCountOut = 0;
+            }
             return MA_SUCCESS;
         }
 
@@ -1200,36 +1234,56 @@ namespace
         backend->sampleRateOut = (double)sampleRateOut;
         backend->ratio = backend->sampleRateOut / backend->sampleRateIn;
 
+        // 1:1 Fast-path identity: free existing resamplers, reset ring, and avoid filter allocations.
+        if (std::fabs(backend->ratio - 1.0) < 1.0e-5)
+        {
+            for (auto *r : backend->resamplers)
+            {
+                delete r;
+            }
+            backend->resamplers.assign(backend->channels, nullptr);
+            backend->outputRing.reset();
+            backend->flushZeroFed = 0;
+            return MA_SUCCESS;
+        }
+
         const double reqTransBand = 2.0;
         const double reqAtten = 180.15;
         const r8b::EDSPFilterPhaseResponse phase = (backend->algorithm == 12 || backend->algorithm == 8) ? r8b::fprMinPhase : r8b::fprLinearPhase;
 
-        for (int c = 0; c < backend->channels; ++c)
+        try
         {
-            delete backend->resamplers[c];
-            backend->resamplers[c] = new r8b::CDSPResampler(
-                backend->sampleRateIn,
-                backend->sampleRateOut,
-                backend->maxInLen,
-                reqTransBand,
-                reqAtten,
-                phase
-            );
-        }
+            for (int c = 0; c < backend->channels; ++c)
+            {
+                delete backend->resamplers[c];
+                backend->resamplers[c] = new r8b::CDSPResampler(
+                    backend->sampleRateIn,
+                    backend->sampleRateOut,
+                    backend->maxInLen,
+                    reqTransBand,
+                    reqAtten,
+                    phase
+                );
+            }
 
-        double maxRatio = std::max(1.0, backend->ratio);
-        size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
-        size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
-        backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
-        backend->flushZeroFed = 0; // fresh filter state: tail flush is armed again
-        r8b_prime_filter(backend);
-        return MA_SUCCESS;
+            double maxRatio = std::max(1.0, backend->ratio);
+            size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
+            size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
+            backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
+            backend->flushZeroFed = 0; // fresh filter state: tail flush is armed again
+            r8b_prime_filter(backend);
+            return MA_SUCCESS;
+        }
+        catch (...)
+        {
+            return MA_ERROR;
+        }
     }
 
     static ma_uint64 r8b_onGetInputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
         const R8brainBackend *backend = (const R8brainBackend *)pBackend;
-        if (!backend || backend->resamplers.empty() || !backend->resamplers[0])
+        if (!backend || std::fabs(backend->ratio - 1.0) < 1.0e-5 || backend->resamplers.empty() || !backend->resamplers[0])
             return 0;
         int lat = backend->resamplers[0]->getInLenBeforeOutPos(0);
         return (ma_uint64)(lat >= 0 ? lat : 0);
@@ -1238,7 +1292,7 @@ namespace
     static ma_uint64 r8b_onGetOutputLatency(void *pUserData, const ma_resampling_backend *pBackend)
     {
         const R8brainBackend *backend = (const R8brainBackend *)pBackend;
-        if (!backend || backend->resamplers.empty() || !backend->resamplers[0] || backend->ratio <= 0.0)
+        if (!backend || std::fabs(backend->ratio - 1.0) < 1.0e-5 || backend->resamplers.empty() || !backend->resamplers[0] || backend->ratio <= 0.0)
             return 0;
         int lat = backend->resamplers[0]->getLatency();
         return (ma_uint64)(lat >= 0 ? lat : 0);
@@ -1249,7 +1303,7 @@ namespace
         const R8brainBackend *backend = (const R8brainBackend *)pBackend;
         if (!pInputFrameCount)
             return MA_INVALID_ARGS;
-        if (!backend || backend->ratio <= 0.0)
+        if (!backend || backend->ratio <= 0.0 || std::fabs(backend->ratio - 1.0) < 1.0e-5)
         {
             *pInputFrameCount = outputFrameCount;
             return MA_SUCCESS;
@@ -1280,7 +1334,7 @@ namespace
         const R8brainBackend *backend = (const R8brainBackend *)pBackend;
         if (!pOutputFrameCount)
             return MA_INVALID_ARGS;
-        if (!backend || backend->ratio <= 0.0)
+        if (!backend || backend->ratio <= 0.0 || std::fabs(backend->ratio - 1.0) < 1.0e-5)
         {
             *pOutputFrameCount = inputFrameCount;
             return MA_SUCCESS;
@@ -1304,7 +1358,10 @@ namespace
             }
             backend->outputRing.reset();
             backend->flushZeroFed = 0;
-            r8b_prime_filter(backend);
+            if (std::fabs(backend->ratio - 1.0) >= 1.0e-5)
+            {
+                r8b_prime_filter(backend);
+            }
         }
         return MA_SUCCESS;
     }
@@ -4376,11 +4433,23 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         {
             const int activeAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
             e->currentResampleAlgorithm = activeAlgo;
+
+            // r8brain (algorithms 11, 12, or legacy mapped 7..10) uses large FFT convolution blocks
+            // with 180 dB stopband attenuation filters. In the real-time audio callback thread,
+            // executing non-1:1 r8brain causes bursty CPU loads and severe underrun risks on weak devices.
+            // High-quality non-1:1 r8brain resampling is performed off-thread in decode_producer_loop into
+            // the pcmRingBuffer. Inside the audio callback thread, r8brain is only permitted at 1:1 ratio
+            // (zero-allocation memcpy fast path). For device-rate conversion (plan.engineRate != plan.deviceRate),
+            // fallback to deterministic real-time linear resampler with a 4th-order lowpass filter.
+            const bool isIdentity = (plan.engineRate == plan.deviceRate);
+            const bool isR8brain = (activeAlgo == 11 || activeAlgo == 12 || (activeAlgo >= 7 && activeAlgo <= 10));
+            const int effectiveDeviceAlgo = (isR8brain && !isIdentity) ? 0 : activeAlgo;
+
             if (!e->deviceResamplerInit ||
                 e->deviceResamplerInRate != (int)plan.engineRate ||
                 e->deviceResamplerOutRate != (int)plan.deviceRate ||
                 e->deviceResamplerCh != ch ||
-                e->deviceResamplerAlgorithm != activeAlgo)
+                e->deviceResamplerAlgorithm != effectiveDeviceAlgo)
             {
                 if (e->deviceResamplerInit)
                 {
@@ -4394,10 +4463,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                     (ma_uint32)plan.deviceRate,
                     ma_resample_algorithm_linear
                 );
-                if (activeAlgo > 0)
+                rcfg.linear.lpfOrder = 4;
+                if (effectiveDeviceAlgo > 0)
                 {
                     rcfg.algorithm = ma_resample_algorithm_custom;
-                    rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(activeAlgo);
+                    rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(effectiveDeviceAlgo);
                     rcfg.pBackendUserData = &e->currentResampleAlgorithm;
                 }
                 if (ma_resampler_init(&rcfg, nullptr, &e->deviceResampler) == MA_SUCCESS)
@@ -4406,7 +4476,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
                     e->deviceResamplerInRate = (int)plan.engineRate;
                     e->deviceResamplerOutRate = (int)plan.deviceRate;
                     e->deviceResamplerCh = ch;
-                    e->deviceResamplerAlgorithm = activeAlgo;
+                    e->deviceResamplerAlgorithm = effectiveDeviceAlgo;
                 }
             }
         }
@@ -7885,9 +7955,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (e->deviceResamplerInit)
         {
             // Loop until the output block is full or resampler backend makes no progress.
-            // A single non-looped call can leave output shortfall when r8brain
-            // backend consumes at most maxInLen (4096) frames per call or has
-            // buffered frames in outputRing to drain.
+            // When device rate conversion is needed, deviceResampler runs a deterministic
+            // real-time linear resampler (or 1:1 identity r8brain memcpy) to prevent bursty
+            // FFT block processing on the real-time audio thread.
             const int srcCh = (e->channels > 0) ? e->channels : 2;
             const float *inPtr = processBuffer;
             float *outPtr = finalDstBuffer;
@@ -8756,8 +8826,8 @@ extern "C"
         apply_buffer_policy(e, cfg);
 
         // The OS hardware device handle uses standard miniaudio direct/linear fallback,
-        // while all internal track decoding & rate conversion use the high-precision
-        // r8brain 24-bit Minimum Phase / Sinc engine (e->pitchResampler & e->deviceResampler).
+        // while high-precision 24-bit r8brain resampling runs off-thread in the decode loop
+        // into the PCM ring buffer (r8brain operates strictly at 1:1 in the audio callback).
         cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
         if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
@@ -10825,7 +10895,7 @@ extern "C"
             cfg.pUserData = e;
 
             // The hardware device uses standard linear fallback, while Sautiflow's
-            // internal engine resamplers use r8brain 24-bit Minimum Phase (e->resampleAlgorithm).
+            // track decoders use r8brain off-thread into the ring buffer (callback r8brain strictly at 1:1).
             cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
             const int devResampAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
