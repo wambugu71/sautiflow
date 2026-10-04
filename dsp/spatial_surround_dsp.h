@@ -365,10 +365,11 @@ public:
         head_radius_cm_ = head_radius_cm;
         update();
 
-        if (!delay_.buf.empty() && last_radius_ != head_radius_cm_) {
-            delay_.init(128);
+        const uint32_t needed_itd = std::max(512u, static_cast<uint32_t>(sample_rate_ * 0.003f) + 16u);
+        if (!delay_.buf.empty() && (last_radius_ != head_radius_cm_ || delay_.buf.size() < needed_itd)) {
+            delay_.init(needed_itd);
         } else if (delay_.buf.empty()) {
-            delay_.init(128);
+            delay_.init(needed_itd);
         }
         last_radius_ = head_radius_cm_;
     }
@@ -812,9 +813,10 @@ private:
         rear_line_l_.init(static_cast<uint32_t>(35.0f * 0.001f * sample_rate_) + 16u);
         rear_line_r_.init(static_cast<uint32_t>(35.0f * 0.001f * sample_rate_) + 16u);
 
-        // Binaural Virtualizer ITD delay lines (up to ~64 samples)
-        binaural_itd_l_.init(64);
-        binaural_itd_r_.init(64);
+        // Binaural Virtualizer ITD delay lines (scaled for 192 kHz operation)
+        const uint32_t itd_buf_size = std::max(256u, static_cast<uint32_t>(sample_rate_ * 0.002f) + 16u);
+        binaural_itd_l_.init(itd_buf_size);
+        binaural_itd_r_.init(itd_buf_size);
 
         // Binaural Virtualizer Room 4-tap delay lines (delays ~8..35 ms)
         for (int i = 0; i < 4; ++i) {

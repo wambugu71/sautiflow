@@ -34,6 +34,8 @@ public:
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
+        // x[n]-x[n-1] ~ (dx/dt)/fs, so rescale to keep the 48 kHz-calibrated boost.
+        diff_rate_scale_ = sample_rate_ / 48000.0f;
         updateFilters();
         oversampler_.init(static_cast<int>(sample_rate_), 8192);
         oversampler4x_.init(static_cast<int>(sample_rate_), 8192);
@@ -136,6 +138,7 @@ private:
     float target_intensity_ = 0.5f;
     float current_intensity_ = 0.5f;
     float smoothing_coeff_ = 0.002f;
+    float diff_rate_scale_ = 1.0f;
     float anti_pop_ = 0.0f;
 
     // 2x and 4x Polyphase Half-Band Oversamplers for Harmonic Brilliance
@@ -156,7 +159,7 @@ private:
     void processTransientCrisp(float* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const float diff_scale = current_intensity_ * 1.5f;
+            const float diff_scale = current_intensity_ * 1.5f * diff_rate_scale_;
 
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];

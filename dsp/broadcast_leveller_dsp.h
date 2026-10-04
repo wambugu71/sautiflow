@@ -87,7 +87,7 @@ public:
         current_gain_linear_ = 1.0f;
         is_frozen_ = false;
         internal_sum_sq_ = 0.0;
-        internal_sample_count_ = 0;
+        internal_sample_count_ = 0.0;
         internal_short_term_lufs_ = -100.0f;
     }
 
@@ -163,27 +163,36 @@ private:
 
     template <typename T>
     float computeInternalLufs(const T *buf, size_t frame_count, int channels) {
+        double block_energy = 0.0;
         for (size_t i = 0; i < frame_count; ++i) {
             double frame_energy = 0.0;
             for (int c = 0; c < channels; ++c) {
                 double s = static_cast<double>(buf[i * (size_t)channels + c]);
                 frame_energy += s * s;
             }
-            internal_sum_sq_ += frame_energy / static_cast<double>(channels);
-            internal_sample_count_++;
+            block_energy += frame_energy / static_cast<double>(channels);
         }
 
-        if (internal_sample_count_ >= 2048) {
-            double mean_pwr = internal_sum_sq_ / static_cast<double>(internal_sample_count_);
+        // Exponentially-leaky mean-square. The time constant is half of the
+        // 3 s short-term window (equal-area to a rectangular 3 s window) and
+        // scales with the sample rate, so the detector never collapses to a
+        // few bass cycles at high rates. Dividing by the decayed count gives
+        // an unbiased mean during warm-up.
+        const double tau = static_cast<double>(internal_window_samples_) * 0.5;
+        const double decay = std::exp(-static_cast<double>(frame_count) / tau);
+        internal_sum_sq_ = internal_sum_sq_ * decay + block_energy;
+        internal_sample_count_ = internal_sample_count_ * decay + static_cast<double>(frame_count);
+
+        // Require ~94 ms of history (window/32) before trusting the estimate.
+        const double min_fill = static_cast<double>(internal_window_samples_) / 32.0;
+        if (internal_sample_count_ >= min_fill) {
+            const double mean_pwr = internal_sum_sq_ / internal_sample_count_;
             if (mean_pwr > 1.0e-10) {
                 // Approximate un-weighted short-term LUFS
                 internal_short_term_lufs_ = static_cast<float>(-0.691 + 10.0 * std::log10(mean_pwr));
             } else {
                 internal_short_term_lufs_ = -100.0f;
             }
-            // Leak integrator slightly (decay over ~3s)
-            internal_sum_sq_ *= 0.5;
-            internal_sample_count_ /= 2;
         }
         return internal_short_term_lufs_;
     }
@@ -243,7 +252,7 @@ private:
     // Fallback internal detector state
     size_t internal_window_samples_ = 48000 * 3;
     double internal_sum_sq_ = 0.0;
-    size_t internal_sample_count_ = 0;
+    double internal_sample_count_ = 0.0; // leaky (decayed) frame count
     float internal_short_term_lufs_ = -100.0f;
 };
 

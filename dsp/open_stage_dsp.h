@@ -137,8 +137,9 @@ public:
             currentMix_ += paramSmoothAlpha_ * (targetMix_ - currentMix_);
             currentGainLinear_ += paramSmoothAlpha_ * (targetGainLinear_ - currentGainLinear_);
 
-            if (std::abs(targetAngle_ - currentAngle_) > 0.02f) {
-                currentAngle_ += paramSmoothAlpha_ * (targetAngle_ - currentAngle_);
+            // Block-interpolate crossfeed angle updates every 32 samples instead of per-sample
+            if ((i & 31) == 0 && std::abs(targetAngle_ - currentAngle_) > 0.02f) {
+                currentAngle_ += std::min(1.0f, paramSmoothAlpha_ * 32.0f) * (targetAngle_ - currentAngle_);
                 updateFilters(currentAngle_);
             }
 

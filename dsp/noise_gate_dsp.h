@@ -40,6 +40,7 @@ public:
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
         sample_rate_ = sampleRate;
+        updateThresholds();
         updateTimeConstants();
         updateSidechainFilter();
     }
@@ -72,6 +73,7 @@ public:
         sidechain_hpf_hz_ = std::clamp(sidechain_hpf_hz, 20.0f, 1000.0f);
         floor_db_ = std::clamp(floor_db, -100.0f, -6.0f);
 
+        updateThresholds();
         updateTimeConstants();
         updateSidechainFilter();
     }
@@ -143,14 +145,16 @@ public:
                 sc_envelope_ += sc_env_release_coeff_ * (sc_abs - sc_envelope_);
             }
 
-            float sc_db = (sc_envelope_ > 1.0e-6f) ? (20.0f * std::log10(sc_envelope_)) : -120.0f;
+            // Linear-domain comparisons (thresholds precomputed; no log10 per sample)
+            const bool ge_open = sc_envelope_ >= open_threshold_lin_;
+            const bool lt_close = sc_envelope_ < close_threshold_lin_;
 
             // 4. Hysteresis State Machine
             float target_gain_linear = floor_lin;
 
             switch (state_) {
             case GateState::Closed:
-                if (sc_db >= open_threshold_db_) {
+                if (ge_open) {
                     state_ = GateState::Open;
                     target_gain_linear = 1.0f;
                 } else {
@@ -159,7 +163,7 @@ public:
                 break;
 
             case GateState::Open:
-                if (sc_db < close_threshold_db_) {
+                if (lt_close) {
                     if (hold_samples_total > 0) {
                         state_ = GateState::Holding;
                         hold_counter_ = hold_samples_total;
@@ -174,7 +178,7 @@ public:
                 break;
 
             case GateState::Holding:
-                if (sc_db >= open_threshold_db_) {
+                if (ge_open) {
                     state_ = GateState::Open;
                     target_gain_linear = 1.0f;
                 } else if (hold_counter_ > 0) {
@@ -229,13 +233,15 @@ public:
                 sc_envelope_ += sc_env_release_coeff_ * (sc_abs - sc_envelope_);
             }
 
-            float sc_db = (sc_envelope_ > 1.0e-6f) ? (20.0f * std::log10(sc_envelope_)) : -120.0f;
+            // Linear-domain comparisons (thresholds precomputed; no log10 per sample)
+            const bool ge_open = sc_envelope_ >= open_threshold_lin_;
+            const bool lt_close = sc_envelope_ < close_threshold_lin_;
 
             float target_gain_linear = static_cast<float>(floor_lin);
 
             switch (state_) {
             case GateState::Closed:
-                if (sc_db >= open_threshold_db_) {
+                if (ge_open) {
                     state_ = GateState::Open;
                     target_gain_linear = 1.0f;
                 } else {
@@ -244,7 +250,7 @@ public:
                 break;
 
             case GateState::Open:
-                if (sc_db < close_threshold_db_) {
+                if (lt_close) {
                     if (hold_samples_total > 0) {
                         state_ = GateState::Holding;
                         hold_counter_ = hold_samples_total;
@@ -259,7 +265,7 @@ public:
                 break;
 
             case GateState::Holding:
-                if (sc_db >= open_threshold_db_) {
+                if (ge_open) {
                     state_ = GateState::Open;
                     target_gain_linear = 1.0f;
                 } else if (hold_counter_ > 0) {
@@ -286,6 +292,11 @@ public:
     }
 
 private:
+    void updateThresholds() {
+        open_threshold_lin_ = std::pow(10.0f, open_threshold_db_ / 20.0f);
+        close_threshold_lin_ = std::pow(10.0f, close_threshold_db_ / 20.0f);
+    }
+
     void updateTimeConstants() {
         attack_coeff_ = 1.0f - std::exp(-1.0f / (attack_ms_ * 0.001f * sample_rate_));
         release_coeff_ = 1.0f - std::exp(-1.0f / (release_ms_ * 0.001f * sample_rate_));
@@ -316,6 +327,8 @@ private:
     // Parameters
     float open_threshold_db_ = -42.0f;
     float close_threshold_db_ = -48.0f;
+    float open_threshold_lin_ = 0.0079432823f;  // 10^(-42/20)
+    float close_threshold_lin_ = 0.0039810717f; // 10^(-48/20)
     float hold_ms_ = 80.0f;
     float attack_ms_ = 1.0f;
     float release_ms_ = 120.0f;

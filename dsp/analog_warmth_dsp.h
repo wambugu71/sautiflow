@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <vector>
 #include "oversampler.h"
 
 namespace sauti::dsp {
@@ -74,6 +75,9 @@ public:
         dc_x_r_ = 0.0f; dc_y_r_ = 0.0f;
         anti_pop_ = 0.0f;
         oversampler_.reset();
+        oversampler4x_.reset();
+        std::fill(dry_ring_.begin(), dry_ring_.end(), 0.0f);
+        dry_pos_ = 0;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -85,7 +89,34 @@ public:
     int getOversampling() const { return oversampling_factor_; }
     float getTapeDamping() const { return tape_damping_; }
 
+    // Public entry: records the dry history, then processes in chunks that fit
+    // the oversampler's pre-allocated capacity. The history is also kept warm
+    // while disabled so enabling crossfades from real preceding audio.
     void process(float* interleaved_samples, uint32_t frame_count) {
+        if (frame_count == 0 || !interleaved_samples) return;
+
+        if (!enabled_) {
+            while (frame_count > 0) {
+                const uint32_t n = std::min(frame_count, kChunkFrames);
+                pushDry(interleaved_samples, n);
+                interleaved_samples += 2 * static_cast<size_t>(n);
+                frame_count -= n;
+            }
+            return;
+        }
+
+        while (frame_count > 0) {
+            const uint32_t n = std::min(frame_count, kChunkFrames);
+            const uint32_t chunk_start = dry_pos_;
+            pushDry(interleaved_samples, n);
+            processChunk(interleaved_samples, n, chunk_start);
+            interleaved_samples += 2 * static_cast<size_t>(n);
+            frame_count -= n;
+        }
+    }
+
+private:
+    void processChunk(float* interleaved_samples, uint32_t frame_count, uint32_t chunk_start) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         if (oversampling_factor_ == 1) {
@@ -168,11 +199,11 @@ public:
         }
 
         // 4. Post-processing at native rate (DC blocking & anti-pop crossfading)
+        uint32_t tap_a = 0, tap_b = 0;
+        getDryTaps(tap_a, tap_b);
         for (uint32_t i = 0; i < frame_count; i++) {
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
-            float out_l = in_l;
-            float out_r = in_r;
+            float out_l = interleaved_samples[2 * i];
+            float out_r = interleaved_samples[2 * i + 1];
 
             if (profile_ == AnalogWarmthProfile::Triode12AX7) {
                 // The asymmetric triode transfer injects a DC bias. Block it per
@@ -181,10 +212,16 @@ public:
                 out_r = dc_block(out_r, dc_x_r_, dc_y_r_, dc_r_);
             }
 
-            // Anti-pop smooth crossfade on activation / preset change
+            // Anti-pop smooth crossfade on activation / preset change. The dry
+            // reference is delayed by the oversampler latency so both paths are
+            // time-aligned (no comb filtering while mixing).
             if (anti_pop_ < 1.0f) {
-                out_l = in_l + anti_pop_ * (out_l - in_l);
-                out_r = in_r + anti_pop_ * (out_r - in_r);
+                const uint32_t pa = (chunk_start + i - tap_a) & kDryRingMask;
+                const uint32_t pb = (chunk_start + i - tap_b) & kDryRingMask;
+                const float dry_l = 0.5f * (dry_ring_[2 * pa] + dry_ring_[2 * pb]);
+                const float dry_r = 0.5f * (dry_ring_[2 * pa + 1] + dry_ring_[2 * pb + 1]);
+                out_l = dry_l + anti_pop_ * (out_l - dry_l);
+                out_r = dry_r + anti_pop_ * (out_r - dry_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
@@ -219,6 +256,31 @@ private:
     float dc_x_l_ = 0.0f, dc_y_l_ = 0.0f;
     float dc_x_r_ = 0.0f, dc_y_r_ = 0.0f;
     float dc_r_ = 0.99869f;
+
+    // Dry-path history ring (stereo interleaved) used to align the dry signal
+    // with the oversampler's round-trip latency during anti-pop crossfades.
+    static constexpr uint32_t kDryRingFrames = 16384; // power of two
+    static constexpr uint32_t kDryRingMask = kDryRingFrames - 1;
+    static constexpr uint32_t kChunkFrames = 4096;   // matches oversampler init() capacity
+    std::vector<float> dry_ring_ = std::vector<float>(static_cast<size_t>(kDryRingFrames) * 2, 0.0f);
+    uint32_t dry_pos_ = 0;
+
+    void pushDry(const float* samples, uint32_t frames) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            const uint32_t p = (dry_pos_ + i) & kDryRingMask;
+            dry_ring_[2 * p] = samples[2 * i];
+            dry_ring_[2 * p + 1] = samples[2 * i + 1];
+        }
+        dry_pos_ = (dry_pos_ + frames) & kDryRingMask;
+    }
+
+    // Round-trip latency (native samples): 1x = 0, 2x = 26.5, 4x = 40.
+    // The fractional 2x delay is realised as the mean of the 26- and 27-sample taps.
+    void getDryTaps(uint32_t& tap_a, uint32_t& tap_b) const {
+        if (oversampling_factor_ >= 4) { tap_a = tap_b = 40; }
+        else if (oversampling_factor_ == 2) { tap_a = 26; tap_b = 27; }
+        else { tap_a = tap_b = 0; }
+    }
 
     // y[n] = x[n] - x[n-1] + R * y[n-1]
     static inline float dc_block(float x, float& x1, float& y1, float R) {

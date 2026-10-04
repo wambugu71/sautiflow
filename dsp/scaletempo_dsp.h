@@ -57,6 +57,14 @@ public:
         m_inputBuffer.clear();
         m_outputBuffer.clear();
         m_monoInput.clear();
+        m_inHead = 0;
+        m_outHead = 0;
+
+        // Reserve up-front (~2 s of audio) so steady-state callbacks never malloc.
+        const size_t reserveSamples = (size_t)m_sampleRate * (size_t)m_channels * 2;
+        m_inputBuffer.reserve(reserveSamples);
+        m_outputBuffer.reserve(reserveSamples);
+        m_monoInput.reserve((size_t)m_sampleRate * 2);
         m_monoOverlap.assign(m_overlapFrames, 0.0f);
         m_monoOverlapMean = 0.0f;
         m_monoOverlapVar = 0.0f;
@@ -71,6 +79,8 @@ public:
     {
         m_inputBuffer.clear();
         m_outputBuffer.clear();
+        m_inHead = 0;
+        m_outHead = 0;
         if (m_channels > 0 && m_overlapFrames > 0)
         {
             m_overlapBuffer.assign(m_overlapFrames * m_channels, 0.0f);
@@ -119,6 +129,12 @@ public:
             return;
 
         const size_t numSamples = inputFrames * m_channels;
+        // Compact only when the consumed prefix dominates or capacity would be exceeded.
+        if (m_inHead > 0 &&
+            (m_inHead * 2 >= m_inputBuffer.size() || m_inputBuffer.size() + numSamples > m_inputBuffer.capacity()))
+        {
+            compactInput();
+        }
         const size_t oldSize = m_inputBuffer.size();
         m_inputBuffer.resize(oldSize + numSamples);
         std::memcpy(m_inputBuffer.data() + oldSize, input, numSamples * sizeof(float));
@@ -137,23 +153,19 @@ public:
         if (!m_initialized || output == nullptr || maxFrames == 0)
             return 0;
 
-        const size_t availableFrames = m_outputBuffer.size() / m_channels;
+        const size_t availableFrames = (m_outputBuffer.size() - m_outHead) / m_channels;
         const size_t framesToRead = std::min(maxFrames, availableFrames);
         if (framesToRead == 0)
             return 0;
 
         const size_t samplesToRead = framesToRead * m_channels;
-        std::memcpy(output, m_outputBuffer.data(), samplesToRead * sizeof(float));
+        std::memcpy(output, m_outputBuffer.data() + m_outHead, samplesToRead * sizeof(float));
 
-        const size_t remainingSamples = m_outputBuffer.size() - samplesToRead;
-        if (remainingSamples > 0)
-        {
-            std::memmove(m_outputBuffer.data(), m_outputBuffer.data() + samplesToRead, remainingSamples * sizeof(float));
-            m_outputBuffer.resize(remainingSamples);
-        }
-        else
+        m_outHead += samplesToRead;
+        if (m_outHead >= m_outputBuffer.size())
         {
             m_outputBuffer.clear();
+            m_outHead = 0;
         }
 
         return framesToRead;
@@ -163,14 +175,14 @@ public:
     {
         if (!m_initialized || m_channels == 0)
             return 0;
-        return m_outputBuffer.size() / m_channels;
+        return (m_outputBuffer.size() - m_outHead) / m_channels;
     }
 
     size_t availableInputFrames() const
     {
         if (!m_initialized || m_channels == 0)
             return 0;
-        return m_inputBuffer.size() / m_channels;
+        return inputSamples() / m_channels;
     }
 
 private:
@@ -180,13 +192,13 @@ private:
         // we can transfer frames directly from input to output.
         if (std::abs(m_scale - 1.0f) < 0.001f && !m_hasOverlap)
         {
-            const size_t inSamples = m_inputBuffer.size();
+            const size_t inSamples = inputSamples();
             if (inSamples > 0)
             {
-                const size_t outOld = m_outputBuffer.size();
-                m_outputBuffer.resize(outOld + inSamples);
-                std::memcpy(m_outputBuffer.data() + outOld, m_inputBuffer.data(), inSamples * sizeof(float));
+                float *dst = appendOutput(inSamples);
+                std::memcpy(dst, inputData(), inSamples * sizeof(float));
                 m_inputBuffer.clear();
+                m_inHead = 0;
                 m_nominalPosition = 0.0;
             }
             return;
@@ -194,7 +206,7 @@ private:
 
         while (true)
         {
-            const size_t totalInputFrames = m_inputBuffer.size() / m_channels;
+            const size_t totalInputFrames = inputSamples() / m_channels;
 
             if (!m_hasOverlap)
             {
@@ -203,13 +215,12 @@ private:
 
                 // Prime initial stride: output first stride directly and store overlap
                 const size_t copyFrames = m_strideFrames;
-                const size_t outOld = m_outputBuffer.size();
-                m_outputBuffer.resize(outOld + copyFrames * m_channels);
-                std::memcpy(m_outputBuffer.data() + outOld, m_inputBuffer.data(), copyFrames * m_channels * sizeof(float));
+                float *primeOut = appendOutput(copyFrames * m_channels);
+                std::memcpy(primeOut, inputData(), copyFrames * m_channels * sizeof(float));
 
                 // Save tail for overlap
                 const size_t overlapOffset = (m_strideFrames - m_overlapFrames) * m_channels;
-                std::memcpy(m_overlapBuffer.data(), m_inputBuffer.data() + overlapOffset, m_overlapFrames * m_channels * sizeof(float));
+                std::memcpy(m_overlapBuffer.data(), inputData() + overlapOffset, m_overlapFrames * m_channels * sizeof(float));
                 updateMonoOverlap();
 
                 // Advance by stride
@@ -265,10 +276,8 @@ private:
             }
 
             // Perform WSOLA overlap-add into output buffer
-            const size_t outOld = m_outputBuffer.size();
-            m_outputBuffer.resize(outOld + m_stepFrames * m_channels);
-            float *outPtr = m_outputBuffer.data() + outOld;
-            const float *inPtr = m_inputBuffer.data() + (bestOffset * m_channels);
+            float *outPtr = appendOutput(m_stepFrames * m_channels);
+            const float *inPtr = inputData() + (bestOffset * m_channels);
 
             // 1. Crossfade the overlap region (first overlapFrames)
             // Note: overlap from previous block was stored in m_overlapBuffer
@@ -308,17 +317,15 @@ private:
     {
         if (frames == 0)
             return;
-        const size_t totalFrames = m_inputBuffer.size() / m_channels;
+        const size_t totalFrames = inputSamples() / m_channels;
         if (frames >= totalFrames)
         {
             m_inputBuffer.clear();
+            m_inHead = 0;
             return;
         }
 
-        const size_t samplesToDrop = frames * m_channels;
-        const size_t remainingSamples = m_inputBuffer.size() - samplesToDrop;
-        std::memmove(m_inputBuffer.data(), m_inputBuffer.data() + samplesToDrop, remainingSamples * sizeof(float));
-        m_inputBuffer.resize(remainingSamples);
+        m_inHead += frames * m_channels;
     }
 
     void updateMonoOverlap()
@@ -349,9 +356,10 @@ private:
 
     void updateMonoInput(size_t neededFrames)
     {
-        const size_t curFrames = m_inputBuffer.size() / m_channels;
+        const size_t curFrames = inputSamples() / m_channels;
         const size_t count = std::min(neededFrames, curFrames);
         m_monoInput.resize(count);
+        const float *src = inputData();
 
         const float invCh = 1.0f / (float)m_channels;
         for (size_t i = 0; i < count; ++i)
@@ -359,7 +367,7 @@ private:
             float sum = 0.0f;
             for (int c = 0; c < m_channels; ++c)
             {
-                sum += m_inputBuffer[i * m_channels + c];
+                sum += src[i * m_channels + c];
             }
             m_monoInput[i] = sum * invCh;
         }
@@ -437,6 +445,42 @@ private:
     std::vector<float> m_inputBuffer;
     std::vector<float> m_monoInput;
     std::vector<float> m_outputBuffer;
+
+    // Read heads (in samples) into the linear buffers. Consuming data advances
+    // the head instead of memmove-ing on every callback; compaction is amortized.
+    size_t m_inHead = 0;
+    size_t m_outHead = 0;
+
+    const float *inputData() const { return m_inputBuffer.data() + m_inHead; }
+    size_t inputSamples() const { return m_inputBuffer.size() - m_inHead; }
+
+    void compactInput()
+    {
+        if (m_inHead == 0)
+            return;
+        const size_t remaining = m_inputBuffer.size() - m_inHead;
+        if (remaining > 0)
+            std::memmove(m_inputBuffer.data(), m_inputBuffer.data() + m_inHead, remaining * sizeof(float));
+        m_inputBuffer.resize(remaining);
+        m_inHead = 0;
+    }
+
+    // Appends `samples` zero-initialised samples to the output; returns write pointer.
+    float *appendOutput(size_t samples)
+    {
+        if (m_outHead > 0 &&
+            (m_outHead * 2 >= m_outputBuffer.size() || m_outputBuffer.size() + samples > m_outputBuffer.capacity()))
+        {
+            const size_t remaining = m_outputBuffer.size() - m_outHead;
+            if (remaining > 0)
+                std::memmove(m_outputBuffer.data(), m_outputBuffer.data() + m_outHead, remaining * sizeof(float));
+            m_outputBuffer.resize(remaining);
+            m_outHead = 0;
+        }
+        const size_t old = m_outputBuffer.size();
+        m_outputBuffer.resize(old + samples);
+        return m_outputBuffer.data() + old;
+    }
 };
 
 } // namespace dsp

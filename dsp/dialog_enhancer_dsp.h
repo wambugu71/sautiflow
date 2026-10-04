@@ -155,6 +155,7 @@ public:
 
         speech_energy_env_ = 0.0f;
         last_ducking_reduction_db_ = 0.0f;
+        peak_atten_ = 1.0f;
         anti_pop_ = 0.0f;
 
         recalcBiquads();
@@ -167,6 +168,7 @@ public:
         ScopedDenormalsDisable denormals;
 
         const float anti_pop_step = 1.0f / (0.015f * sample_rate_); // 15ms anti-pop ramp
+        const float atten_release_coeff = 1.0f - std::exp(-1.0f / (0.050f * sample_rate_)); // 50 ms
 
         for (uint32_t i = 0; i < frame_count; ++i) {
             // 1. Parameter de-zippering / smoothing
@@ -238,10 +240,18 @@ public:
 
             // Dynamic headroom attenuation: prevents internal digital clipping on high-level voice tracks
             const float estimated_mid_peak = std::max(speech_energy_env_, std::fabs(mid_enhanced)) * (mid_gain * headroom_comp_);
-            float dynamic_atten = 1.0f;
+            float target_atten = 1.0f;
             if (estimated_mid_peak > 0.95f) {
-                dynamic_atten = 0.95f / estimated_mid_peak;
+                target_atten = 0.95f / estimated_mid_peak;
             }
+            // Instant attack guarantees the ceiling; smooth release avoids the
+            // per-sample gain jumps that flat-top waveforms (odd harmonics).
+            if (target_atten < peak_atten_) {
+                peak_atten_ = target_atten;
+            } else {
+                peak_atten_ += atten_release_coeff * (target_atten - peak_atten_);
+            }
+            const float dynamic_atten = peak_atten_;
 
             // Apply mid gain scaled by automatic headroom compensation and dynamic attenuation
             float out_mid = mid_enhanced * (mid_gain * headroom_comp_ * dynamic_atten);
@@ -391,6 +401,9 @@ private:
     float speech_energy_env_ = 0.0f;
     float last_ducking_reduction_db_ = 0.0f;
     float anti_pop_ = 0.0f;
+
+    // Smoothed headroom-protection gain (1.0 = no attenuation).
+    float peak_atten_ = 1.0f;
 };
 
 } // namespace sauti::dsp

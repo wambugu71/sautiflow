@@ -168,6 +168,17 @@ public:
 
     // Process 32-bit float interleaved samples in-place
     void process(float *buffer, size_t frame_count, int channels) {
+        processImpl(buffer, frame_count, channels);
+    }
+
+    // Process 64-bit double interleaved samples in-place
+    void process(double *buffer, size_t frame_count, int channels) {
+        processImpl(buffer, frame_count, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *buffer, size_t frame_count, int channels) {
         if (!enabled_ || buffer == nullptr || frame_count == 0 || channels <= 0) {
             return;
         }
@@ -180,6 +191,21 @@ public:
         const double flutter_amp = (static_cast<double>(flutter_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
         const double drift_amp = (static_cast<double>(drift_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
         const double phase_offset = static_cast<double>(stereo_phase_deg_) * (3.14159265358979323846 / 180.0);
+
+        // Per-channel offset rotation terms (constant for the whole block).
+        std::array<double, kMaxChannels> off_cos{}, off_sin{}, off15_cos{}, off15_sin{};
+        for (size_t c = 0; c < kMaxChannels; ++c) {
+            double o = 0.0;
+            if (c == 1 || c == 5 || c == 7) {
+                o = phase_offset;
+            } else if (c == 2 || c == 3) {
+                o = phase_offset * 0.5;
+            }
+            off_cos[c] = std::cos(o);
+            off_sin[c] = std::sin(o);
+            off15_cos[c] = std::cos(o * 1.5);
+            off15_sin[c] = std::sin(o * 1.5);
+        }
 
         for (size_t i = 0; i < frame_count; ++i) {
             // 1. Advance LFOs
@@ -204,18 +230,16 @@ public:
             }
 
             // 3. Read interpolated delayed samples per channel
-            for (size_t c = 0; c < ch; ++c) {
-                double ch_phase_offset = 0.0;
-                if (c == 1 || c == 5 || c == 7) {
-                    ch_phase_offset = phase_offset;
-                } else if (c == 2 || c == 3) {
-                    ch_phase_offset = phase_offset * 0.5;
-                } else {
-                    ch_phase_offset = 0.0;
-                }
+            // sin(p + o) = sin(p)cos(o) + cos(p)sin(o): one sincos per LFO per
+            // sample instead of one std::sin per LFO per channel.
+            const double wow_s = std::sin(wow_phase_);
+            const double wow_c = std::cos(wow_phase_);
+            const double flt_s = std::sin(flutter_phase_);
+            const double flt_c = std::cos(flutter_phase_);
 
-                const double wow_mod = std::sin(wow_phase_ + ch_phase_offset) * wow_amp;
-                const double flutter_mod = std::sin(flutter_phase_ + ch_phase_offset * 1.5) * flutter_amp;
+            for (size_t c = 0; c < ch; ++c) {
+                const double wow_mod = (wow_s * off_cos[c] + wow_c * off_sin[c]) * wow_amp;
+                const double flutter_mod = (flt_s * off15_cos[c] + flt_c * off15_sin[c]) * flutter_amp;
                 const double drift_mod = drift_val_ * drift_amp;
 
                 const double total_delay = std::clamp(nominal_delay_samples + wow_mod + flutter_mod + drift_mod,
@@ -244,92 +268,13 @@ public:
                     delayed = hf_state_[c];
                 }
 
-                buffer[i * (size_t)channels + c] = static_cast<float>(delayed);
+                buffer[i * (size_t)channels + c] = static_cast<T>(delayed);
             }
 
             write_pos_ = (write_pos_ + 1) & kBufferMask;
         }
     }
 
-    // Process 64-bit double interleaved samples in-place
-    void process(double *buffer, size_t frame_count, int channels) {
-        if (!enabled_ || buffer == nullptr || frame_count == 0 || channels <= 0) {
-            return;
-        }
-
-        const size_t ch = std::min(static_cast<size_t>(channels), kMaxChannels);
-        ScopedDenormalsDisable denormalGuard;
-
-        const double nominal_delay_samples = 0.015 * static_cast<double>(sample_rate_);
-        const double wow_amp = (static_cast<double>(wow_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double flutter_amp = (static_cast<double>(flutter_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double drift_amp = (static_cast<double>(drift_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double phase_offset = static_cast<double>(stereo_phase_deg_) * (3.14159265358979323846 / 180.0);
-
-        for (size_t i = 0; i < frame_count; ++i) {
-            wow_phase_ += wow_phase_inc_;
-            if (wow_phase_ >= 6.283185307179586) wow_phase_ -= 6.283185307179586;
-
-            flutter_phase_ += flutter_phase_inc_;
-            if (flutter_phase_ >= 6.283185307179586) flutter_phase_ -= 6.283185307179586;
-
-            if (++drift_counter_ >= drift_update_interval_) {
-                drift_counter_ = 0;
-                drift_seed_ = (drift_seed_ * 1103515245u + 12345u) & 0x7fffffffu;
-                drift_target_ = (static_cast<double>(drift_seed_) / 1073741824.0) - 1.0;
-            }
-            drift_val_ += 0.0005 * (drift_target_ - drift_val_);
-
-            for (size_t c = 0; c < ch; ++c) {
-                buffer_[c * kBufferSize + write_pos_] = buffer[i * (size_t)channels + c];
-            }
-
-            for (size_t c = 0; c < ch; ++c) {
-                double ch_phase_offset = 0.0;
-                if (c == 1 || c == 5 || c == 7) {
-                    ch_phase_offset = phase_offset;
-                } else if (c == 2 || c == 3) {
-                    ch_phase_offset = phase_offset * 0.5;
-                } else {
-                    ch_phase_offset = 0.0;
-                }
-
-                const double wow_mod = std::sin(wow_phase_ + ch_phase_offset) * wow_amp;
-                const double flutter_mod = std::sin(flutter_phase_ + ch_phase_offset * 1.5) * flutter_amp;
-                const double drift_mod = drift_val_ * drift_amp;
-
-                const double total_delay = std::clamp(nominal_delay_samples + wow_mod + flutter_mod + drift_mod,
-                                                      2.0, static_cast<double>(kBufferSize - 8));
-
-                const double read_pos = static_cast<double>(write_pos_) - total_delay;
-                const int64_t i_read = static_cast<int64_t>(std::floor(read_pos));
-                const double frac = read_pos - static_cast<double>(i_read);
-
-                const size_t idx_m1 = static_cast<size_t>(i_read - 1) & kBufferMask;
-                const size_t idx_0  = static_cast<size_t>(i_read)     & kBufferMask;
-                const size_t idx_p1 = static_cast<size_t>(i_read + 1) & kBufferMask;
-                const size_t idx_p2 = static_cast<size_t>(i_read + 2) & kBufferMask;
-
-                const double ym1 = buffer_[c * kBufferSize + idx_m1];
-                const double y0  = buffer_[c * kBufferSize + idx_0];
-                const double y1  = buffer_[c * kBufferSize + idx_p1];
-                const double y2  = buffer_[c * kBufferSize + idx_p2];
-
-                double delayed = hermite4(ym1, y0, y1, y2, frac);
-
-                if (hf_damping_hz_ < 20000.0f) {
-                    hf_state_[c] += hf_alpha_ * (delayed - hf_state_[c]);
-                    delayed = hf_state_[c];
-                }
-
-                buffer[i * (size_t)channels + c] = delayed;
-            }
-
-            write_pos_ = (write_pos_ + 1) & kBufferMask;
-        }
-    }
-
-private:
     static inline double hermite4(double ym1, double y0, double y1, double y2, double frac) {
         const double c0 = y0;
         const double c1 = 0.5 * (y1 - ym1);

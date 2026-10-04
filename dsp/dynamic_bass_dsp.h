@@ -161,7 +161,10 @@ public:
     bool isAntiPopEnabled() const { return anti_pop_enabled_; }
 
     void setMonoMode(bool mono) {
-        mono_mode_ = mono;
+        if (mono_mode_ != mono) {
+            mono_mode_ = mono;
+            updateFilters();
+        }
     }
 
     bool isMonoMode() const { return mono_mode_; }
@@ -689,16 +692,30 @@ private:
             tmp_r = sub_peak_low_r_.process(tmp_r);
             tmp_r = sub_lowpass_r_.process(tmp_r - in_r);
 
-            // 3. Mono-anchored subwoofer excursion energy
-            float sub_mono = static_cast<float>((tmp_l + tmp_r) * 0.5) * 0.6f;
+            if (mono_mode_) {
+                // 3. Mono-anchored subwoofer excursion energy
+                float sub_mono = static_cast<float>((tmp_l + tmp_r) * 0.5) * 0.6f;
 
-            if (anti_pop_ < 1.0f) {
-                sub_mono *= anti_pop_;
-                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                if (anti_pop_ < 1.0f) {
+                    sub_mono *= anti_pop_;
+                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                }
+
+                // Mix subwoofer differential into output with rational soft-clipping
+                shapeMix(sub_mono, samples, i);
+            } else {
+                // Stereo-preserving injection: keeps spatial cues for open-back headphones
+                float sub_l = static_cast<float>(tmp_l) * 0.6f;
+                float sub_r = static_cast<float>(tmp_r) * 0.6f;
+
+                if (anti_pop_ < 1.0f) {
+                    sub_l *= anti_pop_;
+                    sub_r *= anti_pop_;
+                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                }
+
+                shapeMixStereo(sub_l, sub_r, samples, i);
             }
-
-            // Mix subwoofer differential into output with rational soft-clipping
-            shapeMix(sub_mono, samples, i);
         }
     }
 
@@ -899,8 +916,9 @@ private:
         sub_peak_low_l_.refreshFilter(MultiBiquadFilter::PEAK, gain_lower_db, 80.0f, sample_rate_, 0.2f, true);
         sub_peak_low_r_.refreshFilter(MultiBiquadFilter::PEAK, gain_lower_db, 80.0f, sample_rate_, 0.2f, true);
 
-        sub_lowpass_l_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, 380.0f, sample_rate_, 0.6f, false);
-        sub_lowpass_r_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, 380.0f, sample_rate_, 0.6f, false);
+        const float sub_lp_fc = mono_mode_ ? 380.0f : 80.0f;
+        sub_lowpass_l_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, sub_lp_fc, sample_rate_, 0.6f, false);
+        sub_lowpass_r_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, sub_lp_fc, sample_rate_, 0.6f, false);
 
         // 3. Psychoacoustic Bass Filters (Cutoff Lowpass + Cutoff Highpass)
         const float harm_cutoff = std::clamp(cutoff_hz_, 60.0f, 150.0f);

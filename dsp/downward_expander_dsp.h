@@ -186,6 +186,9 @@ public:
         }
 
         const float half_knee = knee_db_ * 0.5f;
+        // Envelope level at/above which reduction is exactly 0 dB.
+        const float no_reduction_lin = std::pow(10.0f, (threshold_db_ + half_knee) / 20.0f);
+        constexpr float kDbToNeper = 0.11512925464970229f; // ln(10) / 20
         const SimdDouble2 vb0(hp_b0_);
         const SimdDouble2 vb1(hp_b1_);
         const SimdDouble2 vb2(hp_b2_);
@@ -229,12 +232,12 @@ public:
                 envelope_ += release_coeff_ * (peak - envelope_);
             }
 
-            // Convert envelope to dBFS
-            float env_db = (envelope_ > 1e-6f) ? 20.0f * std::log10(envelope_) : -120.0f;
-
-            // 3. Smooth Soft-Knee Downward Expansion Gain Computer
             float target_gr_db = 0.0f;
-            float delta = env_db - threshold_db_;
+            const bool env_above_knee = envelope_ >= no_reduction_lin;
+            if (!env_above_knee) {
+            // Convert envelope to dBFS (only needed at/below the knee)
+            const float env_db = (envelope_ > 1e-6f) ? 20.0f * std::log10(envelope_) : -120.0f;
+            const float delta = env_db - threshold_db_;
 
             if (knee_db_ > 0.0f && delta > -half_knee && delta < half_knee) {
                 // Soft-knee transition zone: quadratic interpolation
@@ -245,12 +248,20 @@ public:
                 // Linear downward expansion region below threshold
                 target_gr_db = (ratio_ - 1.0f) * delta;
             }
+            }
 
             // Clamp by user-defined floor / range limit (e.g. max -16 dB reduction)
             target_gr_db = std::clamp(target_gr_db, max_reduction_db_, 0.0f);
 
             // Compute target linear gain with anti-pop bypass crossfade
-            float target_gain_linear = std::pow(10.0f, (target_gr_db * anti_pop_) / 20.0f);
+
+            float target_gain_linear = 1.0f;
+            if (env_above_knee) {
+                // No reduction: gain is exactly unity, no log10/pow needed.
+                target_gain_linear = 1.0f;
+            } else {
+                target_gain_linear = std::exp(kDbToNeper * (target_gr_db * anti_pop_));
+            }
 
             // 4. Per-sample smooth gain application (eliminates zipper noise)
             gain_linear_ += smoothing_coeff_ * (target_gain_linear - gain_linear_);

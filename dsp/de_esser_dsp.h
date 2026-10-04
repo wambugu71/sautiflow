@@ -305,15 +305,16 @@ public:
 
             // 4. Output Processing based on Mode
             if (mode_ == DeEsserMode::SplitBand) {
-                // Dynamic High-Shelf Filter
-                updateShelfCoeffs(-current_gr_db_);
-
-                // Continuous parameter interpolation prevents biquad coefficient stepping
-                shelf_b0_ += coeff_interp_coeff_ * (tgt_shelf_b0_ - shelf_b0_);
-                shelf_b1_ += coeff_interp_coeff_ * (tgt_shelf_b1_ - shelf_b1_);
-                shelf_b2_ += coeff_interp_coeff_ * (tgt_shelf_b2_ - shelf_b2_);
-                shelf_a1_ += coeff_interp_coeff_ * (tgt_shelf_a1_ - shelf_a1_);
-                shelf_a2_ += coeff_interp_coeff_ * (tgt_shelf_a2_ - shelf_a2_);
+                // Update shelf coefficients on 32-sample sub-block intervals to prevent
+                // Direct Form denominator pole slewing through unstable trajectories.
+                if ((i & 31) == 0) {
+                    updateShelfCoeffs(-current_gr_db_);
+                    shelf_b0_ = tgt_shelf_b0_;
+                    shelf_b1_ = tgt_shelf_b1_;
+                    shelf_b2_ = tgt_shelf_b2_;
+                    shelf_a1_ = tgt_shelf_a1_;
+                    shelf_a2_ = tgt_shelf_a2_;
+                }
 
                 float s_l = shelf_b0_ * in_l + shelf_b1_ * shelf_x1_l_ + shelf_b2_ * shelf_x2_l_
                           - shelf_a1_ * shelf_y1_l_ - shelf_a2_ * shelf_y2_l_;
