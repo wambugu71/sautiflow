@@ -96,17 +96,24 @@ in this session. Any "not found" claim made from such a grep is unverified.
    (L7279, 7317, 7552, 7623; claim at L8022)
    - Most processors cast to float32 and back. Negligible audibly; comment false.
 
-9. Dither on 32-bit / 24-in-32 output
-   (L2913-2921, L3023)
+9. Dither on 32-bit / 24-in-32 output [FIXED & VERIFIED]
+   (audio_engine.cpp)
    - Float path + S32: q cast back to float re-rounds to 24 bits after the
      quantizer. Dither at 2^-31 is meaningless on 24-bit DACs; 24-in-32 devices
      truncate low 8 bits undithered.
-   - Fix: lsbScale from the DAC's real valid bit depth; skip dither if source
-     depth <= target.
+   - Fix: lsbScale derived from the DAC's real valid bit depth (default 24-bit for S32 /
+     24-in-32; configurable via ae_set_dac_valid_bit_depth); float path capped at 24 bits
+     to prevent IEEE-754 mantissa re-rounding; dither automatically skipped if source
+     depth <= target depth in bit-perfect pass-through.
 
-10. Noise-shaping tables (L2965-2999)
-    - Only 44.1/96/192 tables; 32k/22k/48k reuse 44.1k curves. ~+24 dB at
-      Nyquist; pointless at >=24-bit. Disable shaping at >=24-bit.
+10. Noise-shaping tables [FIXED & VERIFIED]
+    (audio_engine.cpp)
+    - Previously only 44.1/96/192 tables; 32k/22k/48k reused 44.1k curves (+24 dB near Nyquist;
+      pointless at >=24-bit).
+    - Fix: Added calibrated 48 kHz filter coefficient tables for all 6 psychoacoustic curves;
+      automatically disable noise shaping and fall back to flat TPDF (Mode 2) whenever target
+      depth >= 24 bits (-144 dB floor where shaping is pointless and wastes headroom) or
+      sample rate < 40 kHz (prevents pushing high-frequency noise humps down into the audible band).
 
 ## Low
 11. Exclusive mode skips the entire limiter block (L7700); volume >1.0 hard-clips

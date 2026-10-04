@@ -1486,6 +1486,200 @@ static void test_ffmpeg_swr_options_and_midstream_p05_p06()
     av_channel_layout_uninit(&outLayout);
 }
 
+static void test_dither_24in32_and_noise_shaping_fixes()
+{
+    std::printf("\n== Dither on 24-in-32 Output & Calibrated Noise Shaping (Items 9 & 10) ==\n");
+
+    // 1. DAC Valid Bit Depth API and Auto-Sync
+    {
+        AudioEngineHandle *e = ae_create_engine(48000, 2);
+        CHECK(e != nullptr, "Engine created for DAC valid bit depth test");
+
+        // Initial default should be 24 (the standard physical DAC bit depth)
+        int initialDepth = ae_get_dac_valid_bit_depth(e);
+        CHECK(initialDepth == 24, "Initial DAC valid bit depth defaults to 24-bit");
+
+        // Set to 32 (true 32-bit DAC)
+        ae_set_dac_valid_bit_depth(e, 32);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 32, "DAC valid bit depth updated to 32");
+
+        // Set to 16
+        ae_set_dac_valid_bit_depth(e, 16);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 16, "DAC valid bit depth updated to 16");
+
+        // Auto resync (0 = auto)
+        ae_set_dac_valid_bit_depth(e, 0);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 24, "ae_set_dac_valid_bit_depth(0) resyncs to default 24-bit");
+
+        // Check hardware info reporting
+        AEHardwareInfo info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth > 0, "ae_get_hardware_info reports valid bit depth");
+
+        ae_destroy_engine(e);
+    }
+
+    // 2. Float path + S32: 24-in-32 output verification
+    // Quantizing in 32-bit float to 24-in-32: samples are multiples of 2^-23.
+    // Downstream S32 conversion (src * 2147483648.0) produces exact multiples of 256.
+    // The lowest 8 bits MUST be zero (0x00) for every sample!
+    {
+        AEResampler *r = ae_resampler_create(
+            AE_FORMAT_S32, 2, 44100, 44100,
+            AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, AE_DITHER_MODE_TRIANGLE);
+        CHECK(r != nullptr, "Resampler created with S32 output and TPDF dither");
+
+        const uint64_t inFrames = 1024;
+        std::vector<int32_t> inData(inFrames * 2, 0);
+        for (size_t i = 0; i < inFrames; ++i)
+        {
+            // Low-level test signal (-60 dB)
+            float s = 0.001f * std::sin(2.0f * (float)M_PI * 440.0f * (float)i / 44100.0f);
+            inData[i * 2 + 0] = (int32_t)(s * 2147483647.0f);
+            inData[i * 2 + 1] = (int32_t)(s * 2147483647.0f);
+        }
+
+        std::vector<int32_t> outData(inFrames * 2, 0);
+        uint64_t actualIn = inFrames;
+        uint64_t actualOut = inFrames;
+
+        int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+        CHECK(ret == 1, "S32 resampler process succeeded");
+        CHECK(actualOut > 0, "Produced S32 output frames");
+
+        bool allLow8Zero = true;
+        bool hasDitherEnergy = false;
+        for (size_t i = 0; i < actualOut * 2; ++i)
+        {
+            int32_t sample = outData[i];
+            if ((sample & 0xFF) != 0)
+            {
+                allLow8Zero = false;
+                break;
+            }
+            if (sample != 0)
+            {
+                hasDitherEnergy = true;
+            }
+        }
+        CHECK(allLow8Zero, "24-in-32 output: lowest 8 bits strictly zero (no undithered low-byte truncation or float re-rounding)");
+        CHECK(hasDitherEnergy, "24-in-32 output contains non-zero dithered signal energy");
+
+        ae_resampler_destroy(r);
+    }
+
+    // 3. Noise-shaping disabled at >= 24-bit (falls back to flat TPDF)
+    // Mode 3 (Lipshitz noise shaping) on S32 output:
+    // Because targetDepth >= 24, noise shaping must be disabled and fall back to flat TPDF (Mode 2)
+    // to avoid wasted ultrasonic headroom (+24 dB near Nyquist).
+    {
+        AEResampler *r = ae_resampler_create(
+            AE_FORMAT_S32, 2, 44100, 44100,
+            AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, AE_DITHER_MODE_LIPSHITZ);
+        CHECK(r != nullptr, "Resampler created with S32 output and Lipshitz noise shaping mode");
+
+        const uint64_t inFrames = 1024;
+        std::vector<int32_t> inData(inFrames * 2, 0);
+        std::vector<int32_t> outData(inFrames * 2, 0);
+        uint64_t actualIn = inFrames;
+        uint64_t actualOut = inFrames;
+
+        int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+        CHECK(ret == 1, "S32 noise-shaped resampler process succeeded (fallback to flat TPDF)");
+
+        bool allLow8Zero = true;
+        for (size_t i = 0; i < actualOut * 2; ++i)
+        {
+            int32_t sample = outData[i];
+            if ((sample & 0xFF) != 0) allLow8Zero = false;
+        }
+        CHECK(allLow8Zero, "S32 noise-shaping fallback maintains 24-in-32 alignment (low 8 bits == 0)");
+
+        ae_resampler_destroy(r);
+    }
+
+    // 4. Noise-shaping disabled at sample rates < 40000 Hz (falls back to flat TPDF)
+    // At 32000 Hz or 22050 Hz, 44.1k curves would shift the +24 dB noise peak into audible range (< 15 kHz).
+    // The processor must automatically fall back to flat TPDF.
+    {
+        AEResampler *r = ae_resampler_create(
+            AE_FORMAT_S16, 2, 32000, 32000,
+            AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, AE_DITHER_MODE_SHIBATA);
+        CHECK(r != nullptr, "Resampler created at 32 kHz with Shibata noise shaping");
+
+        const uint64_t inFrames = 512;
+        std::vector<int16_t> inData(inFrames * 2, 0);
+        std::vector<int16_t> outData(inFrames * 2, 0);
+        uint64_t actualIn = inFrames;
+        uint64_t actualOut = inFrames;
+
+        int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+        CHECK(ret == 1, "32 kHz resampler processed successfully with flat TPDF fallback");
+        CHECK(actualOut > 0, "Produced output frames at 32 kHz");
+
+        // Verify dither noise peak does not blow up
+        int maxSample = 0;
+        for (size_t i = 0; i < actualOut * 2; ++i)
+        {
+            int absVal = std::abs((int)outData[i]);
+            if (absVal > maxSample) maxSample = absVal;
+        }
+        CHECK(maxSample <= 2, "32 kHz noise-shaping fallback to TPDF bounds peak dither noise (<= 2 LSB)");
+
+        ae_resampler_destroy(r);
+    }
+
+    // 5. Dedicated 48 kHz Calibrated Curves
+    // Verify all 6 psychoacoustic curves (Lipshitz, F-Weighted, Mod-E, Shibata, Low-Shibata, High-Shibata)
+    // at 48 kHz S16 operate stably without divergence or numerical instability.
+    {
+        const int ditherModes[] = {
+            AE_DITHER_MODE_LIPSHITZ,
+            AE_DITHER_MODE_F_WEIGHTED,
+            AE_DITHER_MODE_MOD_E_WEIGHTED,
+            AE_DITHER_MODE_SHIBATA,
+            AE_DITHER_MODE_LOW_SHIBATA,
+            AE_DITHER_MODE_HIGH_SHIBATA
+        };
+
+        for (int mode : ditherModes)
+        {
+            AEResampler *r = ae_resampler_create(
+                AE_FORMAT_S16, 2, 48000, 48000,
+                AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, mode);
+            CHECK(r != nullptr, "48 kHz resampler created with dedicated calibrated curve");
+
+            const uint64_t inFrames = 1024;
+            std::vector<int16_t> inData(inFrames * 2, 0);
+            for (size_t i = 0; i < inFrames; ++i)
+            {
+                inData[i * 2 + 0] = (int16_t)(10000.0f * std::sin(2.0f * (float)M_PI * 1000.0f * (float)i / 48000.0f));
+                inData[i * 2 + 1] = (int16_t)(10000.0f * std::cos(2.0f * (float)M_PI * 1000.0f * (float)i / 48000.0f));
+            }
+
+            std::vector<int16_t> outData(inFrames * 2, 0);
+            uint64_t actualIn = inFrames;
+            uint64_t actualOut = inFrames;
+
+            int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+            CHECK(ret == 1, "48 kHz calibrated curve processed successfully");
+            CHECK(actualOut > 0, "Produced output frames at 48 kHz");
+
+            bool stable = true;
+            for (size_t i = 0; i < actualOut * 2; ++i)
+            {
+                if (outData[i] > 32760 || outData[i] < -32760)
+                {
+                    stable = false;
+                    break;
+                }
+            }
+            CHECK(stable, "48 kHz calibrated curve is numerically stable (no runaway feedback/instability)");
+
+            ae_resampler_destroy(r);
+        }
+    }
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1511,6 +1705,7 @@ int main()
     test_f32_output_memcpy_aliasing_p02();
     test_pitch_resampler_and_noise_shaping_p23_p24();
     test_ffmpeg_swr_options_and_midstream_p05_p06();
+    test_dither_24in32_and_noise_shaping_fixes();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

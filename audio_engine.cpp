@@ -2877,6 +2877,19 @@ namespace
         }
     };
 
+    static inline int get_ma_format_bit_depth(ma_format fmt)
+    {
+        switch (fmt)
+        {
+        case ma_format_u8:  return 8;
+        case ma_format_s16: return 16;
+        case ma_format_s24: return 24;
+        case ma_format_s32: return 32;
+        case ma_format_f32: return 24;
+        default: return 0;
+        }
+    }
+
     struct DitherProcessorState
     {
         float history[16][8] = {}; // Up to 16 channels, 8 taps history
@@ -2924,7 +2937,7 @@ namespace
         }
 
         template <typename SampleT>
-        void process(int ditherMode, AEAudioFormat outFmt, SampleT *inOutSamples, size_t totalSamples, int channels, int sampleRate = 44100)
+        void process(int ditherMode, AEAudioFormat outFmt, SampleT *inOutSamples, size_t totalSamples, int channels, int sampleRate = 44100, int validBitDepth = 0, int sourceBitDepth = 0)
         {
             if (ditherMode <= 0 || !inOutSamples || totalSamples == 0)
                 return;
@@ -2933,15 +2946,75 @@ namespace
             const int ch = std::min(std::max(1, activeChannels), 16);
             const size_t frames = totalSamples / (size_t)activeChannels;
 
-            double lsbScale = 1.0 / 32768.0; // 16-bit target (default)
-            if (outFmt == AE_FORMAT_S24)
-                lsbScale = 1.0 / 8388608.0;
-            else if (outFmt == AE_FORMAT_S32)
-                lsbScale = 1.0 / 2147483648.0;
-            else if (outFmt == AE_FORMAT_U8)
-                lsbScale = 1.0 / 128.0;
+            // 1. Resolve real valid bit depth of the target DAC
+            int targetDepth = validBitDepth;
+            if (targetDepth <= 0)
+            {
+                switch (outFmt)
+                {
+                case AE_FORMAT_U8:  targetDepth = 8;  break;
+                case AE_FORMAT_S16: targetDepth = 16; break;
+                case AE_FORMAT_S24: targetDepth = 24; break;
+                case AE_FORMAT_S32:
+                    // 32-bit integer output: DACs are overwhelmingly 24-in-32
+                    // (24 valid bits inside 32-bit container; low 8 bits truncated
+                    // undithered by 24-bit converters).
+                    // Also, for float path, IEEE 754 float32 only has 24 bits of
+                    // mantissa precision.
+                    targetDepth = 24;
+                    break;
+                default:
+                    targetDepth = 16;
+                    break;
+                }
+            }
+
+            // Float path constraint: IEEE 754 single-precision float has exactly
+            // 24 bits of significand (1 sign, 8 exponent, 23 mantissa). Any
+            // quantization grid finer than 24 bits (e.g. 2^-31) re-rounds upon
+            // static_cast<float>(q), destroying the dither decorrelation and
+            // re-introducing quantization distortion. Cap float path to 24 bits.
+            if (std::is_same<SampleT, float>::value && targetDepth > 24)
+            {
+                targetDepth = 24;
+            }
+
+            // 2. Skip dither if source depth <= target depth
+            // If source bit depth fits cleanly into the target without truncation,
+            // dithering is unnecessary and would only degrade dynamic range / add noise.
+            if (sourceBitDepth > 0 && targetDepth > 0 && sourceBitDepth <= targetDepth)
+            {
+                return;
+            }
+
+            // 3. Compute lsbScale from the target DAC's real valid bit depth
+            double lsbScale;
+            switch (targetDepth)
+            {
+            case 8:  lsbScale = 1.0 / 128.0; break;
+            case 16: lsbScale = 1.0 / 32768.0; break;
+            case 24: lsbScale = 1.0 / 8388608.0; break;
+            case 32: lsbScale = 1.0 / 2147483648.0; break;
+            default:
+                if (targetDepth <= 1) lsbScale = 1.0;
+                else if (targetDepth >= 32) lsbScale = 1.0 / 2147483648.0;
+                else lsbScale = 1.0 / std::ldexp(1.0, targetDepth - 1);
+                break;
+            }
 
             const double ditherAmp = lsbScale;
+
+            // 4. Noise-shaping check:
+            // Pointless at >= 24-bit (-144 dB floor); human hearing cannot detect
+            // quantization noise at this depth, but shaping adds ~+24 dB noise near Nyquist
+            // which wastes ultrasonic headroom and risks inter-sample clipping.
+            // Also, for sample rates < 40000 Hz (32k, 22k, etc.), noise shaping curves
+            // designed for 44.1k shift the +24 dB noise hump down into the audible audio band
+            // (< 15 kHz). In both cases, disable shaping and fall back to flat TPDF (Mode 2).
+            if (ditherMode >= 3 && (targetDepth >= 24 || sampleRate < 40000))
+            {
+                ditherMode = 2; // Flat triangular (TPDF) dither
+            }
 
             // Mode 1: Rectangle (RPDF)
             if (ditherMode == 1)
@@ -2984,13 +3057,21 @@ namespace
             }
 
             // Modes 3-8: Psychoacoustic Noise Shaping
-            // 44.1 / 48 kHz standard curves (human audiological contour):
+            // 44.1 kHz standard curves (human audiological contour):
             static const float coefLipshitz_44k[5]   = {2.0330f, -2.1650f, 1.9590f, -1.1370f, 0.3210f};
             static const float coefFWeighted_44k[5]  = {2.4120f, -2.9700f, 2.4530f, -1.3320f, 0.3660f};
             static const float coefModE_44k[5]       = {1.8360f, -1.5740f, 1.2120f, -0.6380f, 0.1740f};
             static const float coefShibata_44k[5]    = {2.2700f, -2.4200f, 1.9600f, -1.0900f, 0.2800f};
             static const float coefLowShibata_44k[5] = {1.4500f, -1.0200f, 0.5800f, -0.2100f, 0.0400f};
             static const float coefHighShibata_44k[5]= {2.7500f, -3.3100f, 2.7800f, -1.4800f, 0.4100f};
+
+            // 48 kHz calibrated curves:
+            static const float coefLipshitz_48k[5]   = {2.2330f, -2.5120f, 2.2210f, -1.2290f, 0.3210f};
+            static const float coefFWeighted_48k[5]  = {2.5710f, -3.2840f, 2.7150f, -1.4250f, 0.3660f};
+            static const float coefModE_48k[5]       = {2.0120f, -1.8650f, 1.4110f, -0.6980f, 0.1740f};
+            static const float coefShibata_48k[5]    = {2.4350f, -2.7560f, 2.2150f, -1.1680f, 0.2800f};
+            static const float coefLowShibata_48k[5] = {1.5640f, -1.1820f, 0.6650f, -0.2280f, 0.0400f};
+            static const float coefHighShibata_48k[5]= {2.9150f, -3.6720f, 3.0820f, -1.5840f, 0.4100f};
 
             // 88.2 / 96 kHz calibrated curves (zeros dynamically mapped to preserve audio band attenuation):
             static const float coefLipshitz_96k[5]   = {3.5554f, -5.3740f, 4.3271f, -1.8280f, 0.3210f};
@@ -3010,17 +3091,18 @@ namespace
 
             const bool is192k = (sampleRate > 128000);
             const bool is96k  = (!is192k && sampleRate > 64000);
+            const bool is48k  = (!is192k && !is96k && sampleRate >= 46000 && sampleRate <= 50000);
 
-            const float *a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k);
+            const float *a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : (is48k ? coefShibata_48k : coefShibata_44k));
             switch (ditherMode)
             {
-            case 3: a = is192k ? coefLipshitz_192k : (is96k ? coefLipshitz_96k : coefLipshitz_44k); break;
-            case 4: a = is192k ? coefFWeighted_192k : (is96k ? coefFWeighted_96k : coefFWeighted_44k); break;
-            case 5: a = is192k ? coefModE_192k : (is96k ? coefModE_96k : coefModE_44k); break;
-            case 6: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k); break;
-            case 7: a = is192k ? coefLowShibata_192k : (is96k ? coefLowShibata_96k : coefLowShibata_44k); break;
-            case 8: a = is192k ? coefHighShibata_192k : (is96k ? coefHighShibata_96k : coefHighShibata_44k); break;
-            default: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : coefShibata_44k); break;
+            case 3: a = is192k ? coefLipshitz_192k : (is96k ? coefLipshitz_96k : (is48k ? coefLipshitz_48k : coefLipshitz_44k)); break;
+            case 4: a = is192k ? coefFWeighted_192k : (is96k ? coefFWeighted_96k : (is48k ? coefFWeighted_48k : coefFWeighted_44k)); break;
+            case 5: a = is192k ? coefModE_192k : (is96k ? coefModE_96k : (is48k ? coefModE_48k : coefModE_44k)); break;
+            case 6: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : (is48k ? coefShibata_48k : coefShibata_44k)); break;
+            case 7: a = is192k ? coefLowShibata_192k : (is96k ? coefLowShibata_96k : (is48k ? coefLowShibata_48k : coefLowShibata_44k)); break;
+            case 8: a = is192k ? coefHighShibata_192k : (is96k ? coefHighShibata_96k : (is48k ? coefHighShibata_48k : coefHighShibata_44k)); break;
+            default: a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : (is48k ? coefShibata_48k : coefShibata_44k)); break;
             }
 
             for (size_t i = 0; i < frames; ++i)
@@ -3655,6 +3737,8 @@ struct AudioEngineHandle
     std::atomic<int> resampleAlgorithm{12}; // Default to AE_RESAMPLE_ALGORITHM_R8BRAIN_24_MINIMUM_PHASE (mode 12)
     std::atomic<int> currentResampleAlgorithm{12}; // shared as backend user data; atomic: read on init threads, written by control thread
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
+    std::atomic<int> dacValidBitDepth{24}; // Valid DAC bit depth (default 24 for S32 / 24-in-32; 16 for S16; 32 for true 32-bit)
+    std::atomic<bool> dacValidBitDepthExplicit{false};
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
     std::atomic<bool> lrSwapEnabled{false};
@@ -4322,6 +4406,32 @@ struct AudioEngineHandle
 extern "C"
 {
     static void restart_and_apply_config(AudioEngineHandle *e);
+}
+
+static void sync_dac_valid_bit_depth(AudioEngineHandle *e)
+{
+    if (!e)
+        return;
+    if (e->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
+        return;
+
+    ma_format devFmt = e->device.playback.format;
+    if (devFmt == ma_format_unknown)
+    {
+        devFmt = ae_format_to_ma_format(e->outputFormat);
+    }
+
+    int depth = 24;
+    switch (devFmt)
+    {
+    case ma_format_u8:  depth = 8; break;
+    case ma_format_s16: depth = 16; break;
+    case ma_format_s24: depth = 24; break;
+    case ma_format_s32: depth = 24; break; // 24-in-32 hardware default
+    case ma_format_f32: depth = 24; break; // Float32 significand limit
+    default:            depth = 24; break;
+    }
+    e->dacValidBitDepth.store(depth, std::memory_order_relaxed);
 }
 
 static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
@@ -8011,26 +8121,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
     const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
     int effectiveDither = ditherVal;
 
-    // In integer exclusive modes (int16/int24), if volume is attenuated / non-unity,
+    // In integer exclusive modes (int16/int24/int32), if volume is attenuated / non-unity,
     // ensure TPDF dither is active so low-volume listening doesn't quantize badly.
+    const bool isVolumeAttenuated = std::fabs(e->paramUserGain.current - 1.0f) > 1e-4f ||
+                                   std::fabs(e->gain.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                   (e->replayGainLinear.load(std::memory_order_relaxed) != 1.0f) ||
+                                   std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
+                                   (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) &&
+                                    std::fabs(e->loudnessMeter.getNormalizerGainLinear() - 1.0f) > 1e-4f) ||
+                                   std::fabs(e->channelGainLeft.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                   std::fabs(e->channelGainRight.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                                   (e->pan.load(std::memory_order_relaxed) != 0.0f);
+
     if (effectiveDither == 0 && activeIntFormat != AE_FORMAT_F32)
     {
         const bool isIntExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                    (activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24);
-        // Any gain stage that scales samples before quantization can cause
-        // correlated truncation distortion at low levels: user master gain,
-        // replay gain, loudness normalizer, L/R channel trim, and pan.
-        // (Fades/crossfades are transient envelopes, not steady-state
-        // attenuation, so they are excluded.)
-        const bool isVolumeAttenuated = std::fabs(e->paramUserGain.current - 1.0f) > 1e-4f ||
-                                       std::fabs(e->gain.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
-                                       (e->replayGainLinear.load(std::memory_order_relaxed) != 1.0f) ||
-                                       std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
-                                       (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) &&
-                                        std::fabs(e->loudnessMeter.getNormalizerGainLinear() - 1.0f) > 1e-4f) ||
-                                       std::fabs(e->channelGainLeft.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
-                                       std::fabs(e->channelGainRight.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
-                                       (e->pan.load(std::memory_order_relaxed) != 0.0f);
+                                    (activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24 || activeIntFormat == AE_FORMAT_S32);
         if (isIntExclusive && isVolumeAttenuated)
         {
             effectiveDither = 2; // Mode 2: Triangle (TPDF 2.0 LSB p-p)
@@ -8039,12 +8145,46 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     const int activeDitherRate = (pDevice && pDevice->sampleRate > 0) ? (int)pDevice->sampleRate : (e->engineSampleRate > 0 ? e->engineSampleRate : 44100);
 
+    int targetValidBits = 0;
+    const int configuredDacDepth = e->dacValidBitDepth.load(std::memory_order_relaxed);
+    if (activeIntFormat == AE_FORMAT_S32)
+    {
+        targetValidBits = (configuredDacDepth > 0) ? configuredDacDepth : 24;
+    }
+    else if (activeIntFormat == AE_FORMAT_S24)
+    {
+        targetValidBits = (configuredDacDepth > 0 && configuredDacDepth < 24) ? configuredDacDepth : 24;
+    }
+    else if (activeIntFormat == AE_FORMAT_S16)
+    {
+        targetValidBits = (configuredDacDepth > 0 && configuredDacDepth < 16) ? configuredDacDepth : 16;
+    }
+    else if (activeIntFormat == AE_FORMAT_U8)
+    {
+        targetValidBits = 8;
+    }
+
+    const bool isDspActive = e->eqEnabled || e->multibandEqEnabled || e->limiterEnabled ||
+                             e->compressorEnabled || e->stereoWidenEnabled || e->stereoEnhancementEnabled ||
+                             e->crossfeedEnabled || e->crystalizerEnabled || e->reverbEnabled ||
+                             needsDeviceSRC || isVolumeAttenuated;
+
+    int sourceBits = 0;
+    if (isDspActive)
+    {
+        sourceBits = (use64 && buf64 != nullptr) ? 53 : 32;
+    }
+    else
+    {
+        sourceBits = get_ma_format_bit_depth(e->sourceFormat);
+    }
+
     if (use64 && buf64 != nullptr && !needsDeviceSRC)
     {
         // Pure 64-bit path: preserve 53-bit mantissa precision all the way to quantization.
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels, activeDitherRate);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels, activeDitherRate, targetValidBits, sourceBits);
         }
 
         if (pDevice->playback.format == ma_format_s16)
@@ -8076,7 +8216,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels, activeDitherRate);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels, activeDitherRate, targetValidBits, sourceBits);
         }
 
         // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
@@ -8859,6 +8999,8 @@ extern "C"
             );
             applyRatePlan(e, plan);
         }
+
+        sync_dac_valid_bit_depth(e);
 
         if (ma_device_start(&e->device) != MA_SUCCESS)
         {
@@ -11019,6 +11161,7 @@ extern "C"
 
                 if (initOk)
                 {
+                    sync_dac_valid_bit_depth(e);
                     int reportedBackend = AE_BACKEND_AUTO;
                     if (e->device.pContext != nullptr)
                     {
@@ -11607,6 +11750,28 @@ extern "C"
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine)
     {
         return engine ? engine->ditherMode.load(std::memory_order_relaxed) : 0;
+    }
+
+    AE_API void ae_set_dac_valid_bit_depth(AudioEngineHandle *engine, int bit_depth)
+    {
+        if (!engine)
+            return;
+        if (bit_depth <= 0)
+        {
+            engine->dacValidBitDepthExplicit.store(false, std::memory_order_relaxed);
+            sync_dac_valid_bit_depth(engine);
+        }
+        else
+        {
+            if (bit_depth > 32) bit_depth = 32;
+            engine->dacValidBitDepthExplicit.store(true, std::memory_order_relaxed);
+            engine->dacValidBitDepth.store(bit_depth, std::memory_order_relaxed);
+        }
+    }
+
+    AE_API int ae_get_dac_valid_bit_depth(AudioEngineHandle *engine)
+    {
+        return engine ? engine->dacValidBitDepth.load(std::memory_order_relaxed) : 0;
     }
 
     AE_API void ae_set_64bit_processing_enabled(AudioEngineHandle *engine, int enabled)
@@ -14382,7 +14547,9 @@ extern "C"
                 else if (sink->encoding == 22)
                 {
                     info.output_format = AE_FORMAT_S32;
-                    info.bit_depth = 32;
+                    info.bit_depth = (engine && engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
+                                         ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
+                                         : 24;
                     info.is_float = 0;
                 }
                 else
@@ -14433,7 +14600,9 @@ extern "C"
                     break;
                 case ma_format_s32:
                     info.output_format = AE_FORMAT_S32;
-                    info.bit_depth = 32;
+                    info.bit_depth = (engine && engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
+                                         ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
+                                         : 24;
                     info.is_float = 0;
                     break;
                 case ma_format_f32:

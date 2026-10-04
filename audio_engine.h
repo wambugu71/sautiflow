@@ -323,6 +323,10 @@ extern "C"
     AE_API void ae_set_engine_dither_mode(AudioEngineHandle *engine, int dither_mode);
     AE_API int ae_get_engine_dither_mode(AudioEngineHandle *engine);
 
+    // DAC Valid Bit Depth (e.g. 24 for 24-in-32 hardware or 24-bit DACs; 16 for 16-bit; 32 for true 32-bit)
+    AE_API void ae_set_dac_valid_bit_depth(AudioEngineHandle *engine, int bit_depth);
+    AE_API int  ae_get_dac_valid_bit_depth(AudioEngineHandle *engine);
+
     // 64-Bit Float DSP Processing Mode (-320dB Headroom)
     AE_API void ae_set_64bit_processing_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_64bit_processing_enabled(AudioEngineHandle *engine);
