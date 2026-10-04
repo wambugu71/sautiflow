@@ -45,7 +45,7 @@ static bool configure_soxr_opts(SwrContext* swrCtx) {
 
     int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
     int rPrec   = av_opt_set_int(swrCtx, "precision", 28, 0);
-    (void)rCutoff; (void)rPrec;
+    if (rCutoff < 0 || rPrec < 0) return false;
 
     int ret = swr_init(swrCtx);
     return (ret >= 0 && swr_is_initialized(swrCtx));
@@ -64,11 +64,13 @@ static bool configure_native_swr_opts(SwrContext* swrCtx, int filterSize = 64) {
     int rFilter = av_opt_set_int(swrCtx, "filter_size", filterSize, 0);
     int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
     int rPhase  = av_opt_set_int(swrCtx, "phase_shift", 10, 0);
+    if (rEngine < 0 || rFilter < 0 || rCutoff < 0 || rPhase < 0) {
+        return false;
+    }
     int rType   = av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
     if (rType < 0) {
         av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_BLACKMAN_NUTTALL, 0);
     }
-    (void)rEngine; (void)rFilter; (void)rCutoff; (void)rPhase;
 
     int ret = swr_init(swrCtx);
     return (ret >= 0 && swr_is_initialized(swrCtx));
