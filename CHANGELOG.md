@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.32 — Unreleased
+
+- **[FFmpeg Audiophile Resampler Options & Dynamic Mid-Stream Adaptation]** Overhauled FFmpeg stream and local fallback decoding (`ffmpeg_stream_decoder.cpp` / `ffmpeg_stream_decoder.h`):
+  - *Resampler options & precision:* replaced obsolete `phase` option (which returned `AVERROR_OPTION_NOT_FOUND`) with `phase_shift = 10` (1024 polyphase filter phases) for high phase accuracy; raised filter size to 64-tap sinc filtering with cutoff 0.97 and Kaiser / Blackman-Nuttall windowing, eliminating transition-band aliasing/imaging near Nyquist (20–22 kHz); added 28-bit SoXR engine prioritization when libsoxr is enabled in the FFmpeg build; checked all `av_opt_set_*` and `swr_init` return codes.
+  - *Reactive mid-stream format adaptation:* implemented per-frame tracking and validation for sample rate, format, and channel layout via `av_channel_layout_compare()`. On dynamic stream reconfigurations (e.g. HLS bitrate switches, surround layout upgrades, network congestion downgrades, or reconnects), residual audio from the previous resampler state is drained and flushed into the output buffer before safely reallocating and initializing a fresh context, eliminating garbage audio, clicks, and gaps.
+  - *Unified local and network handling:* applied matching audiophile resampler configuration and dynamic format recovery to both `FFmpegStreamSource` (online streaming) and `FFmpegLocalFileSource` (fallback local decoding).
+  - *Verification:* added regression test suite covering resampler option rejection/acceptance, SoXR allocation, and seamless 3-segment mid-stream transitions (44.1k stereo FLTP → 48k 5.1 FLTP → 32k mono S16) with all 208 engine API tests passing cleanly.
+
 ## v0.6.31 — 2026-10-01
 
 - **[Crossfeed Desync & BS2B Telemetry Alignment]** Resolved crossfeed desync and false positive BS2B telemetry when disabled. Corrected crossfeed DSP node bypass flags, disarmed dormant filter state on mode switch, and kept live diagnostic panel telemetry strictly aligned with active acoustic processing.

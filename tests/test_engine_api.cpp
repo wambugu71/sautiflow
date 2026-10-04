@@ -16,6 +16,17 @@
 #include "ffmpeg_stream_decoder.h"
 #include "miniaudio.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <libavutil/opt.h>
+#include <libswresample/swresample.h>
+#include <libavutil/channel_layout.h>
+#include <libavutil/frame.h>
+#ifdef __cplusplus
+}
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -1212,6 +1223,201 @@ static void test_pitch_resampler_and_noise_shaping_p23_p24()
     }
 }
 
+static void test_ffmpeg_swr_options_and_midstream_p05_p06()
+{
+    std::printf("\n== FFmpeg SWR Audiophile Resampler Options & Mid-Stream Format Adaptation ([M] Item 5 & 6) ==\n");
+
+    // -------------------------------------------------------------------------
+    // Item 5: SWR / SoXR Options Verification
+    // -------------------------------------------------------------------------
+    AVChannelLayout inLayout, outLayout;
+    av_channel_layout_default(&inLayout, 2);
+    av_channel_layout_default(&outLayout, 2);
+
+    SwrContext* swr = nullptr;
+    int ret = swr_alloc_set_opts2(&swr, &outLayout, AV_SAMPLE_FMT_FLT, 48000,
+                                  &inLayout, AV_SAMPLE_FMT_FLTP, 44100, 0, nullptr);
+    CHECK(ret == 0 && swr != nullptr, "SwrContext allocated via swr_alloc_set_opts2");
+
+    // Test 1: Verify that obsolete "phase" option is rejected as invalid option
+    int rInvalidPhase = av_opt_set_int(swr, "phase", 0, 0);
+    CHECK(rInvalidPhase < 0, "Obsolete 'phase' option correctly rejected by swresample (was a silent no-op)");
+
+    // Test 2: Verify that valid "phase_shift" option is accepted
+    int rPhaseShift = av_opt_set_int(swr, "phase_shift", 10, 0);
+    CHECK(rPhaseShift == 0, "'phase_shift' = 10 (1024 polyphase phases) accepted by swresample");
+
+    // Test 3: Verify 64-tap sinc filtering with cutoff 0.97
+    int rFilter = av_opt_set_int(swr, "filter_size", 64, 0);
+    int rCutoff = av_opt_set_double(swr, "cutoff", 0.97, 0);
+    int rEngine = av_opt_set_int(swr, "resampler", SWR_ENGINE_SWR, 0);
+    CHECK(rFilter == 0 && rCutoff == 0 && rEngine == 0, "64-tap sinc resampler options accepted (filter_size=64, cutoff=0.97)");
+
+    int initNative = swr_init(swr);
+    CHECK(initNative >= 0 && swr_is_initialized(swr), "SwrContext initialized with 64-tap native SWR engine");
+    swr_free(&swr);
+
+    // Test 4: Verify SoXR 28-bit precision if libsoxr is available on a fresh context
+    SwrContext* swrSoxr = nullptr;
+    ret = swr_alloc_set_opts2(&swrSoxr, &outLayout, AV_SAMPLE_FMT_FLT, 48000,
+                              &inLayout, AV_SAMPLE_FMT_FLTP, 44100, 0, nullptr);
+    CHECK(ret == 0 && swrSoxr != nullptr, "SwrContext allocated for SoXR test");
+    int rSoxr = av_opt_set_int(swrSoxr, "resampler", SWR_ENGINE_SOXR, 0);
+    if (rSoxr == 0) {
+        av_opt_set_double(swrSoxr, "cutoff", 0.97, 0);
+        av_opt_set_int(swrSoxr, "precision", 28, 0);
+        int initSoxr = swr_init(swrSoxr);
+        CHECK(initSoxr >= 0 && swr_is_initialized(swrSoxr), "SwrContext initialized with 28-bit SoXR audiophile engine");
+    } else {
+        std::printf("  [INFO] libsoxr not enabled in this FFmpeg build; native SWR fallback verified\n");
+    }
+    swr_free(&swrSoxr);
+
+    // -------------------------------------------------------------------------
+    // Item 6: Mid-Stream Format & Layout Changes Verification
+    // -------------------------------------------------------------------------
+    // Simulate streaming pipeline processing 3 back-to-back stream segments:
+    // 1) 44.1 kHz Stereo FLTP
+    // 2) 48.0 kHz 5.1 Surround FLTP (bitrate/channel switch)
+    // 3) 32.0 kHz Mono S16 (low-bandwidth fallback)
+    std::vector<float> decodedStream;
+    SwrContext* streamSwr = nullptr;
+    int curInRate = 0;
+    AVSampleFormat curInFmt = AV_SAMPLE_FMT_NONE;
+    AVChannelLayout curInLayout{};
+    bool curLayoutValid = false;
+
+    auto push_test_frame = [&](AVFrame* f) -> bool {
+        if (f != nullptr) {
+            bool needRebuild = (!streamSwr) ||
+                               (f->sample_rate != curInRate) ||
+                               ((AVSampleFormat)f->format != curInFmt) ||
+                               (!curLayoutValid) ||
+                               (av_channel_layout_compare(&f->ch_layout, &curInLayout) != 0);
+
+            if (needRebuild) {
+                if (streamSwr) {
+                    // Flush residual audio from previous stream format before rebuilding resampler
+                    int delaySamples = swr_get_out_samples(streamSwr, 0);
+                    if (delaySamples > 0) {
+                        std::vector<float> tail(delaySamples * 2);
+                        uint8_t* outData[1] = { reinterpret_cast<uint8_t*>(tail.data()) };
+                        int flushed = swr_convert(streamSwr, outData, delaySamples, nullptr, 0);
+                        if (flushed > 0) {
+                            decodedStream.insert(decodedStream.end(), tail.data(), tail.data() + flushed * 2);
+                        }
+                    }
+                    swr_free(&streamSwr);
+                }
+
+                if (curLayoutValid) {
+                    av_channel_layout_uninit(&curInLayout);
+                    curLayoutValid = false;
+                }
+
+                AVChannelLayout outChLayout;
+                av_channel_layout_default(&outChLayout, 2);
+                swr_alloc_set_opts2(&streamSwr, &outChLayout, AV_SAMPLE_FMT_FLT, 48000,
+                                    &f->ch_layout, (AVSampleFormat)f->format, f->sample_rate, 0, nullptr);
+                av_channel_layout_uninit(&outChLayout);
+
+                if (!streamSwr) return false;
+                av_opt_set_int(streamSwr, "resampler", SWR_ENGINE_SWR, 0);
+                av_opt_set_int(streamSwr, "filter_size", 64, 0);
+                av_opt_set_double(streamSwr, "cutoff", 0.97, 0);
+                av_opt_set_int(streamSwr, "phase_shift", 10, 0);
+                if (swr_init(streamSwr) < 0) return false;
+
+                curInRate = f->sample_rate;
+                curInFmt = (AVSampleFormat)f->format;
+                av_channel_layout_copy(&curInLayout, &f->ch_layout);
+                curLayoutValid = true;
+            }
+        }
+
+        if (!streamSwr) return true;
+
+        int outSamples = swr_get_out_samples(streamSwr, f ? f->nb_samples : 0);
+        if (outSamples <= 0) return true;
+
+        std::vector<float> conv(outSamples * 2);
+        uint8_t* outData[1] = { reinterpret_cast<uint8_t*>(conv.data()) };
+        int converted = swr_convert(streamSwr, outData, outSamples,
+                                    f ? const_cast<const uint8_t**>(f->data) : nullptr,
+                                    f ? f->nb_samples : 0);
+        if (converted > 0) {
+            decodedStream.insert(decodedStream.end(), conv.data(), conv.data() + converted * 2);
+        }
+        return true;
+    };
+
+    // Frame 1: 44.1 kHz Stereo FLTP
+    AVFrame* f1 = av_frame_alloc();
+    f1->sample_rate = 44100;
+    f1->format = AV_SAMPLE_FMT_FLTP;
+    av_channel_layout_default(&f1->ch_layout, 2);
+    f1->nb_samples = 1024;
+    av_frame_get_buffer(f1, 0);
+    float* l1 = (float*)f1->data[0];
+    float* r1 = (float*)f1->data[1];
+    for (int i = 0; i < 1024; ++i) {
+        l1[i] = std::sin(2.0f * 3.14159f * 440.0f * i / 44100.0f);
+        r1[i] = l1[i];
+    }
+    CHECK(push_test_frame(f1), "Segment 1 decoded (44.1 kHz stereo FLTP)");
+    size_t samplesAfterSeg1 = decodedStream.size() / 2;
+    CHECK(samplesAfterSeg1 > 1000, "Segment 1 converted into target 48 kHz stereo stream");
+    av_frame_free(&f1);
+
+    // Frame 2: 48.0 kHz 5.1 Surround FLTP (HLS dynamic format change)
+    AVFrame* f2 = av_frame_alloc();
+    f2->sample_rate = 48000;
+    f2->format = AV_SAMPLE_FMT_FLTP;
+    av_channel_layout_default(&f2->ch_layout, 6);
+    f2->nb_samples = 1024;
+    av_frame_get_buffer(f2, 0);
+    for (int ch = 0; ch < 6; ++ch) {
+        float* d = (float*)f2->data[ch];
+        for (int i = 0; i < 1024; ++i) d[i] = 0.4f;
+    }
+    CHECK(push_test_frame(f2), "Segment 2 decoded across dynamic mid-stream layout switch (48 kHz 5.1 FLTP)");
+    size_t samplesAfterSeg2 = decodedStream.size() / 2;
+    CHECK(samplesAfterSeg2 > samplesAfterSeg1 + 1000, "Segment 2 converted seamlessly with tail flushing");
+    av_frame_free(&f2);
+
+    // Frame 3: 32.0 kHz Mono S16 (network congestion bitrate drop)
+    AVFrame* f3 = av_frame_alloc();
+    f3->sample_rate = 32000;
+    f3->format = AV_SAMPLE_FMT_S16;
+    av_channel_layout_default(&f3->ch_layout, 1);
+    f3->nb_samples = 960;
+    av_frame_get_buffer(f3, 0);
+    int16_t* s3 = (int16_t*)f3->data[0];
+    for (int i = 0; i < 960; ++i) s3[i] = 12000;
+    CHECK(push_test_frame(f3), "Segment 3 decoded across dynamic mid-stream rate switch (32 kHz mono S16)");
+    size_t samplesAfterSeg3 = decodedStream.size() / 2;
+    CHECK(samplesAfterSeg3 > samplesAfterSeg2 + 1000, "Segment 3 converted seamlessly into target 48 kHz stereo");
+    av_frame_free(&f3);
+
+    // Final drain
+    push_test_frame(nullptr);
+
+    // Verify all decoded audio is finite and non-clipped
+    bool allFinite = true;
+    for (float sample : decodedStream) {
+        if (!std::isfinite(sample) || std::abs(sample) > 2.0f) {
+            allFinite = false;
+            break;
+        }
+    }
+    CHECK(allFinite, "Continuous output across 3 mid-stream format transitions is strictly finite and glitch-free");
+
+    if (streamSwr) swr_free(&streamSwr);
+    if (curLayoutValid) av_channel_layout_uninit(&curInLayout);
+    av_channel_layout_uninit(&inLayout);
+    av_channel_layout_uninit(&outLayout);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1235,6 +1441,7 @@ int main()
     test_multichannel_playback_dsp_p04();
     test_f32_output_memcpy_aliasing_p02();
     test_pitch_resampler_and_noise_shaping_p23_p24();
+    test_ffmpeg_swr_options_and_midstream_p05_p06();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

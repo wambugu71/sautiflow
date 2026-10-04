@@ -99,7 +99,7 @@ $linkObjs = @(
 ) + $dllObjs
 
 g++ -std=c++20 -O2 -o test_engine_api.exe @linkObjs `
-    -Lthird_party/ffmpeg/lib -lavformat -lavcodec -lavutil -lswresample `
+    -Lthird_party/ffmpeg/lib -lavformat -lavcodec -lswresample -lavutil `
     -static-libgcc -static-libstdc++ -lwinmm -lws2_32 -lbcrypt -lsecur32 -lm
 if ($LASTEXITCODE -ne 0) { throw "linking test_engine_api.exe failed" }
 

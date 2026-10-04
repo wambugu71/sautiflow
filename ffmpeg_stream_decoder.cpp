@@ -36,37 +36,71 @@ extern "C" {
 
 namespace sautiflow {
 
-static void configure_audiophile_swr_opts(SwrContext* swrCtx) {
-    if (!swrCtx) return;
-    // High-precision sinc resampling via FFmpeg native swresample engine
-    av_opt_set_int(swrCtx, "resampler", 0 /* SWR_ENGINE_SWR */, 0);
-    // 32-tap high-precision sinc filter
-    av_opt_set_int(swrCtx, "filter_size", 32, 0);
-    av_opt_set_double(swrCtx, "cutoff", 0.99, 0);
-    av_opt_set_int(swrCtx, "precision", 28, 0);
-    // Minimum phase to eliminate pre-ringing on transients
-    av_opt_set_int(swrCtx, "phase", 0, 0);
+static bool configure_soxr_opts(SwrContext* swrCtx) {
+    if (!swrCtx) return false;
+    // Attempt SoXR engine (28-bit precision, cutoff 0.97)
+    // SWR_ENGINE_SOXR requires FFmpeg built with --enable-libsoxr
+    int rEngine = av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SOXR, 0);
+    if (rEngine < 0) return false;
+
+    int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
+    int rPrec   = av_opt_set_int(swrCtx, "precision", 28, 0);
+    (void)rCutoff; (void)rPrec;
+
+    int ret = swr_init(swrCtx);
+    return (ret >= 0 && swr_is_initialized(swrCtx));
+}
+
+static bool configure_native_swr_opts(SwrContext* swrCtx, int filterSize = 64) {
+    if (!swrCtx) return false;
+    swr_close(swrCtx);
+
+    // Native FFmpeg polyphase sinc resampling engine (linear-phase).
+    // filter_size >= 64 provides steep transition band roll-off, eliminating
+    // aliasing/imaging near Nyquist (20-22 kHz) when resampling 44.1k <-> 48k.
+    // cutoff ~0.97 preserves bandwidth up to 21.4 kHz @ 44.1k without high-frequency attenuation.
+    // phase_shift 10 sets 1024 polyphase filter phases (2^10) for high phase accuracy.
+    int rEngine = av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
+    int rFilter = av_opt_set_int(swrCtx, "filter_size", filterSize, 0);
+    int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
+    int rPhase  = av_opt_set_int(swrCtx, "phase_shift", 10, 0);
+    int rType   = av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
+    if (rType < 0) {
+        av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_BLACKMAN_NUTTALL, 0);
+    }
+    (void)rEngine; (void)rFilter; (void)rCutoff; (void)rPhase;
+
+    int ret = swr_init(swrCtx);
+    return (ret >= 0 && swr_is_initialized(swrCtx));
 }
 
 static bool init_swr_context(SwrContext* swrCtx) {
     if (!swrCtx) return false;
 
-    // 1. High-precision sinc filter via native SWR engine
-    configure_audiophile_swr_opts(swrCtx);
-    int ret = swr_init(swrCtx);
-    if (ret >= 0 && swr_is_initialized(swrCtx)) {
-        SF_LOG("[ffmpeg] SwrContext initialized successfully with high-precision swresample engine\n");
+    // 1. High-precision SoXR engine (28-bit audiophile precision) if libsoxr is available
+    if (configure_soxr_opts(swrCtx)) {
+        SF_LOG("[ffmpeg] SwrContext initialized with high-precision SoXR engine (precision=28, cutoff=0.97)\n");
         return true;
     }
 
-    // 2. Fallback to standard swresample options if extended options are not accepted
-    SF_LOG("[ffmpeg] High-precision swresample failed (ret=%d); falling back to default swresample options\n", ret);
-    av_opt_set_int(swrCtx, "resampler", 0 /* SWR_ENGINE_SWR */, 0);
-    av_opt_set_int(swrCtx, "filter_size", 16, 0);
-    av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
-    ret = swr_init(swrCtx);
+    // 2. High-precision native SWR polyphase sinc filter (64 taps, cutoff=0.97, phase_shift=10)
+    if (configure_native_swr_opts(swrCtx, 64)) {
+        SF_LOG("[ffmpeg] SwrContext initialized with high-precision native SWR engine (64-tap sinc, cutoff=0.97, phase_shift=10)\n");
+        return true;
+    }
+
+    // 3. Fallback to standard 32-tap SWR engine if 64-tap is not accepted
+    if (configure_native_swr_opts(swrCtx, 32)) {
+        SF_LOG("[ffmpeg] SwrContext initialized with fallback 32-tap native SWR engine (cutoff=0.97)\n");
+        return true;
+    }
+
+    // 4. Ultimate fallback to default swresample options
+    swr_close(swrCtx);
+    av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
+    int ret = swr_init(swrCtx);
     if (ret >= 0 && swr_is_initialized(swrCtx)) {
-        SF_LOG("[ffmpeg] SwrContext initialized successfully with default swresample engine\n");
+        SF_LOG("[ffmpeg] SwrContext initialized with default swresample engine\n");
         return true;
     }
 
@@ -228,6 +262,17 @@ void FFmpegStreamSource::close() {
             swr_free(&m_swrCtx);
             m_swrCtx = nullptr;
         }
+        if (m_swrInLayoutValid && m_swrInChLayout) {
+            av_channel_layout_uninit(m_swrInChLayout);
+            m_swrInLayoutValid = false;
+        }
+        if (m_swrInChLayout) {
+            delete m_swrInChLayout;
+            m_swrInChLayout = nullptr;
+        }
+        m_swrInSampleRate = 0;
+        m_swrInSampleFmt = -1;
+
         if (m_codecCtx) {
             avcodec_free_context(&m_codecCtx);
             m_codecCtx = nullptr;
@@ -544,10 +589,18 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
 
         if (ret >= 0 && m_swrCtx) {
             if (init_swr_context(m_swrCtx)) {
+                m_swrInSampleRate = m_codecCtx->sample_rate;
+                m_swrInSampleFmt = (int)m_codecCtx->sample_fmt;
+                if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
+                av_channel_layout_copy(m_swrInChLayout, &m_codecCtx->ch_layout);
+                m_swrInLayoutValid = true;
+
                 SF_LOG("[ffmpeg] Step 4/5 SUCCESS: Initial SwrContext configured (%d Hz -> %d Hz, %d ch)\n",
                        m_codecCtx->sample_rate, m_targetSampleRate, m_targetChannels);
             } else {
                 SF_LOGE("[ffmpeg] Step 4/5 FAILED: Failed to initialize SwrContext\n");
+                swr_free(&m_swrCtx);
+                m_swrCtx = nullptr;
             }
         }
     }
@@ -574,14 +627,81 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     AVFrame* frame = av_frame_alloc();
     std::vector<float> resampleOutBuf;
 
+    auto write_to_ring = [&](const float* pData, size_t frameCount) -> bool {
+        if (frameCount == 0 || pData == nullptr) return true;
+
+        // Wait for ring space (worker side of the backpressure protocol).
+        {
+            std::unique_lock<std::mutex> cvLock(m_stateMutex);
+            m_cv.wait(cvLock, [this, frameCount]() {
+                return m_stopRequested.load(std::memory_order_acquire) ||
+                       m_seekRequested.load(std::memory_order_acquire) ||
+                       (m_rbCapacityFrames - m_rbAvailableFrames.load(std::memory_order_acquire)) >= frameCount;
+            });
+
+            if (m_stopRequested.load(std::memory_order_acquire) || m_seekRequested.load(std::memory_order_acquire)) {
+                return false;
+            }
+        }
+
+        // Write to the ring under the access lock (consistent with
+        // read_pcm and seek resets).
+        {
+            std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
+            const size_t writePos = m_rbWritePos.load(std::memory_order_relaxed);
+            const size_t firstPart = std::min(frameCount, m_rbCapacityFrames - writePos);
+            std::memcpy(&m_pcmRingBuffer[writePos * m_targetChannels], pData, firstPart * m_targetChannels * sizeof(float));
+
+            if (frameCount > firstPart) {
+                const size_t secondPart = frameCount - firstPart;
+                std::memcpy(&m_pcmRingBuffer[0], pData + firstPart * m_targetChannels, secondPart * m_targetChannels * sizeof(float));
+            }
+
+            m_rbWritePos.store((writePos + frameCount) % m_rbCapacityFrames, std::memory_order_relaxed);
+            m_rbAvailableFrames.fetch_add(frameCount, std::memory_order_release);
+        }
+        m_cv.notify_one();
+        return true;
+    };
+
     // Resample a decoded frame (or, with f == nullptr, flush the SwrContext
     // tail) and write it into the PCM ring. Returns false when aborted
     // (stop requested / new seek pending).
     auto push_frame = [&](AVFrame* f) -> bool {
         if (f != nullptr) {
-            // Lazily create the SwrContext from the first decoded frame's
-            // actual properties (codec params may be unknown at open time).
-            if (!m_swrCtx) {
+            // Check if context needs initial creation or rebuild due to mid-stream format changes
+            // (e.g. adaptive bitrate switches, dynamic reconnection, multi-format stream segments).
+            bool needRebuild = (!m_swrCtx) ||
+                               (f->sample_rate != m_swrInSampleRate) ||
+                               (f->format != m_swrInSampleFmt) ||
+                               (!m_swrInLayoutValid) ||
+                               (m_swrInChLayout != nullptr && av_channel_layout_compare(&f->ch_layout, m_swrInChLayout) != 0);
+
+            if (needRebuild) {
+                if (m_swrCtx) {
+                    SF_LOG("[ffmpeg] Mid-stream format change detected: %d Hz (fmt %d) -> %d Hz (fmt %d). Rebuilding resampler\n",
+                           m_swrInSampleRate, m_swrInSampleFmt, f->sample_rate, f->format);
+                    // Drain and flush residual audio from previous stream format before rebuilding resampler
+                    int delaySamples = swr_get_out_samples(m_swrCtx, 0);
+                    if (delaySamples > 0) {
+                        resampleOutBuf.resize((size_t)delaySamples * (size_t)m_targetChannels);
+                        uint8_t* outData[1] = { reinterpret_cast<uint8_t*>(resampleOutBuf.data()) };
+                        int flushed = swr_convert(m_swrCtx, outData, delaySamples, nullptr, 0);
+                        if (flushed > 0) {
+                            if (!write_to_ring(resampleOutBuf.data(), static_cast<size_t>(flushed))) {
+                                return false;
+                            }
+                        }
+                    }
+                    swr_free(&m_swrCtx);
+                    m_swrCtx = nullptr;
+                }
+
+                if (m_swrInLayoutValid && m_swrInChLayout) {
+                    av_channel_layout_uninit(m_swrInChLayout);
+                    m_swrInLayoutValid = false;
+                }
+
                 AVChannelLayout outLayout;
                 av_channel_layout_default(&outLayout, m_targetChannels == 1 ? 1 : 2);
                 swr_alloc_set_opts2(
@@ -596,8 +716,19 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                     nullptr
                 );
                 av_channel_layout_uninit(&outLayout);
-                if (m_swrCtx) {
-                    init_swr_context(m_swrCtx);
+
+                if (m_swrCtx && init_swr_context(m_swrCtx)) {
+                    m_swrInSampleRate = f->sample_rate;
+                    m_swrInSampleFmt = f->format;
+                    if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
+                    av_channel_layout_copy(m_swrInChLayout, &f->ch_layout);
+                    m_swrInLayoutValid = true;
+                } else {
+                    SF_LOGE("[ffmpeg] Failed to allocate/initialize resampler for incoming frame format\n");
+                    if (m_swrCtx) {
+                        swr_free(&m_swrCtx);
+                        m_swrCtx = nullptr;
+                    }
                 }
             }
             if (!m_swrCtx) return true; // skip this frame, keep decoding
@@ -621,38 +752,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         );
         if (converted <= 0) return true;
 
-        // Wait for ring space (worker side of the backpressure protocol).
-        {
-            std::unique_lock<std::mutex> cvLock(m_stateMutex);
-            m_cv.wait(cvLock, [this, converted]() {
-                return m_stopRequested.load(std::memory_order_acquire) ||
-                       m_seekRequested.load(std::memory_order_acquire) ||
-                       (m_rbCapacityFrames - m_rbAvailableFrames.load(std::memory_order_acquire)) >= static_cast<size_t>(converted);
-            });
-
-            if (m_stopRequested.load(std::memory_order_acquire) || m_seekRequested.load(std::memory_order_acquire)) {
-                return false;
-            }
-        }
-
-        // Write to the ring under the access lock (consistent with
-        // read_pcm and seek resets).
-        {
-            std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
-            const size_t writePos = m_rbWritePos.load(std::memory_order_relaxed);
-            const size_t firstPart = std::min(static_cast<size_t>(converted), m_rbCapacityFrames - writePos);
-            std::memcpy(&m_pcmRingBuffer[writePos * m_targetChannels], resampleOutBuf.data(), firstPart * m_targetChannels * sizeof(float));
-
-            if (static_cast<size_t>(converted) > firstPart) {
-                const size_t secondPart = static_cast<size_t>(converted) - firstPart;
-                std::memcpy(&m_pcmRingBuffer[0], resampleOutBuf.data() + firstPart * m_targetChannels, secondPart * m_targetChannels * sizeof(float));
-            }
-
-            m_rbWritePos.store((writePos + converted) % m_rbCapacityFrames, std::memory_order_relaxed);
-            m_rbAvailableFrames.fetch_add(converted, std::memory_order_release);
-        }
-        m_cv.notify_one();
-        return true;
+        return write_to_ring(resampleOutBuf.data(), static_cast<size_t>(converted));
     };
 
     auto lastTelemetryUpdate = std::chrono::steady_clock::now();
@@ -813,6 +913,17 @@ void FFmpegLocalFileSource::close() {
         swr_free(&m_swrCtx);
         m_swrCtx = nullptr;
     }
+    if (m_swrInLayoutValid && m_swrInChLayout) {
+        av_channel_layout_uninit(m_swrInChLayout);
+        m_swrInLayoutValid = false;
+    }
+    if (m_swrInChLayout) {
+        delete m_swrInChLayout;
+        m_swrInChLayout = nullptr;
+    }
+    m_swrInSampleRate = 0;
+    m_swrInSampleFmt = -1;
+
     if (m_frame) {
         av_frame_free(&m_frame);
         m_frame = nullptr;
@@ -923,10 +1034,16 @@ bool FFmpegLocalFileSource::open(const std::string& filePath) {
     );
     av_channel_layout_uninit(&outLayout);
 
-    if (ret < 0 || !m_swrCtx || swr_init(m_swrCtx) < 0) {
+    if (ret < 0 || !m_swrCtx || !init_swr_context(m_swrCtx)) {
         close();
         return false;
     }
+
+    m_swrInSampleRate = m_codecCtx->sample_rate;
+    m_swrInSampleFmt = (int)m_codecCtx->sample_fmt;
+    if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
+    av_channel_layout_copy(m_swrInChLayout, &m_codecCtx->ch_layout);
+    m_swrInLayoutValid = true;
 
     m_cursor = 0;
     m_isEnded = false;
@@ -980,6 +1097,59 @@ size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
         if (recvRes == 0) {
             int inSamples = m_frame->nb_samples;
             if (inSamples <= 0) continue;
+
+            bool needRebuild = (!m_swrCtx) ||
+                               (m_frame->sample_rate != m_swrInSampleRate) ||
+                               (m_frame->format != m_swrInSampleFmt) ||
+                               (!m_swrInLayoutValid) ||
+                               (m_swrInChLayout != nullptr && av_channel_layout_compare(&m_frame->ch_layout, m_swrInChLayout) != 0);
+
+            if (needRebuild) {
+                if (m_swrCtx) {
+                    // Flush residual audio from previous format
+                    int delaySamples = swr_get_out_samples(m_swrCtx, 0);
+                    if (delaySamples > 0) {
+                        std::vector<float> tailBuf(delaySamples * m_channels);
+                        uint8_t* outPtr = reinterpret_cast<uint8_t*>(tailBuf.data());
+                        int flushed = swr_convert(m_swrCtx, &outPtr, delaySamples, nullptr, 0);
+                        if (flushed > 0) {
+                            m_residualBuffer.insert(m_residualBuffer.end(), tailBuf.data(), tailBuf.data() + flushed * m_channels);
+                        }
+                    }
+                    swr_free(&m_swrCtx);
+                    m_swrCtx = nullptr;
+                }
+
+                if (m_swrInLayoutValid && m_swrInChLayout) {
+                    av_channel_layout_uninit(m_swrInChLayout);
+                    m_swrInLayoutValid = false;
+                }
+
+                AVChannelLayout outLayout;
+                av_channel_layout_default(&outLayout, m_channels);
+                swr_alloc_set_opts2(
+                    &m_swrCtx,
+                    &outLayout,
+                    AV_SAMPLE_FMT_FLT,
+                    m_sampleRate,
+                    &m_frame->ch_layout,
+                    (AVSampleFormat)m_frame->format,
+                    m_frame->sample_rate,
+                    0,
+                    nullptr
+                );
+                av_channel_layout_uninit(&outLayout);
+
+                if (m_swrCtx && init_swr_context(m_swrCtx)) {
+                    m_swrInSampleRate = m_frame->sample_rate;
+                    m_swrInSampleFmt = m_frame->format;
+                    if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
+                    av_channel_layout_copy(m_swrInChLayout, &m_frame->ch_layout);
+                    m_swrInLayoutValid = true;
+                }
+            }
+
+            if (!m_swrCtx) continue;
 
             int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);
             if (outMaxSamples <= 0) outMaxSamples = inSamples;
@@ -1107,6 +1277,47 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
                 // Entire frame lies before target: discard preroll frame
                 continue;
             }
+
+            bool needRebuild = (!m_swrCtx) ||
+                               (m_frame->sample_rate != m_swrInSampleRate) ||
+                               (m_frame->format != m_swrInSampleFmt) ||
+                               (!m_swrInLayoutValid) ||
+                               (m_swrInChLayout != nullptr && av_channel_layout_compare(&m_frame->ch_layout, m_swrInChLayout) != 0);
+
+            if (needRebuild) {
+                if (m_swrCtx) {
+                    swr_free(&m_swrCtx);
+                    m_swrCtx = nullptr;
+                }
+                if (m_swrInLayoutValid && m_swrInChLayout) {
+                    av_channel_layout_uninit(m_swrInChLayout);
+                    m_swrInLayoutValid = false;
+                }
+                AVChannelLayout outLayout;
+                av_channel_layout_default(&outLayout, m_channels);
+                swr_alloc_set_opts2(
+                    &m_swrCtx,
+                    &outLayout,
+                    AV_SAMPLE_FMT_FLT,
+                    m_sampleRate,
+                    &m_frame->ch_layout,
+                    (AVSampleFormat)m_frame->format,
+                    m_frame->sample_rate,
+                    0,
+                    nullptr
+                );
+                av_channel_layout_uninit(&outLayout);
+
+                if (m_swrCtx && init_swr_context(m_swrCtx)) {
+                    m_swrInSampleRate = m_frame->sample_rate;
+                    m_swrInSampleFmt = m_frame->format;
+                    if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
+                    av_channel_layout_copy(m_swrInChLayout, &m_frame->ch_layout);
+                    m_swrInLayoutValid = true;
+                }
+            }
+
+            if (!m_swrCtx) continue;
 
             // Frame reaches or overlaps target: convert to float PCM
             int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);

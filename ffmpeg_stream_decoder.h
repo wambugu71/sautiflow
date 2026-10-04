@@ -20,6 +20,7 @@ struct AVCodecContext;
 struct SwrContext;
 struct AVPacket;
 struct AVFrame;
+struct AVChannelLayout;
 
 extern ma_decoding_backend_vtable g_ma_decoding_backend_vtable_ffmpeg;
 
@@ -149,6 +150,12 @@ private:
     SwrContext* m_swrCtx{nullptr};
     int m_audioStreamIndex{-1};
 
+    // Resampler format tracking for dynamic mid-stream adaptation
+    int m_swrInSampleRate{0};
+    int m_swrInSampleFmt{-1};
+    AVChannelLayout* m_swrInChLayout{nullptr};
+    bool m_swrInLayoutValid{false};
+
     StreamTelemetry m_telemetry;
     StreamTelemetryCallback m_telemetryCb;
 };
@@ -189,6 +196,12 @@ private:
     ma_uint64 m_totalFrames{0};
     ma_uint64 m_cursor{0};
     bool m_isEnded{false};
+
+    // Resampler format tracking for dynamic format adaptation
+    int m_swrInSampleRate{0};
+    int m_swrInSampleFmt{-1};
+    AVChannelLayout* m_swrInChLayout{nullptr};
+    bool m_swrInLayoutValid{false};
 
     std::vector<float> m_residualBuffer;
     size_t m_residualOffset{0};
