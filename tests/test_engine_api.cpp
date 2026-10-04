@@ -1296,7 +1296,7 @@ static void test_ffmpeg_swr_options_and_midstream_p05_p06()
     std::printf("\n== FFmpeg SWR Audiophile Resampler Options & Mid-Stream Format Adaptation ([M] Item 5 & 6) ==\n");
 
     // -------------------------------------------------------------------------
-    // Item 5: SWR / SoXR Options Verification
+    // Item 5: Native SWR Polyphase Sinc Options Verification (libsoxr retired)
     // -------------------------------------------------------------------------
     AVChannelLayout inLayout, outLayout;
     av_channel_layout_default(&inLayout, 2);
@@ -1325,21 +1325,24 @@ static void test_ffmpeg_swr_options_and_midstream_p05_p06()
     CHECK(initNative >= 0 && swr_is_initialized(swr), "SwrContext initialized with 64-tap native SWR engine");
     swr_free(&swr);
 
-    // Test 4: Verify SoXR 28-bit precision if libsoxr is available on a fresh context
-    SwrContext* swrSoxr = nullptr;
-    ret = swr_alloc_set_opts2(&swrSoxr, &outLayout, AV_SAMPLE_FMT_FLT, 48000,
+    // Test 4: Verify native 32-tap fallback and Kaiser / Blackman-Nuttall windowing
+    SwrContext* swrFallback = nullptr;
+    ret = swr_alloc_set_opts2(&swrFallback, &outLayout, AV_SAMPLE_FMT_FLT, 48000,
                               &inLayout, AV_SAMPLE_FMT_FLTP, 44100, 0, nullptr);
-    CHECK(ret == 0 && swrSoxr != nullptr, "SwrContext allocated for SoXR test");
-    int rSoxr = av_opt_set_int(swrSoxr, "resampler", SWR_ENGINE_SOXR, 0);
-    if (rSoxr == 0) {
-        av_opt_set_double(swrSoxr, "cutoff", 0.97, 0);
-        av_opt_set_int(swrSoxr, "precision", 28, 0);
-        int initSoxr = swr_init(swrSoxr);
-        CHECK(initSoxr >= 0 && swr_is_initialized(swrSoxr), "SwrContext initialized with 28-bit SoXR audiophile engine");
-    } else {
-        std::printf("  [INFO] libsoxr not enabled in this FFmpeg build; native SWR fallback verified\n");
+    CHECK(ret == 0 && swrFallback != nullptr, "SwrContext allocated for fallback test");
+    int rEngineFallback = av_opt_set_int(swrFallback, "resampler", SWR_ENGINE_SWR, 0);
+    int rFilterFallback = av_opt_set_int(swrFallback, "filter_size", 32, 0);
+    int rCutoffFallback = av_opt_set_double(swrFallback, "cutoff", 0.97, 0);
+    int rPhaseFallback  = av_opt_set_int(swrFallback, "phase_shift", 10, 0);
+    int rWindowFallback = av_opt_set_int(swrFallback, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
+    if (rWindowFallback < 0) {
+        rWindowFallback = av_opt_set_int(swrFallback, "filter_type", SWR_FILTER_TYPE_BLACKMAN_NUTTALL, 0);
     }
-    swr_free(&swrSoxr);
+    CHECK(rEngineFallback == 0 && rFilterFallback == 0 && rCutoffFallback == 0 && rPhaseFallback == 0 && rWindowFallback == 0,
+          "Fallback 32-tap native SWR sinc options and Kaiser/Blackman-Nuttall window accepted");
+    int initFallback = swr_init(swrFallback);
+    CHECK(initFallback >= 0 && swr_is_initialized(swrFallback), "SwrContext initialized with 32-tap native SWR engine");
+    swr_free(&swrFallback);
 
     // -------------------------------------------------------------------------
     // Item 6: Mid-Stream Format & Layout Changes Verification

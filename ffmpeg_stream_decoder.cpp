@@ -36,21 +36,6 @@ extern "C" {
 
 namespace sautiflow {
 
-static bool configure_soxr_opts(SwrContext* swrCtx) {
-    if (!swrCtx) return false;
-    // Attempt SoXR engine (28-bit precision, cutoff 0.97)
-    // SWR_ENGINE_SOXR requires FFmpeg built with --enable-libsoxr
-    int rEngine = av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SOXR, 0);
-    if (rEngine < 0) return false;
-
-    int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
-    int rPrec   = av_opt_set_int(swrCtx, "precision", 28, 0);
-    if (rCutoff < 0 || rPrec < 0) return false;
-
-    int ret = swr_init(swrCtx);
-    return (ret >= 0 && swr_is_initialized(swrCtx));
-}
-
 static bool configure_native_swr_opts(SwrContext* swrCtx, int filterSize = 64) {
     if (!swrCtx) return false;
     swr_close(swrCtx);
@@ -79,25 +64,20 @@ static bool configure_native_swr_opts(SwrContext* swrCtx, int filterSize = 64) {
 static bool init_swr_context(SwrContext* swrCtx) {
     if (!swrCtx) return false;
 
-    // 1. High-precision SoXR engine (28-bit audiophile precision) if libsoxr is available
-    if (configure_soxr_opts(swrCtx)) {
-        SF_LOG("[ffmpeg] SwrContext initialized with high-precision SoXR engine (precision=28, cutoff=0.97)\n");
-        return true;
-    }
-
-    // 2. High-precision native SWR polyphase sinc filter (64 taps, cutoff=0.97, phase_shift=10)
+    // 1. High-precision native SWR polyphase sinc filter (64 taps, cutoff=0.97, phase_shift=10)
+    // Pure native FFmpeg libswresample implementation - zero external libsoxr dependency.
     if (configure_native_swr_opts(swrCtx, 64)) {
         SF_LOG("[ffmpeg] SwrContext initialized with high-precision native SWR engine (64-tap sinc, cutoff=0.97, phase_shift=10)\n");
         return true;
     }
 
-    // 3. Fallback to standard 32-tap SWR engine if 64-tap is not accepted
+    // 2. Fallback to standard 32-tap SWR engine if 64-tap is not accepted
     if (configure_native_swr_opts(swrCtx, 32)) {
         SF_LOG("[ffmpeg] SwrContext initialized with fallback 32-tap native SWR engine (cutoff=0.97)\n");
         return true;
     }
 
-    // 4. Ultimate fallback to default swresample options
+    // 3. Ultimate fallback to default swresample options
     swr_close(swrCtx);
     av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
     int ret = swr_init(swrCtx);

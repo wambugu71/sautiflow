@@ -66,9 +66,9 @@ in this session. Any "not found" claim made from such a grep is unverified.
    - cutoff 0.99 with filter_size 32 -> wide transition band near Nyquist,
      imaging/aliasing at 20-22 kHz.
    - av_opt_set_* return values unchecked.
-   - Fix implemented: Added high-precision 28-bit SoXR resampler engine with
-     cutoff 0.97, fallback to 64-tap native SWR sinc resampler with cutoff 0.97,
-     phase_shift 10 (1024 polyphase phases), and Kaiser/Blackman-Nuttall windowing.
+   - Fix implemented: Added high-precision native 64-tap SWR sinc resampler with
+     cutoff 0.97, phase_shift 10 (1024 polyphase phases), Kaiser/Blackman-Nuttall windowing,
+     and 32-tap native fallback (libsoxr retired; zero external resampler dependency).
      Checked all return codes (`rEngine`, `rFilter`, `rCutoff`, `rPhase`, `ret`).
      Verified with unit tests in `tests/test_engine_api.cpp`.
 
