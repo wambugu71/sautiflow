@@ -1289,6 +1289,9 @@ class IsolateAudioPlayer {
   void setAnalyzerEnabled(bool enabled) =>
       _send({'cmd': 'setAnalyzerEnabled', 'enabled': enabled});
 
+  void setAnalyzerPollInterval(Duration interval) =>
+      _send({'cmd': 'setAnalyzerPollInterval', 'intervalMs': interval.inMilliseconds});
+
   void setOutputFormat(AudioFormat format) =>
       _send({'cmd': 'setOutputFormat', 'format': format.index});
   void setOutputSampleRate(int rate) =>
@@ -2015,6 +2018,11 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setAnalyzerEnabled':
           player.setAnalyzerEnabled(message['enabled'] == true);
+          break;
+        case 'setAnalyzerPollInterval':
+          final intervalMs = (message['intervalMs'] as int?) ?? 33;
+          player.analyzerPollInterval =
+              Duration(milliseconds: intervalMs.clamp(4, 500));
           break;
         case 'configureAnalyzer':
           final wtStr = message['windowType'] as String?;

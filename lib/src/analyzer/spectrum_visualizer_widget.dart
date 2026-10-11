@@ -253,11 +253,13 @@ class _SpectrumPainter extends CustomPainter {
 class RmsMeterWidget extends StatefulWidget {
   final Stream<Float32List> analyzerStream;
   final bool isPlaying;
+  final Color? primaryColor;
 
   const RmsMeterWidget({
     super.key,
     required this.analyzerStream,
     required this.isPlaying,
+    this.primaryColor,
   });
 
   @override
@@ -363,9 +365,13 @@ class _RmsMeterWidgetState extends State<RmsMeterWidget> {
                   FractionallySizedBox(
                     widthFactor: normRms,
                     child: Container(
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.tealAccent, Colors.cyan, Colors.blueAccent],
+                          colors: [
+                            (widget.primaryColor ?? theme.colorScheme.primary)
+                                .withValues(alpha: 0.65),
+                            widget.primaryColor ?? theme.colorScheme.primary,
+                          ],
                         ),
                       ),
                     ),

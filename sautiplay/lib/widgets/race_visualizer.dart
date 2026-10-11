@@ -45,6 +45,18 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
   Widget build(BuildContext context) {
     final microseconds = (widget.delayMs * 1000).round();
 
+    final themePrimary = widget.primaryColor;
+    final themeSecondary = HSLColor.fromColor(themePrimary)
+        .withHue((HSLColor.fromColor(themePrimary).hue + 35) % 360)
+        .withSaturation((HSLColor.fromColor(themePrimary).saturation * 0.9)
+            .clamp(0.4, 1.0))
+        .toColor();
+    final themeTertiary = HSLColor.fromColor(themePrimary)
+        .withHue((HSLColor.fromColor(themePrimary).hue + 75) % 360)
+        .withSaturation((HSLColor.fromColor(themePrimary).saturation * 0.85)
+            .clamp(0.4, 1.0))
+        .toColor();
+
     return AnimatedBuilder(
       animation: _animController,
       builder: (context, child) {
@@ -81,19 +93,19 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
                     icon: Icons.timer_outlined,
                     label: 'Delay',
                     value: '$microsecondsµs',
-                    color: Colors.cyanAccent,
+                    color: themePrimary,
                   ),
                   _buildBadge(
                     icon: Icons.waves,
                     label: 'Alpha',
                     value: '${(widget.alpha * 100).toInt()}%',
-                    color: Colors.amberAccent,
+                    color: themeSecondary,
                   ),
                   _buildBadge(
                     icon: Icons.shield_outlined,
                     label: 'LPF',
                     value: '${widget.lpfHz.toInt()}Hz',
-                    color: Colors.purpleAccent,
+                    color: themeTertiary,
                   ),
                 ],
               ),
@@ -109,6 +121,8 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
                     lpfHz: widget.lpfHz,
                     isEnabled: widget.isEnabled,
                     primaryColor: widget.primaryColor,
+                    secondaryColor: themeSecondary,
+                    tertiaryColor: themeTertiary,
                     animValue: _animController.value,
                   ),
                 ),
@@ -166,6 +180,8 @@ class _RaceSoundstagePainter extends CustomPainter {
   final double lpfHz;
   final bool isEnabled;
   final Color primaryColor;
+  final Color secondaryColor;
+  final Color tertiaryColor;
   final double animValue;
 
   _RaceSoundstagePainter({
@@ -174,6 +190,8 @@ class _RaceSoundstagePainter extends CustomPainter {
     required this.lpfHz,
     required this.isEnabled,
     required this.primaryColor,
+    required this.secondaryColor,
+    required this.tertiaryColor,
     required this.animValue,
   });
 
@@ -218,7 +236,7 @@ class _RaceSoundstagePainter extends CustomPainter {
     final normLpf = (1.0 - (lpfHz - 500) / 7500).clamp(0.1, 1.0);
     final shieldRadius = headRadius + 8 + normLpf * 6;
     final shieldPaint = Paint()
-      ..color = Colors.purpleAccent.withValues(alpha: 0.4 * opacityMultiplier)
+      ..color = tertiaryColor.withValues(alpha: 0.45 * opacityMultiplier)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5 + normLpf * 3.0;
     canvas.drawArc(
@@ -251,7 +269,7 @@ class _RaceSoundstagePainter extends CustomPainter {
       final rightEar = Offset(center.dx + headRadius + 2, center.dy);
 
       final cancelWavePaint = Paint()
-        ..color = Colors.amberAccent.withValues(alpha: alpha * 0.7)
+        ..color = secondaryColor.withValues(alpha: alpha * 0.7)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5 + alpha * 2.0;
 
@@ -283,7 +301,7 @@ class _RaceSoundstagePainter extends CustomPainter {
           rightSpeaker, Offset(center.dx, center.dy - 35), leftEar, pulseT);
 
       final dotPaint = Paint()
-        ..color = Colors.amberAccent
+        ..color = secondaryColor
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pL2R, 3.0, dotPaint);
       canvas.drawCircle(pR2L, 3.0, dotPaint);
@@ -291,7 +309,7 @@ class _RaceSoundstagePainter extends CustomPainter {
 
     // Soundstage Width Indicator Line
     final stageLinePaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.3 * opacityMultiplier)
+      ..color = primaryColor.withValues(alpha: 0.35 * opacityMultiplier)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
     final dashPath = Path()

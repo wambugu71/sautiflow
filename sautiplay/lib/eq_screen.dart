@@ -2721,6 +2721,7 @@ class _EqScreenState extends State<EqScreen>
           break;
       }
     });
+    _subScreenSetState?.call(() {});
     if (_expanderEnabled) _updateDownwardExpander();
     _saveEqState();
   }
@@ -3601,7 +3602,8 @@ class _EqScreenState extends State<EqScreen>
     final isDynamicsScreen = title == 'Compressor' ||
         title == 'De-Esser' ||
         title == 'Noise Gate' ||
-        title == 'Leveller';
+        title == 'Leveller' ||
+        title == 'Auto Gain Control';
     if (isDynamicsScreen) {
       _startDynamicsMeterTimer();
     }
@@ -5293,27 +5295,17 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildCrystalizerSection() {
-    const crystalColor = Color(0xFF00C9B1);
+    final crystalColor = context.primaryColor;
     return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.burst,
-        width: 40,
-        height: 40,
-        color: const Color(0x2600C9B1),
-        border: const BorderSide(
-          color: Color(0x6600C9B1),
-          width: 1.0,
-        ),
-        child: */
-          const Center(
+      icon: Center(
         child: Icon(Icons.auto_fix_high_rounded, color: crystalColor, size: 20),
-        // ),
       ),
       title: 'Crystalizer',
       subtitle: 'Transient reconstruction',
       isEnabled: _crystalizerEnabled,
       onToggle: (v) {
         setState(() => _crystalizerEnabled = v);
+        _subScreenSetState?.call(() {});
         _updateCrystalizer();
         _saveEqState();
       },
@@ -5332,6 +5324,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _crystalizerIntensity = v);
+                _subScreenSetState?.call(() {});
                 if (_crystalizerEnabled) _updateCrystalizer();
                 _saveEqState();
               },
@@ -5350,6 +5343,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 if (!_crystalizerHighShelf) return;
                 setState(() => _crystalizerShelfGain = v);
+                _subScreenSetState?.call(() {});
                 if (_crystalizerEnabled) _updateCrystalizer();
                 _saveEqState();
               },
@@ -5371,10 +5365,11 @@ class _EqScreenState extends State<EqScreen>
             ),
             const SizedBox(width: 12),
             M3ESwitch(
-              selectedIcon: Icon(Icons.check, color: primaryColor),
+              selectedIcon: Icon(Icons.check, color: crystalColor),
               value: _crystalizerHighShelf,
               onChanged: (v) {
                 setState(() => _crystalizerHighShelf = v);
+                _subScreenSetState?.call(() {});
                 if (_crystalizerEnabled) _updateCrystalizer();
                 _saveEqState();
               },
@@ -5386,14 +5381,14 @@ class _EqScreenState extends State<EqScreen>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0x1A00C9B1),
+              color: crystalColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0x4000C9B1)),
+              border: Border.all(color: crystalColor.withValues(alpha: 0.28)),
             ),
             child: Text(
               'Recovers lost detail in compressed audio',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
+                color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 11,
               ),
               textAlign: TextAlign.center,
@@ -5502,6 +5497,7 @@ class _EqScreenState extends State<EqScreen>
       isEnabled: _crossfeedEnabled,
       onToggle: (v) {
         setState(() => _crossfeedEnabled = v);
+        _subScreenSetState?.call(() {});
         _updateCrossfeed();
         _saveEqState();
       },
@@ -5518,6 +5514,7 @@ class _EqScreenState extends State<EqScreen>
             Expanded(
               child: _buildM3EDropdown<int>(
                 value: _crossfeedAlgorithmIndex,
+                accentColor: primaryColor,
                 items: const [
                   M3EDropdownItem(label: 'Simple Reference', value: 1),
                   M3EDropdownItem(label: 'Bauer BS2B ', value: 2),
@@ -5531,6 +5528,7 @@ class _EqScreenState extends State<EqScreen>
                     _crossfeedAlgorithmIndex = val;
                     _crossfeedEnabled = true;
                   });
+                  _subScreenSetState?.call(() {});
                   _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5678,6 +5676,7 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (_) => '${(_raceDelayMs * 1000).round()}µs',
                 onChanged: (v) {
                   setState(() => _raceDelayMs = 0.05 + v * 0.35);
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5693,6 +5692,7 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (_) => '${(_raceAlpha * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _raceAlpha = 0.10 + v * 0.80);
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5707,6 +5707,7 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (_) => '${_raceLpfHz.toInt()}Hz',
                 onChanged: (v) {
                   setState(() => _raceLpfHz = 500.0 + v * 7500.0);
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5738,6 +5739,7 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (_) => '${_openStageAngle.round()}°',
                 onChanged: (v) {
                   setState(() => _openStageAngle = (v * 90.0).clamp(0.0, 90.0));
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5753,6 +5755,7 @@ class _EqScreenState extends State<EqScreen>
                     '${_openStageGainDb >= 0 ? "+" : ""}${_openStageGainDb.toStringAsFixed(1)}dB',
                 onChanged: (v) {
                   setState(() => _openStageGainDb = -12.0 + v * 24.0);
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5768,6 +5771,7 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _crossfeedMix = v.clamp(0.0, 1.0));
+                  _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
                   _saveEqState();
                 },
@@ -5804,6 +5808,7 @@ class _EqScreenState extends State<EqScreen>
           _openStageAngle = angle;
           _openStageGainDb = gainDb;
         });
+        _subScreenSetState?.call(() {});
         if (_crossfeedEnabled) _updateCrossfeed();
         _saveEqState();
       },
@@ -5855,6 +5860,7 @@ class _EqScreenState extends State<EqScreen>
       isEnabled: _stereoWidenEnabled,
       onToggle: (v) {
         setState(() => _stereoWidenEnabled = v);
+        _subScreenSetState?.call(() {});
         if (v) {
           _updateStereoWiden();
         } else {
@@ -5892,26 +5898,36 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ChoiceChip(
-              label: const Text('Live',
-                  style: TextStyle(fontSize: 12)),
+              label: const Text('Live', style: TextStyle(fontSize: 12)),
               selected: _vectorscopeLive,
-              selectedColor: primaryColor.withValues(alpha: 0.3),
+              selectedColor: primaryColor.withValues(alpha: 0.25),
+              side: BorderSide(
+                color: _vectorscopeLive
+                    ? primaryColor.withValues(alpha: 0.6)
+                    : Colors.white12,
+              ),
               onSelected: (selected) {
                 if (selected) {
                   setState(() => _vectorscopeLive = true);
+                  _subScreenSetState?.call(() {});
                   _saveEqState();
                 }
               },
             ),
             const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('Demo',
-                  style: TextStyle(fontSize: 12)),
+              label: const Text('Demo', style: TextStyle(fontSize: 12)),
               selected: !_vectorscopeLive,
-              selectedColor: primaryColor.withValues(alpha: 0.3),
+              selectedColor: primaryColor.withValues(alpha: 0.25),
+              side: BorderSide(
+                color: !_vectorscopeLive
+                    ? primaryColor.withValues(alpha: 0.6)
+                    : Colors.white12,
+              ),
               onSelected: (selected) {
                 if (selected) {
                   setState(() => _vectorscopeLive = false);
+                  _subScreenSetState?.call(() {});
                   _saveEqState();
                 }
               },
@@ -5933,51 +5949,48 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            ChoiceChip(
-              label: const Text('Clean', style: TextStyle(fontSize: 12)),
-              selected: _stereoWidenMode == 0,
-              selectedColor: primaryColor.withValues(alpha: 0.3),
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() => _stereoWidenMode = 0);
-                  if (_stereoWidenEnabled) _updateStereoWiden();
-                  _saveEqState();
-                }
-              },
+            Text(
+              'Imager Mode',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            const SizedBox(width: 8),
-            ChoiceChip(
-              label: const Text('Spatial', style: TextStyle(fontSize: 12)),
-              selected: _stereoWidenMode == 1,
-              selectedColor: primaryColor.withValues(alpha: 0.3),
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() => _stereoWidenMode = 1);
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<int>(
+                value: _stereoWidenMode,
+                accentColor: primaryColor,
+                items: const [
+                  M3EDropdownItem(
+                    value: 0,
+                    label: 'Clean M/S',
+                  ),
+                  M3EDropdownItem(
+                    value: 1,
+                    label: 'Spatial 3D',
+                  ),
+                  M3EDropdownItem(
+                    value: 2,
+                    label: 'Blumlein',
+                  ),
+                ],
+                onChanged: (val) {
+                  setState(() => _stereoWidenMode = val);
+                  _subScreenSetState?.call(() {});
                   if (_stereoWidenEnabled) _updateStereoWiden();
                   _saveEqState();
-                }
-              },
-            ),
-            const SizedBox(width: 8),
-            ChoiceChip(
-              label: const Text('Blumlein', style: TextStyle(fontSize: 12)),
-              selected: _stereoWidenMode == 2,
-              selectedColor: primaryColor.withValues(alpha: 0.3),
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() => _stereoWidenMode = 2);
-                  if (_stereoWidenEnabled) _updateStereoWiden();
-                  _saveEqState();
-                }
-              },
+                },
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -5992,6 +6005,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${(v * 3.0).toStringAsFixed(1)}x',
               onChanged: (v) {
                 setState(() => _stereoWidenWidth = v * 3.0);
+                _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
@@ -6010,6 +6024,7 @@ class _EqScreenState extends State<EqScreen>
               },
               onChanged: (v) {
                 setState(() => _stereoWidenMonoBelowHz = v * 300.0);
+                _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
@@ -6025,6 +6040,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '+${(v * 6.0).toStringAsFixed(1)}dB',
               onChanged: (v) {
                 setState(() => _stereoWidenAirBoostDb = v * 6.0);
+                _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
@@ -6040,6 +6056,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${(v * 100).toInt()}ms',
               onChanged: (v) {
                 setState(() => _stereoWidenDelayMs = v);
+                _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
@@ -8224,7 +8241,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildDownwardExpanderSection() {
-    const expanderColor = Color(0xFF26A69A);
+    final expanderColor = context.primaryColor;
     return _CollapsibleSection(
       icon: Center(
         child: Icon(Icons.cleaning_services_rounded,
@@ -8235,6 +8252,7 @@ class _EqScreenState extends State<EqScreen>
       isEnabled: _expanderEnabled,
       onToggle: (v) {
         setState(() => _expanderEnabled = v);
+        _subScreenSetState?.call(() {});
         _updateDownwardExpander();
         _saveEqState();
       },
@@ -10810,6 +10828,7 @@ class _EqScreenState extends State<EqScreen>
           _levellerEnabled = v;
           if (!v) _levellerGainNotifier.value = 0.0;
         });
+        _subScreenSetState?.call(() {});
         _updateLeveller();
         _saveEqState();
       },
@@ -10820,9 +10839,14 @@ class _EqScreenState extends State<EqScreen>
           builder: (context, currentGain, _) {
             final isBoosting = _isPlaying && currentGain > 0.05;
             final isAttenuating = _isPlaying && currentGain < -0.05;
+            final secondaryAccent = HSLColor.fromColor(primaryColor)
+                .withHue((HSLColor.fromColor(primaryColor).hue + 35) % 360)
+                .withSaturation((HSLColor.fromColor(primaryColor).saturation * 0.9)
+                    .clamp(0.4, 1.0))
+                .toColor();
             final gainColor = isBoosting
                 ? primaryColor
-                : (isAttenuating ? const Color(0xFFFF9100) : Colors.white54);
+                : (isAttenuating ? secondaryAccent : Colors.white54);
             final clampedRatio =
                 _isPlaying ? (currentGain / 18.0).clamp(-1.0, 1.0) : 0.0;
 
@@ -11037,6 +11061,7 @@ class _EqScreenState extends State<EqScreen>
                         _levellerMaxBoostDb = p.$5;
                         _levellerMaxAttenuationDb = p.$6;
                       });
+                      _subScreenSetState?.call(() {});
                       if (_levellerEnabled) _updateLeveller();
                       _saveEqState();
                     },
@@ -11165,6 +11190,7 @@ class _EqScreenState extends State<EqScreen>
           _noiseGateEnabled = v;
           if (!v) _noiseGateGrNotifier.value = 0.0;
         });
+        _subScreenSetState?.call(() {});
         _updateNoiseGate();
         _saveEqState();
       },
@@ -11177,6 +11203,12 @@ class _EqScreenState extends State<EqScreen>
             final isGateActive = _noiseGateEnabled && _isPlaying;
             final isOpen = isGateActive && grDb < 0.2;
             final isClosed = !isGateActive || grDb > 10.0;
+            final secondaryGateColor = HSLColor.fromColor(primaryColor)
+                .withHue((HSLColor.fromColor(primaryColor).hue + 35) % 360)
+                .withSaturation(
+                    (HSLColor.fromColor(primaryColor).saturation * 0.9)
+                        .clamp(0.4, 1.0))
+                .toColor();
             final gateColor = !_noiseGateEnabled
                 ? Colors.white24
                 : (!isGateActive
@@ -11184,8 +11216,8 @@ class _EqScreenState extends State<EqScreen>
                     : (isOpen
                         ? primaryColor
                         : (isClosed
-                            ? const Color(0xFFFF5252)
-                            : const Color(0xFFFFB300))));
+                            ? secondaryGateColor
+                            : primaryColor.withValues(alpha: 0.65))));
             final grFraction = (grDb / 48.0).clamp(0.0, 1.0);
 
             return Container(
@@ -11271,35 +11303,44 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   const SizedBox(height: 8),
                   // Meter Bar
-                  Stack(
-                    children: [
-                      Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      FractionallySizedBox(
-                        widthFactor: isGateActive ? grFraction : 0.0,
-                        child: Container(
+                  SizedBox(
+                    width: double.infinity,
+                    height: 8,
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          width: double.infinity,
                           height: 8,
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFFFB300), Color(0xFFFF5252)],
-                            ),
+                            color: Colors.white10,
                             borderRadius: BorderRadius.circular(4),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFFFF5252)
-                                    .withValues(alpha: 0.5),
-                                blurRadius: 4,
-                              ),
-                            ],
                           ),
                         ),
-                      ),
-                    ],
+                        FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: isGateActive ? grFraction : 0.0,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  primaryColor.withValues(alpha: 0.65),
+                                  secondaryGateColor,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: secondaryGateColor.withValues(alpha: 0.45),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 4),
                   const Row(
@@ -11354,6 +11395,7 @@ class _EqScreenState extends State<EqScreen>
                         _noiseGateReleaseMs = p.$6;
                         _noiseGateHpfHz = p.$7;
                       });
+                      _subScreenSetState?.call(() {});
                       if (_noiseGateEnabled) _updateNoiseGate();
                       _saveEqState();
                     },

@@ -254,20 +254,16 @@ class _PhysicsDotsVisualizerState extends State<PhysicsDotsVisualizer>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _cycleTheme,
-      behavior: HitTestBehavior.opaque,
-      child: CustomPaint(
-        size: Size(double.infinity, widget.height),
-        painter: _PhysicsDotsPainter(
-          bands: _bands,
-          primaryColor: widget.primaryColor,
-          theme: _activeTheme,
-          showGrids: widget.showGrids,
-          logScale: widget.logScale,
-          maxFreq: widget.maxFreq,
-          numDotsPerColumn: _numDotsPerColumn,
-        ),
+    return CustomPaint(
+      size: Size(double.infinity, widget.height),
+      painter: _PhysicsDotsPainter(
+        bands: _bands,
+        primaryColor: widget.primaryColor,
+        theme: _activeTheme,
+        showGrids: widget.showGrids,
+        logScale: widget.logScale,
+        maxFreq: widget.maxFreq,
+        numDotsPerColumn: _numDotsPerColumn,
       ),
     );
   }
@@ -385,67 +381,18 @@ class _PhysicsDotsPainter extends CustomPainter {
     }
   }
 
-  /// Evaluates the thematic dot color at [normHeight] (0.0 bottom to 1.0 top).
+  /// Evaluates the dot color at [normHeight] (0.0 bottom to 1.0 top) using the app theme color.
   Color _getDotColor(double normHeight) {
-    switch (theme) {
-      case PhysicsDotsTheme.neon:
-        // Electric Cyan -> Vivid Purple -> Hot Neon Pink
-        if (normHeight < 0.45) {
-          final t = normHeight / 0.45;
-          return Color.lerp(const Color(0xFF00E5FF), const Color(0xFF7C4DFF), t)!;
-        } else {
-          final t = (normHeight - 0.45) / 0.55;
-          return Color.lerp(const Color(0xFF7C4DFF), const Color(0xFFFF1744), t)!;
-        }
-
-      case PhysicsDotsTheme.fire:
-        // Deep Crimson -> Blazing Orange -> Hot Amber / Yellow
-        if (normHeight < 0.45) {
-          final t = normHeight / 0.45;
-          return Color.lerp(const Color(0xFFD50000), const Color(0xFFFF6D00), t)!;
-        } else {
-          final t = (normHeight - 0.45) / 0.55;
-          return Color.lerp(const Color(0xFFFF6D00), const Color(0xFFFFD600), t)!;
-        }
-
-      case PhysicsDotsTheme.matrix:
-        // Classic Studio Console RTA: Green (0-60%) -> Amber (60-85%) -> Red (85-100%)
-        if (normHeight < 0.60) {
-          return const Color(0xFF00E676);
-        } else if (normHeight < 0.85) {
-          return const Color(0xFFFFD600);
-        } else {
-          return const Color(0xFFFF1744);
-        }
-
-      case PhysicsDotsTheme.pill:
-        // Emerald Green to Bright Cyan
-        return Color.lerp(const Color(0xFF00E676), const Color(0xFF18FFFF), normHeight)!;
-
-      case PhysicsDotsTheme.minimal:
-        // Subtle monochrome / theme primary gradient
-        return Color.lerp(
-          primaryColor.withValues(alpha: 0.70),
-          Colors.white,
-          normHeight * 0.75,
-        )!;
-    }
+    return Color.lerp(
+      primaryColor.withValues(alpha: 0.65),
+      primaryColor,
+      normHeight,
+    )!;
   }
 
   /// Evaluates peak dot highlight color.
   Color _getPeakColor(double normHeight) {
-    switch (theme) {
-      case PhysicsDotsTheme.neon:
-        return const Color(0xFFE0F7FA); // Brilliant icy white-cyan
-      case PhysicsDotsTheme.fire:
-        return const Color(0xFFFFFF8D); // White-hot gold
-      case PhysicsDotsTheme.matrix:
-        return normHeight > 0.85 ? const Color(0xFFFF5252) : const Color(0xFFFFFFFF);
-      case PhysicsDotsTheme.pill:
-        return const Color(0xFFFFFFFF);
-      case PhysicsDotsTheme.minimal:
-        return const Color(0xFFFFFFFF);
-    }
+    return Colors.white;
   }
 
   void _drawAxesAndGrids(

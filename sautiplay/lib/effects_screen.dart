@@ -12,6 +12,7 @@ import 'services/app_theme_service.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/audio_profile_service.dart';
 import 'services/fft_processor.dart';
+import 'widgets/dual_oscilloscope_visualizer.dart';
 import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/physics_dots_visualizer.dart';
@@ -140,7 +141,10 @@ class _EffectsScreenState extends State<EffectsScreen> {
   }
 
   String get _visualizerLabel {
-    if (_currentAnalyzerType == 'vectorscope' ||
+    if (_currentAnalyzerType == 'oscilloscope' ||
+        _currentAnalyzerType == 'Dual Oscilloscope') {
+      return 'Dual Oscilloscope';
+    } else if (_currentAnalyzerType == 'vectorscope' ||
         _currentAnalyzerType == 'Stereo Vectorscope') {
       return 'Stereo Radar';
     } else if (_currentAnalyzerType == 'area') {
@@ -309,6 +313,20 @@ class _EffectsScreenState extends State<EffectsScreen> {
   Widget _buildVisualizer(Color primaryColor,
       List<double> currentAnalyzerValues, List<double> peakValues) {
     final int maxFreq = _currentMaxFreq;
+
+    if (_currentAnalyzerType == 'oscilloscope' ||
+        _currentAnalyzerType == 'Dual Oscilloscope') {
+      return RepaintBoundary(
+        child: DualOscilloscopeVisualizer(
+          player: widget.player,
+          stereoStream: widget.player.analyzerStereoStream,
+          analyzerStream: widget.player.analyzerStream,
+          isPlaying: _isPlaying,
+          primaryColor: primaryColor,
+          height: 160.0,
+        ),
+      );
+    }
 
     if (_currentAnalyzerType == 'vectorscope' ||
         _currentAnalyzerType == 'Stereo Vectorscope') {
@@ -512,6 +530,23 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         label: 'Visualizer Styles',
                                         entries: [
                                           M3EMenuEntry(
+                                            label: 'Dual Oscilloscope',
+                                            leading: Icon(
+                                                Icons.waves_rounded,
+                                                color: _currentAnalyzerType ==
+                                                        'oscilloscope'
+                                                    ? primaryColor
+                                                    : null,
+                                                size: 18),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType =
+                                                    'oscilloscope';
+                                              });
+                                              PreferencesStore.instance.setString('analyzer_type', 'oscilloscope');
+                                            },
+                                          ),
+                                          M3EMenuEntry(
                                             label: 'Stereo Radar',
                                             leading: Icon(
                                                 Icons.radar_rounded,
@@ -562,55 +597,64 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                           ),
                                         ],
                                       ),
-                                      M3EMenuGroup.entries(
-                                        label: _currentAnalyzerType == 'area'
-                                            ? 'Wave Color Themes'
-                                            : 'Dot Color Themes',
-                                        entries: (_currentAnalyzerType == 'area'
-                                                ? FluidAreaTheme.values.map(
-                                                    (theme) => M3EMenuEntry(
-                                                      label: theme.displayName,
-                                                      leading: Icon(
-                                                        theme.icon,
-                                                        size: 18,
-                                                        color:
-                                                            _currentSpectrumStyle ==
-                                                                    theme.name
-                                                                ? primaryColor
-                                                                : null,
-                                                      ),
-                                                      onPressed: () {
-                                                        setState(() {
-                                                          _currentSpectrumStyle =
-                                                              theme.name;
-                                                        });
-                                                        PreferencesStore.instance.setString('spectrum_style', theme.name);
-                                                      },
-                                                    ),
-                                                  )
-                                                : PhysicsDotsTheme.values.map(
-                                                    (theme) => M3EMenuEntry(
-                                                      label: theme.displayName,
-                                                      leading: Icon(
-                                                        theme.icon,
-                                                        size: 18,
-                                                        color:
-                                                            _currentSpectrumStyle ==
-                                                                    theme.name
-                                                                ? primaryColor
-                                                                : null,
-                                                      ),
-                                                      onPressed: () {
-                                                        setState(() {
-                                                          _currentSpectrumStyle =
-                                                              theme.name;
-                                                        });
-                                                        PreferencesStore.instance.setString('spectrum_style', theme.name);
-                                                      },
-                                                    ),
-                                                  ))
-                                            .toList(),
-                                      ),
+                                      if (_currentAnalyzerType == 'area')
+                                        M3EMenuGroup.entries(
+                                          label: 'Wave Color Themes',
+                                          entries: FluidAreaTheme.values
+                                              .map(
+                                                (theme) => M3EMenuEntry(
+                                                  label: theme.displayName,
+                                                  leading: Icon(
+                                                    theme.icon,
+                                                    size: 18,
+                                                    color: _currentSpectrumStyle ==
+                                                            theme.name
+                                                        ? primaryColor
+                                                        : null,
+                                                  ),
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _currentSpectrumStyle =
+                                                          theme.name;
+                                                    });
+                                                    PreferencesStore.instance
+                                                        .setString(
+                                                            'spectrum_style',
+                                                            theme.name);
+                                                  },
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                      if (_currentAnalyzerType == 'bar')
+                                        M3EMenuGroup.entries(
+                                          label: 'Dot Color Themes',
+                                          entries: PhysicsDotsTheme.values
+                                              .map(
+                                                (theme) => M3EMenuEntry(
+                                                  label: theme.displayName,
+                                                  leading: Icon(
+                                                    theme.icon,
+                                                    size: 18,
+                                                    color: _currentSpectrumStyle ==
+                                                            theme.name
+                                                        ? primaryColor
+                                                        : null,
+                                                  ),
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _currentSpectrumStyle =
+                                                          theme.name;
+                                                    });
+                                                    PreferencesStore.instance
+                                                        .setString(
+                                                            'spectrum_style',
+                                                            theme.name);
+                                                  },
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
                                       M3EMenuGroup.entries(
                                         label: 'Animated Visualizers',
                                         entries: GlslShaderStyle.values
@@ -819,6 +863,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           child: RmsMeterWidget(
                             analyzerStream: widget.player.analyzerStream,
                             isPlaying: _isPlaying,
+                            primaryColor: primaryColor,
                           ),
                         ),
                       ),

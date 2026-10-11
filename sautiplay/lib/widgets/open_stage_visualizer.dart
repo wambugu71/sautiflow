@@ -75,6 +75,22 @@ class _OpenStageSoundstageVisualizerState
   @override
   Widget build(BuildContext context) {
     final physics = _computePhysics();
+    final themePrimary = widget.primaryColor;
+    final themeSecondary = HSLColor.fromColor(themePrimary)
+        .withHue((HSLColor.fromColor(themePrimary).hue + 35) % 360)
+        .withSaturation((HSLColor.fromColor(themePrimary).saturation * 0.9)
+            .clamp(0.4, 1.0))
+        .toColor();
+    final themeTertiary = HSLColor.fromColor(themePrimary)
+        .withHue((HSLColor.fromColor(themePrimary).hue + 75) % 360)
+        .withSaturation((HSLColor.fromColor(themePrimary).saturation * 0.85)
+            .clamp(0.4, 1.0))
+        .toColor();
+    final themeQuaternary = HSLColor.fromColor(themePrimary)
+        .withHue((HSLColor.fromColor(themePrimary).hue + 110) % 360)
+        .withSaturation((HSLColor.fromColor(themePrimary).saturation * 0.85)
+            .clamp(0.4, 1.0))
+        .toColor();
 
     return AnimatedBuilder(
       animation: _animController,
@@ -114,26 +130,26 @@ class _OpenStageSoundstageVisualizerState
                     icon: Icons.explore_outlined,
                     label: 'Spread',
                     value: '${widget.angleDegrees.round()}°',
-                    color: Colors.cyanAccent,
+                    color: themePrimary,
                   ),
                   _buildBadge(
                     icon: Icons.timer_outlined,
                     label: 'ITD Delay',
                     value: '${physics.itdMicroseconds}µs',
-                    color: Colors.amberAccent,
+                    color: themeSecondary,
                   ),
                   _buildBadge(
                     icon: Icons.equalizer_rounded,
                     label: 'Gain Comp',
                     value:
                         '${widget.gainDb >= 0 ? '+' : ''}${widget.gainDb.toStringAsFixed(1)}dB',
-                    color: Colors.greenAccent,
+                    color: themeTertiary,
                   ),
                   _buildBadge(
                     icon: Icons.shield_outlined,
                     label: 'Head Shadow',
                     value: '${physics.cutoffHz}Hz',
-                    color: Colors.purpleAccent,
+                    color: themeQuaternary,
                   ),
                 ],
               ),
@@ -147,6 +163,7 @@ class _OpenStageSoundstageVisualizerState
                     mix: widget.mix,
                     isEnabled: widget.isEnabled,
                     primaryColor: widget.primaryColor,
+                    secondaryColor: themeSecondary,
                     animValue: _animController.value,
                   ),
                 ),
@@ -204,6 +221,7 @@ class _OpenStagePainter extends CustomPainter {
   final double mix;
   final bool isEnabled;
   final Color primaryColor;
+  final Color secondaryColor;
   final double animValue;
 
   _OpenStagePainter({
@@ -212,6 +230,7 @@ class _OpenStagePainter extends CustomPainter {
     required this.mix,
     required this.isEnabled,
     required this.primaryColor,
+    required this.secondaryColor,
     required this.animValue,
   });
 
@@ -270,7 +289,7 @@ class _OpenStagePainter extends CustomPainter {
       ..strokeWidth = 1.8;
 
     final crossPaint = Paint()
-      ..color = const Color(0xFFFF9800).withValues(alpha: 0.35 * mix)
+      ..color = secondaryColor.withValues(alpha: 0.40 * mix)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.3;
 
@@ -301,7 +320,7 @@ class _OpenStagePainter extends CustomPainter {
     final crossPos = Offset.lerp(
         Offset(midX, midY), contraEar, crossPulseProgress)!;
     final crossPulsePaint = Paint()
-      ..color = const Color(0xFFFFB74D).withValues(alpha: 0.7)
+      ..color = secondaryColor.withValues(alpha: 0.8)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(crossPos, 2.0, crossPulsePaint);
   }

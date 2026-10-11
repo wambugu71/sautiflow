@@ -2034,6 +2034,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? RmsMeterWidget(
                           analyzerStream: widget.player.analyzerStream,
                           isPlaying: _isPlaying,
+                          primaryColor: _primary,
                         )
                       : Container(
                           height: 52,

@@ -18,6 +18,7 @@ class CrossfeedGraph extends StatelessWidget {
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final Color? secondaryColor;
 
   const CrossfeedGraph({
     super.key,
@@ -29,12 +30,19 @@ class CrossfeedGraph extends StatelessWidget {
     this.isEnabled = true,
     this.height = 120.0,
     this.primaryColor,
+    this.secondaryColor,
   });
 
   @override
   Widget build(BuildContext context) {
     final effectivePrimary =
         primaryColor ?? AppThemeService.instance.currentData.primary;
+    final effectiveSecondary = secondaryColor ??
+        HSLColor.fromColor(effectivePrimary)
+            .withHue((HSLColor.fromColor(effectivePrimary).hue + 35) % 360)
+            .withSaturation((HSLColor.fromColor(effectivePrimary).saturation * 0.9)
+                .clamp(0.4, 1.0))
+            .toColor();
     final cardBg = AppThemeService.instance.currentData.cardDark;
 
     return Container(
@@ -65,6 +73,7 @@ class CrossfeedGraph extends StatelessWidget {
             compensation: compensation,
             isEnabled: isEnabled,
             primaryColor: effectivePrimary,
+            secondaryColor: effectiveSecondary,
           ),
         ),
       ),
@@ -80,6 +89,7 @@ class _CrossfeedPainter extends CustomPainter {
   final bool compensation;
   final bool isEnabled;
   final Color primaryColor;
+  final Color secondaryColor;
 
   _CrossfeedPainter({
     required this.algorithmIndex,
@@ -89,6 +99,7 @@ class _CrossfeedPainter extends CustomPainter {
     required this.compensation,
     required this.isEnabled,
     required this.primaryColor,
+    required this.secondaryColor,
   });
 
   static const double minFreq = 20.0;
@@ -206,14 +217,14 @@ class _CrossfeedPainter extends CustomPainter {
         end: Alignment.bottomCenter,
         colors: [
           primaryColor.withValues(alpha: 0.15),
-          const Color(0xFFFF9100).withValues(alpha: 0.05),
+          secondaryColor.withValues(alpha: 0.05),
         ],
       ).createShader(
           Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
       ..style = PaintingStyle.fill;
     canvas.drawPath(separationPath, separationPaint);
 
-    // 5. Draw Cross (Contralateral) Response Curve (Amber / Orange)
+    // 5. Draw Cross (Contralateral) Response Curve (Theme Adaptive Secondary)
     final crossPath = Path();
     crossPath.moveTo(freqToX(freqs[0]), dbToY(crossDbs[0]));
     for (int i = 1; i < numPoints; i++) {
@@ -221,7 +232,7 @@ class _CrossfeedPainter extends CustomPainter {
     }
 
     final crossPaint = Paint()
-      ..color = const Color(0xFFFF9100)
+      ..color = secondaryColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round;
@@ -250,7 +261,7 @@ class _CrossfeedPainter extends CustomPainter {
 
     // Vertical dashed marker at cutoff
     final dashPaint = Paint()
-      ..color = const Color(0xFFFF9100).withValues(alpha: 0.35)
+      ..color = secondaryColor.withValues(alpha: 0.35)
       ..strokeWidth = 1.0;
     double dy = paddingTop;
     while (dy < paddingTop + graphHeight) {
@@ -266,7 +277,7 @@ class _CrossfeedPainter extends CustomPainter {
     canvas.drawCircle(
       Offset(cutoffX, cutoffCrossY),
       4.0,
-      Paint()..color = const Color(0xFFFF9100),
+      Paint()..color = secondaryColor,
     );
 
     // 8. Legend / Readout
@@ -281,10 +292,10 @@ class _CrossfeedPainter extends CustomPainter {
             fontWeight: FontWeight.bold,
           ),
         ),
-        const TextSpan(
+        TextSpan(
           text: '— Crossfeed Ear  ',
           style: TextStyle(
-            color: Color(0xFFFF9100),
+            color: secondaryColor,
             fontSize: 9.0,
             fontWeight: FontWeight.bold,
           ),
