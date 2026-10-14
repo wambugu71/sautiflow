@@ -3420,6 +3420,24 @@ struct FxBiquad
             }
         }
     }
+
+    inline void process(double *interleaved, ma_uint32 frames, int channels)
+    {
+        const int ch = std::min(channels, 8);
+        for (ma_uint32 i = 0; i < frames; ++i)
+        {
+            double *frame = interleaved + (size_t)i * (size_t)channels;
+            for (int c = 0; c < ch; ++c)
+            {
+                const double in = frame[c];
+                double out = in * (double)b0 + (double)s1[c];
+                if (std::abs(out) < 1.0e-20) out = 0.0;
+                s1[c] = static_cast<float>(in * (double)b1 - out * (double)a1 + (double)s2[c]);
+                s2[c] = static_cast<float>(in * (double)b2 - out * (double)a2);
+                frame[c] = out;
+            }
+        }
+    }
 };
 
 struct AudioEngineHandle;
@@ -3710,18 +3728,7 @@ struct AudioEngineHandle
         float gainDb = 0.0f;
         float slope = 1.0f;
 
-        sauti::dsp::CytomicSVF svf{}; // Andy Simper Cytomic SVF with Orfanidis de-cramping
-        ma_peak2 peak{};             // Legacy fallback
-        ma_bpf2 bandpass{};
-        ma_notch2 notch{};
-        ma_loshelf2 lowshelf{};
-        ma_hishelf2 highshelf{};
-        ma_lpf2 lowpass{};
-        ma_hpf2 highpass{};
-        ma_loshelf2 tiltLow{};
-        ma_hishelf2 tiltHigh{};
-        FxBiquad allpass{};
-        FxBiquad bandreject{};
+        sauti::dsp::CytomicSVF svf{}; // 64-bit Andy Simper Cytomic SVF with Orfanidis de-cramping
         FxBiquad superCutStages[4]{};
         FxBiquad superPassStages[4]{};
         FxBiquad superStopStages[3]{};
@@ -3729,51 +3736,11 @@ struct AudioEngineHandle
         void uninit()
         {
             svf.reset();
-            ma_peak2_uninit(&peak, nullptr);
-            ma_bpf2_uninit(&bandpass, nullptr);
-            ma_notch2_uninit(&notch, nullptr);
-            ma_loshelf2_uninit(&lowshelf, nullptr);
-            ma_hishelf2_uninit(&highshelf, nullptr);
-            ma_lpf2_uninit(&lowpass, nullptr);
-            ma_hpf2_uninit(&highpass, nullptr);
-            ma_loshelf2_uninit(&tiltLow, nullptr);
-            ma_hishelf2_uninit(&tiltHigh, nullptr);
-            peak = {};
-            bandpass = {};
-            notch = {};
-            lowshelf = {};
-            highshelf = {};
-            lowpass = {};
-            highpass = {};
-            tiltLow = {};
-            tiltHigh = {};
-            allpass.reset();
-            bandreject.reset();
             for (int s = 0; s < 4; ++s) superCutStages[s].reset();
             for (int s = 0; s < 4; ++s) superPassStages[s].reset();
             for (int s = 0; s < 3; ++s) superStopStages[s].reset();
         }
     };
-
-    template <typename Filter, typename Config, typename InitFn, typename ReinitFn, typename UninitFn>
-    static inline void update_filter_smooth(
-        Filter &filter,
-        const Config &config,
-        ma_uint32 channels,
-        InitFn init_fn,
-        ReinitFn reinit_fn,
-        UninitFn uninit_fn)
-    {
-        if (filter.bq.channels == channels && filter.bq.format == ma_format_f32 && filter.bq.pR1 != nullptr)
-        {
-            if (reinit_fn(&config, &filter) == MA_SUCCESS)
-            {
-                return;
-            }
-        }
-        uninit_fn(&filter, nullptr);
-        (void)init_fn(&config, nullptr, &filter);
-    }
 
     bool multibandFxEnabled = false;
     std::vector<FxBand> multibandFxBands;
@@ -4055,6 +4022,53 @@ struct AudioEngineHandle
                 continue;
 
             // 0.0 dB flat band bypass: peaking, bell, shelves, tilt, and bandreject have unity response at 0 dB
+            const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
+                                     band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
+                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
+            if (isGainType && std::abs(band.gainDb) < 0.005f)
+                continue;
+
+            const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
+
+            switch (band.type)
+            {
+            case AE_EQ_BAND_ASUPERCUT:
+                for (int s = 0; s < 4; ++s)
+                    band.superCutStages[s].process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_ASUPERPASS:
+                for (int s = 0; s < 4; ++s)
+                    band.superPassStages[s].process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_ASUPERSTOP:
+                for (int s = 0; s < 3; ++s)
+                    band.superStopStages[s].process(frames, frameCount, ch);
+                break;
+            case AE_EQ_BAND_BANDPASS:
+            case AE_EQ_BAND_NOTCH:
+            case AE_EQ_BAND_LOWSHELF:
+            case AE_EQ_BAND_HIGHSHELF:
+            case AE_EQ_BAND_LOWPASS:
+            case AE_EQ_BAND_HIGHPASS:
+            case AE_EQ_BAND_TILT:
+            case AE_EQ_BAND_ALLPASS:
+            case AE_EQ_BAND_BANDREJECT:
+            case AE_EQ_BAND_BELL:
+            case AE_EQ_BAND_PEAK:
+            default:
+                band.svf.process(frames, frameCount, ch);
+                break;
+            }
+        }
+    }
+
+    void process_multiband_fx(double *frames, ma_uint32 frameCount)
+    {
+        for (auto &band : multibandFxBands)
+        {
+            if (!band.enabled)
+                continue;
+
             const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
                                      band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
                                      band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
@@ -7428,15 +7442,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (e->multibandFxEnabled && e->has_active_multiband_fx())
                     {
                         if (use64)
-                        {
-                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                            e->process_multiband_fx(processBuffer, produced);
-                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                        }
+                            e->process_multiband_fx(buf64, produced);
                         else
-                        {
                             e->process_multiband_fx(processBuffer, produced);
-                        }
                     }
 
                     // 3-band EQ
